@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Sidebar from "./components/Sidebar";
 import FileList from "./components/FileList";
 import CopyButton from "./components/CopyButton";
@@ -6,7 +6,9 @@ import { FileData, FileTreeMode } from "./types/FileTypes";
 import { ThemeProvider } from "./context/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
 import FileTreeToggle from "./components/FileTreeToggle";
+import { ApplyChangesModal } from "./components/ApplyChangesModal";
 import { generateAsciiFileTree, getTopLevelDirectories, getAllDirectories } from "./utils/pathUtils";
+import { XML_FORMATTING_INSTRUCTIONS } from "./utils/xmlTemplates";
 
 // Access the electron API from the window object
 declare global {
@@ -70,7 +72,8 @@ const App = () => {
     : "none";
   const [fileTreeMode, setFileTreeMode] = useState(initialMode);
   
-
+  // State for the ApplyChangesModal
+  const [showApplyChangesModal, setShowApplyChangesModal] = useState(false);
 
   // State for sort dropdown
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
@@ -529,6 +532,14 @@ const App = () => {
               >
                 Select Folder
               </button>
+              {selectedFolder && (
+                <button
+                  className="apply-changes-btn"
+                  onClick={() => setShowApplyChangesModal(true)}
+                >
+                  Apply XML Changes
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -607,16 +618,32 @@ const App = () => {
                   <div className="file-tree-format-container">
                     <FileTreeToggle currentMode={fileTreeMode} onChange={setFileTreeMode} />
                   </div>
-                  <CopyButton
-                    text={getSelectedFilesContent()}
-                    className="primary"
-                  >
-                    <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
-                  </CopyButton>
+                  <div className="copy-button-container">
+                    <CopyButton
+                      text={getSelectedFilesContent()}
+                      className="primary"
+                    >
+                      <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
+                    </CopyButton>
+                    <CopyButton
+                      text={`${getSelectedFilesContent()}\n\n${XML_FORMATTING_INSTRUCTIONS}`}
+                      className="secondary"
+                    >
+                      <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
+                    </CopyButton>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+        )}
+        
+        {/* Apply Changes Modal */}
+        {showApplyChangesModal && selectedFolder && (
+          <ApplyChangesModal
+            selectedFolder={selectedFolder}
+            onClose={() => setShowApplyChangesModal(false)}
+          />
         )}
       </div>
     </ThemeProvider>

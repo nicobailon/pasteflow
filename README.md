@@ -20,6 +20,13 @@ A modern file viewer application for developers to easily navigate, search, and 
 - **Dark Mode**: Toggle between light and dark themes for comfortable viewing in any environment
 - **Binary File Detection**: Automatic detection and exclusion of binary files
 - **Smart File Exclusion**: Automatically excludes common files like package-lock.json, binary files, and more by default
+- **File Tree Structure Options**: Choose how to include file structure in your copies:
+  - None: Just the file contents
+  - Selected: Include only the selected files in the tree
+  - Selected with Roots: Include selected files with their parent directories
+  - Complete: Include the entire directory structure
+- **Apply XML Changes**: Apply code changes to your project directly from XML formatted instructions
+- **Copy with XML Prompt**: Copy selected files with XML formatting instructions for LLMs to generate structured changes
 
 ## Installation
 
@@ -77,6 +84,18 @@ npm run dev
 npm run dev:electron
 ```
 
+### Running Tests
+
+PasteMax includes a suite of unit tests to ensure functionality works as expected:
+
+```
+# Run tests once
+npm test
+
+# Run tests in watch mode during development
+npm run test:watch
+```
+
 ### Building for Production
 
 To build the application for production:
@@ -95,11 +114,39 @@ npm run dist
   - `components/` - React components
   - `types/` - TypeScript type definitions
   - `styles/` - CSS styles
+  - `utils/` - Utility functions
+  - `__tests__/` - Unit tests
 - `main.js` - Electron main process
 - `build.js` - Build script for production
 - `excluded-files.js` - Configuration for files to exclude by default
 - `docs/` - Documentation
   - `excluded-files.md` - Documentation for the file exclusion feature
+
+## XML Changes Feature
+
+The Apply XML Changes feature allows you to apply code changes to your project directly from XML formatted instructions. This is particularly useful when working with LLMs like ChatGPT that can generate structured changes to your codebase.
+
+### XML Format
+
+```xml
+<changed_files>
+  <file>
+    <file_summary>Brief description of what changed</file_summary>
+    <file_operation>CREATE|UPDATE|DELETE</file_operation>
+    <file_path>relative/path/to/file.ext</file_path>
+    <file_code>
+      // The complete new content for the file (for CREATE or UPDATE operations)
+    </file_code>
+  </file>
+  <!-- Add more file elements as needed for additional changes -->
+</changed_files>
+```
+
+### Operations
+
+- **CREATE**: Create a new file
+- **UPDATE**: Update an existing file
+- **DELETE**: Delete a file
 
 ## Libraries Used
 
@@ -109,6 +156,9 @@ npm run dist
 - Vite - Build tool and development server
 - tiktoken - Token counting for LLM context estimation
 - ignore - .gitignore-style pattern matching for file exclusions
+- Jest - Testing framework
+- @testing-library/react - React testing utilities
+- @xmldom/xmldom - XML parsing for the Apply Changes feature
 
 ## Customization
 

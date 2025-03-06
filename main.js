@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const fs = require("fs");
 const path = require("path");
 
+// Import XML utilities
+const { parseXmlString, applyFileChanges } = require("./src/main/xmlUtils");
+
 // Add handling for the 'ignore' module
 let ignore;
 try {
@@ -437,6 +440,39 @@ ipcMain.on("request-file-list", (event, folderPath) => {
       message: "Error processing directory",
     });
     event.sender.send("file-list-data", []);
+  }
+});
+
+// Handle XML changes application
+ipcMain.on("apply-changes", async (event, { xml, projectDirectory }) => {
+  try {
+    console.log("Applying XML changes to directory:", projectDirectory);
+    
+    // Parse the XML string
+    const changes = await parseXmlString(xml);
+    if (!changes) {
+      throw new Error("Invalid XML format or no changes found");
+    }
+    
+    console.log(`Found ${changes.length} file changes to apply`);
+    
+    // Apply each change sequentially
+    for (const change of changes) {
+      console.log(`Applying ${change.file_operation} operation to ${change.file_path}`);
+      await applyFileChanges(change, projectDirectory);
+    }
+    
+    // Send success response
+    event.sender.send("apply-changes-response", { 
+      success: true,
+      message: `Successfully applied ${changes.length} file changes`
+    });
+  } catch (error) {
+    console.error("Error applying changes:", error);
+    event.sender.send("apply-changes-response", { 
+      success: false, 
+      error: error.message || "Unknown error occurred"
+    });
   }
 });
 
