@@ -1,10 +1,17 @@
 # XML Changes Feature
 
-The XML Changes feature allows you to apply multiple file changes to your project using a structured XML format. This is useful for applying code changes, refactoring, or implementing new features across multiple files in a single operation.
+The XML Changes feature allows you to apply multiple file changes to your project at once using a standardized XML format. This is particularly useful when you need to create, update, or delete multiple files as part of a single operation.
+
+## How It Works
+
+1. Generate XML code that defines the changes you want to make
+2. Open the "Apply Changes" modal in the application
+3. Paste your XML code into the text area
+4. Click "Apply Changes" to process the changes
 
 ## XML Format
 
-The XML format for changes follows this structure:
+The XML format consists of a `<changed_files>` root element containing one or more `<file>` elements, each representing a file change:
 
 ```xml
 <changed_files>
@@ -14,157 +21,121 @@ The XML format for changes follows this structure:
     <file_path>relative/path/to/file.ext</file_path>
     <file_code>
       // The complete new content for the file (for CREATE or UPDATE operations)
-      // Do not use placeholders or ellipses
     </file_code>
   </file>
-  <!-- Add more file elements as needed for additional changes -->
+  <!-- Add more file elements as needed -->
 </changed_files>
 ```
 
-### Format Guidelines
+### Elements
 
-1. **file_operation** must be one of:
-   - `CREATE`: For new files
-   - `UPDATE`: To modify existing files
-   - `DELETE`: To remove files (file_code not required)
-2. **file_path**: Use relative paths from the project root
-3. **file_code**: Include complete file content for CREATE/UPDATE operations
-4. For DELETE operations, the file_code element can be omitted
+- **file_summary**: A brief description of the change (optional but recommended)
+- **file_operation**: The type of operation - must be one of:
+  - `CREATE`: Create a new file
+  - `UPDATE`: Update an existing file
+  - `DELETE`: Remove a file
+- **file_path**: The path to the file relative to your project root
+- **file_code**: The complete content for the file (required for CREATE and UPDATE operations)
 
-## Using the Apply Changes Modal
+## Special Character Handling
 
-1. Open the Apply Changes Modal from the main menu or using the keyboard shortcut
-2. Select the target folder where changes should be applied
-3. Paste your XML content into the text area
-4. Click "Apply Changes" to process the changes
+The system automatically handles special characters in your code, including:
+
+- XML reserved characters (`<`, `>`, `&`, `'`, `"`)
+- JSX/TSX syntax (React components with brackets and attributes)
+- HTML tags and attributes
+- Special symbols and unicode characters
+
+You don't need to manually escape any characters or use CDATA sections - the system handles this for you internally.
 
 ## Example
 
-Here's an example of XML that updates a component and creates a new utility file:
+Here's a complete example that:
+1. Creates a new React component
+2. Updates an existing CSS file
+3. Deletes an unused file
 
 ```xml
 <changed_files>
   <file>
-    <file_summary>Update SearchBar component with improved accessibility</file_summary>
-    <file_operation>UPDATE</file_operation>
-    <file_path>src/components/SearchBar.tsx</file_path>
+    <file_summary>Create new Button component</file_summary>
+    <file_operation>CREATE</file_operation>
+    <file_path>src/components/Button.tsx</file_path>
     <file_code>
-import React, { useState } from "react";
-import { Search, X } from "lucide-react";
+import React from 'react';
 
-interface SearchBarProps {
-  searchTerm: string;
-  onSearchChange: (term: string) => void;
-  placeholder?: string;
-  ariaLabel?: string;
+interface ButtonProps {
+  label: string;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary';
 }
 
-const SearchBar = ({
-  searchTerm,
-  onSearchChange,
-  placeholder = "Search...",
-  ariaLabel = "Search input"
-}: SearchBarProps) => {
-  const [isFocused, setIsFocused] = useState(false);
-
+const Button: React.FC<ButtonProps> = ({ 
+  label, 
+  onClick, 
+  variant = 'primary' 
+}) => {
   return (
-    <div className={`search-bar ${isFocused ? "focused" : ""}`}>
-      <div className="search-icon" aria-hidden="true">
-        <Search size={16} />
-      </div>
-      <input
-        type="text"
-        className="search-input"
-        placeholder={placeholder}
-        value={searchTerm}
-        onChange={(e) => onSearchChange(e.target.value)}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
-        aria-label={ariaLabel}
-      />
-      {searchTerm && (
-        <button
-          className="search-clear-btn"
-          onClick={() => onSearchChange("")}
-          aria-label="Clear search"
-          type="button"
-        >
-          <X size={14} />
-        </button>
-      )}
-    </div>
+    <button 
+      className={`button ${variant}`} 
+      onClick={onClick}
+    >
+      {label}
+    </button>
   );
 };
 
-export default SearchBar;
+export default Button;
     </file_code>
   </file>
   <file>
-    <file_summary>Create new utility function for date formatting</file_summary>
-    <file_operation>CREATE</file_operation>
-    <file_path>src/utils/dateFormatter.ts</file_path>
+    <file_summary>Update button styles</file_summary>
+    <file_operation>UPDATE</file_operation>
+    <file_path>src/styles/buttons.css</file_path>
     <file_code>
-/**
- * Utility functions for formatting dates
- */
-
-/**
- * Format a date as a readable string (e.g., "Jan 1, 2023")
- */
-export function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
+.button {
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
 }
 
-/**
- * Format a date as a time string (e.g., "3:45 PM")
- */
-export function formatTime(date: Date): string {
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true
-  });
+.button.primary {
+  background-color: #0070f3;
+  color: white;
+}
+
+.button.primary:hover {
+  background-color: #0060df;
+}
+
+.button.secondary {
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+.button.secondary:hover {
+  background-color: #e5e5e5;
 }
     </file_code>
+  </file>
+  <file>
+    <file_summary>Remove unused component</file_summary>
+    <file_operation>DELETE</file_operation>
+    <file_path>src/components/OldButton.tsx</file_path>
   </file>
 </changed_files>
 ```
 
-## Error Handling
+## Troubleshooting
 
-The XML parser will validate your XML and provide error messages if there are issues:
+If you encounter an error when applying changes:
 
-- Invalid XML format
-- Missing required elements
-- Missing code for CREATE or UPDATE operations
-- File path issues
+1. Make sure your XML follows the correct format with all required elements
+2. Check that file paths are relative to your project root
+3. Verify that operations are one of the allowed types: CREATE, UPDATE, or DELETE
+4. For CREATE and UPDATE operations, ensure you've included the file_code element with the complete file content
 
-## Implementation Details
-
-The XML Changes feature is implemented using:
-
-- `@xmldom/xmldom` for XML parsing
-- React components for the UI
-- Electron IPC for communication between the renderer and main processes
-
-## Testing
-
-You can test your XML changes before applying them using the validation tools:
-
-1. Create your XML changes
-2. Use the `validateXmlChanges` function to check for errors
-3. Review the changes summary using `generateChangesSummary`
-
-See the `src/examples/test-xml-parser.ts` file for a demonstration of how to use these functions.
-
-## Best Practices
-
-1. Always validate your XML before applying changes
-2. Use meaningful file summaries to document what changed
-3. Include complete file content for CREATE and UPDATE operations
-4. Test your changes on a copy of your project first
-5. Consider using version control to track changes 
+If issues persist, check the application logs for more detailed error information. 

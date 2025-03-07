@@ -1,0 +1,23 @@
+/* XML Formatter styles */
+.help-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.formatter-toggle-button {
+  background-color: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  color: #333;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  transition: background-color 0.2s;
+}
+
+.formatter-toggle-button:hover {
+  background-color: #e0e0e0;
+}
+
+/* Add more styles as needed */ 

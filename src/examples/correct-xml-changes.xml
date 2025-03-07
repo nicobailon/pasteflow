@@ -1,0 +1,287 @@
+<changed_files>
+  <!-- Example for a React component with JSX and template literals -->
+  <file>
+    <file_summary>Update CopyButton component with improved animations and visual feedback</file_summary>
+    <file_operation>UPDATE</file_operation>
+    <file_path>src/components/CopyButton.tsx</file_path>
+    <file_code><![CDATA[
+import React, { useState } from "react";
+import { Copy, Check } from "lucide-react";
+
+interface CopyButtonProps {
+  text: string;
+  className?: string;
+  children?: JSX.Element | string;
+}
+
+const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+
+      // Reset the copied state after 2 seconds
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className={`
+        relative 
+        bg-blue-500 
+        hover:bg-blue-600 
+        text-white 
+        px-3 
+        py-2 
+        rounded-md
+        shadow-md
+        hover:shadow-lg
+        transform 
+        hover:scale-105
+        active:scale-95
+        transition-all 
+        duration-200 
+        ease-in-out
+        focus:outline-none 
+        focus:ring-2 
+        focus:ring-blue-300
+        focus:ring-opacity-50
+        ${copied ? 'bg-green-500 hover:bg-green-600' : ''}
+        ${className}
+      `}
+      onClick={handleCopy}
+      title={copied ? "Copied!" : "Copy to clipboard"}
+    >
+      <span className="flex items-center justify-center gap-2">
+        <span className={`transition-transform duration-200 ${copied ? 'scale-110' : ''}`}>
+          {copied ? <Check size={16} /> : <Copy size={16} />}
+        </span>
+        {children}
+      </span>
+      
+      {/* Ripple effect on click */}
+      {copied && (
+        <span 
+          className="absolute inset-0 rounded-md animate-ping opacity-30 bg-white"
+          style={{ animationDuration: '0.75s' }}
+        />
+      )}
+    </button>
+  );
+};
+
+export default CopyButton;
+    ]]></file_code>
+  </file>
+
+  <!-- Example for a Tailwind component with complex template literals -->
+  <file>
+    <file_summary>Create a new Card component with Tailwind styling</file_summary>
+    <file_operation>CREATE</file_operation>
+    <file_path>src/components/Card.tsx</file_path>
+    <file_code><![CDATA[
+import React, { ReactNode } from "react";
+
+interface CardProps {
+  title: string;
+  children: ReactNode;
+  variant?: "primary" | "secondary" | "accent";
+  className?: string;
+  onClick?: () => void;
+}
+
+const Card = ({ 
+  title, 
+  children, 
+  variant = "primary", 
+  className = "",
+  onClick
+}: CardProps) => {
+  const getVariantClasses = () => {
+    switch (variant) {
+      case "primary":
+        return "bg-white border-gray-200 text-gray-800";
+      case "secondary":
+        return "bg-gray-100 border-gray-300 text-gray-800";
+      case "accent":
+        return "bg-blue-50 border-blue-200 text-blue-800";
+      default:
+        return "bg-white border-gray-200 text-gray-800";
+    }
+  };
+
+  return (
+    <div
+      className={`
+        rounded-lg
+        border
+        p-4
+        shadow-sm
+        hover:shadow-md
+        transition-all
+        duration-200
+        ${getVariantClasses()}
+        ${onClick ? 'cursor-pointer' : ''}
+        ${className}
+      `}
+      onClick={onClick}
+    >
+      <h3 className={`text-lg font-semibold mb-2 ${variant === "accent" ? "text-blue-700" : ""}`}>
+        {title}
+      </h3>
+      <div className="mt-2">
+        {children}
+      </div>
+    </div>
+  );
+};
+
+export default Card;
+    ]]></file_code>
+  </file>
+
+  <!-- Example for a component with complex JSX attributes -->
+  <file>
+    <file_summary>Create a new DataTable component with sorting and filtering</file_summary>
+    <file_operation>CREATE</file_operation>
+    <file_path>src/components/DataTable.tsx</file_path>
+    <file_code><![CDATA[
+import React, { useState, useMemo } from "react";
+import { ChevronUp, ChevronDown, Search } from "lucide-react";
+
+interface Column<T> {
+  key: keyof T;
+  header: string;
+  render?: (value: any, item: T) => React.ReactNode;
+  sortable?: boolean;
+}
+
+interface DataTableProps<T> {
+  data: T[];
+  columns: Column<T>[];
+  className?: string;
+}
+
+function DataTable<T extends object>({ 
+  data, 
+  columns, 
+  className = "" 
+}: DataTableProps<T>) {
+  const [sortKey, setSortKey] = useState<keyof T | null>(null);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [filterText, setFilterText] = useState("");
+
+  const handleSort = (key: keyof T) => {
+    if (sortKey === key) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortOrder("asc");
+    }
+  };
+
+  const filteredAndSortedData = useMemo(() => {
+    let processed = [...data];
+    
+    // Filter
+    if (filterText) {
+      processed = processed.filter(item => 
+        Object.values(item).some(value => 
+          String(value).toLowerCase().includes(filterText.toLowerCase())
+        )
+      );
+    }
+    
+    // Sort
+    if (sortKey) {
+      processed.sort((a, b) => {
+        const aValue = a[sortKey];
+        const bValue = b[sortKey];
+        
+        if (aValue === bValue) return 0;
+        
+        const result = aValue < bValue ? -1 : 1;
+        return sortOrder === "asc" ? result : -result;
+      });
+    }
+    
+    return processed;
+  }, [data, filterText, sortKey, sortOrder]);
+
+  return (
+    <div className={`w-full ${className}`}>
+      <div className="mb-4">
+        <div className="relative">
+          <input
+            type="text"
+            className="w-full px-4 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
+            placeholder="Search..."
+            value={filterText}
+            onChange={e => setFilterText(e.target.value)}
+          />
+          <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+        </div>
+      </div>
+      
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="bg-gray-100 text-left">
+              {columns.map(column => (
+                <th 
+                  key={String(column.key)} 
+                  className={`px-4 py-2 font-semibold text-sm text-gray-600 ${column.sortable ? 'cursor-pointer' : ''}`}
+                  onClick={() => column.sortable && handleSort(column.key)}
+                >
+                  <div className="flex items-center gap-1">
+                    {column.header}
+                    {column.sortable && sortKey === column.key && (
+                      sortOrder === "asc" ? <ChevronUp size={16} /> : <ChevronDown size={16} />
+                    )}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAndSortedData.map((item, index) => (
+              <tr 
+                key={index} 
+                className="border-b hover:bg-gray-50 transition-colors"
+              >
+                {columns.map(column => (
+                  <td key={String(column.key)} className="px-4 py-3 text-sm">
+                    {column.render 
+                      ? column.render(item[column.key], item)
+                      : String(item[column.key])
+                    }
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {filteredAndSortedData.length === 0 && (
+              <tr>
+                <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-500">
+                  No data found
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export default DataTable;
+    ]]></file_code>
+  </file>
+</changed_files> 

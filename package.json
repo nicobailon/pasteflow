@@ -112,6 +112,7 @@
     "vite": "^5.0.8"
   },
   "dependencies": {
+    "prettier": "^2.8.8",
     "@xmldom/xmldom": "^0.9.6",
     "gpt-3-encoder": "^1.1.4",
     "ignore": "^7.0.3",

@@ -955,6 +955,68 @@ input[type="text"].search-input:focus {
 .modal-description {
   margin-bottom: 16px;
   color: var(--text-primary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.help-toggle-button {
+  font-size: 12px;
+  padding: 4px 8px;
+  margin-left: auto;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.help-toggle-button:hover {
+  background-color: var(--hover-color);
+}
+
+.help-text {
+  margin-bottom: 16px;
+  padding: 12px;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.help-text h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.help-text pre {
+  background-color: var(--background-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 8px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.help-text p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.help-text a {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.help-text a:hover {
+  text-decoration: underline;
 }
 
 .xml-input {
@@ -974,6 +1036,13 @@ input[type="text"].search-input:focus {
   padding: 12px;
   border-radius: 4px;
   background-color: var(--background-secondary);
+  white-space: pre-line;
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: monospace;
+  line-height: 1.5;
+  word-break: break-word;
+  border-left: 4px solid var(--border-color);
 }
 
 .status-message.error {
@@ -986,6 +1055,17 @@ input[type="text"].search-input:focus {
   background-color: rgba(0, 255, 0, 0.1);
   color: #4caf50;
   border-left: 4px solid #4caf50;
+}
+
+/* File paths in status message */
+.status-message ul {
+  margin-top: 8px;
+  margin-bottom: 8px;
+  padding-left: 20px;
+}
+
+.status-message li {
+  margin-bottom: 4px;
 }
 
 .modal-footer {

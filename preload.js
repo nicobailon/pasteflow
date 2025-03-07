@@ -87,5 +87,16 @@ contextBridge.exposeInMainWorld("electron", {
         console.error(`Error removing listener for channel ${channel}:`, err);
       }
     },
+    // Add invoke method for promise-based IPC
+    invoke: async (channel, data) => {
+      try {
+        const serializedData = ensureSerializable(data);
+        const result = await ipcRenderer.invoke(channel, serializedData);
+        return ensureSerializable(result);
+      } catch (err) {
+        console.error(`Error invoking IPC channel ${channel}:`, err);
+        throw err;
+      }
+    }
   },
 });

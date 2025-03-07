@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import XmlFormatter from "./XmlFormatter";
 
 interface ApplyChangesModalProps {
   selectedFolder: string;
@@ -9,6 +10,9 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
   const [xml, setXml] = useState("");
   const [status, setStatus] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showHelpText, setShowHelpText] = useState(false);
+  const [formatInstructions, setFormatInstructions] = useState("");
+  const [showFormatter, setShowFormatter] = useState(false);
 
   const handleApply = () => {
     if (!xml.trim()) {
@@ -26,21 +30,77 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
     });
   };
 
+  const handleFormatXml = (formattedXml: string) => {
+    setXml(formattedXml);
+    setShowFormatter(false);
+    setStatus("XML formatted with CDATA sections to protect JSX/React code");
+  };
+
   useEffect(() => {
-    // Handle response from the main process
+    // Fetch the standard XML format instructions
+    async function fetchFormatInstructions() {
+      try {
+        const instructions = await window.electron.ipcRenderer.invoke('get-xml-format-instructions');
+        setFormatInstructions(instructions);
+      } catch (error) {
+        console.error('Failed to fetch XML format instructions:', error);
+      }
+    }
+    
+    fetchFormatInstructions();
+
+    // Handle response from the main process for apply changes
     const handleResponse = (response: { 
       success: boolean; 
       message?: string;
       error?: string;
+      details?: string;
+      updatedFiles?: string[];
+      failedFiles?: Array<{ path: string, reason: string }>;
+      warningMessage?: string;
     }) => {
       setIsProcessing(false);
       
       if (response.success) {
-        setStatus(`Success: ${response.message || "Changes applied successfully"}`);
+        // Build a detailed status message that shows both successes and warnings
+        let statusMessage = `Success: ${response.message || "Changes applied successfully"}`;
+        
+        // Always list the specific files that were updated
+        if (response.updatedFiles && response.updatedFiles.length > 0) {
+          statusMessage += `\n\nUpdated files:\n${response.updatedFiles.map(file => `- ${file}`).join('\n')}`;
+        } else {
+          // This should not happen if success is true, but just in case
+          statusMessage += "\n\nNote: No files were actually updated.";
+        }
+        
+        // Add warnings about failed files if any
+        if (response.warningMessage) {
+          statusMessage += `\n\nWarning: ${response.warningMessage}`;
+          
+          // Add detailed reasons for failures if available
+          if (response.failedFiles && response.failedFiles.length > 0) {
+            statusMessage += "\n\nFailure details:";
+            response.failedFiles.forEach(failure => {
+              statusMessage += `\n- ${failure.path}: ${failure.reason}`;
+            });
+          }
+        }
+        
+        setStatus(statusMessage);
         // Clear the XML input on success
         setXml("");
       } else {
-        setStatus(`Error: ${response.error || "Failed to apply changes"}`);
+        let errorMessage = `Error: ${response.error || "Failed to apply changes"}`;
+        
+        // If there are failed files, list them
+        if (response.failedFiles && response.failedFiles.length > 0) {
+          errorMessage += "\n\nFailed files:";
+          response.failedFiles.forEach(failure => {
+            errorMessage += `\n- ${failure.path}: ${failure.reason}`;
+          });
+        }
+        
+        setStatus(errorMessage);
       }
     };
 
@@ -52,6 +112,22 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
       window.electron.ipcRenderer.removeListener("apply-changes-response", handleResponse);
     };
   }, []);
+
+  // Display instructions from the standardized template or a fallback
+  const xmlHelpText = formatInstructions || `
+<changed_files>
+  <file>
+    <file_summary>Brief description of what changed</file_summary>
+    <file_operation>CREATE|UPDATE|DELETE</file_operation>
+    <file_path>relative/path/to/file.ext</file_path>
+    <file_code><![CDATA[
+      // The complete new content for the file
+      // All JSX/TSX code should be inside CDATA sections
+    ]]></file_code>
+  </file>
+  <!-- Add more file elements as needed -->
+</changed_files>
+  `.trim();
 
   return (
     <div className="modal-overlay">
@@ -67,18 +143,54 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
             <br />
             <strong>{selectedFolder}</strong>
           </p>
+          <div className="help-buttons">
+            <button 
+              className="help-toggle-button" 
+              onClick={() => setShowHelpText(!showHelpText)}
+              title={showHelpText ? "Hide XML format help" : "Show XML format help"}
+            >
+              {showHelpText ? "Hide Help" : "Show Help"}
+            </button>
+            <button
+              className="formatter-toggle-button"
+              onClick={() => setShowFormatter(!showFormatter)}
+              title={showFormatter ? "Hide XML formatter" : "Show XML formatter"}
+            >
+              {showFormatter ? "Hide Formatter" : "Format XML"}
+            </button>
+          </div>
           
-          <textarea
-            className="xml-input"
-            value={xml}
-            onChange={(e) => setXml(e.target.value)}
-            placeholder="Paste XML here..."
-            rows={15}
-            disabled={isProcessing}
-          />
+          {showHelpText && (
+            <div className="help-text">
+              <h3>XML Format</h3>
+              <pre>{xmlHelpText}</pre>
+              <p>
+                <strong>Important for React/JSX code:</strong> All React component code must be wrapped in 
+                CDATA sections to prevent XML parsing errors. Use the Format XML button to add CDATA sections automatically.
+              </p>
+              <a href="#" onClick={(e) => {
+                e.preventDefault();
+                window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
+              }}>View full documentation</a>
+            </div>
+          )}
+          
+          {showFormatter ? (
+            <XmlFormatter onFormat={handleFormatXml} />
+          ) : (
+            <textarea
+              className="xml-input"
+              value={xml}
+              onChange={(e) => setXml(e.target.value)}
+              placeholder="Paste XML here..."
+              rows={15}
+              disabled={isProcessing}
+            />
+          )}
           
           {status && (
-            <div className={`status-message ${status.startsWith("Error") ? "error" : status.startsWith("Success") ? "success" : ""}`}>
+            <div className={`status-message ${status.startsWith("Error") ? "error" : status.startsWith("Success") ? "success" : ""}`}
+                 style={{ whiteSpace: "pre-line" }}>
               {status}
             </div>
           )}

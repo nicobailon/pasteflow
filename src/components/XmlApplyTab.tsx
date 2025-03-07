@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { XmlApplyTabProps, FileChange } from "../types/FileTypes";
-import { parseXmlString, formatOutputWithXmlInstructions } from "../utils/xmlUtils";
+// @ts-ignore
+import { parseXmlString, formatOutputWithXmlInstructions } from "../main/xmlUtils";
 
 // XML instructions template
 const DEFAULT_XML_INSTRUCTIONS = `### Role
@@ -9,38 +10,61 @@ const DEFAULT_XML_INSTRUCTIONS = `### Role
 ### Capabilities
 - Can create new files.
 - Can rewrite entire files.
-- Can perform partial search/replace modifications.
 - Can delete existing files.
 
 Avoid placeholders like \`...\` or \`// existing code here\`. Provide complete lines or code.
 
-## Tools & Actions
-1. **create** – Create a new file if it doesn't exist.
-2. **rewrite** – Replace the entire content of an existing file.
-3. **modify** (search/replace) – For partial edits with <search> + <content>.
-4. **delete** – Remove a file entirely (empty <content>).
+### Format to Follow
 
-### **Format to Follow for Repo Prompt's Diff Protocol**
+<changed_files>
+  <file>
+    <file_summary>Brief summary of the change</file_summary>
+    <file_operation>CREATE | UPDATE | DELETE</file_operation>
+    <file_path>path/to/file.ext</file_path>
+    <file_code><![CDATA[
+      // Complete code for CREATE or UPDATE operations
+      // For DELETE, this can be empty
+    ]]></file_code>
+  </file>
+  <!-- Additional <file> elements as needed -->
+</changed_files>
 
-<Plan>
-Describe your approach or reasoning here.
-</Plan>
+**Important:**
+- For CREATE and UPDATE operations, provide the complete, syntactically correct code inside <file_code> wrapped in CDATA.
+- Ensure that all syntax is correct, including the use of backticks (\`) for template literals in JavaScript/TypeScript.
+- Do not omit or replace backticks, as this can lead to invalid code.
+- For JSX/TSX files, properly format template literals in className and style attributes with backticks:
+  - Correct: className={\`bg-blue-500 \${isActive ? "text-white" : ""}\`}
+  - Incorrect: className={bg-blue-500 \${isActive ? "text-white" : ""}}
+- For DELETE operations, the <file_code> can be empty.
 
-<file path="path/to/example.swift" action="one_of_the_tools">
-  <change>
-    <description>Brief explanation of this specific change</description>
-    <search>
-===
-// Exactly matching lines to find
-===
-    </search>
-    <content>
-===
-// Provide the new or updated code here. Do not use placeholders
-===
-    </content>
-  </change>
-</file>`;
+**Example:**
+
+<changed_files>
+  <file>
+    <file_summary>Add a new button component</file_summary>
+    <file_operation>CREATE</file_operation>
+    <file_path>src/components/NewButton.tsx</file_path>
+    <file_code><![CDATA[
+import React, { useState } from 'react';
+
+const NewButton = ({ label, className = "" }: { label: string, className?: string }) => {
+  const [isActive, setIsActive] = useState(false);
+  
+  return (
+    <button
+      className={\`bg-blue-500 text-white p-2 rounded \${isActive ? "opacity-80" : ""} \${className}\`}
+      onClick={() => setIsActive(!isActive)}
+    >
+      {label}
+    </button>
+  );
+};
+
+export default NewButton;
+]]></file_code>
+  </file>
+</changed_files>`;
 
 const XmlApplyTab = ({ selectedFolder }: XmlApplyTabProps) => {
   const [xmlInput, setXmlInput] = useState("");

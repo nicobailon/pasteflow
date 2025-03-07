@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 
 // Import XML utilities
-const { parseXmlString, applyFileChanges } = require("./src/main/xmlUtils");
+const { parseXmlString, applyFileChanges, prepareXmlWithCdata } = require("./src/main/xmlUtils");
+const { xmlFormatInstructions } = require('./src/main/xmlFormatInstructions');
 
 // Add handling for the 'ignore' module
 let ignore;
@@ -448,30 +449,137 @@ ipcMain.on("apply-changes", async (event, { xml, projectDirectory }) => {
   try {
     console.log("Applying XML changes to directory:", projectDirectory);
     
+    // Check if XML is empty or invalid
+    if (!xml || typeof xml !== 'string' || xml.trim().length === 0) {
+      throw new Error("XML content is empty or invalid");
+    }
+    
+    // Add debug output
+    console.log(`Processing XML input (${xml.length} characters) for project at ${projectDirectory}`);
+    
+    // Apply safety preprocessing to fix common issues before parsing
+    xml = prepareXmlWithCdata(xml);
+    
     // Parse the XML string
-    const changes = await parseXmlString(xml);
-    if (!changes) {
+    let changes;
+    try {
+      changes = await parseXmlString(xml);
+    } catch (parseError) {
+      console.error("XML parsing error:", parseError);
+      
+      // Provide a more helpful error message
+      let errorMessage = parseError.message || "Unknown parsing error";
+      if (errorMessage.includes("Opening and ending tag mismatch")) {
+        errorMessage = `XML syntax error: ${errorMessage}. This usually happens with JSX code that needs to be wrapped in CDATA sections. Try using the Format XML button.`;
+      } else if (errorMessage.includes("CDATA")) {
+        errorMessage = `CDATA section error: ${errorMessage}. JSX code with curly braces needs special handling.`;
+      }
+      
+      throw new Error(`Failed to parse XML: ${errorMessage}`);
+    }
+    
+    if (!changes || changes.length === 0) {
       throw new Error("Invalid XML format or no changes found");
     }
     
     console.log(`Found ${changes.length} file changes to apply`);
     
     // Apply each change sequentially
+    const updatedFiles = [];
+    const failedFiles = [];
+    
     for (const change of changes) {
-      console.log(`Applying ${change.file_operation} operation to ${change.file_path}`);
-      await applyFileChanges(change, projectDirectory);
+      try {
+        console.log(`Applying ${change.file_operation} operation to ${change.file_path}`);
+        await applyFileChanges(change, projectDirectory);
+        updatedFiles.push(change.file_path);
+      } catch (error) {
+        console.error(`Failed to apply ${change.file_operation} to ${change.file_path}:`, error);
+        failedFiles.push({ 
+          path: change.file_path, 
+          reason: error.message || 'Unknown error' 
+        });
+      }
     }
     
-    // Send success response
+    // Add detailed result logging
+    console.log(`Result summary: Successfully processed ${updatedFiles.length} of ${changes.length} files`);
+    if (updatedFiles.length > 0) {
+      console.log("Updated files:", updatedFiles);
+    } else {
+      console.log("No files were updated successfully");
+    }
+    
+    if (failedFiles.length > 0) {
+      console.log("Failed files:");
+      failedFiles.forEach(failure => {
+        console.log(`- ${failure.path}: ${failure.reason}`);
+      });
+    }
+    
+    // Check file system to verify updates
+    if (updatedFiles.length > 0) {
+      console.log("Verifying file updates on disk:");
+      for (const filePath of updatedFiles) {
+        try {
+          const fullPath = path.join(projectDirectory, filePath);
+          const stats = fs.statSync(fullPath);
+          console.log(`File ${filePath} exists on disk, size: ${stats.size} bytes, modified: ${stats.mtime}`);
+        } catch (error) {
+          console.error(`Verification failed for ${filePath}: ${error.message}`);
+        }
+      }
+    }
+    
+    // Determine overall success and appropriate message
+    const success = updatedFiles.length > 0;
+    const message = success 
+      ? `Successfully applied changes to ${updatedFiles.length} of ${changes.length} files.` 
+      : "No files were updated successfully.";
+    
+    // Check if all requested changes were applied successfully
+    const allChangesSuccessful = updatedFiles.length === changes.length;
+    
+    // Send response with detailed information
     event.sender.send("apply-changes-response", { 
-      success: true,
-      message: `Successfully applied ${changes.length} file changes`
+      success: success,  // Only return true if at least one file was updated
+      message: allChangesSuccessful 
+        ? `Successfully applied all ${changes.length} file changes.`
+        : `Applied ${updatedFiles.length} of ${changes.length} file changes.`,
+      updatedFiles: updatedFiles,
+      failedFiles: failedFiles,
+      details: updatedFiles.length > 0 
+        ? `Updated files: ${updatedFiles.join(', ')}` 
+        : "No files were updated.",
+      warningMessage: failedFiles.length > 0 
+        ? `Failed to update ${failedFiles.length} ${failedFiles.length === 1 ? 'file' : 'files'}: ${failedFiles.map(f => f.path).join(', ')}` 
+        : undefined
     });
   } catch (error) {
     console.error("Error applying changes:", error);
-    event.sender.send("apply-changes-response", { 
-      success: false, 
-      error: error.message || "Unknown error occurred"
+    
+    // Enhanced error messages with more helpful suggestions
+    let errorMessage = error.message || "Unknown error occurred";
+    let additionalInfo = "";
+    
+    // Check for specific XML parsing issues and provide better guidance
+    if (errorMessage.includes("Opening and ending tag mismatch")) {
+      additionalInfo = "This often happens with JSX code that's not wrapped in CDATA sections. Use the Format XML button to fix this issue.";
+    } else if (errorMessage.includes("no longer supported")) {
+      additionalInfo = "Try restarting the application or using the Format XML button.";
+    } else if (errorMessage.includes("Failed to") && errorMessage.includes("file")) {
+      additionalInfo = "Check file permissions and make sure the path is correct.";
+    } else if (errorMessage.includes("ENOENT")) {
+      additionalInfo = "Directory not found. Make sure the path exists.";
+    }
+    
+    const fullErrorMessage = additionalInfo 
+      ? `${errorMessage}. ${additionalInfo}`
+      : errorMessage;
+    
+    event.sender.send("apply-changes-response", {
+      success: false,
+      error: fullErrorMessage
     });
   }
 });
@@ -485,3 +593,41 @@ function shouldExcludeByDefault(filePath, rootDir) {
   const ig = ignore().add(excludedFiles);
   return ig.ignores(relativePathNormalized);
 }
+
+// Add a new IPC handler for getting the XML formatting instructions
+ipcMain.handle('get-xml-format-instructions', () => {
+  return xmlFormatInstructions;
+});
+
+// Add a new IPC handler for opening documentation
+ipcMain.on('open-docs', (event, docName) => {
+  // Path to the documentation file
+  const docPath = path.join(__dirname, 'docs', docName);
+  
+  // Check if the file exists
+  fs.access(docPath, fs.constants.F_OK, (err) => {
+    if (err) {
+      console.error(`Documentation file not found: ${docPath}`);
+      return;
+    }
+    
+    // Open the file in the default application
+    shell.openPath(docPath)
+      .then(result => {
+        if (result) {
+          console.error(`Error opening documentation: ${result}`);
+        }
+      });
+  });
+});
+
+// Add this near the other IPC handlers
+ipcMain.handle("format-xml", async (event, { xml }) => {
+  try {
+    const formattedXml = prepareXmlWithCdata(xml);
+    return { success: true, xml: formattedXml };
+  } catch (error) {
+    console.error("Error formatting XML:", error);
+    return { success: false, error: error.message || "Unknown error occurred" };
+  }
+});
