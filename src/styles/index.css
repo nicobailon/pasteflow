@@ -1132,3 +1132,10 @@ input[type="text"].search-input:focus {
 .apply-changes-btn:hover {
   background-color: var(--primary-button-background);
 }
+
+.documentation-link {
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-size: 12px;
+}
+

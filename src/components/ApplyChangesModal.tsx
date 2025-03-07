@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import XmlFormatter from "./XmlFormatter";
 
 interface ApplyChangesModalProps {
   selectedFolder: string;
@@ -10,7 +9,6 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
   const [xml, setXml] = useState("");
   const [status, setStatus] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [showHelpText, setShowHelpText] = useState(false);
   const [formatInstructions, setFormatInstructions] = useState("");
   const [showFormatter, setShowFormatter] = useState(false);
 
@@ -143,42 +141,8 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
             <br />
             <strong>{selectedFolder}</strong>
           </p>
-          <div className="help-buttons">
-            <button 
-              className="help-toggle-button" 
-              onClick={() => setShowHelpText(!showHelpText)}
-              title={showHelpText ? "Hide XML format help" : "Show XML format help"}
-            >
-              {showHelpText ? "Hide Help" : "Show Help"}
-            </button>
-            <button
-              className="formatter-toggle-button"
-              onClick={() => setShowFormatter(!showFormatter)}
-              title={showFormatter ? "Hide XML formatter" : "Show XML formatter"}
-            >
-              {showFormatter ? "Hide Formatter" : "Format XML"}
-            </button>
-          </div>
-          
-          {showHelpText && (
-            <div className="help-text">
-              <h3>XML Format</h3>
-              <pre>{xmlHelpText}</pre>
-              <p>
-                <strong>Important for React/JSX code:</strong> All React component code must be wrapped in 
-                CDATA sections to prevent XML parsing errors. Use the Format XML button to add CDATA sections automatically.
-              </p>
-              <a href="#" onClick={(e) => {
-                e.preventDefault();
-                window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
-              }}>View full documentation</a>
-            </div>
-          )}
-          
-          {showFormatter ? (
-            <XmlFormatter onFormat={handleFormatXml} />
-          ) : (
-            <textarea
+
+          <textarea
               className="xml-input"
               value={xml}
               onChange={(e) => setXml(e.target.value)}
@@ -186,7 +150,13 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
               rows={15}
               disabled={isProcessing}
             />
-          )}
+
+          <p>
+            <a href="#" className="documentation-link" onClick={(e) => {
+              e.preventDefault();
+              window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
+            }}>View full documentation</a>
+          </p>
           
           {status && (
             <div className={`status-message ${status.startsWith("Error") ? "error" : status.startsWith("Success") ? "success" : ""}`}
