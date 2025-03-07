@@ -7,6 +7,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
 import FileTreeToggle from "./components/FileTreeToggle";
 import { ApplyChangesModal } from "./components/ApplyChangesModal";
+import { FolderOpen } from "lucide-react";
 import { generateAsciiFileTree, getTopLevelDirectories, getAllDirectories } from "./utils/pathUtils";
 import { XML_FORMATTING_INSTRUCTIONS } from "./utils/xmlTemplates";
 
@@ -514,9 +515,7 @@ const App = () => {
     <ThemeProvider>
       <div className="app-container">
         <header className="header">
-          <h1>PasteFlow</h1>
           <div className="header-actions">
-            <ThemeToggle />
             <div className="folder-info">
               {selectedFolder ? (
                 <div className="selected-folder">{selectedFolder}</div>
@@ -527,18 +526,12 @@ const App = () => {
                 className="select-folder-btn"
                 onClick={openFolder}
                 disabled={processingStatus.status === "processing"}
+                title="Select Folder"
               >
-                Select Folder
+                <FolderOpen size={18} />
               </button>
-              {selectedFolder && (
-                <button
-                  className="apply-changes-btn"
-                  onClick={() => setShowApplyChangesModal(true)}
-                >
-                  Apply XML Changes
-                </button>
-              )}
             </div>
+            <ThemeToggle />
           </div>
         </header>
 
@@ -629,6 +622,14 @@ const App = () => {
                     >
                       <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
                     </CopyButton>
+                    {selectedFolder && (
+                      <button
+                        className="apply-changes-btn"
+                        onClick={() => setShowApplyChangesModal(true)}
+                      >
+                        Apply XML Changes
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
