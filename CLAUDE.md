@@ -1,4 +1,4 @@
-# PasteMax Build/Dev Commands
+# PasteFlow Build/Dev Commands
 
 - `npm run dev` - Run Vite development server
 - `npm run dev:electron` - Run Electron development mode

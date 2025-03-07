@@ -29,12 +29,12 @@ declare global {
 
 // Keys for localStorage
 const STORAGE_KEYS = {
-  SELECTED_FOLDER: "pastemax-selected-folder",
-  SELECTED_FILES: "pastemax-selected-files",
-  SORT_ORDER: "pastemax-sort-order",
-  SEARCH_TERM: "pastemax-search-term",
-  EXPANDED_NODES: "pastemax-expanded-nodes",
-  FILE_TREE_MODE: "pastemax-file-tree-mode",
+  SELECTED_FOLDER: "pasteflow-selected-folder",
+  SELECTED_FILES: "pasteflow-selected-files",
+  SORT_ORDER: "pasteflow-sort-order",
+  SEARCH_TERM: "pasteflow-search-term",
+  EXPANDED_NODES: "pasteflow-expanded-nodes",
+  FILE_TREE_MODE: "pasteflow-file-tree-mode",
 };
 
 const App = () => {
@@ -517,7 +517,7 @@ const App = () => {
     <ThemeProvider>
       <div className="app-container">
         <header className="header">
-          <h1>PasteMax</h1>
+          <h1>PasteFlow</h1>
           <div className="header-actions">
             <ThemeToggle />
             <div className="folder-info">

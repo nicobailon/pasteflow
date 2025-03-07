@@ -1,5 +1,5 @@
 {
-  "name": "pastemax",
+  "name": "pasteflow",
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
@@ -40,8 +40,8 @@
   "license": "MIT",
   "description": "A modern file viewer application for developers to easily navigate, search, and copy code from repositories.",
   "build": {
-    "appId": "com.kleneway.pastemax",
-    "productName": "PasteMax",
+    "appId": "com.nbailon.pasteflow",
+    "productName": "PasteFlow",
     "directories": {
       "output": "release-builds"
     },

@@ -1,6 +1,6 @@
-# Docker Setup for PasteMax
+# Docker Setup for PasteFlow
 
-This guide explains how to use Docker for building the PasteMax Electron application.
+This guide explains how to use Docker for building the PasteFlow Electron application.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ docker compose build
 ### 2. Start and enter the Container
 
 ```bash
-docker compose run --rm pastemax-dev bash
+docker compose run --rm pasteflow-dev bash
 ```
 
 ### 3. Inside the Container
@@ -49,7 +49,7 @@ The built application will be available in the `release-builds` directory on you
 
 For example, on Windows, it is built at:
 ```
-`.\pastemax\release-builds\win-unpacked\PasteMax.exe`
+`.\pasteflow\release-builds\win-unpacked\PasteFlow.exe`
 ```
 
 ## Workflow

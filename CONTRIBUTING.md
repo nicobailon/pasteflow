@@ -1,11 +1,11 @@
-# Contributing to PasteMax
+# Contributing to PasteFlow
 
-Thank you for considering contributing to PasteMax! This document outlines the process for contributing to the project.
+Thank you for considering contributing to PasteFlow! This document outlines the process for contributing to the project.
 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/pastemax.git`
+2. Clone your fork: `git clone https://github.com/yourusername/pasteflow.git`
 3. Create a branch for your changes: `git checkout -b feature/your-feature-name`
 4. Install dependencies: `npm install`
 5. Make your changes
@@ -33,4 +33,4 @@ Thank you for considering contributing to PasteMax! This document outlines the p
 
 ## License
 
-By contributing to PasteMax, you agree that your contributions will be licensed under the project's MIT License.
+By contributing to PasteFlow, you agree that your contributions will be licensed under the project's MIT License.

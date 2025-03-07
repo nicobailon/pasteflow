@@ -4,7 +4,7 @@ PasteFlow is a streamlined productivity tool designed for developers working wit
 
 The app creates a seamless bridge between your codebase and external AI platforms like ChatGPT and Claude. Code changes suggested by AI are captured as XML diffs that can be automatically applied back to your original files with a single action.
 
-Originally forked from PasteMax, this enhanced version eliminates friction in the development workflow by maintaining perfect context throughout the entire process—from sending code to AI assistants to implementing their suggested changes.
+Originally forked from PasteFlow, this enhanced version eliminates friction in the development workflow by maintaining perfect context throughout the entire process—from sending code to AI assistants to implementing their suggested changes.
 
 ![PasteFlow Screenshot](https://github.com/user-attachments/assets/4115ad31-9c93-4cf8-bd65-4bb5379e0eba)
 
