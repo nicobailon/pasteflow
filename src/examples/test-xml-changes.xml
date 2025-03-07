@@ -1,0 +1,297 @@
+<changed_files>
+  <!-- Example 1: Update an existing component -->
+  <file>
+    <file_summary>Update SearchBar component with improved accessibility and styling</file_summary>
+    <file_operation>UPDATE</file_operation>
+    <file_path>src/components/SearchBar.tsx</file_path>
+    <file_code>
+import React, { useState } from "react";
+import { Search, X } from "lucide-react";
+
+interface SearchBarProps {
+  searchTerm: string;
+  onSearchChange: (term: string) => void;
+  placeholder?: string;
+  className?: string;
+  ariaLabel?: string;
+}
+
+const SearchBar = ({
+  searchTerm,
+  onSearchChange,
+  placeholder = "Search...",
+  className = "",
+  ariaLabel = "Search input"
+}: SearchBarProps) => {
+  const [isFocused, setIsFocused] = useState(false);
+
+  return (
+    <div className={`search-bar ${isFocused ? "focused" : ""} ${className}`}>
+      <div className="search-icon" aria-hidden="true">
+        <Search size={16} />
+      </div>
+      <input
+        type="text"
+        className="search-input"
+        placeholder={placeholder}
+        value={searchTerm}
+        onChange={(e) => onSearchChange(e.target.value)}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        aria-label={ariaLabel}
+      />
+      {searchTerm && (
+        <button
+          className="search-clear-btn"
+          onClick={() => onSearchChange("")}
+          aria-label="Clear search"
+          type="button"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+};
+
+export default SearchBar;
+    </file_code>
+  </file>
+
+  <!-- Example 2: Create a new utility file -->
+  <file>
+    <file_summary>Create new utility functions for date formatting</file_summary>
+    <file_operation>CREATE</file_operation>
+    <file_path>src/utils/dateFormatter.ts</file_path>
+    <file_code>
+/**
+ * Utility functions for formatting dates
+ */
+
+/**
+ * Format a date as a readable string (e.g., "Jan 1, 2023")
+ */
+export function formatDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+/**
+ * Format a date as a time string (e.g., "3:45 PM")
+ */
+export function formatTime(date: Date): string {
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
+}
+
+/**
+ * Format a date as a relative time (e.g., "2 hours ago")
+ */
+export function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+
+  if (diffSec < 60) {
+    return 'just now';
+  } else if (diffMin < 60) {
+    return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`;
+  } else if (diffHour < 24) {
+    return `${diffHour} hour${diffHour === 1 ? '' : 's'} ago`;
+  } else if (diffDay < 30) {
+    return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
+  } else {
+    return formatDate(date);
+  }
+}
+
+/**
+ * Format a date range (e.g., "Jan 1 - Jan 5, 2023")
+ */
+export function formatDateRange(startDate: Date, endDate: Date): string {
+  const startMonth = startDate.toLocaleDateString('en-US', { month: 'short' });
+  const startDay = startDate.getDate();
+  const startYear = startDate.getFullYear();
+  
+  const endMonth = endDate.toLocaleDateString('en-US', { month: 'short' });
+  const endDay = endDate.getDate();
+  const endYear = endDate.getFullYear();
+  
+  if (startYear !== endYear) {
+    return `${startMonth} ${startDay}, ${startYear} - ${endMonth} ${endDay}, ${endYear}`;
+  } else if (startMonth !== endMonth) {
+    return `${startMonth} ${startDay} - ${endMonth} ${endDay}, ${endYear}`;
+  } else {
+    return `${startMonth} ${startDay} - ${endDay}, ${endYear}`;
+  }
+}
+    </file_code>
+  </file>
+
+  <!-- Example 3: Update an existing component with new features -->
+  <file>
+    <file_summary>Update CopyButton component with improved accessibility and feedback</file_summary>
+    <file_operation>UPDATE</file_operation>
+    <file_path>src/components/CopyButton.tsx</file_path>
+    <file_code>
+import React, { useState } from "react";
+import { Copy, Check } from "lucide-react";
+
+interface CopyButtonProps {
+  text: string;
+  className?: string;
+  children?: React.ReactNode;
+  successMessage?: string;
+  iconSize?: number;
+  showText?: boolean;
+}
+
+const CopyButton = ({ 
+  text, 
+  className = "", 
+  children, 
+  successMessage = "Copied!",
+  iconSize = 16,
+  showText = false
+}: CopyButtonProps) => {
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setError(null);
+
+      // Reset the copied state after 2 seconds
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+      setError("Failed to copy to clipboard");
+      
+      // Clear error after 3 seconds
+      setTimeout(() => {
+        setError(null);
+      }, 3000);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className={`copy-button ${className} ${copied ? 'copied' : ''} ${error ? 'error' : ''}`}
+      onClick={handleCopy}
+      title={copied ? successMessage : "Copy to clipboard"}
+      aria-label={copied ? successMessage : "Copy to clipboard"}
+    >
+      {copied ? <Check size={iconSize} /> : <Copy size={iconSize} />}
+      {showText && <span className="copy-button-text">{copied ? successMessage : "Copy"}</span>}
+      {children}
+      {error && <span className="copy-error-message">{error}</span>}
+    </button>
+  );
+};
+
+export default CopyButton;
+    </file_code>
+  </file>
+
+  <!-- Example 4: Create a new component -->
+  <file>
+    <file_summary>Create new Toast notification component</file_summary>
+    <file_operation>CREATE</file_operation>
+    <file_path>src/components/Toast.tsx</file_path>
+    <file_code>
+import React, { useState, useEffect } from "react";
+import { X, AlertCircle, CheckCircle, Info, AlertTriangle } from "lucide-react";
+
+export type ToastType = "success" | "error" | "info" | "warning";
+
+interface ToastProps {
+  message: string;
+  type?: ToastType;
+  duration?: number;
+  onClose?: () => void;
+  showClose?: boolean;
+}
+
+const Toast: React.FC<ToastProps> = ({
+  message,
+  type = "info",
+  duration = 3000,
+  onClose,
+  showClose = true,
+}) => {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (duration > 0) {
+      const timer = setTimeout(() => {
+        setVisible(false);
+        if (onClose) onClose();
+      }, duration);
+
+      return () => clearTimeout(timer);
+    }
+  }, [duration, onClose]);
+
+  const handleClose = () => {
+    setVisible(false);
+    if (onClose) onClose();
+  };
+
+  if (!visible) return null;
+
+  const getIcon = () => {
+    switch (type) {
+      case "success":
+        return <CheckCircle size={18} />;
+      case "error":
+        return <AlertCircle size={18} />;
+      case "warning":
+        return <AlertTriangle size={18} />;
+      case "info":
+      default:
+        return <Info size={18} />;
+    }
+  };
+
+  return (
+    <div className={`toast toast-${type}`} role="alert">
+      <div className="toast-icon">{getIcon()}</div>
+      <div className="toast-message">{message}</div>
+      {showClose && (
+        <button
+          className="toast-close"
+          onClick={handleClose}
+          aria-label="Close notification"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+};
+
+export default Toast;
+    </file_code>
+  </file>
+
+  <!-- Example 5: Delete an obsolete component -->
+  <file>
+    <file_summary>Delete deprecated component</file_summary>
+    <file_operation>DELETE</file_operation>
+    <file_path>src/components/OldComponent.tsx</file_path>
+  </file>
+</changed_files> 

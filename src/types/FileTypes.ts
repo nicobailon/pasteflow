@@ -74,3 +74,14 @@ export interface CopyButtonProps {
 }
 
 export type FileTreeMode = "none" | "selected" | "selected-with-roots" | "complete";
+
+export interface XmlApplyTabProps {
+  selectedFolder: string;
+}
+
+export interface FileChange {
+  summary: string;
+  operation: 'CREATE' | 'UPDATE' | 'DELETE';
+  path: string;
+  code?: string;
+}
