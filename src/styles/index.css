@@ -15,6 +15,8 @@
   --primary-button-background: #000000;
   --primary-button-text: #ffffff;
   --file-card-selected-border: #808080;
+  --checkbox-border: #808080;
+  --checkbox-background: transparent;
 }
 
 .dark-mode {
@@ -34,6 +36,8 @@
   --primary-button-background: #0E639C;
   --primary-button-text: #ffffff;
   --file-card-selected-border: #3E3E42;
+  --checkbox-border: #666666;
+  --checkbox-background: transparent;
 }
 
 * {
@@ -258,6 +262,29 @@ input[type="search"]:focus {
   background-color: var(--background-secondary);
 }
 
+.folder-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  flex-shrink: 0;
+  color: var(--icon-color);
+}
+
+.tree-item-icon svg,
+.folder-icon svg {
+  stroke: var(--checkbox-border);
+}
+
+.folder-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
 .tree-empty {
   padding: 16px;
   text-align: center;
@@ -280,12 +307,26 @@ input[type="search"]:focus {
   height: 24px;
 }
 
+.folder-header {
+  background-color: var(--background-secondary);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.folder-select-checkbox {
+  margin-right: 8px;
+  cursor: pointer;
+}
+
 .tree-item {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
-  margin: 2px 0;
+  padding: 4px 6px;
+  margin: 0;
   border-radius: 4px;
+  align-items: center;
   cursor: pointer;
   user-select: none;
   position: relative;
@@ -302,6 +343,9 @@ input[type="search"]:focus {
 }
 
 .tree-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-right: 8px;
   flex-shrink: 0;
   color: var(--icon-color);
@@ -342,8 +386,53 @@ input[type="search"]:focus {
 }
 
 .tree-item-checkbox {
+  cursor: pointer;
+  opacity: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.tree-item-checkbox-container {
   margin-right: 8px;
   cursor: pointer;
+  position: relative;
+}
+
+.custom-checkbox {
+  display: block;
+  width: 14px;
+  height: 14px;
+  background-color: var(--checkbox-background);
+  border: 1px solid var(--checkbox-border);
+  border-radius: 3.5px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Add checked state styling */
+.tree-item-checkbox:checked + .custom-checkbox::after {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.tree-item-checkbox:checked + .custom-checkbox::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: calc(50% - 1px);
+  transform: translate(-50%, -50%) rotate(45deg);
+  width: 4px;
+  height: 9px;
+  border-bottom: 1px solid var(--text-primary);
+  border-right: 1px solid var(--text-primary);
+  z-index: 2;
+}
+
+/* Add hover state for the checkbox */
+.tree-item-checkbox-container:hover::after {
+  border-color: var(--primary-color);
 }
 
 .tree-item-name {
@@ -352,6 +441,8 @@ input[type="search"]:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
   color: var(--text-primary);
 }
 
@@ -714,15 +805,6 @@ input[type="search"]:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.tree-loading,
-.empty-tree,
-.empty-list {
-  padding: 16px;
-  text-align: center;
-  color: var(--text-secondary);
-  font-style: italic;
 }
 
 .search-bar {
@@ -1137,5 +1219,14 @@ input[type="text"].search-input:focus {
   color: var(--accent-blue);
   text-decoration: none;
   font-size: 12px;
+}
+
+.tree-loading,
+.empty-tree,
+.empty-list {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-style: italic;
 }
 

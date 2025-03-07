@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { SidebarProps, TreeNode } from "../types/FileTypes";
 import SearchBar from "./SearchBar";
 import TreeItem from "./TreeItem";
+import { Folder } from "lucide-react";
 
 // Custom type for resize events
 type ResizeMouseEvent = {
@@ -284,13 +285,20 @@ const Sidebar = ({
   // The final tree to render, filtered and flattened
   const visibleTree = flattenTree(filterTree(fileTree, searchTerm));
 
+  // Check if all files are selected
+  const areAllFilesSelected = allFiles.length > 0 && selectedFiles.length === allFiles.length;
+
+  // Handle checkbox change for selectAll/deselectAll
+  const handleSelectAllToggle = (e: any) => {
+    if (e.target.checked) {
+      selectAllFiles();
+    } else {
+      deselectAllFiles();
+    }
+  };
+
   return (
     <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
-      <div className="sidebar-header">
-        <div className="sidebar-title">Files</div>
-        <div className="sidebar-folder-path">{selectedFolder}</div>
-      </div>
-
       <div className="sidebar-search">
         <SearchBar
           searchTerm={searchTerm}
@@ -299,18 +307,30 @@ const Sidebar = ({
         />
       </div>
 
-      <div className="sidebar-actions">
-        <button className="sidebar-action-btn" onClick={selectAllFiles}>
-          Select All
-        </button>
-        <button className="sidebar-action-btn" onClick={deselectAllFiles}>
-          Deselect All
-        </button>
-      </div>
-
       {allFiles.length > 0 ? (
         isTreeBuildingComplete ? (
           <div className="file-tree">
+            {selectedFolder && (
+              <div className="folder-header tree-item">
+                <div className="tree-item-checkbox-container">
+                  <input
+                    type="checkbox"
+                    className="tree-item-checkbox"
+                    checked={areAllFilesSelected}
+                    onChange={handleSelectAllToggle}
+                    title={areAllFilesSelected ? "Deselect all files" : "Select all files"}
+                  />
+                  <span className="custom-checkbox"></span>
+                </div>
+                <div className="folder-icon">
+                  <Folder size={16} />
+                </div>
+                <div className="folder-path tree-item-name" title={selectedFolder}>
+                  {selectedFolder.split(/[/\\]/).pop()}
+                </div>
+              </div>
+            )}
+            
             {visibleTree.length > 0 ? (
               visibleTree.map((node) => (
                 <TreeItem

@@ -108,16 +108,18 @@ const TreeItem = ({
       )}
 
       {type === "file" && <div className="tree-item-indent"></div>}
-
-      <input
-        type="checkbox"
-        className="tree-item-checkbox"
-        checked={type === "file" ? isSelected : isDirectorySelected}
-        ref={checkboxRef}
-        onChange={handleCheckboxChange}
-        disabled={isDisabled}
-        onClick={(e) => e.stopPropagation()}
-      />
+      <div className="tree-item-checkbox-container">
+        <input
+          type="checkbox"
+          className="tree-item-checkbox"
+          checked={type === "file" ? isSelected : isDirectorySelected}
+          ref={checkboxRef}
+          onChange={handleCheckboxChange}
+          disabled={isDisabled}
+          onClick={(e) => e.stopPropagation()}
+        />
+        <span className="custom-checkbox"></span>
+      </div>
 
       <div className="tree-item-content">
         <div className="tree-item-icon">

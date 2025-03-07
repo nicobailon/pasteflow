@@ -141,6 +141,10 @@ const App = () => {
       status: "processing",
       message: "Loading files from previously selected folder...",
     });
+    
+    // Clear any previously selected files when loading initial data
+    setSelectedFiles([]);
+    
     window.electron.ipcRenderer.send("request-file-list", selectedFolder);
   
     // Mark that we've loaded the initial data
@@ -161,7 +165,7 @@ const App = () => {
       if (typeof folderPath === "string") {
         console.log("Folder selected:", folderPath);
         setSelectedFolder(folderPath);
-        // We'll select all files after they're loaded
+        // Clear any previously selected files
         setSelectedFiles([]);
         setProcessingStatus({
           status: "processing",
@@ -188,15 +192,8 @@ const App = () => {
       // Apply filters and sort to the new files
       applyFiltersAndSort(files, sortOrder, searchTerm);
 
-      // Select only files that are not binary, not skipped, and not excluded by default
-      const selectablePaths = files
-        .filter(
-          (file: FileData) =>
-            !file.isBinary && !file.isSkipped && !file.excludedByDefault, // Respect the excludedByDefault flag
-        )
-        .map((file: FileData) => file.path);
-
-      setSelectedFiles(selectablePaths);
+      // No files selected by default - user must explicitly select files
+      setSelectedFiles([]);
     };
 
     const handleProcessingStatus = (status: {
