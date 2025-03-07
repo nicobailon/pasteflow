@@ -1,14 +1,12 @@
-# PasteMax
+# PasteFlow
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub issues](https://img.shields.io/github/issues/kleneway/pastemax)](https://github.com/kleneway/pastemax/issues)
+PasteFlow is a streamlined productivity tool designed for developers working with AI coding assistants. It allows developers to manage context precisely by packaging their code and instructions in an optimized format for AI interaction.
 
-A modern file viewer application for developers to easily navigate, search, and copy code from repositories. Ideal for pasting into ChatGPT or your LLM of choice. Built with Electron, React, and TypeScript.
+The app creates a seamless bridge between your codebase and external AI platforms like ChatGPT and Claude. Code changes suggested by AI are captured as XML diffs that can be automatically applied back to your original files with a single action.
 
-![PasteMax Screenshot](https://github.com/user-attachments/assets/4115ad31-9c93-4cf8-bd65-4bb5379e0eba)
+Originally forked from PasteMax, this enhanced version eliminates friction in the development workflow by maintaining perfect context throughout the entire process—from sending code to AI assistants to implementing their suggested changes.
 
-## Video
-[YouTube Link](https://youtu.be/YV-pZSDNnPo)
+![PasteFlow Screenshot](https://github.com/user-attachments/assets/4115ad31-9c93-4cf8-bd65-4bb5379e0eba)
 
 ## Features
 
@@ -32,15 +30,15 @@ A modern file viewer application for developers to easily navigate, search, and 
 
 ### Download Binary
 
-Download the latest version from the [releases page](https://github.com/kleneway/pastemax/releases).
+Download the latest version from our official distribution channel.
 
 ### Or Build from Source
 
 1. Clone the repository:
 
 ```
-git clone https://github.com/kleneway/pastemax.git
-cd pastemax
+git clone [repository URL]
+cd pasteflow
 ```
 
 2. Install dependencies:
@@ -86,7 +84,7 @@ npm run dev:electron
 
 ### Running Tests
 
-PasteMax includes a suite of unit tests to ensure functionality works as expected:
+PasteFlow includes a suite of unit tests to ensure functionality works as expected:
 
 ```
 # Run tests once
@@ -162,7 +160,7 @@ The Apply XML Changes feature allows you to apply code changes to your project d
 
 ## Customization
 
-You can customize which files are excluded by default by editing the `excluded-files.js` file. See the [excluded files documentation](docs/excluded-files.md) for more details.
+You can customize which files are excluded by default by editing the `excluded-files.js` file. See the excluded files documentation for more details.
 
 ## Troubleshooting
 
@@ -173,7 +171,7 @@ If you encounter this error when running the packaged application:
 ```
 Error: Cannot find module 'ignore'
 Require stack:
-- /Applications/PasteMax.app/Contents/Resources/app.asar/main.js
+- /Applications/PasteFlow.app/Contents/Resources/app.asar/main.js
 ```
 
 This is caused by dependencies not being properly included in the package. To fix it:
@@ -194,18 +192,4 @@ This is caused by dependencies not being properly included in the package. To fi
 
 ### Other Issues
 
-If you encounter other issues, please [report them on GitHub](https://github.com/kleneway/pastemax/issues).
-
-## License
-
-MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+For assistance with other issues, please contact our support team.

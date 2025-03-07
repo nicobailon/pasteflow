@@ -1,6 +1,6 @@
-# Building and Releasing PasteMax
+# Building and Releasing PasteFlow
 
-This document explains how to build and release PasteMax for distribution.
+This document explains how to build and release PasteFlow for distribution.
 
 ## Building the Application Locally
 
@@ -23,7 +23,7 @@ The packaged application will be available in the `release-builds` directory.
 To create a release version for distribution:
 
 ```bash
-# For a public release without publishing
+# For a private release without publishing
 npm run package
 
 # For a GitHub release (requires GitHub token)
