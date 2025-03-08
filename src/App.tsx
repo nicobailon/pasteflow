@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import useLocalStorage from "./hooks/useLocalStorage";
 import Sidebar from "./components/Sidebar";
 import FileList from "./components/FileList";
 import CopyButton from "./components/CopyButton";
@@ -39,40 +40,39 @@ const STORAGE_KEYS = {
 };
 
 const App = () => {
-  // Load initial state from localStorage if available
-  const savedFolder = localStorage.getItem(STORAGE_KEYS.SELECTED_FOLDER);
-  const savedFiles = localStorage.getItem(STORAGE_KEYS.SELECTED_FILES);
-  const savedSortOrder = localStorage.getItem(STORAGE_KEYS.SORT_ORDER);
-  const savedSearchTerm = localStorage.getItem(STORAGE_KEYS.SEARCH_TERM);
-
-  const [selectedFolder, setSelectedFolder] = useState(
-    savedFolder as string | null
+  // Use custom useLocalStorage hook for persisted state
+  const [selectedFolder, setSelectedFolder] = useLocalStorage<string | null>(
+    STORAGE_KEYS.SELECTED_FOLDER,
+    null
   );
+  const [selectedFiles, setSelectedFiles] = useLocalStorage<string[]>(
+    STORAGE_KEYS.SELECTED_FILES,
+    []
+  );
+  const [sortOrder, setSortOrder] = useLocalStorage<string>(
+    STORAGE_KEYS.SORT_ORDER,
+    "tokens-desc"
+  );
+  const [searchTerm, setSearchTerm] = useLocalStorage<string>(
+    STORAGE_KEYS.SEARCH_TERM,
+    ""
+  );
+  const [fileTreeMode, setFileTreeMode] = useLocalStorage<FileTreeMode>(
+    STORAGE_KEYS.FILE_TREE_MODE,
+    "none"
+  );
+  
+  // State that doesn't need localStorage persistence
   const [allFiles, setAllFiles] = useState([] as FileData[]);
-  const [selectedFiles, setSelectedFiles] = useState(
-    savedFiles ? JSON.parse(savedFiles) : [] as string[]
-  );
-  const [sortOrder, setSortOrder] = useState(
-    savedSortOrder || "tokens-desc"
-  );
-  const [searchTerm, setSearchTerm] = useState(savedSearchTerm || "");
-  const [expandedNodes, setExpandedNodes] = useState(
-    {} as Record<string, boolean>
-  );
+  const [expandedNodes, setExpandedNodes] = useState({} as Record<string, boolean>);
   const [displayedFiles, setDisplayedFiles] = useState([] as FileData[]);
-  const [processingStatus, setProcessingStatus] = useState(
-    { status: "idle", message: "" } as {
-      status: "idle" | "processing" | "complete" | "error";
-      message: string;
-    }
-  );
-  // Load saved file tree mode from localStorage
-  const savedFileTreeMode = localStorage.getItem(STORAGE_KEYS.FILE_TREE_MODE);
-  const validModes: FileTreeMode[] = ["none", "selected", "selected-with-roots", "complete"];
-  const initialMode: FileTreeMode = validModes.includes(savedFileTreeMode as FileTreeMode) 
-    ? (savedFileTreeMode as FileTreeMode) 
-    : "none";
-  const [fileTreeMode, setFileTreeMode] = useState(initialMode);
+  const [processingStatus, setProcessingStatus] = useState({
+    status: "idle",
+    message: ""
+  } as {
+    status: "idle" | "processing" | "complete" | "error";
+    message: string;
+  });
   
   // State for the ApplyChangesModal
   const [showApplyChangesModal, setShowApplyChangesModal] = useState(false);
@@ -97,37 +97,19 @@ const App = () => {
     }
   }, []);
 
-  // Persist selected folder when it changes
+  // Load expanded nodes state from localStorage
   useEffect(() => {
-    if (selectedFolder) {
-      localStorage.setItem(STORAGE_KEYS.SELECTED_FOLDER, selectedFolder);
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.SELECTED_FOLDER);
-    }
-  }, [selectedFolder]);
-
-  // Persist selected files when they change
-  useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEYS.SELECTED_FILES,
-      JSON.stringify(selectedFiles),
+    const savedExpandedNodes = localStorage.getItem(
+      STORAGE_KEYS.EXPANDED_NODES,
     );
-  }, [selectedFiles]);
-
-  // Persist sort order when it changes
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SORT_ORDER, sortOrder);
-  }, [sortOrder]);
-
-  // Persist search term when it changes
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SEARCH_TERM, searchTerm);
-  }, [searchTerm]);
-
-  // Persist file tree mode when it changes
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.FILE_TREE_MODE, fileTreeMode);
-  }, [fileTreeMode]);
+    if (savedExpandedNodes) {
+      try {
+        setExpandedNodes(JSON.parse(savedExpandedNodes));
+      } catch (error) {
+        console.error("Error parsing saved expanded nodes:", error);
+      }
+    }
+  }, []);
 
   // Load initial data from saved folder
   useEffect(() => {
@@ -228,7 +210,7 @@ const App = () => {
     };
   }, [isElectron, sortOrder, searchTerm]);
 
-  const openFolder = () => {
+  const openFolder = useCallback(() => {
     if (isElectron) {
       console.log("Opening folder dialog");
       setProcessingStatus({ status: "idle", message: "Select a folder..." });
@@ -236,60 +218,57 @@ const App = () => {
     } else {
       console.warn("Folder selection not available in browser");
     }
-  };
+  }, [isElectron]);
 
   // Function to reset the app to its blank starting state
-  const resetFolderState = () => {
+  const resetFolderState = useCallback(() => {
     console.log("Resetting folder state to blank starting state");
     setSelectedFolder(null);
     setAllFiles([]);
     setSelectedFiles([]);
     setProcessingStatus({ status: "idle", message: "" });
     
-    // Clear from localStorage
-    localStorage.removeItem(STORAGE_KEYS.SELECTED_FOLDER);
-    localStorage.removeItem(STORAGE_KEYS.SELECTED_FILES);
-  };
+    // No need to manually clear localStorage entries - handled by useLocalStorage
+  }, [setSelectedFolder, setSelectedFiles]);
 
   // Apply filters and sorting to files
-  const applyFiltersAndSort = (
-    files: FileData[],
-    sort: string,
-    filter: string,
-  ) => {
-    let filtered = files;
+  const applyFiltersAndSort = useCallback(
+    (files: FileData[], sort: string, filter: string) => {
+      let filtered = files;
 
-    // Apply filter
-    if (filter) {
-      const lowerFilter = filter.toLowerCase();
-      filtered = files.filter(
-        (file) =>
-          file.name.toLowerCase().includes(lowerFilter) ||
-          file.path.toLowerCase().includes(lowerFilter),
-      );
-    }
-
-    // Apply sort
-    const [sortKey, sortDir] = sort.split("-");
-    const sorted = [...filtered].sort((a, b) => {
-      let comparison = 0;
-
-      if (sortKey === "name") {
-        comparison = a.name.localeCompare(b.name);
-      } else if (sortKey === "tokens") {
-        comparison = a.tokenCount - b.tokenCount;
-      } else if (sortKey === "size") {
-        comparison = a.size - b.size;
+      // Apply filter
+      if (filter) {
+        const lowerFilter = filter.toLowerCase();
+        filtered = files.filter(
+          (file) =>
+            file.name.toLowerCase().includes(lowerFilter) ||
+            file.path.toLowerCase().includes(lowerFilter),
+        );
       }
 
-      return sortDir === "asc" ? comparison : -comparison;
-    });
+      // Apply sort
+      const [sortKey, sortDir] = sort.split("-");
+      const sorted = [...filtered].sort((a, b) => {
+        let comparison = 0;
 
-    setDisplayedFiles(sorted);
-  };
+        if (sortKey === "name") {
+          comparison = a.name.localeCompare(b.name);
+        } else if (sortKey === "tokens") {
+          comparison = a.tokenCount - b.tokenCount;
+        } else if (sortKey === "size") {
+          comparison = a.size - b.size;
+        }
+
+        return sortDir === "asc" ? comparison : -comparison;
+      });
+
+      setDisplayedFiles(sorted);
+    },
+    [setDisplayedFiles]
+  );
 
   // Toggle file selection
-  const toggleFileSelection = (filePath: string) => {
+  const toggleFileSelection = useCallback((filePath: string) => {
     setSelectedFiles((prev: string[]) => {
       if (prev.includes(filePath)) {
         return prev.filter((path: string) => path !== filePath);
@@ -297,10 +276,10 @@ const App = () => {
         return [...prev, filePath];
       }
     });
-  };
+  }, [setSelectedFiles]);
 
   // Toggle folder selection (select/deselect all files in folder)
-  const toggleFolderSelection = (folderPath: string, isSelected: boolean) => {
+  const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean) => {
     const filesInFolder = allFiles.filter(
       (file: FileData) =>
         file.path.startsWith(folderPath) && !file.isBinary && !file.isSkipped,
@@ -327,20 +306,20 @@ const App = () => {
         ),
       );
     }
-  };
+  }, [allFiles, setSelectedFiles]);
 
   // Handle sort change
-  const handleSortChange = (newSort: string) => {
+  const handleSortChange = useCallback((newSort: string) => {
     setSortOrder(newSort);
     applyFiltersAndSort(allFiles, newSort, searchTerm);
     setSortDropdownOpen(false); // Close dropdown after selection
-  };
+  }, [allFiles, searchTerm, setSortOrder, applyFiltersAndSort]);
 
   // Handle search change
-  const handleSearchChange = (newSearch: string) => {
+  const handleSearchChange = useCallback((newSearch: string) => {
     setSearchTerm(newSearch);
     applyFiltersAndSort(allFiles, sortOrder, newSearch);
-  };
+  }, [allFiles, sortOrder, setSearchTerm, applyFiltersAndSort]);
 
   // Toggle sort dropdown
   const toggleSortDropdown = () => {
@@ -474,7 +453,7 @@ const App = () => {
   };
 
   // Handle select all files
-  const selectAllFiles = () => {
+  const selectAllFiles = useCallback(() => {
     const selectablePaths = displayedFiles
       .filter((file: FileData) => !file.isBinary && !file.isSkipped)
       .map((file: FileData) => file.path);
@@ -488,15 +467,15 @@ const App = () => {
       });
       return newSelection;
     });
-  };
+  }, [displayedFiles, setSelectedFiles]);
 
   // Handle deselect all files
-  const deselectAllFiles = () => {
+  const deselectAllFiles = useCallback(() => {
     const displayedPaths = displayedFiles.map((file: FileData) => file.path);
     setSelectedFiles((prev: string[]) =>
       prev.filter((path: string) => !displayedPaths.includes(path)),
     );
-  };
+  }, [displayedFiles, setSelectedFiles]);
 
   // Sort options for the dropdown
   const sortOptions = [
@@ -507,7 +486,7 @@ const App = () => {
   ];
 
   // Handle expand/collapse state changes
-  const toggleExpanded = (nodeId: string) => {
+  const toggleExpanded = useCallback((nodeId: string) => {
     setExpandedNodes((prev: Record<string, boolean>) => {
       const newState = {
         ...prev,
@@ -522,7 +501,7 @@ const App = () => {
 
       return newState;
     });
-  };
+  }, []);
 
   // Function to extract folder name from path
   const getFolderNameFromPath = (path: string) => {
