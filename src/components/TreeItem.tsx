@@ -17,42 +17,53 @@ const TreeItem = ({
 
   const isSelected = type === "file" && selectedFiles.includes(path);
 
-  // For directories, check if all children are selected
-  const isDirectorySelected =
-    type === "directory" && node.children
-      ? node.children.every((child: TreeNode) => {
-          if (child.type === "file") {
-            return selectedFiles.includes(child.path);
-          } else if (child.type === "directory" && child.children) {
-            // Check recursively if this directory's children are all selected
-            return child.children.every((grandchild: TreeNode) => {
-              return (
-                grandchild.type === "file" &&
-                selectedFiles.includes(grandchild.path)
-              );
-            });
-          }
-          return false;
-        })
-      : false;
+  // Helper function to check if a node is fully selected
+  const isNodeFullySelected = (node: TreeNode): boolean => {
+    if (node.type === "file") {
+      // Files are selected if they're in the selectedFiles array
+      // Non-selectable files (binary/skipped) are ignored
+      const isSelectable = !(node.fileData?.isBinary || node.fileData?.isSkipped);
+      return !isSelectable || selectedFiles.includes(node.path);
+    }
+    
+    if (node.type === "directory" && node.children) {
+      // A directory is fully selected if all its children are fully selected
+      return node.children.length > 0 && node.children.every(isNodeFullySelected);
+    }
+    
+    return false;
+  };
 
-  // Check if some but not all files in this directory are selected
-  const isDirectoryPartiallySelected =
-    type === "directory" && node.children
-      ? node.children.some((child: TreeNode) => {
-          if (child.type === "file") {
-            return selectedFiles.includes(child.path);
-          } else if (child.type === "directory" && child.children) {
-            return child.children.some((grandchild: TreeNode) => {
-              return (
-                grandchild.type === "file" &&
-                selectedFiles.includes(grandchild.path)
-              );
-            });
-          }
-          return false;
-        }) && !isDirectorySelected
-      : false;
+  // Helper function to check if a node is partially selected
+  const isNodePartiallySelected = (node: TreeNode): boolean => {
+    if (node.type === "file") {
+      return false; // Files can't be partially selected
+    }
+    
+    if (node.type === "directory" && node.children) {
+      if (node.children.length === 0) return false;
+      
+      // If any child is selected or partially selected
+      const anySelected = node.children.some(child => {
+        if (child.type === "file") {
+          const isSelectable = !(child.fileData?.isBinary || child.fileData?.isSkipped);
+          return isSelectable && selectedFiles.includes(child.path);
+        }
+        return isNodeFullySelected(child) || isNodePartiallySelected(child);
+      });
+      
+      // If all children are selected, it's fully selected, not partially
+      const allSelected = isNodeFullySelected(node);
+      
+      return anySelected && !allSelected;
+    }
+    
+    return false;
+  };
+
+  // For directories, determine if fully or partially selected
+  const isDirectorySelected = type === "directory" ? isNodeFullySelected(node) : false;
+  const isDirectoryPartiallySelected = type === "directory" ? isNodePartiallySelected(node) : false;
 
   // Update the indeterminate state manually whenever it changes
   useEffect(() => {
