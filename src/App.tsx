@@ -564,6 +564,33 @@ const App = () => {
           <div className="error-message">Error: {processingStatus.message}</div>
         )}
 
+        {!selectedFolder && (
+          <div className="welcome-screen">
+            <pre className="ascii-logo">
+{`
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║  ██████╗  █████╗ ███████╗████████╗███████╗███████╗██╗      ██████╗ ██╗    ██╗ ║
+║  ██╔══██╗██╔══██╗██╔════╝╚══██╔══╝██╔════╝██╔════╝██║     ██╔═══██╗██║    ██║ ║
+║  ██████╔╝███████║███████╗   ██║   █████╗  █████╗  ██║     ██║   ██║██║ █╗ ██║ ║
+║  ██╔═══╝ ██╔══██║╚════██║   ██║   ██╔══╝  ██╔══╝  ██║     ██║   ██║██║███╗██║ ║
+║  ██║     ██║  ██║███████║   ██║   ███████╗██║     ███████╗╚██████╔╝╚███╔███╔╝ ║
+║  ╚═╝     ╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝  ║
+║                                                                              ║
+║                           © 2025 PasteFlow Corp v1.0                         ║
+║                                                                              ║
+║                        Select a folder to get started                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+`}
+            </pre>
+            <div className="welcome-message">
+              <button className="welcome-button" onClick={openFolder}>
+                <FolderOpen size={36} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {selectedFolder && (
           <div className="main-content">
             <Sidebar
