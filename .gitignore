@@ -59,3 +59,9 @@ Thumbs.db
 # Release builds
 release-builds/
 dist/
+
+# test coverage
+coverage/
+
+# cursor tasks
+.cursor-tasks.md
