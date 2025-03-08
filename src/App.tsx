@@ -334,8 +334,8 @@ const App = () => {
     }, 0);
   };
 
-  // Concatenate selected files content for copying
-  const getSelectedFilesContent = () => {
+  // Get selected files content without user instructions
+  const getSelectedFilesContentWithoutInstructions = () => {
     // Sort selected files according to current sort order
     const [sortKey, sortDir] = sortOrder.split("-");
     const sortedSelected = allFiles
@@ -448,8 +448,25 @@ const App = () => {
     
     // Close file_contents tag
     concatenatedString += "</codebase>";
-
+    
     return concatenatedString;
+  };
+
+  // Get selected files content with user instructions
+  const getSelectedFilesContent = () => {
+    // Get the base content
+    const baseContent = getSelectedFilesContentWithoutInstructions();
+    
+    // Get user instructions from the input field
+    const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
+    const userInstructions = userInstructionsElement?.value?.trim();
+    
+    // Append user instructions if they exist
+    if (userInstructions) {
+      return `${baseContent}\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+    }
+    
+    return baseContent;
   };
 
   // Handle select all files
@@ -565,71 +582,92 @@ const App = () => {
               resetFolderState={resetFolderState}
             />
             <div className="content-area">
-              <div className="content-header">
-                <div className="content-actions">
-                  <strong className="content-title">Selected Files</strong>
-                  <div className="sort-dropdown">
-                    <button
-                      className="sort-dropdown-button"
-                      onClick={toggleSortDropdown}
-                    >
-                      Sort:{" "}
-                      {sortOptions.find((opt) => opt.value === sortOrder)
-                        ?.label || sortOrder}
-                    </button>
-                    {sortDropdownOpen && (
-                      <div className="sort-options">
-                        {sortOptions.map((option) => (
-                          <div
-                            key={option.value}
-                            className={`sort-option ${
-                              sortOrder === option.value ? "active" : ""
-                            }`}
-                            onClick={() => handleSortChange(option.value)}
-                          >
-                            {option.label}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="file-stats">
-                    {selectedFiles.length} files | ~
-                    {calculateTotalTokens().toLocaleString()} tokens
-                  </div>
-                </div>
-                {selectedFolder && (
-                  <button
-                    className="apply-changes-btn"
-                    onClick={() => setShowApplyChangesModal(true)}
-                  >
-                    Apply XML Changes
-                  </button>
-                )}
+              <div className="user-instructions-input-area">
+                <textarea className="user-instructions-input" placeholder="Enter your instructions here..." />
               </div>
-
-              <FileList
-                files={displayedFiles}
-                selectedFiles={selectedFiles}
-                toggleFileSelection={toggleFileSelection}
-                openFolder={openFolder}
-                processingStatus={processingStatus}
-              />
-
-              <div className="copy-button-container">
-                <CopyButton
-                  text={getSelectedFilesContent()}
-                  className="primary"
+              <div className="selected-files-content-area">
+                <div className="selected-files-content-header">
+                  <div className="content-actions">
+                    <strong className="content-title">Selected Files</strong>
+                    <div className="sort-dropdown">
+                      <button
+                        className="sort-dropdown-button"
+                        onClick={toggleSortDropdown}
+                      >
+                        Sort:{" "}
+                        {sortOptions.find((opt) => opt.value === sortOrder)
+                          ?.label || sortOrder}
+                      </button>
+                      {sortDropdownOpen && (
+                        <div className="sort-options">
+                          {sortOptions.map((option) => (
+                            <div
+                              key={option.value}
+                              className={`sort-option ${
+                                sortOrder === option.value ? "active" : ""
+                              }`}
+                              onClick={() => handleSortChange(option.value)}
+                            >
+                              {option.label}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="file-stats">
+                      {selectedFiles.length} files | ~
+                      {calculateTotalTokens().toLocaleString()} tokens
+                    </div>
+                  </div>
+                  {selectedFolder && (
+                    <button
+                      className="apply-changes-btn"
+                      onClick={() => setShowApplyChangesModal(true)}
                     >
-                      <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
-                    </CopyButton>
-                    <CopyButton
-                      text={`${getSelectedFilesContent()}\n\n${XML_FORMATTING_INSTRUCTIONS}`}
-                      className="secondary"
-                    >
-                      <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
-                    </CopyButton>
+                      Apply XML Changes
+                    </button>
+                  )}
                 </div>
+
+                <FileList
+                  files={displayedFiles}
+                  selectedFiles={selectedFiles}
+                  toggleFileSelection={toggleFileSelection}
+                  openFolder={openFolder}
+                  processingStatus={processingStatus}
+                />
+
+                <div className="copy-button-container">
+                  <CopyButton
+                    text={getSelectedFilesContent}
+                    className="primary"
+                    >
+                    <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
+                  </CopyButton>
+                  <CopyButton
+                    text={() => {
+                      // Get the content without user instructions
+                      const baseContent = getSelectedFilesContentWithoutInstructions();
+                      // Get user instructions
+                      const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
+                      const userInstructions = userInstructionsElement?.value?.trim();
+                      
+                      // Combine content with XML instructions and user instructions at the end
+                      let result = `${baseContent}\n\n${XML_FORMATTING_INSTRUCTIONS}`;
+                      
+                      // Add user instructions at the very end if they exist
+                      if (userInstructions) {
+                        result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+                      }
+                      
+                      return result;
+                    }}
+                    className="secondary"
+                  >
+                    <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
+                  </CopyButton>
+                </div>
+              </div>
             </div>
           </div>
         )}

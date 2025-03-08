@@ -179,10 +179,6 @@ const Sidebar = ({
 
   // Function to close the current folder
   const closeCurrentFolder = useCallback(() => {
-    // Reset the fileTree and other relevant state
-    setFileTree([]);
-    setIsTreeBuildingComplete(false);
-    
     // Use the resetFolderState function if available, otherwise fall back to openFolder
     if (resetFolderState) {
       resetFolderState();

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Copy, Check } from "lucide-react";
 
 interface CopyButtonProps {
-  text: string;
+  text: string | (() => string);
   className?: string;
   children?: JSX.Element | string;
 }
@@ -12,7 +12,10 @@ const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(text);
+      // Get the text to copy - either use the string directly or call the function
+      const textToCopy = typeof text === 'function' ? text() : text;
+      
+      await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
 
       // Reset the copied state after 2 seconds
