@@ -6,6 +6,7 @@ interface UseFileTreeProps {
   selectedFolder: string | null;
   expandedNodes: Record<string, boolean>;
   searchTerm: string;
+  fileTreeSortOrder?: string;
 }
 
 interface UseFileTreeResult {
@@ -18,7 +19,8 @@ function useFileTree({
   allFiles,
   selectedFolder,
   expandedNodes,
-  searchTerm
+  searchTerm,
+  fileTreeSortOrder = 'default'
 }: UseFileTreeProps): UseFileTreeResult {
   const [isTreeBuildingComplete, setIsTreeBuildingComplete] = useState(false);
 
@@ -106,44 +108,194 @@ function useFileTree({
 
             return {
               ...item,
-              children: children.sort((a, b) => {
-                // Sort directories first
-                if (a.type === "directory" && b.type === "file") return -1;
-                if (a.type === "file" && b.type === "directory") return 1;
-
-                // Sort files by token count (largest first)
-                if (a.type === "file" && b.type === "file") {
-                  const aTokens = a.fileData?.tokenCount || 0;
-                  const bTokens = b.fileData?.tokenCount || 0;
-                  return bTokens - aTokens;
-                }
-
-                // Default to alphabetical
-                return a.name.localeCompare(b.name);
-              }),
+              children: sortTreeNodes(children, fileTreeSortOrder),
               isExpanded,
             };
           }
         });
       };
 
+      // Function to sort tree nodes based on sort order
+      const sortTreeNodes = (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
+        // If sortOrder is not 'default', use the existing sorting logic
+        if (sortOrder !== 'default') {
+          return nodes.sort((a, b) => {
+            // Sort directories first, regardless of sort order (unless specified otherwise)
+            if (a.type === "directory" && b.type === "file") return -1;
+            if (a.type === "file" && b.type === "directory") return 1;
+
+            // Apply sort based on sort order
+            const [sortKey, sortDir] = sortOrder.split('-');
+            
+            if (sortKey === 'name') {
+              return sortDir === 'asc' 
+                ? a.name.localeCompare(b.name) 
+                : b.name.localeCompare(a.name);
+            }
+            
+            // For files, enable sorting by other criteria
+            if (a.type === "file" && b.type === "file") {
+              if (sortKey === 'tokens') {
+                const aTokens = a.fileData?.tokenCount || 0;
+                const bTokens = b.fileData?.tokenCount || 0;
+                return sortDir === 'asc' ? aTokens - bTokens : bTokens - aTokens;
+              }
+              
+              if (sortKey === 'extension') {
+                const aExt = a.name.split('.').pop() || '';
+                const bExt = b.name.split('.').pop() || '';
+                return sortDir === 'asc' 
+                  ? aExt.localeCompare(bExt) || a.name.localeCompare(b.name)
+                  : bExt.localeCompare(aExt) || b.name.localeCompare(a.name);
+              }
+              
+              if (sortKey === 'date') {
+                // Since we don't have file date info in the FileData interface,
+                // use a placeholder sorting method
+                return sortDir === 'asc' ? -1 : 1;
+              }
+            }
+            
+            // Default to name sort
+            return a.name.localeCompare(b.name);
+          });
+        }
+        
+        // For the 'default' sort order, implement the developer-focused algorithm
+        return nodes.sort((a, b) => {
+          // Primary Division: Directories first, files second
+          if (a.type === "directory" && b.type === "file") return -1;
+          if (a.type === "file" && b.type === "directory") return 1;
+          
+          // Directory Sorting Rules
+          if (a.type === "directory" && b.type === "directory") {
+            // Helper function to get directory priority
+            const getDirectoryPriority = (node: TreeNode): number => {
+              const name = node.name.toLowerCase();
+              
+              // 1. Core source and functionality directories
+              if (name === 'src') return 1;
+              if (name === 'scripts') return 2;
+              if (name === 'public') return 3;
+              if (name === 'lib') return 4;
+              if (name === 'docs') return 5;
+              if (name === 'app' || name === 'app_components') return 6;
+              if (name === 'actions') return 7;
+              
+              // 2. Special directories
+              if (name === '.github') return 20;
+              
+              // 3. Testing directories
+              if (name === '__mocks__' || name.startsWith('__') || name.endsWith('__')) return 30;
+              
+              // Hidden directories (with leading dot)
+              if (name.startsWith('.')) return 40;
+              
+              // All other directories
+              return 50;
+            };
+            
+            const aPriority = getDirectoryPriority(a);
+            const bPriority = getDirectoryPriority(b);
+            
+            // Sort by priority first
+            if (aPriority !== bPriority) {
+              return aPriority - bPriority;
+            }
+            
+            // Within same priority group, sort alphabetically
+            return a.name.localeCompare(b.name);
+          }
+          
+          // File Sorting Priority
+          if (a.type === "file" && b.type === "file") {
+            // Helper function to get file priority
+            const getFilePriority = (node: TreeNode): number => {
+              const name = node.name.toLowerCase();
+              
+              // 1. Build configuration files
+              if (/vite\.config\.ts$/i.test(name) || 
+                  /tsconfig\.node\.json$/i.test(name) ||
+                  /tsconfig\.json$/i.test(name)) {
+                return 1;
+              }
+              
+              // 2. Runtime files
+              if (/renderer\.js$/i.test(name)) {
+                return 2;
+              }
+              
+              // 3. Documentation files (in decreasing importance)
+              if (/^release\.md$/i.test(name)) {
+                return 3;
+              }
+              if (/^readme\.md$/i.test(name)) {
+                return 4;
+              }
+              if (/^readme\.docker\.md$/i.test(name)) {
+                return 5;
+              }
+              if (/^readme_.*\.md$/i.test(name)) {
+                return 6;
+              }
+              
+              // 4. Application support files
+              if (/^preload\.js$/i.test(name)) {
+                return 10;
+              }
+              
+              // 5. Project configuration
+              if (/^package\.json$/i.test(name)) {
+                return 20;
+              }
+              
+              // 6. User files
+              if (/^new notepad$/i.test(name)) {
+                return 30;
+              }
+              
+              // 7. Entry point files
+              if (/^main\.js$/i.test(name)) {
+                return 40;
+              }
+              
+              // 8. Legal files
+              if (/^license$/i.test(name)) {
+                return 50;
+              }
+              
+              // 9. Testing configuration
+              if (/^jest\.setup\.js$/i.test(name) ||
+                  /^jest\.config\.js$/i.test(name)) {
+                return 60;
+              }
+              
+              // Default priority for other files
+              return 100;
+            };
+            
+            const aPriority = getFilePriority(a);
+            const bPriority = getFilePriority(b);
+            
+            // Sort by priority first
+            if (aPriority !== bPriority) {
+              return aPriority - bPriority;
+            }
+            
+            // For files with same priority, sort alphabetically
+            return a.name.localeCompare(b.name);
+          }
+          
+          // Default fallback
+          return a.name.localeCompare(b.name);
+        });
+      };
+
       // Convert to proper tree structure
       const treeRoots = convertToTreeNodes(fileMap);
 
-      // Sort the top level (directories first, then by name)
-      const sortedTree = treeRoots.sort((a, b) => {
-        if (a.type === "directory" && b.type === "file") return -1;
-        if (a.type === "file" && b.type === "directory") return 1;
-
-        // Sort files by token count (largest first)
-        if (a.type === "file" && b.type === "file") {
-          const aTokens = a.fileData?.tokenCount || 0;
-          const bTokens = b.fileData?.tokenCount || 0;
-          return bTokens - aTokens;
-        }
-
-        return a.name.localeCompare(b.name);
-      });
+      // Sort the top level nodes
+      const sortedTree = sortTreeNodes(treeRoots, fileTreeSortOrder);
 
       setIsTreeBuildingComplete(true);
       return sortedTree;
@@ -152,7 +304,7 @@ function useFileTree({
       setIsTreeBuildingComplete(true);
       return [];
     }
-  }, [allFiles, selectedFolder, expandedNodes]);
+  }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder]);
 
   // Update the tree building complete state after the memo is computed
   useEffect(() => {

@@ -2,11 +2,39 @@ import { useState, useEffect } from 'react';
 
 function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
   // Get stored value from localStorage or use initialValue
-  const [storedValue, setStoredValue] = useState<T>(() => {
+  const [storedValue, setStoredValue] = useState(() => {
     try {
       const item = localStorage.getItem(key);
-      // Parse stored json or return initialValue if null
-      return item ? (typeof initialValue === 'string' ? item as unknown as T : JSON.parse(item)) : initialValue;
+      // If there's no item in localStorage, return the initialValue
+      if (!item) return initialValue;
+      
+      // If the item starts with a slash or drive letter, it's likely a file path
+      // Mac/Linux paths start with /, Windows paths often start with a drive letter followed by :\
+      if (item.startsWith('/') || /^[A-Za-z]:/.test(item)) {
+        return item as unknown as T;
+      }
+      
+      // For string type initialValues, don't try to parse as JSON
+      if (typeof initialValue === 'string') {
+        return item as unknown as T;
+      }
+      
+      // For null/undefined values as initialValue
+      if (initialValue === null || initialValue === undefined) {
+        // Check if item might be "null" string
+        if (item === "null") return null as unknown as T;
+        // Otherwise treat as string
+        return item as unknown as T;
+      }
+      
+      // For other types, attempt to parse the JSON
+      try {
+        return JSON.parse(item) as unknown as T;
+      } catch (error) {
+        // If JSON parsing fails, it might be a simple string value
+        console.log(`Returning raw value for key "${key}" since JSON parsing failed`);
+        return item as unknown as T;
+      }
     } catch (error) {
       console.error(`Error reading localStorage key "${key}":`, error);
       return initialValue;
