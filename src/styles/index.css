@@ -171,12 +171,25 @@ input[type="search"]:focus {
   font-weight: 600;
   margin: 0;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+}
+
+.app-title {
+  display: flex;
+  align-items: center;
+}
+
+.folder-name {
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-left: 4px;
 }
 
 .folder-info {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex: 1;
 }
 
 .selected-folder {
@@ -204,6 +217,11 @@ input[type="search"]:focus {
   transition: background-color 0.2s ease;
   border: 1px solid var(--icon-stroke-color);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.select-folder-btn.large {
+  width: 64px;
+  height: 64px;
 }
 
 .select-folder-btn svg {
@@ -343,11 +361,63 @@ input[type="search"]:focus {
   position: sticky;
   top: 0;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.folder-header-left {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
 }
 
 .folder-select-checkbox {
   margin-right: 8px;
   cursor: pointer;
+}
+
+.folder-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.folder-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 4px;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.folder-action-btn:hover {
+  background-color: var(--background-tertiary);
+  color: var(--text-primary);
+}
+
+.folder-action-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-color-transparent);
+}
+
+.folder-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+
+.folder-action-btn:disabled:hover {
+  background: none;
+  color: var(--text-muted);
 }
 
 .tree-item {
@@ -518,14 +588,14 @@ input[type="search"]:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
+  padding: 12px 24px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--background-primary);
 }
 
 .content-title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
@@ -543,7 +613,8 @@ input[type="search"]:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 12px;
+  font-weight: 400;
   color: var(--text-primary);
 }
 
@@ -577,7 +648,7 @@ input[type="search"]:focus {
 }
 
 .file-stats {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -723,23 +794,20 @@ input[type="search"]:focus {
   justify-content: center;
   background-color: var(--background-primary);
   margin-top: auto;
+  padding: 16px;
 }
 
 .file-tree-format-container {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 6px;
 }
 
 .file-tree-options-container {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  width: 100%;
   justify-content: center;
-  padding: 24px 0;
 }
 
 .copy-button {
@@ -1247,6 +1315,7 @@ input[type="text"].search-input:focus {
   cursor: pointer;
   font-size: 0.875rem;
   transition: background-color 0.2s;
+  margin-left: auto;
 }
 
 .apply-changes-btn:hover {
@@ -1289,3 +1358,7 @@ input[type="text"].search-input:focus {
   background: var(--scrollbar-thumb-hover);
 }
 
+.folder-icon-app-title {
+  margin-right: 4px;
+  vertical-align: sub;
+}

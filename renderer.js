@@ -23,11 +23,11 @@ openFolderButton.addEventListener("click", () => {
 
 // Set up the IPC listeners using the exposed API
 window.electron.receive("folder-selected", (selectedPath) => {
-  // Store or display the selected path
-  const selectedFolderDisplay = document.getElementById(
-    "selected-folder-display",
-  );
-  selectedFolderDisplay.textContent = `Selected Folder: ${selectedPath}`;
+  // Extract just the folder name from the path
+  const folderName = selectedPath.split(/[\/\\]/).pop();
+  
+  // Update the document title to include the folder name
+  document.title = `PasteFlow - ${folderName}`;
 
   // Reset selected files when a new folder is selected
   selectedFiles = [];

@@ -35,12 +35,18 @@ export interface SidebarProps {
   deselectAllFiles: () => void;
   expandedNodes: Record<string, boolean>;
   toggleExpanded: (nodeId: string) => void;
+  resetFolderState?: () => void;
 }
 
 export interface FileListProps {
   files: FileData[];
   selectedFiles: string[];
   toggleFileSelection: (filePath: string) => void;
+  openFolder: () => void;
+  processingStatus: {
+    status: "idle" | "processing" | "complete" | "error";
+    message: string;
+  };
 }
 
 export interface FileCardProps {

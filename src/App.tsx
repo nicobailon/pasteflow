@@ -7,7 +7,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
 import FileTreeToggle from "./components/FileTreeToggle";
 import { ApplyChangesModal } from "./components/ApplyChangesModal";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, Folder } from "lucide-react";
 import { generateAsciiFileTree, getTopLevelDirectories, getAllDirectories } from "./utils/pathUtils";
 import { XML_FORMATTING_INSTRUCTIONS } from "./utils/xmlTemplates";
 
@@ -236,6 +236,19 @@ const App = () => {
     } else {
       console.warn("Folder selection not available in browser");
     }
+  };
+
+  // Function to reset the app to its blank starting state
+  const resetFolderState = () => {
+    console.log("Resetting folder state to blank starting state");
+    setSelectedFolder(null);
+    setAllFiles([]);
+    setSelectedFiles([]);
+    setProcessingStatus({ status: "idle", message: "" });
+    
+    // Clear from localStorage
+    localStorage.removeItem(STORAGE_KEYS.SELECTED_FOLDER);
+    localStorage.removeItem(STORAGE_KEYS.SELECTED_FILES);
   };
 
   // Apply filters and sorting to files
@@ -511,27 +524,36 @@ const App = () => {
     });
   };
 
+  // Function to extract folder name from path
+  const getFolderNameFromPath = (path: string) => {
+    if (!path) return "";
+    // Split the path by the separator and get the last part
+    const parts = path.split(/[\/\\]/);
+    return parts[parts.length - 1];
+  };
+
   return (
     <ThemeProvider>
       <div className="app-container">
         <header className="header">
           <div className="header-actions">
             <div className="folder-info">
-              {selectedFolder ? (
-                <div className="selected-folder">{selectedFolder}</div>
-              ) : (
-                <span>No folder selected</span>
-              )}
-              <button
+              <h1 className="app-title">
+                {selectedFolder && 
+                  <span className="folder-name"> <Folder className="folder-icon-app-title" size={24} /> {getFolderNameFromPath(selectedFolder)}</span>
+                }
+              </h1>
+            </div>
+            <FileTreeToggle currentMode={fileTreeMode} onChange={setFileTreeMode} />
+            <ThemeToggle />
+            <button
                 className="select-folder-btn"
                 onClick={openFolder}
                 disabled={processingStatus.status === "processing"}
                 title="Select Folder"
               >
                 <FolderOpen size={18} />
-              </button>
-            </div>
-            <ThemeToggle />
+            </button>
           </div>
         </header>
 
@@ -561,11 +583,12 @@ const App = () => {
               deselectAllFiles={deselectAllFiles}
               expandedNodes={expandedNodes}
               toggleExpanded={toggleExpanded}
+              resetFolderState={resetFolderState}
             />
             <div className="content-area">
               <div className="content-header">
-                <div className="content-title">Selected Files</div>
                 <div className="content-actions">
+                  <strong className="content-title">Selected Files</strong>
                   <div className="sort-dropdown">
                     <button
                       className="sort-dropdown-button"
@@ -596,23 +619,28 @@ const App = () => {
                     {calculateTotalTokens().toLocaleString()} tokens
                   </div>
                 </div>
+                {selectedFolder && (
+                  <button
+                    className="apply-changes-btn"
+                    onClick={() => setShowApplyChangesModal(true)}
+                  >
+                    Apply XML Changes
+                  </button>
+                )}
               </div>
 
               <FileList
                 files={displayedFiles}
                 selectedFiles={selectedFiles}
                 toggleFileSelection={toggleFileSelection}
+                openFolder={openFolder}
+                processingStatus={processingStatus}
               />
 
               <div className="copy-button-container">
-                <div className="file-tree-options-container">
-                  <div className="file-tree-format-container">
-                    <FileTreeToggle currentMode={fileTreeMode} onChange={setFileTreeMode} />
-                  </div>
-                  <div className="copy-button-container">
-                    <CopyButton
-                      text={getSelectedFilesContent()}
-                      className="primary"
+                <CopyButton
+                  text={getSelectedFilesContent()}
+                  className="primary"
                     >
                       <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
                     </CopyButton>
@@ -622,17 +650,7 @@ const App = () => {
                     >
                       <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
                     </CopyButton>
-                    {selectedFolder && (
-                      <button
-                        className="apply-changes-btn"
-                        onClick={() => setShowApplyChangesModal(true)}
-                      >
-                        Apply XML Changes
-                      </button>
-                    )}
-                  </div>
                 </div>
-              </div>
             </div>
           </div>
         )}
