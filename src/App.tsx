@@ -450,14 +450,18 @@ const App = () => {
         fileTreeItems = sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }));
       } else if (fileTreeMode === "selected-with-roots") {
         // Include all directories and selected files to show the complete folder structure
-        const allDirs = getAllDirectories(allFiles, selectedFolder);
+        // Filter out skipped files when getting directories
+        const filteredFiles = allFiles.filter((file: FileData) => !file.isSkipped);
+        const allDirs = getAllDirectories(filteredFiles, selectedFolder);
         fileTreeItems = [
           ...allDirs.map(dir => ({ path: dir, isFile: false })),
           ...sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }))
         ];
       } else if (fileTreeMode === "complete") {
-        // Include all files
-        fileTreeItems = allFiles.map((file: FileData) => ({ path: file.path, isFile: true }));
+        // Include all non-skipped files
+        fileTreeItems = allFiles
+          .filter((file: FileData) => !file.isSkipped)
+          .map((file: FileData) => ({ path: file.path, isFile: true }));
       }
 
       const asciiTree = generateAsciiFileTree(fileTreeItems, selectedFolder);
@@ -747,14 +751,11 @@ const App = () => {
               refreshFileTree={refreshFileTree}
             />
             <div className="content-area">
-              <div className="user-instructions-input-area">
-                <textarea className="user-instructions-input" placeholder="Enter your instructions here..." />
-              </div>
               <div className="selected-files-content-area">
                 <div className="selected-files-content-header">
                   <div className="content-actions">
                     <strong className="content-title">Selected Files</strong>
-                    <div className="sort-dropdown">
+                    <div className="sort-dropdown sort-dropdown-selected-files">
                       <button
                         className="sort-dropdown-button"
                         onClick={toggleSortDropdown}
@@ -774,6 +775,7 @@ const App = () => {
                               onClick={() => handleSortChange(option.value)}
                             >
                               {option.label}
+                              {sortOrder === option.value && <span className="checkmark">✓</span>}
                             </div>
                           ))}
                         </div>
@@ -832,6 +834,9 @@ const App = () => {
                     <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
                   </CopyButton>
                 </div>
+              </div>
+              <div className="user-instructions-input-area">
+                <textarea className="user-instructions-input" placeholder="Enter your instructions here..." />
               </div>
             </div>
           </div>

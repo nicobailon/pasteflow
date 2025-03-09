@@ -15,7 +15,7 @@ const fileTreeOptions = [
 
 const FileTreeToggle = ({ currentMode, onChange }: FileTreeToggleProps): JSX.Element => {
   return (
-    <div className="theme-segmented-control">
+    <div className="theme-segmented-control file-tree-snippet-toggle">
       {fileTreeOptions.map((option) => (
         <button
           key={option.value}

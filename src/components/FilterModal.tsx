@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { X } from "lucide-react";
 
 interface FilterModalProps {
   exclusionPatterns: string[];
@@ -7,13 +6,13 @@ interface FilterModalProps {
   onClose: () => void;
 }
 
-const FilterModal: React.FC<FilterModalProps> = ({
+const FilterModal = ({
   exclusionPatterns,
   onSave,
   onClose,
-}) => {
+}: FilterModalProps) => {
   // Convert array to string for editing
-  const [patternsText, setPatternsText] = useState<string>("");
+  const [patternsText, setPatternsText] = useState("");
 
   // Initialize textarea content
   useEffect(() => {
@@ -34,30 +33,28 @@ const FilterModal: React.FC<FilterModalProps> = ({
     // Parse the text to get an array of patterns
     const patterns = patternsText
       .split("\n")
-      .map(line => line.trim())
-      .filter(line => line !== "" && !line.startsWith("#"));
+      .map((line: string) => line.trim())
+      .filter((line: string) => line !== "" && !line.startsWith("#"));
     
     onSave(patterns);
   };
 
   return (
     <div className="modal-overlay">
-      <div className="modal filter-modal">
+      <div className="modal-content filter-modal">
         <div className="modal-header">
           <h2>File Exclusion Filters</h2>
-          <button className="close-btn" onClick={onClose}>
-            <X size={20} />
-          </button>
+          <button className="close-button" onClick={onClose}>×</button>
         </div>
         
-        <div className="modal-content">
-          <p className="filter-info">
+        <div className="modal-body">
+          <p className="modal-description">
             Files matching these patterns will be excluded from the file list.
             Changes will apply after saving and refreshing the file list.
           </p>
           
           <textarea
-            className="filter-patterns-input"
+            className="xml-input"
             value={patternsText}
             onChange={(e) => setPatternsText(e.target.value)}
             spellCheck={false}
@@ -66,10 +63,10 @@ const FilterModal: React.FC<FilterModalProps> = ({
         </div>
         
         <div className="modal-footer">
-          <button className="secondary-btn" onClick={onClose}>
+          <button className="cancel-button" onClick={onClose}>
             Cancel
           </button>
-          <button className="primary-btn" onClick={handleSave}>
+          <button className="apply-button" onClick={handleSave}>
             Save Filters
           </button>
         </div>

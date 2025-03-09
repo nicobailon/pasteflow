@@ -37,6 +37,9 @@ const FileCard = ({
       </div>
 
       <div className="file-card-actions">
+        <CopyButton text={file.content} className="file-card-action">
+          {""}
+        </CopyButton>
         <button
           className="file-card-action"
           onClick={() => toggleSelection(filePath)}
@@ -44,9 +47,6 @@ const FileCard = ({
         >
           {isSelected ? <X size={16} /> : <Plus size={16} />}
         </button>
-        <CopyButton text={file.content} className="file-card-action">
-          {""}
-        </CopyButton>
       </div>
     </div>
   );

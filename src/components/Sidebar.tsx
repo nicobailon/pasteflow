@@ -264,60 +264,60 @@ const Sidebar = ({
   return (
     <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
       <div className="sidebar-buttons">
-        <div className="sort-dropdown-container">
-          <button onClick={() => setSortDropdownOpen(!sortDropdownOpen)} className="sidebar-button" title="Sort Files">
+        <div className="sort-dropdown-container sort-dropdown-container-file-tree">
+          <button onClick={() => setSortDropdownOpen(!sortDropdownOpen)} className="sidebar-button sort-dropdown-button" title="Sort Files">
             <ChevronDown size={16} />
             <span>Sort</span>
           </button>
           {sortDropdownOpen && (
-            <div className="sort-dropdown">
+            <div className="sort-dropdown sort-dropdown-file-tree">
               <button 
                 onClick={() => handleFileTreeSortChange('default')}
-                className={currentSortOption === 'default' ? 'selected' : ''}
+                className={currentSortOption === 'default' ? 'active sort-option' : 'sort-option'}
               >
                 <span>↕</span> Developer-Focused
                 {currentSortOption === 'default' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('name-asc')}
-                className={currentSortOption === 'name-asc' ? 'selected' : ''}
+                className={currentSortOption === 'name-asc' ? 'active sort-option' : 'sort-option'}
               >
                 <span>↑</span> Name (A–Z)
                 {currentSortOption === 'name-asc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('name-desc')}
-                className={currentSortOption === 'name-desc' ? 'selected' : ''}
+                className={currentSortOption === 'name-desc' ? 'active sort-option' : 'sort-option'}
               >
                 <span>↓</span> Name (Z–A)
                 {currentSortOption === 'name-desc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('extension-asc')}
-                className={currentSortOption === 'extension-asc' ? 'selected' : ''}
+                className={currentSortOption === 'extension-asc' ? 'active sort-option' : 'sort-option'}
               >
                 <span>↑</span> Extension (A–Z)
                 {currentSortOption === 'extension-asc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('extension-desc')}
-                className={currentSortOption === 'extension-desc' ? 'selected' : ''}
+                className={currentSortOption === 'extension-desc' ? 'active sort-option' : 'sort-option'}
               >
                 <span>↓</span> Extension (Z–A)
                 {currentSortOption === 'extension-desc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('date-desc')}
-                className={currentSortOption === 'date-desc' ? 'selected' : ''}
+                className={currentSortOption === 'date-desc' ? 'active sort-option' : 'sort-option'}
               >
-                <span>↓</span> Date (Newest)
+                <span>↓</span> Date Modified (Newest)
                 {currentSortOption === 'date-desc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('date-asc')}
-                className={currentSortOption === 'date-asc' ? 'selected' : ''}
+                className={currentSortOption === 'date-asc' ? 'active sort-option' : 'sort-option'}
               >
-                <span>↑</span> Date (Oldest)
+                <span>↑</span> Date Modified (Oldest)
                 {currentSortOption === 'date-asc' && <span className="checkmark">✓</span>}
               </button>
             </div>
