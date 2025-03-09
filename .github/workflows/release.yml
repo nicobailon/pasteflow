@@ -38,7 +38,7 @@ jobs:
 
       # Code signing setup for macOS
       - name: Set up macOS code signing
-        if: matrix.os == 'macos-latest' && secrets.MACOS_CERTIFICATE
+        if: matrix.os == 'macos-latest' && github.event.repository.fork == false
         uses: apple-actions/import-codesign-certs@v1
         with:
           p12-file-base64: ${{ secrets.MACOS_CERTIFICATE }}
@@ -48,11 +48,13 @@ jobs:
 
       # Code signing setup for Windows
       - name: Set up Windows code signing
-        if: matrix.os == 'windows-latest' && secrets.WINDOWS_CERTIFICATE
-        uses: crazy-max/ghaction-import-pfx@v1
-        with:
-          pfx-base64: ${{ secrets.WINDOWS_CERTIFICATE }}
-          pfx-password: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
+        if: matrix.os == 'windows-latest' && github.event.repository.fork == false
+        # For Windows code signing, we'll use a different approach since the action has issues
+        run: |
+          echo "Setting up Windows certificate environment (placeholder)"
+          # The actual certificate import will be handled by electron-builder
+        # Note: Windows certificates are typically handled directly by electron-builder
+        # using the CSC_* environment variables provided in the build step below
 
       - name: Build Vite app
         run: npm run build

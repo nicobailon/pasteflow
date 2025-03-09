@@ -36,6 +36,11 @@ export interface SidebarProps {
   expandedNodes: Record<string, boolean>;
   toggleExpanded: (nodeId: string) => void;
   resetFolderState?: () => void;
+  onFileTreeSortChange?: (sortOrder: string) => void;
+  toggleFilterModal: () => void;
+  refreshFileTree: () => void;
+  toggleFilterModal?: () => void;
+  refreshFileTree?: () => void;
 }
 
 export interface FileListProps {
@@ -80,6 +85,12 @@ export interface CopyButtonProps {
 }
 
 export type FileTreeMode = "none" | "selected" | "selected-with-roots" | "complete";
+
+export interface FilterModalProps {
+  exclusionPatterns: string[];
+  onSave: (patterns: string[]) => void;
+  onClose: () => void;
+}
 
 export interface XmlApplyTabProps {
   selectedFolder: string;

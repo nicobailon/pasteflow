@@ -8,6 +8,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
 import FileTreeToggle from "./components/FileTreeToggle";
 import { ApplyChangesModal } from "./components/ApplyChangesModal";
+import FilterModal from "./components/FilterModal";
 import { FolderOpen, Folder } from "lucide-react";
 import { generateAsciiFileTree, getTopLevelDirectories, getAllDirectories } from "./utils/pathUtils";
 import { XML_FORMATTING_INSTRUCTIONS } from "./utils/xmlTemplates";
@@ -17,7 +18,7 @@ declare global {
   interface Window {
     electron: {
       ipcRenderer: {
-        send: (channel: string, data?: any) => void;
+        send: (channel: string, ...args: any[]) => void;
         on: (channel: string, func: (...args: any[]) => void) => void;
         removeListener: (
           channel: string,
@@ -34,6 +35,7 @@ const STORAGE_KEYS = {
   SELECTED_FOLDER: "pasteflow-selected-folder",
   SELECTED_FILES: "pasteflow-selected-files",
   SORT_ORDER: "pasteflow-sort-order",
+  FILE_TREE_SORT_ORDER: "pasteflow-file-tree-sort-order",
   SEARCH_TERM: "pasteflow-search-term",
   EXPANDED_NODES: "pasteflow-expanded-nodes",
   FILE_TREE_MODE: "pasteflow-file-tree-mode",
@@ -53,6 +55,10 @@ const App = () => {
     STORAGE_KEYS.SORT_ORDER,
     "tokens-desc"
   );
+  const [fileTreeSortOrder, setFileTreeSortOrder] = useLocalStorage<string>(
+    STORAGE_KEYS.FILE_TREE_SORT_ORDER,
+    "default"
+  );
   const [searchTerm, setSearchTerm] = useLocalStorage<string>(
     STORAGE_KEYS.SEARCH_TERM,
     ""
@@ -66,6 +72,7 @@ const App = () => {
   const [allFiles, setAllFiles] = useState([] as FileData[]);
   const [expandedNodes, setExpandedNodes] = useState({} as Record<string, boolean>);
   const [displayedFiles, setDisplayedFiles] = useState([] as FileData[]);
+  const [appInitialized, setAppInitialized] = useState(false);
   const [processingStatus, setProcessingStatus] = useState({
     status: "idle",
     message: ""
@@ -74,8 +81,33 @@ const App = () => {
     message: string;
   });
   
-  // State for the ApplyChangesModal
+  // State for modals
   const [showApplyChangesModal, setShowApplyChangesModal] = useState(false);
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [exclusionPatterns, setExclusionPatterns] = useLocalStorage<string[]>(
+    "pasteflow-exclusion-patterns",
+    [
+      "**/node_modules/",
+      "**/.npm/",
+      "**/__pycache__/",
+      "**/.pytest_cache/",
+      "**/.mypy_cache/",
+      "**/.gradle/",
+      "**/.nuget/",
+      "**/.cargo/",
+      "**/.stack-work/",
+      "**/.ccache/",
+      "**/.idea/",
+      "**/.vscode/",
+      "**/*.swp",
+      "**/*~",
+      "**/*.tmp",
+      "**/*.temp",
+      "**/*.bak",
+      "**/*.meta",
+      "**/package-lock.json",
+    ]
+  );
 
   // State for sort dropdown
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
@@ -97,42 +129,46 @@ const App = () => {
     }
   }, []);
 
-  // Load expanded nodes state from localStorage
-  useEffect(() => {
-    const savedExpandedNodes = localStorage.getItem(
-      STORAGE_KEYS.EXPANDED_NODES,
-    );
-    if (savedExpandedNodes) {
-      try {
-        setExpandedNodes(JSON.parse(savedExpandedNodes));
-      } catch (error) {
-        console.error("Error parsing saved expanded nodes:", error);
-      }
-    }
-  }, []);
-
   // Load initial data from saved folder
   useEffect(() => {
-    if (!isElectron || !selectedFolder) return;
-  
+    if (!isElectron) return;
+    
     // Use a flag in sessionStorage to ensure we only load data once per session
     const hasLoadedInitialData = sessionStorage.getItem("hasLoadedInitialData");
-    if (hasLoadedInitialData === "true") return;
-  
-    console.log("Loading saved folder on startup:", selectedFolder);
-    setProcessingStatus({
-      status: "processing",
-      message: "Loading files from previously selected folder...",
-    });
     
-    // Clear any previously selected files when loading initial data
-    setSelectedFiles([]);
-    
-    window.electron.ipcRenderer.send("request-file-list", selectedFolder);
-  
-    // Mark that we've loaded the initial data
-    sessionStorage.setItem("hasLoadedInitialData", "true");
-  }, [isElectron, selectedFolder]);
+    // If this is the first load in this session, show the welcome screen first
+    if (hasLoadedInitialData !== "true") {
+      // Mark the app as not initialized yet
+      setAppInitialized(false);
+      
+      // If we have a selected folder from previous session
+      if (selectedFolder) {
+        // Give a small delay to allow the welcome screen to appear first
+        const timer = setTimeout(() => {
+          console.log("Loading saved folder on startup:", selectedFolder);
+          setProcessingStatus({
+            status: "processing",
+            message: "Loading files from previously selected folder...",
+          });
+          
+          // Clear any previously selected files when loading initial data
+          setSelectedFiles([]);
+          
+          // Pass exclusion patterns to the main process
+          window.electron.ipcRenderer.send("request-file-list", selectedFolder, exclusionPatterns);
+          
+          // Mark that we've loaded the initial data
+          sessionStorage.setItem("hasLoadedInitialData", "true");
+          setAppInitialized(true);
+        }, 1000); // 1-second delay
+        
+        return () => clearTimeout(timer);
+      }
+    } else {
+      // If we already loaded data in this session, mark as initialized
+      setAppInitialized(true);
+    }
+  }, [isElectron, selectedFolder, exclusionPatterns, setSelectedFiles]);
   
 
 
@@ -150,11 +186,13 @@ const App = () => {
         setSelectedFolder(folderPath);
         // Clear any previously selected files
         setSelectedFiles([]);
+        // No longer resetting the sort order - will use the saved preference
+        // The initial default is already set by useLocalStorage
         setProcessingStatus({
           status: "processing",
           message: "Requesting file list...",
         });
-        window.electron.ipcRenderer.send("request-file-list", folderPath);
+        window.electron.ipcRenderer.send("request-file-list", folderPath, exclusionPatterns);
       } else {
         console.error("Invalid folder path received:", folderPath);
         setProcessingStatus({
@@ -177,6 +215,10 @@ const App = () => {
 
       // No files selected by default - user must explicitly select files
       setSelectedFiles([]);
+      
+      // Ensure the app is marked as initialized when files are loaded
+      setAppInitialized(true);
+      sessionStorage.setItem("hasLoadedInitialData", "true");
     };
 
     const handleProcessingStatus = (status: {
@@ -215,6 +257,10 @@ const App = () => {
       console.log("Opening folder dialog");
       setProcessingStatus({ status: "idle", message: "Select a folder..." });
       window.electron.ipcRenderer.send("open-folder");
+      
+      // Mark the app as initialized once a folder is selected
+      sessionStorage.setItem("hasLoadedInitialData", "true");
+      setAppInitialized(true);
     } else {
       console.warn("Folder selection not available in browser");
     }
@@ -227,6 +273,10 @@ const App = () => {
     setAllFiles([]);
     setSelectedFiles([]);
     setProcessingStatus({ status: "idle", message: "" });
+    setAppInitialized(false);
+    
+    // Clear the session flag to ensure welcome screen appears next time
+    sessionStorage.removeItem("hasLoadedInitialData");
     
     // No need to manually clear localStorage entries - handled by useLocalStorage
   }, [setSelectedFolder, setSelectedFiles]);
@@ -321,12 +371,36 @@ const App = () => {
     applyFiltersAndSort(allFiles, sortOrder, newSearch);
   }, [allFiles, sortOrder, setSearchTerm, applyFiltersAndSort]);
 
-  // Toggle sort dropdown
+  // Refresh file tree with current filters
+  const refreshFileTree = useCallback(() => {
+    if (isElectron && selectedFolder) {
+      console.log("Refreshing file tree with filters:", exclusionPatterns);
+      setProcessingStatus({
+        status: "processing",
+        message: "Refreshing file list...",
+      });
+      
+      // Clear selected files to avoid issues with files that might be filtered out
+      setSelectedFiles([]);
+      
+      // Request file list with current exclusion patterns
+      window.electron.ipcRenderer.send("request-file-list", selectedFolder, exclusionPatterns);
+    }
+  }, [isElectron, selectedFolder, exclusionPatterns, setSelectedFiles]);
+
+  /**
+   * Toggles the visibility of the sort options dropdown.
+   * Inverts the current state of the sortDropdownOpen state variable.
+   */
   const toggleSortDropdown = () => {
     setSortDropdownOpen(!sortDropdownOpen);
   };
 
-  // Calculate total tokens from selected files
+  /**
+   * Calculates the total token count for all selected files.
+   * 
+   * @returns {number} The sum of token counts from all selected files.
+   */
   const calculateTotalTokens = () => {
     return selectedFiles.reduce((total: number, path: string) => {
       const file = allFiles.find((f: FileData) => f.path === path);
@@ -334,7 +408,13 @@ const App = () => {
     }, 0);
   };
 
-  // Get selected files content without user instructions
+  /**
+   * Generates a formatted string containing all selected files' contents without user instructions.
+   * The function organizes files according to the current sort order and includes an ASCII file tree
+   * representation based on the fileTreeMode setting.
+   * 
+   * @returns {string} A formatted string with selected files' content wrapped in codebase tags.
+   */
   const getSelectedFilesContentWithoutInstructions = () => {
     // Sort selected files according to current sort order
     const [sortKey, sortDir] = sortOrder.split("-");
@@ -370,14 +450,18 @@ const App = () => {
         fileTreeItems = sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }));
       } else if (fileTreeMode === "selected-with-roots") {
         // Include all directories and selected files to show the complete folder structure
-        const allDirs = getAllDirectories(allFiles, selectedFolder);
+        // Filter out skipped files when getting directories
+        const filteredFiles = allFiles.filter((file: FileData) => !file.isSkipped);
+        const allDirs = getAllDirectories(filteredFiles, selectedFolder);
         fileTreeItems = [
           ...allDirs.map(dir => ({ path: dir, isFile: false })),
           ...sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }))
         ];
       } else if (fileTreeMode === "complete") {
-        // Include all files
-        fileTreeItems = allFiles.map((file: FileData) => ({ path: file.path, isFile: true }));
+        // Include all non-skipped files
+        fileTreeItems = allFiles
+          .filter((file: FileData) => !file.isSkipped)
+          .map((file: FileData) => ({ path: file.path, isFile: true }));
       }
 
       const asciiTree = generateAsciiFileTree(fileTreeItems, selectedFolder);
@@ -452,7 +536,13 @@ const App = () => {
     return concatenatedString;
   };
 
-  // Get selected files content with user instructions
+  /**
+   * Generates a formatted string containing selected files' content with optional user instructions.
+   * This function extends getSelectedFilesContentWithoutInstructions by adding any user-provided 
+   * instructions from the textarea input.
+   * 
+   * @returns {string} A formatted string with selected files' content and optional user instructions.
+   */
   const getSelectedFilesContent = () => {
     // Get the base content
     const baseContent = getSelectedFilesContentWithoutInstructions();
@@ -520,13 +610,70 @@ const App = () => {
     });
   }, []);
 
-  // Function to extract folder name from path
+  /**
+   * Extracts the folder/file name from a full path.
+   * 
+   * @param {string} path - The full path to extract the name from
+   * @returns {string} The last segment of the path (the folder or file name)
+   */
   const getFolderNameFromPath = (path: string) => {
     if (!path) return "";
     // Split the path by the separator and get the last part
     const parts = path.split(/[\/\\]/);
     return parts[parts.length - 1];
   };
+
+  /**
+   * Parses a string of exclusion patterns separated by newlines into an array
+   * of individual patterns for file filtering.
+   *
+   * @param {string} patternsString - Raw string of patterns separated by newlines
+   * @returns {string[]} Array of individual patterns for filtering
+   */
+  const parseExclusionPatterns = (patternsString: string): string[] => {
+    if (!patternsString) return [];
+    
+    return patternsString
+      .split('\n')
+      .map(pattern => pattern.trim())
+      .filter(pattern => {
+        // Skip empty lines and comments
+        return pattern !== '' && !pattern.startsWith('#');
+      });
+  };
+
+  /**
+   * Saves the exclusion patterns to local storage and updates the state.
+   * Optionally refreshes the file list to apply the new filters.
+   *
+   * @param {string[]} patterns - Array of exclusion patterns to save
+   * @param {boolean} refreshFiles - Whether to refresh the file list after saving
+   */
+  const saveFilters = useCallback((patterns: string[], refreshFiles: boolean = true) => {
+    setExclusionPatterns(patterns);
+    
+    if (refreshFiles && selectedFolder && isElectron) {
+      setProcessingStatus({
+        status: "processing",
+        message: "Refreshing file list with new filters...",
+      });
+      
+      // Request file list with updated exclusion patterns
+      window.electron.ipcRenderer.send("request-file-list", selectedFolder, patterns);
+    }
+  }, [selectedFolder, isElectron, setExclusionPatterns]);
+
+  // Handler for file tree sort order change
+  const handleFileTreeSortChange = useCallback((sortOrder: string) => {
+    console.log("File tree sort order changed to:", sortOrder);
+    setFileTreeSortOrder(sortOrder);
+    setSortDropdownOpen(false);
+  }, [setFileTreeSortOrder]);
+
+  // Toggle filter modal visibility
+  const toggleFilterModal = useCallback(() => {
+    setFilterModalOpen((prevState: boolean) => !prevState);
+  }, []);
 
   return (
     <ThemeProvider>
@@ -542,14 +689,6 @@ const App = () => {
             </div>
             <FileTreeToggle currentMode={fileTreeMode} onChange={setFileTreeMode} />
             <ThemeToggle />
-            <button
-                className="select-folder-btn"
-                onClick={openFolder}
-                disabled={processingStatus.status === "processing"}
-                title="Select Folder"
-              >
-                <FolderOpen size={18} />
-            </button>
           </div>
         </header>
 
@@ -562,6 +701,33 @@ const App = () => {
 
         {processingStatus.status === "error" && (
           <div className="error-message">Error: {processingStatus.message}</div>
+        )}
+
+        {(!appInitialized || !selectedFolder) && (
+          <div className="welcome-screen">
+            <pre className="ascii-logo">
+{`
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║  ██████╗  █████╗ ███████╗████████╗███████╗███████╗██╗      ██████╗ ██╗    ██╗ ║
+║  ██╔══██╗██╔══██╗██╔════╝╚══██╔══╝██╔════╝██╔════╝██║     ██╔═══██╗██║    ██║ ║
+║  ██████╔╝███████║███████╗   ██║   █████╗  █████╗  ██║     ██║   ██║██║ █╗ ██║ ║
+║  ██╔═══╝ ██╔══██║╚════██║   ██║   ██╔══╝  ██╔══╝  ██║     ██║   ██║██║███╗██║ ║
+║  ██║     ██║  ██║███████║   ██║   ███████╗██║     ███████╗╚██████╔╝╚███╔███╔╝ ║
+║  ╚═╝     ╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝  ║
+║                                                                              ║
+║                           © 2025 PasteFlow Corp v1.0                         ║
+║                                                                              ║
+║                        Select a folder to get started                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+`}
+            </pre>
+            <div className="welcome-message">
+              <button className="welcome-button" onClick={openFolder}>
+                <FolderOpen size={36} />
+              </button>
+            </div>
+          </div>
         )}
 
         {selectedFolder && (
@@ -580,16 +746,16 @@ const App = () => {
               expandedNodes={expandedNodes}
               toggleExpanded={toggleExpanded}
               resetFolderState={resetFolderState}
+              onFileTreeSortChange={handleFileTreeSortChange}
+              toggleFilterModal={toggleFilterModal}
+              refreshFileTree={refreshFileTree}
             />
             <div className="content-area">
-              <div className="user-instructions-input-area">
-                <textarea className="user-instructions-input" placeholder="Enter your instructions here..." />
-              </div>
               <div className="selected-files-content-area">
                 <div className="selected-files-content-header">
                   <div className="content-actions">
                     <strong className="content-title">Selected Files</strong>
-                    <div className="sort-dropdown">
+                    <div className="sort-dropdown sort-dropdown-selected-files">
                       <button
                         className="sort-dropdown-button"
                         onClick={toggleSortDropdown}
@@ -609,6 +775,7 @@ const App = () => {
                               onClick={() => handleSortChange(option.value)}
                             >
                               {option.label}
+                              {sortOrder === option.value && <span className="checkmark">✓</span>}
                             </div>
                           ))}
                         </div>
@@ -668,6 +835,9 @@ const App = () => {
                   </CopyButton>
                 </div>
               </div>
+              <div className="user-instructions-input-area">
+                <textarea className="user-instructions-input" placeholder="Enter your instructions here..." />
+              </div>
             </div>
           </div>
         )}
@@ -677,6 +847,18 @@ const App = () => {
           <ApplyChangesModal
             selectedFolder={selectedFolder}
             onClose={() => setShowApplyChangesModal(false)}
+          />
+        )}
+        
+        {/* Filter Modal */}
+        {filterModalOpen && (
+          <FilterModal
+            exclusionPatterns={exclusionPatterns}
+            onSave={(patterns: string[]) => {
+              saveFilters(patterns, true);
+              setFilterModalOpen(false);
+            }}
+            onClose={() => setFilterModalOpen(false)}
           />
         )}
       </div>

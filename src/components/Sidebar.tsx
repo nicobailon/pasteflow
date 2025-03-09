@@ -3,7 +3,7 @@ import { SidebarProps, TreeNode } from "../types/FileTypes";
 import useFileTree from "../hooks/useFileTree";
 import SearchBar from "./SearchBar";
 import TreeItem from "./TreeItem";
-import { Folder, ChevronDown, ChevronUp, X, FolderOpen } from "lucide-react";
+import { Folder, ChevronDown, ChevronUp, X, FolderOpen, Filter, RefreshCw } from "lucide-react";
 
 // Storage keys for local storage
 const STORAGE_KEYS = {
@@ -30,22 +30,39 @@ const Sidebar = ({
   expandedNodes,
   toggleExpanded,
   resetFolderState,
+  onFileTreeSortChange = () => {/* Default handler - no operation */},
+  toggleFilterModal = () => {/* Default handler - no operation */},
+  refreshFileTree = () => {/* Default handler - no operation */},
 }: SidebarProps) => {
+  // State for the sidebar width and resizing
+  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [isResizing, setIsResizing] = useState(false);
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  
+  // Get the current file tree sort order from localStorage
+  const [currentSortOption, setCurrentSortOption] = useState(
+    localStorage.getItem('pasteflow-file-tree-sort-order') || 'default'
+  );
+
   // Use the custom hook for file tree management
   const { fileTree, visibleTree, isTreeBuildingComplete } = useFileTree({
     allFiles,
     selectedFolder,
     expandedNodes,
-    searchTerm
+    searchTerm,
+    fileTreeSortOrder: currentSortOption
   });
-  const [sidebarWidth, setSidebarWidth] = useState(300);
-  const [isResizing, setIsResizing] = useState(false);
 
   // Min and max width constraints
   const MIN_SIDEBAR_WIDTH = 200;
   const MAX_SIDEBAR_WIDTH = 500;
 
-  // Handle mouse down for resizing
+  /**
+   * Initiates the sidebar resizing operation.
+   * Sets the isResizing state to true when the user starts dragging the resize handle.
+   * 
+   * @param {ResizeMouseEvent} e - The mouse event that triggered the resize operation
+   */
   const handleResizeStart = (e: ResizeMouseEvent) => {
     e.preventDefault();
     setIsResizing(true);
@@ -53,15 +70,26 @@ const Sidebar = ({
 
   // Handle resize effect
   useEffect(() => {
+    /**
+     * Handles the resizing of the sidebar during mouse movement.
+     * Updates the sidebar width based on mouse position, within min/max constraints.
+     * 
+     * @param {globalThis.MouseEvent} e - The mouse move event
+     */
     const handleResize = (e: globalThis.MouseEvent) => {
       if (isResizing) {
-        const newWidth = e.clientX;
+        // Calculate width from the right side of the window instead of from the left
+        const newWidth = window.innerWidth - e.clientX;
         if (newWidth >= MIN_SIDEBAR_WIDTH && newWidth <= MAX_SIDEBAR_WIDTH) {
           setSidebarWidth(newWidth);
         }
       }
     };
 
+    /**
+     * Completes the sidebar resizing operation.
+     * Sets the isResizing state to false when the user releases the mouse button.
+     */
     const handleResizeEnd = () => {
       setIsResizing(false);
     };
@@ -82,7 +110,12 @@ const Sidebar = ({
     return allFiles.length > 0 && selectedFiles.length === allFiles.length;
   }, [allFiles.length, selectedFiles.length])();
 
-  // Handle checkbox change for selectAll/deselectAll
+  /**
+   * Handles the toggle of the "Select All" checkbox.
+   * Calls selectAllFiles when checked and deselectAllFiles when unchecked.
+   * 
+   * @param {any} e - The change event from the checkbox
+   */
   const handleSelectAllToggle = (e: any) => {
     if (e.target.checked) {
       selectAllFiles();
@@ -187,9 +220,119 @@ const Sidebar = ({
       openFolder();
     }
   }, [openFolder, resetFolderState]);
+  
+  /**
+   * Handles changes to the file tree sort option.
+   * Updates the local sort state and propagates the change to the parent component.
+   * 
+   * @param {string} sortOption - The selected sort option
+   */
+  const handleFileTreeSortChange = useCallback((sortOption: string) => {
+    console.log(`Sort option selected: ${sortOption}`);
+    setSortDropdownOpen(false);
+    setCurrentSortOption(sortOption);
+    onFileTreeSortChange(sortOption);
+  }, [onFileTreeSortChange]);
+  
+  /**
+   * Toggles the visibility of the filter modal.
+   * Delegates to the parent component's toggleFilterModal function.
+   */
+  const handleToggleFilterModal = useCallback(() => {
+    toggleFilterModal();
+  }, [toggleFilterModal]);
+  
+  /**
+   * Refreshes the file tree and resets sorting and selection state.
+   * Resets sort to default, deselects all files, and triggers a refresh.
+   */
+  const handleRefreshFileTree = useCallback(() => {
+    // Reset sort to "Developer" option
+    setCurrentSortOption('default');
+    localStorage.setItem('pasteflow-file-tree-sort-order', 'default');
+    
+    // Deselect all files
+    deselectAllFiles();
+    
+    // Refresh the file tree
+    refreshFileTree();
+    
+    // Notify about sort change
+    onFileTreeSortChange('default');
+  }, [refreshFileTree, deselectAllFiles, onFileTreeSortChange]);
 
   return (
     <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
+      <div className="sidebar-buttons">
+        <div className="sort-dropdown-container sort-dropdown-container-file-tree">
+          <button onClick={() => setSortDropdownOpen(!sortDropdownOpen)} className="sidebar-button sort-dropdown-button" title="Sort Files">
+            <ChevronDown size={16} />
+            <span>Sort</span>
+          </button>
+          {sortDropdownOpen && (
+            <div className="sort-dropdown sort-dropdown-file-tree">
+              <button 
+                onClick={() => handleFileTreeSortChange('default')}
+                className={currentSortOption === 'default' ? 'active sort-option' : 'sort-option'}
+              >
+                <span>↕</span> Developer-Focused
+                {currentSortOption === 'default' && <span className="checkmark">✓</span>}
+              </button>
+              <button 
+                onClick={() => handleFileTreeSortChange('name-asc')}
+                className={currentSortOption === 'name-asc' ? 'active sort-option' : 'sort-option'}
+              >
+                <span>↑</span> Name (A–Z)
+                {currentSortOption === 'name-asc' && <span className="checkmark">✓</span>}
+              </button>
+              <button 
+                onClick={() => handleFileTreeSortChange('name-desc')}
+                className={currentSortOption === 'name-desc' ? 'active sort-option' : 'sort-option'}
+              >
+                <span>↓</span> Name (Z–A)
+                {currentSortOption === 'name-desc' && <span className="checkmark">✓</span>}
+              </button>
+              <button 
+                onClick={() => handleFileTreeSortChange('extension-asc')}
+                className={currentSortOption === 'extension-asc' ? 'active sort-option' : 'sort-option'}
+              >
+                <span>↑</span> Extension (A–Z)
+                {currentSortOption === 'extension-asc' && <span className="checkmark">✓</span>}
+              </button>
+              <button 
+                onClick={() => handleFileTreeSortChange('extension-desc')}
+                className={currentSortOption === 'extension-desc' ? 'active sort-option' : 'sort-option'}
+              >
+                <span>↓</span> Extension (Z–A)
+                {currentSortOption === 'extension-desc' && <span className="checkmark">✓</span>}
+              </button>
+              <button 
+                onClick={() => handleFileTreeSortChange('date-desc')}
+                className={currentSortOption === 'date-desc' ? 'active sort-option' : 'sort-option'}
+              >
+                <span>↓</span> Date Modified (Newest)
+                {currentSortOption === 'date-desc' && <span className="checkmark">✓</span>}
+              </button>
+              <button 
+                onClick={() => handleFileTreeSortChange('date-asc')}
+                className={currentSortOption === 'date-asc' ? 'active sort-option' : 'sort-option'}
+              >
+                <span>↑</span> Date Modified (Oldest)
+                {currentSortOption === 'date-asc' && <span className="checkmark">✓</span>}
+              </button>
+            </div>
+          )}
+        </div>
+        <button onClick={handleToggleFilterModal} className="sidebar-button filter-button" title="Filters">
+          <Filter size={16} />
+        </button>
+        <button onClick={handleRefreshFileTree} className="sidebar-button" title="Refresh">
+          <RefreshCw size={16} />
+        </button>
+        <button onClick={openFolder} className="sidebar-button" title="Open Folder">
+          <FolderOpen size={16} />
+        </button>
+      </div>
       <div className="sidebar-search">
         <SearchBar
           searchTerm={searchTerm}
