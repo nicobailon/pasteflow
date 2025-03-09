@@ -6,7 +6,7 @@ The app creates a seamless bridge between your codebase and external AI platform
 
 Originally forked from PasteFlow, this enhanced version eliminates friction in the development workflow by maintaining perfect context throughout the entire process—from sending code to AI assistants to implementing their suggested changes.
 
-![PasteFlow Screenshot](https://github.com/user-attachments/assets/4115ad31-9c93-4cf8-bd65-4bb5379e0eba)
+![PasteFlow Screenshot](https://github.com/user-attachments/assets/d17bc6b4-4c92-4775-8f25-f99fed7d2385)
 
 ## Features
 
@@ -14,7 +14,17 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
 - **Token Counting**: View the approximate token count for each file (useful for LLM context limits)
 - **Search Capabilities**: Quickly find files by name or content
 - **Selection Management**: Select multiple files and copy their contents together
-- **Sorting Options**: Sort files by name, size, or token count
+- **Advanced Sorting Options**: Sort files by name, size, token count, extension, or date with the following capabilities:
+  - Priority-based sorting for directories and files
+  - Natural sorting for filenames
+  - Option to sort directories first
+  - Multiple sorting criteria in a single view
+- **File Tree Refresh**: Quickly refresh the file tree to reflect changes made outside the app, perfect for when you:
+  - Make changes to files using external editors
+  - Add or delete files through other applications
+  - Pull updates from version control systems
+  - Need to ensure you're seeing the most current state of your project
+- **Custom File Exclusion Patterns**: Define custom patterns for excluding files from the tree view
 - **Dark Mode**: Toggle between light and dark themes for comfortable viewing in any environment
 - **Binary File Detection**: Automatic detection and exclusion of binary files
 - **Smart File Exclusion**: Automatically excludes common files like package-lock.json, binary files, and more by default
@@ -25,6 +35,7 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
   - Complete: Include the entire directory structure
 - **Apply XML Changes**: Apply code changes to your project directly from XML formatted instructions
 - **Copy with XML Prompt**: Copy selected files with XML formatting instructions for LLMs to generate structured changes
+- **One-Click Copy**: Easily copy file contents with a dedicated copy button for each file
 
 ## Installation
 
@@ -106,13 +117,27 @@ npm run build-electron
 npm run dist
 ```
 
+### Code Signing
+
+The release workflow includes automatic code signing for both macOS and Windows when building from the main repository (not forks):
+
+- **macOS**: Utilizes Apple Developer certificates for notarization and signing
+- **Windows**: Uses code signing certificates provided through environment variables
+
+Code signing ensures users can install and run the application without security warnings on modern operating systems.
+
 ## Project Structure
 
 - `src/` - React application source code
   - `components/` - React components
+    - `CopyButton/` - Component for copying content to clipboard
+    - `FilterModal/` - Component for managing file exclusion patterns
+    - `FileTreeToggle/` - Component for file tree structure options
   - `types/` - TypeScript type definitions
   - `styles/` - CSS styles
   - `utils/` - Utility functions
+    - `useFileTree/` - Custom hook for file tree management and sorting
+    - `useLocalStorage/` - Enhanced localStorage hook with type safety
   - `__tests__/` - Unit tests
 - `main.js` - Electron main process
 - `build.js` - Build script for production
@@ -160,7 +185,15 @@ The Apply XML Changes feature allows you to apply code changes to your project d
 
 ## Customization
 
-You can customize which files are excluded by default by editing the `excluded-files.js` file. See the excluded files documentation for more details.
+### File Exclusion Patterns
+
+You can customize which files are excluded from the file tree in two ways:
+
+1. **Global Default Settings**: Edit the `excluded-files.js` file to change the default exclusion patterns for all projects.
+
+2. **Project-Specific Settings**: Use the Filter Modal within the app to set exclusion patterns specific to the current project. These patterns are stored locally and will be remembered when you reopen the project.
+
+Exclusion patterns follow the same syntax as `.gitignore` files, making them familiar and powerful for developers.
 
 ## Troubleshooting
 
