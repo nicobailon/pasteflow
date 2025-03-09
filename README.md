@@ -36,6 +36,17 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
 - **Apply XML Changes**: Apply code changes to your project directly from XML formatted instructions
 - **Copy with XML Prompt**: Copy selected files with XML formatting instructions for LLMs to generate structured changes
 - **One-Click Copy**: Easily copy file contents with a dedicated copy button for each file
+  - Works across all browsers and environments with a robust fallback mechanism
+  - Provides visual feedback when content is copied
+  - Fully accessible with keyboard support
+
+## Features in Latest Updates
+
+- **Enhanced Clipboard Compatibility**: Added fallback mechanism to ensure the copy functionality works across all environments, including those without navigator.clipboard support
+- **Advanced Pattern Validation**: Improved validation in the FilterModal for complex exclusion patterns to prevent performance issues
+- **Optimized Cache Management**: Enhanced cache invalidation in the file tree management to ensure consistent performance during sorting operations
+- **Code Optimization**: Replaced console logging with proper null operations for cleaner code execution
+- **Dependency Classification**: Properly categorized dependencies for development versus runtime to optimize bundle size
 
 ## Installation
 
@@ -179,8 +190,9 @@ The Apply XML Changes feature allows you to apply code changes to your project d
 - Vite - Build tool and development server
 - tiktoken - Token counting for LLM context estimation
 - ignore - .gitignore-style pattern matching for file exclusions
-- Jest - Testing framework
-- @testing-library/react - React testing utilities
+- Jest - Testing framework (dev)
+- @testing-library/react - React testing utilities (dev)
+- prettier - Code formatting (dev)
 - @xmldom/xmldom - XML parsing for the Apply Changes feature
 
 ## Customization
@@ -194,6 +206,17 @@ You can customize which files are excluded from the file tree in two ways:
 2. **Project-Specific Settings**: Use the Filter Modal within the app to set exclusion patterns specific to the current project. These patterns are stored locally and will be remembered when you reopen the project.
 
 Exclusion patterns follow the same syntax as `.gitignore` files, making them familiar and powerful for developers.
+
+### Pattern Validation
+
+The FilterModal provides intelligent validation for exclusion patterns to help prevent potential issues:
+
+- **Syntax Validation**: Checks for proper syntax in your patterns
+- **Performance Safeguards**: Identifies patterns that might cause excessive resource usage:
+  - Patterns with too many consecutive asterisks
+  - Patterns with an excessive number of wildcards
+  - Complex combinations of alternations and globstars
+- **Immediate Feedback**: Provides clear error messages to help troubleshoot pattern issues
 
 ## Troubleshooting
 

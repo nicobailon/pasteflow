@@ -30,9 +30,9 @@ const Sidebar = ({
   expandedNodes,
   toggleExpanded,
   resetFolderState,
-  onFileTreeSortChange = () => console.log('Sort option changed (default handler)'),
-  toggleFilterModal = () => console.log('Filter modal toggled (default handler)'),
-  refreshFileTree = () => console.log('Refresh file tree triggered (default handler)'),
+  onFileTreeSortChange = () => {/* Default handler - no operation */},
+  toggleFilterModal = () => {/* Default handler - no operation */},
+  refreshFileTree = () => {/* Default handler - no operation */},
 }: SidebarProps) => {
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);

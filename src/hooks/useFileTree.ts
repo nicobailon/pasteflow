@@ -18,6 +18,11 @@ interface UseFileTreeResult {
 // Cache for node priorities to avoid recalculating
 const nodePriorityCache = new Map<string, number>();
 
+// Function to clear the cache when needed
+const clearNodePriorityCache = () => {
+  nodePriorityCache.clear();
+};
+
 function useFileTree({
   allFiles,
   selectedFolder,
@@ -28,6 +33,15 @@ function useFileTree({
   const [isTreeBuildingComplete, setIsTreeBuildingComplete] = useState(false);
   // Reference to track previous sort order for cache invalidation
   const prevSortOrderRef = useRef(fileTreeSortOrder);
+
+  // Effect to check if sort order changed and clear cache if needed
+  useEffect(() => {
+    if (prevSortOrderRef.current !== fileTreeSortOrder) {
+      // Sort order changed, clear the cache
+      clearNodePriorityCache();
+      prevSortOrderRef.current = fileTreeSortOrder;
+    }
+  }, [fileTreeSortOrder]);
 
   // Build file tree structure from flat list of files using useMemo
   const fileTree = useMemo(() => {

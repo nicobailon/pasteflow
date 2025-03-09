@@ -8,6 +8,41 @@ interface CopyButtonProps {
 }
 
 /**
+ * Fallback copy method using a temporary textarea element
+ * Used in environments where navigator.clipboard is not available
+ * 
+ * @param text - Text to copy to clipboard
+ * @returns Whether the copy operation was successful
+ */
+const fallbackCopyTextToClipboard = (text: string): boolean => {
+  try {
+    // Create a temporary textarea element
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    
+    // Avoid scrolling to bottom
+    textArea.style.top = "0";
+    textArea.style.left = "0";
+    textArea.style.position = "fixed";
+    textArea.style.opacity = "0";
+    
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    // Execute copy command
+    const successful = document.execCommand("copy");
+    
+    // Clean up
+    document.body.removeChild(textArea);
+    return successful;
+  } catch (err) {
+    console.error("Fallback copy failed:", err);
+    return false;
+  }
+};
+
+/**
  * CopyButton component - Provides a button that copies text to clipboard
  * with visual feedback and accessibility support
  * 
@@ -23,8 +58,15 @@ const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
       // Get the text to copy - either use the string directly or call the function
       const textToCopy = typeof text === 'function' ? text() : text;
       
-      await navigator.clipboard.writeText(textToCopy);
-      setCopied(true);
+      // Try to use modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(textToCopy);
+        setCopied(true);
+      } else {
+        // Fall back to older method if modern API is not available
+        const success = fallbackCopyTextToClipboard(textToCopy);
+        setCopied(success);
+      }
 
       // Reset the copied state after 2 seconds
       setTimeout(() => {

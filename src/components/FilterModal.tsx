@@ -1,11 +1,25 @@
 import React, { useState, useEffect } from "react";
 
+/**
+ * Props for the FilterModal component
+ */
 interface FilterModalProps {
+  /** Current exclusion patterns to display in the modal */
   exclusionPatterns: string[];
+  /** Callback function when the user saves patterns */
   onSave: (patterns: string[]) => void;
+  /** Callback function when the user closes the modal */
   onClose: () => void;
 }
 
+/**
+ * FilterModal component - Provides a modal dialog for editing file exclusion patterns
+ * with validation and error handling for pattern syntax
+ * 
+ * @param exclusionPatterns - Array of current exclusion patterns
+ * @param onSave - Callback function when patterns are saved
+ * @param onClose - Callback function when modal is closed
+ */
 const FilterModal = ({
   exclusionPatterns,
   onSave,
@@ -55,6 +69,21 @@ const FilterModal = ({
       return `Unbalanced braces in "${pattern}".`;
     }
     
+    // Check for potentially slow patterns
+    if (pattern.match(/\*\*\*+/)) {
+      return `Pattern "${pattern}" has too many consecutive asterisks which may cause performance issues.`;
+    }
+    
+    // Check for potentially greedy patterns
+    if ((pattern.match(/\*/g) || []).length > 5) {
+      return `Pattern "${pattern}" has too many wildcards which may cause performance issues.`;
+    }
+    
+    // Check for complex alternation patterns
+    if ((pattern.match(/\{[^}]*,[^}]*,/g) || []).length > 0 && pattern.includes('**')) {
+      return `Pattern "${pattern}" combines complex alternation with globstar which may cause performance issues.`;
+    }
+
     return null;
   };
 
