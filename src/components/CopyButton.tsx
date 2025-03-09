@@ -7,6 +7,14 @@ interface CopyButtonProps {
   children?: JSX.Element | string;
 }
 
+/**
+ * CopyButton component - Provides a button that copies text to clipboard
+ * with visual feedback and accessibility support
+ * 
+ * @param text - Text to copy or function that returns text to copy
+ * @param className - Additional CSS classes
+ * @param children - Optional child elements
+ */
 const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
   const [copied, setCopied] = useState(false);
 
@@ -27,20 +35,21 @@ const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
     }
   };
 
-  // Add inline styles to ensure no focus outline appears
-  const buttonStyle = {
-    outline: "none",
-  };
+  const statusText = copied ? "Copied to clipboard" : "Copy to clipboard";
 
   return (
     <button
       type="button"
-      className={`${className}`}
+      className={`copy-button ${className}`}
       onClick={handleCopy}
-      title={copied ? "Copied!" : "Copy to clipboard"}
-      style={buttonStyle}
+      title={statusText}
+      aria-label={statusText}
+      aria-pressed={copied}
+      aria-live="polite"
+      role="button"
     >
-      {copied ? <Check size={16} /> : <Copy size={16} />}
+      <span className="sr-only">{statusText}</span>
+      {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
       {children}
     </button>
   );

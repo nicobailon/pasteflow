@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { FileData, TreeNode } from '../types/FileTypes';
 
 interface UseFileTreeProps {
@@ -15,6 +15,9 @@ interface UseFileTreeResult {
   isTreeBuildingComplete: boolean;
 }
 
+// Cache for node priorities to avoid recalculating
+const nodePriorityCache = new Map<string, number>();
+
 function useFileTree({
   allFiles,
   selectedFolder,
@@ -23,6 +26,8 @@ function useFileTree({
   fileTreeSortOrder = 'default'
 }: UseFileTreeProps): UseFileTreeResult {
   const [isTreeBuildingComplete, setIsTreeBuildingComplete] = useState(false);
+  // Reference to track previous sort order for cache invalidation
+  const prevSortOrderRef = useRef(fileTreeSortOrder);
 
   // Build file tree structure from flat list of files using useMemo
   const fileTree = useMemo(() => {
@@ -117,6 +122,12 @@ function useFileTree({
 
       // Function to sort tree nodes based on sort order
       const sortTreeNodes = (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
+        // Clear cache when sort order changes to ensure fresh priorities
+        if (sortOrder !== prevSortOrderRef.current) {
+          nodePriorityCache.clear();
+          prevSortOrderRef.current = sortOrder;
+        }
+
         // If sortOrder is not 'default', use the existing sorting logic
         if (sortOrder !== 'default') {
           return nodes.sort((a, b) => {
@@ -151,8 +162,11 @@ function useFileTree({
               
               if (sortKey === 'date') {
                 // Since we don't have file date info in the FileData interface,
-                // use a placeholder sorting method
-                return sortDir === 'asc' ? -1 : 1;
+                // use file size as a temporary alternative for sorting
+                // TODO: Replace with actual date sorting when date field is available
+                const aSize = a.fileData?.size || 0;
+                const bSize = b.fileData?.size || 0;
+                return sortDir === 'asc' ? aSize - bSize : bSize - aSize;
               }
             }
             
@@ -169,30 +183,37 @@ function useFileTree({
           
           // Directory Sorting Rules
           if (a.type === "directory" && b.type === "directory") {
-            // Helper function to get directory priority
+            // Helper function to get directory priority - memoized for performance
             const getDirectoryPriority = (node: TreeNode): number => {
+              // Check cache first
+              const cacheKey = `dir-${node.id}`;
+              if (nodePriorityCache.has(cacheKey)) {
+                return nodePriorityCache.get(cacheKey)!;
+              }
+              
               const name = node.name.toLowerCase();
+              let priority: number;
               
               // 1. Core source and functionality directories
-              if (name === 'src') return 1;
-              if (name === 'scripts') return 2;
-              if (name === 'public') return 3;
-              if (name === 'lib') return 4;
-              if (name === 'docs') return 5;
-              if (name === 'app' || name === 'app_components') return 6;
-              if (name === 'actions') return 7;
-              
+              if (name === 'src') priority = 1;
+              else if (name === 'scripts') priority = 2;
+              else if (name === 'public') priority = 3;
+              else if (name === 'lib') priority = 4;
+              else if (name === 'docs') priority = 5;
+              else if (name === 'app' || name === 'app_components') priority = 6;
+              else if (name === 'actions') priority = 7;
               // 2. Special directories
-              if (name === '.github') return 20;
-              
+              else if (name === '.github') priority = 20;
               // 3. Testing directories
-              if (name === '__mocks__' || name.startsWith('__') || name.endsWith('__')) return 30;
-              
+              else if (name === '__mocks__' || name.startsWith('__') || name.endsWith('__')) priority = 30;
               // Hidden directories (with leading dot)
-              if (name.startsWith('.')) return 40;
-              
+              else if (name.startsWith('.')) priority = 40;
               // All other directories
-              return 50;
+              else priority = 50;
+              
+              // Cache the result
+              nodePriorityCache.set(cacheKey, priority);
+              return priority;
             };
             
             const aPriority = getDirectoryPriority(a);
@@ -209,69 +230,77 @@ function useFileTree({
           
           // File Sorting Priority
           if (a.type === "file" && b.type === "file") {
-            // Helper function to get file priority
+            // Helper function to get file priority - memoized for performance
             const getFilePriority = (node: TreeNode): number => {
+              // Check cache first
+              const cacheKey = `file-${node.id}`;
+              if (nodePriorityCache.has(cacheKey)) {
+                return nodePriorityCache.get(cacheKey)!;
+              }
+              
               const name = node.name.toLowerCase();
+              let priority = 100; // Default priority for other files
               
               // 1. Build configuration files
               if (/vite\.config\.ts$/i.test(name) || 
                   /tsconfig\.node\.json$/i.test(name) ||
                   /tsconfig\.json$/i.test(name)) {
-                return 1;
+                priority = 1;
               }
               
               // 2. Runtime files
-              if (/renderer\.js$/i.test(name)) {
-                return 2;
+              else if (/renderer\.js$/i.test(name)) {
+                priority = 2;
               }
               
               // 3. Documentation files (in decreasing importance)
-              if (/^release\.md$/i.test(name)) {
-                return 3;
+              else if (/^release\.md$/i.test(name)) {
+                priority = 3;
               }
-              if (/^readme\.md$/i.test(name)) {
-                return 4;
+              else if (/^readme\.md$/i.test(name)) {
+                priority = 4;
               }
-              if (/^readme\.docker\.md$/i.test(name)) {
-                return 5;
+              else if (/^readme\.docker\.md$/i.test(name)) {
+                priority = 5;
               }
-              if (/^readme_.*\.md$/i.test(name)) {
-                return 6;
+              else if (/^readme_.*\.md$/i.test(name)) {
+                priority = 6;
               }
               
               // 4. Application support files
-              if (/^preload\.js$/i.test(name)) {
-                return 10;
+              else if (/^preload\.js$/i.test(name)) {
+                priority = 10;
               }
               
               // 5. Project configuration
-              if (/^package\.json$/i.test(name)) {
-                return 20;
+              else if (/^package\.json$/i.test(name)) {
+                priority = 20;
               }
               
               // 6. User files
-              if (/^new notepad$/i.test(name)) {
-                return 30;
+              else if (/^new notepad$/i.test(name)) {
+                priority = 30;
               }
               
               // 7. Entry point files
-              if (/^main\.js$/i.test(name)) {
-                return 40;
+              else if (/^main\.js$/i.test(name)) {
+                priority = 40;
               }
               
               // 8. Legal files
-              if (/^license$/i.test(name)) {
-                return 50;
+              else if (/^license$/i.test(name)) {
+                priority = 50;
               }
               
               // 9. Testing configuration
-              if (/^jest\.setup\.js$/i.test(name) ||
-                  /^jest\.config\.js$/i.test(name)) {
-                return 60;
+              else if (/^jest\.setup\.js$/i.test(name) ||
+                          /^jest\.config\.js$/i.test(name)) {
+                priority = 60;
               }
               
-              // Default priority for other files
-              return 100;
+              // Cache the result
+              nodePriorityCache.set(cacheKey, priority);
+              return priority;
             };
             
             const aPriority = getFilePriority(a);
