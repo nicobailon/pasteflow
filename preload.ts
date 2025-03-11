@@ -1,0 +1,106 @@
+// Preload script
+import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
+
+// Helper function to ensure data is serializable
+function ensureSerializable(data: any): any {
+  if (data === null || data === undefined) {
+    return data;
+  }
+
+  // Handle primitive types directly
+  if (typeof data !== "object") {
+    return data;
+  }
+
+  // For arrays, map each item
+  if (Array.isArray(data)) {
+    return data.map(ensureSerializable);
+  }
+
+  // For objects, create a new object with serializable properties
+  const result: Record<string, any> = {};
+  for (const key in data) {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      // Skip functions or symbols which are not serializable
+      if (typeof data[key] === "function" || typeof data[key] === "symbol") {
+        continue;
+      }
+      // Recursively process nested objects
+      result[key] = ensureSerializable(data[key]);
+    }
+  }
+  return result;
+}
+
+// Define valid channel types
+type SendChannel = "open-folder" | "request-file-list" | "apply-changes";
+type ReceiveChannel = "folder-selected" | "file-list-data" | "file-processing-status" | "apply-changes-response";
+
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
+contextBridge.exposeInMainWorld("electron", {
+  send: (channel: SendChannel, data: any) => {
+    // whitelist channels
+    const validChannels: SendChannel[] = ["open-folder", "request-file-list", "apply-changes"];
+    if (validChannels.includes(channel)) {
+      // Ensure data is serializable before sending
+      const serializedData = ensureSerializable(data);
+      ipcRenderer.send(channel, serializedData);
+    }
+  },
+  receive: (channel: ReceiveChannel, func: (...args: any[]) => void) => {
+    const validChannels: ReceiveChannel[] = [
+      "folder-selected",
+      "file-list-data",
+      "file-processing-status",
+      "apply-changes-response",
+    ];
+    if (validChannels.includes(channel)) {
+      // Deliberately strip event as it includes `sender`
+      ipcRenderer.on(channel, (_event: IpcRendererEvent, ...args: any[]) => {
+        // Convert args to serializable form
+        const serializedArgs = args.map(ensureSerializable);
+        func(...serializedArgs);
+      });
+    }
+  },
+  // For backward compatibility (but still ensure serialization)
+  ipcRenderer: {
+    send: (channel: string, data: any) => {
+      const serializedData = ensureSerializable(data);
+      ipcRenderer.send(channel, serializedData);
+    },
+    on: (channel: string, func: (...args: any[]) => void) => {
+      const wrapper = (_event: IpcRendererEvent, ...args: any[]) => {
+        try {
+          // Don't pass the event object to the callback, only pass the serialized args
+          const serializedArgs = args.map(ensureSerializable);
+          func(...serializedArgs); // Only pass the serialized args, not the event
+        } catch (err) {
+          console.error(`Error in IPC handler for channel ${channel}:`, err);
+        }
+      };
+      ipcRenderer.on(channel, wrapper);
+      // Store the wrapper function for removal later
+      return wrapper;
+    },
+    removeListener: (channel: string, func: (...args: any[]) => void) => {
+      try {
+        ipcRenderer.removeListener(channel, func);
+      } catch (err) {
+        console.error(`Error removing listener for channel ${channel}:`, err);
+      }
+    },
+    // Add invoke method for promise-based IPC
+    invoke: async (channel: string, data: any) => {
+      try {
+        const serializedData = ensureSerializable(data);
+        const result = await ipcRenderer.invoke(channel, serializedData);
+        return ensureSerializable(result);
+      } catch (err) {
+        console.error(`Error invoking IPC channel ${channel}:`, err);
+        throw err;
+      }
+    }
+  },
+}); 

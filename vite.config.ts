@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react()],
   base: "./", // Relative base path for assets
   build: {
-    outDir: "dist",
+    outDir: "dist/renderer", // Separate output directory for renderer
     emptyOutDir: true,
     sourcemap: true,
   },
