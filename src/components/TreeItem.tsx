@@ -72,12 +72,12 @@ const TreeItem = ({
     }
   }, [isDirectoryPartiallySelected]);
 
-  const handleToggle = (e: any) => {
+  const handleToggle = (e: Event) => {
     e.stopPropagation();
     toggleExpanded(id);
   };
 
-  const handleItemClick = (e: any) => {
+  const handleItemClick = () => {
     if (type === "directory") {
       toggleExpanded(id);
     } else if (type === "file" && !isDisabled) {
@@ -85,12 +85,13 @@ const TreeItem = ({
     }
   };
 
-  const handleCheckboxChange = (e: any) => {
+  const handleCheckboxChange = (e: Event) => {
     e.stopPropagation();
     if (type === "file") {
       toggleFileSelection(path);
     } else if (type === "directory") {
-      toggleFolderSelection(path, e.target.checked);
+      const target = e.target as HTMLInputElement;
+      toggleFolderSelection(path, target.checked);
     }
   };
 

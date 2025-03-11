@@ -15,7 +15,7 @@ export async function applyChangesAction(xml: string, projectDirectory: string) 
       throw new Error("No valid file changes found in the XML. Please check the XML format.");
     }
 
-    let finalDirectory = projectDirectory && projectDirectory.trim() !== "" 
+    const finalDirectory = projectDirectory && projectDirectory.trim() !== "" 
       ? projectDirectory.trim() 
       : process.env.PROJECT_DIRECTORY;
 

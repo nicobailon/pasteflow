@@ -37,8 +37,6 @@ export interface SidebarProps {
   toggleExpanded: (nodeId: string) => void;
   resetFolderState?: () => void;
   onFileTreeSortChange?: (sortOrder: string) => void;
-  toggleFilterModal: () => void;
-  refreshFileTree: () => void;
   toggleFilterModal?: () => void;
   refreshFileTree?: () => void;
 }

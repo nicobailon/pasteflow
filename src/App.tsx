@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import useLocalStorage from "./hooks/useLocalStorage";
 import Sidebar from "./components/Sidebar";
 import FileList from "./components/FileList";
@@ -10,7 +10,7 @@ import FileTreeToggle from "./components/FileTreeToggle";
 import { ApplyChangesModal } from "./components/ApplyChangesModal";
 import FilterModal from "./components/FilterModal";
 import { FolderOpen, Folder } from "lucide-react";
-import { generateAsciiFileTree, getTopLevelDirectories, getAllDirectories } from "./utils/pathUtils";
+import { generateAsciiFileTree, getAllDirectories } from "./utils/pathUtils";
 import { XML_FORMATTING_INSTRUCTIONS } from "./utils/xmlTemplates";
 
 // Access the electron API from the window object
@@ -54,10 +54,6 @@ const App = () => {
   const [sortOrder, setSortOrder] = useLocalStorage<string>(
     STORAGE_KEYS.SORT_ORDER,
     "tokens-desc"
-  );
-  const [fileTreeSortOrder, setFileTreeSortOrder] = useLocalStorage<string>(
-    STORAGE_KEYS.FILE_TREE_SORT_ORDER,
-    "default"
   );
   const [searchTerm, setSearchTerm] = useLocalStorage<string>(
     STORAGE_KEYS.SEARCH_TERM,
@@ -172,15 +168,53 @@ const App = () => {
   
 
 
-  // Listen for folder selection from main process
+  // Apply filters and sorting to files
+  const applyFiltersAndSort = useCallback(
+    (files: FileData[], sort: string, filter: string) => {
+      let filtered = files;
+
+      // Apply filter
+      if (filter) {
+        const searchLower = filter.toLowerCase();
+        filtered = files.filter(
+          (file) =>
+            file.path.toLowerCase().includes(searchLower) ||
+            file.name.toLowerCase().includes(searchLower),
+        );
+      }
+
+      // Apply sort
+      switch (sort) {
+        case "name-asc":
+          filtered.sort((a, b) => a.name.localeCompare(b.name));
+          break;
+        case "name-desc":
+          filtered.sort((a, b) => b.name.localeCompare(a.name));
+          break;
+        case "tokens-asc":
+          filtered.sort((a, b) => (a.tokenCount || 0) - (b.tokenCount || 0));
+          break;
+        case "tokens-desc":
+          filtered.sort((a, b) => (b.tokenCount || 0) - (a.tokenCount || 0));
+          break;
+        default:
+          // No sorting
+          break;
+      }
+
+      // Update displayed files
+      setDisplayedFiles(filtered);
+      
+      return filtered;
+    },
+    [setDisplayedFiles],
+  );
+
+  // Set up event listeners for Electron IPC
   useEffect(() => {
-    if (!isElectron) {
-      console.warn("Not running in Electron environment");
-      return;
-    }
+    if (!isElectron) return;
 
     const handleFolderSelected = (folderPath: string) => {
-      // Check if folderPath is valid string
       if (typeof folderPath === "string") {
         console.log("Folder selected:", folderPath);
         setSelectedFolder(folderPath);
@@ -250,7 +284,7 @@ const App = () => {
         handleProcessingStatus,
       );
     };
-  }, [isElectron, sortOrder, searchTerm]);
+  }, [isElectron, sortOrder, searchTerm, exclusionPatterns, setSelectedFiles, setSelectedFolder, applyFiltersAndSort]);
 
   const openFolder = useCallback(() => {
     if (isElectron) {
@@ -280,42 +314,6 @@ const App = () => {
     
     // No need to manually clear localStorage entries - handled by useLocalStorage
   }, [setSelectedFolder, setSelectedFiles]);
-
-  // Apply filters and sorting to files
-  const applyFiltersAndSort = useCallback(
-    (files: FileData[], sort: string, filter: string) => {
-      let filtered = files;
-
-      // Apply filter
-      if (filter) {
-        const lowerFilter = filter.toLowerCase();
-        filtered = files.filter(
-          (file) =>
-            file.name.toLowerCase().includes(lowerFilter) ||
-            file.path.toLowerCase().includes(lowerFilter),
-        );
-      }
-
-      // Apply sort
-      const [sortKey, sortDir] = sort.split("-");
-      const sorted = [...filtered].sort((a, b) => {
-        let comparison = 0;
-
-        if (sortKey === "name") {
-          comparison = a.name.localeCompare(b.name);
-        } else if (sortKey === "tokens") {
-          comparison = a.tokenCount - b.tokenCount;
-        } else if (sortKey === "size") {
-          comparison = a.size - b.size;
-        }
-
-        return sortDir === "asc" ? comparison : -comparison;
-      });
-
-      setDisplayedFiles(sorted);
-    },
-    [setDisplayedFiles]
-  );
 
   // Toggle file selection
   const toggleFileSelection = useCallback((filePath: string) => {
@@ -619,27 +617,8 @@ const App = () => {
   const getFolderNameFromPath = (path: string) => {
     if (!path) return "";
     // Split the path by the separator and get the last part
-    const parts = path.split(/[\/\\]/);
+    const parts = path.split(/[/\\]/);
     return parts[parts.length - 1];
-  };
-
-  /**
-   * Parses a string of exclusion patterns separated by newlines into an array
-   * of individual patterns for file filtering.
-   *
-   * @param {string} patternsString - Raw string of patterns separated by newlines
-   * @returns {string[]} Array of individual patterns for filtering
-   */
-  const parseExclusionPatterns = (patternsString: string): string[] => {
-    if (!patternsString) return [];
-    
-    return patternsString
-      .split('\n')
-      .map(pattern => pattern.trim())
-      .filter(pattern => {
-        // Skip empty lines and comments
-        return pattern !== '' && !pattern.startsWith('#');
-      });
   };
 
   /**
@@ -663,16 +642,15 @@ const App = () => {
     }
   }, [selectedFolder, isElectron, setExclusionPatterns]);
 
-  // Handler for file tree sort order change
-  const handleFileTreeSortChange = useCallback((sortOrder: string) => {
-    console.log("File tree sort order changed to:", sortOrder);
-    setFileTreeSortOrder(sortOrder);
-    setSortDropdownOpen(false);
-  }, [setFileTreeSortOrder]);
-
   // Toggle filter modal visibility
   const toggleFilterModal = useCallback(() => {
     setFilterModalOpen((prevState: boolean) => !prevState);
+  }, []);
+
+  // Handler for file tree sort order change
+  const handleFileTreeSortChange = useCallback((sortOrder: string) => {
+    console.log("File tree sort order changed to:", sortOrder);
+    setSortDropdownOpen(false);
   }, []);
 
   return (

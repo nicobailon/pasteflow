@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { XmlApplyTabProps, FileChange } from "../types/FileTypes";
-// @ts-ignore
+// @ts-expect-error - Module is imported from main process and TypeScript can't resolve it
 import { parseXmlString, formatOutputWithXmlInstructions } from "../main/xmlUtils";
 
 // XML instructions template
@@ -75,7 +75,7 @@ const XmlApplyTab = ({ selectedFolder }: XmlApplyTabProps) => {
     setXmlInput(e.target.value);
   };
 
-  const handleParseXml = () => {
+  const handleParseXml = async () => {
     if (!xmlInput.trim()) {
       setError("Please enter XML content");
       setParsedChanges(null);
@@ -83,7 +83,7 @@ const XmlApplyTab = ({ selectedFolder }: XmlApplyTabProps) => {
     }
 
     try {
-      const changes = parseXmlString(xmlInput);
+      const changes = await parseXmlString(xmlInput);
       if (changes && changes.length > 0) {
         setParsedChanges(changes);
         setError(null);

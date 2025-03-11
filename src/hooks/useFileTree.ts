@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { FileData, TreeNode } from '../types/FileTypes';
 
 interface UseFileTreeProps {
@@ -46,7 +46,6 @@ function useFileTree({
   // Build file tree structure from flat list of files using useMemo
   const fileTree = useMemo(() => {
     if (allFiles.length === 0) {
-      setIsTreeBuildingComplete(false);
       return [];
     }
 
@@ -340,11 +339,9 @@ function useFileTree({
       // Sort the top level nodes
       const sortedTree = sortTreeNodes(treeRoots, fileTreeSortOrder);
 
-      setIsTreeBuildingComplete(true);
       return sortedTree;
     } catch (err) {
       console.error("Error building file tree:", err);
-      setIsTreeBuildingComplete(true);
       return [];
     }
   }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder]);
@@ -359,24 +356,29 @@ function useFileTree({
   }, [allFiles.length, fileTree.length]);
 
   // Flatten the tree for rendering with proper indentation
-  const flattenTree = (nodes: TreeNode[]): TreeNode[] => {
-    let result: TreeNode[] = [];
+  const flattenTree = useCallback((nodes: TreeNode[]): TreeNode[] => {
+    // Define recursive flatten function inside to avoid dependency issue
+    const flattenNodesRecursively = (nodesToFlatten: TreeNode[]): TreeNode[] => {
+      let result: TreeNode[] = [];
 
-    nodes.forEach((node) => {
-      // Add the current node
-      result.push(node);
+      nodesToFlatten.forEach((node) => {
+        // Add the current node
+        result.push(node);
 
-      // If it's a directory and it's expanded, add its children
-      if (node.type === "directory" && node.isExpanded && node.children) {
-        result = [...result, ...flattenTree(node.children)];
-      }
-    });
+        // If it's a directory and it's expanded, add its children
+        if (node.type === "directory" && node.isExpanded && node.children) {
+          result = [...result, ...flattenNodesRecursively(node.children)];
+        }
+      });
 
-    return result;
-  };
+      return result;
+    };
+
+    return flattenNodesRecursively(nodes);
+  }, []);
 
   // Filter the tree based on search term
-  const filterTree = (nodes: TreeNode[], term: string): TreeNode[] => {
+  const filterTree = useCallback((nodes: TreeNode[], term: string): TreeNode[] => {
     if (!term) return nodes;
 
     const lowerTerm = term.toLowerCase();
@@ -397,24 +399,29 @@ function useFileTree({
       return false;
     };
 
+    // Define recursive filter function inside to avoid dependency issue
+    const filterNodesRecursively = (nodesToFilter: TreeNode[]): TreeNode[] => {
+      return nodesToFilter.filter(nodeMatches).map((node) => {
+        // If it's a directory, also filter its children
+        if (node.type === "directory" && node.children) {
+          return {
+            ...node,
+            children: filterNodesRecursively(node.children),
+            isExpanded: true, // Auto-expand directories when searching
+          };
+        }
+        return node;
+      });
+    };
+
     // Filter the nodes
-    return nodes.filter(nodeMatches).map((node) => {
-      // If it's a directory, also filter its children
-      if (node.type === "directory" && node.children) {
-        return {
-          ...node,
-          children: filterTree(node.children, term),
-          isExpanded: true, // Auto-expand directories when searching
-        };
-      }
-      return node;
-    });
-  };
+    return filterNodesRecursively(nodes);
+  }, []);
 
   // The final tree to render, filtered and flattened
   const visibleTree = useMemo(() => {
     return flattenTree(filterTree(fileTree, searchTerm));
-  }, [fileTree, searchTerm]);
+  }, [fileTree, searchTerm, filterTree, flattenTree]);
 
   return {
     fileTree,

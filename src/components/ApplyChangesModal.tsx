@@ -10,7 +10,6 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
   const [status, setStatus] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [formatInstructions, setFormatInstructions] = useState("");
-  const [showFormatter, setShowFormatter] = useState(false);
 
   const handleApply = () => {
     if (!xml.trim()) {
@@ -26,12 +25,6 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
       xml, 
       projectDirectory: selectedFolder 
     });
-  };
-
-  const handleFormatXml = (formattedXml: string) => {
-    setXml(formattedXml);
-    setShowFormatter(false);
-    setStatus("XML formatted with CDATA sections to protect JSX/React code");
   };
 
   useEffect(() => {
@@ -111,8 +104,8 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
     };
   }, []);
 
-  // Display instructions from the standardized template or a fallback
-  const xmlHelpText = formatInstructions || `
+  // Use formatInstructions directly instead of storing in unused variable
+  const placeholderText = formatInstructions || `
 <changed_files>
   <file>
     <file_summary>Brief description of what changed</file_summary>
@@ -146,7 +139,7 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
               className="xml-input"
               value={xml}
               onChange={(e) => setXml(e.target.value)}
-              placeholder="Paste XML here..."
+              placeholder={placeholderText}
               rows={15}
               disabled={isProcessing}
             />
