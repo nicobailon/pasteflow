@@ -10,9 +10,14 @@ try {
   process.exit(1);
 }
 
-const { spawn } = require("child_process");
-const { platform } = require("os");
+const { spawn } = require('child_process');
+const electron = require('electron');
+const path = require('path');
+const { execSync } = require('child_process');
 
+// Build the TypeScript main process
+console.log('Building TypeScript main process...');
+execSync('npm run build:main', { stdio: 'inherit' });
 console.log("🚀 Starting development environment...");
 
 // Set environment variable for development mode

@@ -1,13 +1,14 @@
 {
   "name": "pasteflow",
   "version": "1.0.0",
-  "main": "main.js",
+  "main": "dist/main/main.js",
   "scripts": {
     "start": "electron .",
     "dev": "vite",
     "dev:electron": "node dev.js",
     "build": "vite build",
-    "build-electron": "node build.js",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build-electron": "npm run build:main && node build.js",
     "verify-build": "node scripts/verify-build.js",
     "test-build": "node scripts/test-local-build.js",
     "test-build:mac": "node scripts/test-local-build.js mac",
@@ -47,7 +48,6 @@
     },
     "files": [
       "dist/**/*",
-      "main.js",
       "preload.js",
       "excluded-files.js",
       "node_modules/**/*"
