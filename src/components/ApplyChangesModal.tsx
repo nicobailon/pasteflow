@@ -1,4 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { toast } from "react-hot-toast";
+import { Code } from "lucide-react";
+import { Button } from "../components/ui/button";
+import { formatXml } from "../utils/xmlUtils";
+
+// Define toast type locally
+type Toast = {
+  (message: string): string;
+  error: (message: string) => void;
+  success: (message: string) => void;
+}
+
+const typedToast = toast as Toast;
 
 interface ApplyChangesModalProps {
   selectedFolder: string;
@@ -26,6 +39,18 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
       projectDirectory: selectedFolder 
     });
   };
+
+  const handleFormatXml = useCallback(() => {
+    if (!xml) return;
+    
+    try {
+      const formattedXml = formatXml(xml);
+      setXml(formattedXml);
+    } catch (error) {
+      console.error('Error formatting XML:', error);
+      typedToast.error('Failed to format XML: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  }, [xml]);
 
   useEffect(() => {
     // Fetch the standard XML format instructions
@@ -174,6 +199,13 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
           >
             Close
           </button>
+          <Button 
+            onClick={handleFormatXml} 
+            className="ml-2"
+            title="Format XML"
+          >
+            <Code className="w-5 h-5" />
+          </Button>
         </div>
       </div>
     </div>
