@@ -171,7 +171,7 @@ describe('useFileTree Hook', () => {
     
     // Find files in the root level
     const rootChildren = result.current.fileTree;
-    const fileNodes = rootChildren.filter(node => node.type === 'file');
+    const fileNodes = rootChildren.filter((node: TreeNode) => node.type === 'file');
     
     // If there are file nodes, check that they're sorted by token count in ascending order
     if (fileNodes.length > 1) {
@@ -194,7 +194,7 @@ describe('useFileTree Hook', () => {
     
     // Find files in the root level
     const rootChildren = result.current.fileTree;
-    const fileNodes = rootChildren.filter(node => node.type === 'file');
+    const fileNodes = rootChildren.filter((node: TreeNode) => node.type === 'file');
     
     // If there are file nodes, check that they're sorted by token count in descending order
     if (fileNodes.length > 1) {
@@ -280,8 +280,8 @@ describe('useFileTree Hook', () => {
     const visibleTree = result.current.visibleTree;
     
     // Check if the Header.tsx file is in the visible tree
-    const headerNode = visibleTree.find(node => node.name === 'Header.tsx' || 
-                                              (node.children && node.children.some(child => child.name === 'Header.tsx')));
+    const headerNode = visibleTree.find((node: TreeNode) => node.name === 'Header.tsx' || 
+                                              (node.children && node.children.some((child: TreeNode) => child.name === 'Header.tsx')));
     expect(headerNode).toBeDefined();
   });
 }); 
