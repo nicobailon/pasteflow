@@ -11,4 +11,15 @@ Object.defineProperty(window, 'electron', {
     }
   },
   writable: true
-}); 
+});
+
+// Mock document.getElementById for React 18 createRoot
+document.getElementById = jest.fn().mockImplementation(() => {
+  const div = document.createElement('div');
+  div.id = 'root';
+  document.body.appendChild(div);
+  return div;
+});
+
+// Mock for main.tsx
+jest.mock('./src/main.tsx', () => ({}), { virtual: true }); 

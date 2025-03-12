@@ -71,10 +71,16 @@ const App = () => {
   const [appInitialized, setAppInitialized] = useState(false);
   const [processingStatus, setProcessingStatus] = useState({
     status: "idle",
-    message: ""
+    message: "",
+    processed: 0,
+    directories: 0,
+    total: 0
   } as {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
+    processed?: number;
+    directories?: number;
+    total?: number;
   });
   
   // State for modals
@@ -145,6 +151,8 @@ const App = () => {
           setProcessingStatus({
             status: "processing",
             message: "Loading files from previously selected folder...",
+            processed: 0,
+            directories: 0
           });
           
           // Clear any previously selected files when loading initial data
@@ -225,6 +233,8 @@ const App = () => {
         setProcessingStatus({
           status: "processing",
           message: "Requesting file list...",
+          processed: 0,
+          directories: 0
         });
         window.electron.ipcRenderer.send("request-file-list", folderPath, exclusionPatterns);
       } else {
@@ -242,6 +252,8 @@ const App = () => {
       setProcessingStatus({
         status: "complete",
         message: `Loaded ${files.length} files`,
+        processed: files.length,
+        total: files.length
       });
 
       // Apply filters and sort to the new files
@@ -258,9 +270,19 @@ const App = () => {
     const handleProcessingStatus = (status: {
       status: "idle" | "processing" | "complete" | "error";
       message: string;
+      processed?: number;
+      directories?: number;
+      total?: number;
     }) => {
       console.log("Processing status:", status);
       setProcessingStatus(status);
+      
+      // If processing is complete or error, mark as not cancellable
+      if (status.status === "complete" || status.status === "error") {
+        setIsLoadingCancellable(false);
+      } else if (status.status === "processing") {
+        setIsLoadingCancellable(true);
+      }
     };
 
     window.electron.ipcRenderer.on("folder-selected", handleFolderSelected);
@@ -653,6 +675,19 @@ const App = () => {
     setSortDropdownOpen(false);
   }, []);
 
+  // Add state to track if file loading can be canceled
+  const [isLoadingCancellable, setIsLoadingCancellable] = useState(false);
+  
+  // Add function to cancel file loading process
+  const handleCancelLoading = useCallback(() => {
+    window.electron.ipcRenderer.send("cancel-file-loading");
+    setProcessingStatus({
+      status: "idle",
+      message: "File loading cancelled",
+    });
+    setIsLoadingCancellable(false);
+  }, []);
+
   return (
     <ThemeProvider>
       <div className="app-container">
@@ -674,6 +709,30 @@ const App = () => {
           <div className="processing-indicator">
             <div className="spinner"></div>
             <span>{processingStatus.message}</span>
+            {processingStatus.processed !== undefined && (
+              <div className="progress-bar-container">
+                <div 
+                  className="progress-bar" 
+                  style={{ 
+                    width: processingStatus.total ? 
+                      `${Math.min((processingStatus.processed / processingStatus.total) * 100, 100)}%` : 
+                      `${Math.min(processingStatus.processed * 0.1, 100)}%` 
+                  }}
+                />
+                <span className="progress-details">
+                  {processingStatus.processed.toLocaleString()} files
+                  {processingStatus.directories ? ` · ${processingStatus.directories.toLocaleString()} directories` : ''}
+                </span>
+              </div>
+            )}
+            {isLoadingCancellable && (
+              <button 
+                className="cancel-button"
+                onClick={handleCancelLoading}
+              >
+                Cancel
+              </button>
+            )}
           </div>
         )}
 

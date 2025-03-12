@@ -37,7 +37,7 @@ function ensureSerializable(data) {
 contextBridge.exposeInMainWorld("electron", {
   send: (channel, data) => {
     // whitelist channels
-    const validChannels = ["open-folder", "request-file-list", "apply-changes"];
+    const validChannels = ["open-folder", "request-file-list", "apply-changes", "cancel-file-loading"];
     if (validChannels.includes(channel)) {
       // Ensure data is serializable before sending
       const serializedData = ensureSerializable(data);
