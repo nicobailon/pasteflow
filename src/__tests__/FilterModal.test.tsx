@@ -28,12 +28,12 @@ describe('FilterModal Component', () => {
     expect(screen.getByText(/Files matching these patterns will be excluded/)).toBeInTheDocument();
     
     // Check textarea contains patterns
-    const textarea = screen.getByRole('textbox');
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     expect(textarea).toBeInTheDocument();
     
     // Verify all patterns are included in the textarea
     mockExclusionPatterns.forEach(pattern => {
-      expect(textarea).toHaveValue(expect.stringContaining(pattern));
+      expect(textarea.value).toContain(pattern);
     });
     
     // Check for buttons

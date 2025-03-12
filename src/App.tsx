@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import useLocalStorage from "./hooks/useLocalStorage";
 import Sidebar from "./components/Sidebar";
 import FileList from "./components/FileList";
@@ -10,7 +10,7 @@ import FileTreeToggle from "./components/FileTreeToggle";
 import { ApplyChangesModal } from "./components/ApplyChangesModal";
 import FilterModal from "./components/FilterModal";
 import { FolderOpen, Folder } from "lucide-react";
-import { generateAsciiFileTree, getTopLevelDirectories, getAllDirectories } from "./utils/pathUtils";
+import { generateAsciiFileTree, getAllDirectories } from "./utils/pathUtils";
 import { XML_FORMATTING_INSTRUCTIONS } from "./utils/xmlTemplates";
 
 // Access the electron API from the window object
@@ -55,10 +55,6 @@ const App = () => {
     STORAGE_KEYS.SORT_ORDER,
     "tokens-desc"
   );
-  const [fileTreeSortOrder, setFileTreeSortOrder] = useLocalStorage<string>(
-    STORAGE_KEYS.FILE_TREE_SORT_ORDER,
-    "default"
-  );
   const [searchTerm, setSearchTerm] = useLocalStorage<string>(
     STORAGE_KEYS.SEARCH_TERM,
     ""
@@ -75,10 +71,16 @@ const App = () => {
   const [appInitialized, setAppInitialized] = useState(false);
   const [processingStatus, setProcessingStatus] = useState({
     status: "idle",
-    message: ""
+    message: "",
+    processed: 0,
+    directories: 0,
+    total: 0
   } as {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
+    processed?: number;
+    directories?: number;
+    total?: number;
   });
   
   // State for modals
@@ -149,6 +151,8 @@ const App = () => {
           setProcessingStatus({
             status: "processing",
             message: "Loading files from previously selected folder...",
+            processed: 0,
+            directories: 0
           });
           
           // Clear any previously selected files when loading initial data
@@ -172,15 +176,53 @@ const App = () => {
   
 
 
-  // Listen for folder selection from main process
+  // Apply filters and sorting to files
+  const applyFiltersAndSort = useCallback(
+    (files: FileData[], sort: string, filter: string) => {
+      let filtered = files;
+
+      // Apply filter
+      if (filter) {
+        const searchLower = filter.toLowerCase();
+        filtered = files.filter(
+          (file) =>
+            file.path.toLowerCase().includes(searchLower) ||
+            file.name.toLowerCase().includes(searchLower),
+        );
+      }
+
+      // Apply sort
+      switch (sort) {
+        case "name-asc":
+          filtered.sort((a, b) => a.name.localeCompare(b.name));
+          break;
+        case "name-desc":
+          filtered.sort((a, b) => b.name.localeCompare(a.name));
+          break;
+        case "tokens-asc":
+          filtered.sort((a, b) => (a.tokenCount || 0) - (b.tokenCount || 0));
+          break;
+        case "tokens-desc":
+          filtered.sort((a, b) => (b.tokenCount || 0) - (a.tokenCount || 0));
+          break;
+        default:
+          // No sorting
+          break;
+      }
+
+      // Update displayed files
+      setDisplayedFiles(filtered);
+      
+      return filtered;
+    },
+    [setDisplayedFiles],
+  );
+
+  // Set up event listeners for Electron IPC
   useEffect(() => {
-    if (!isElectron) {
-      console.warn("Not running in Electron environment");
-      return;
-    }
+    if (!isElectron) return;
 
     const handleFolderSelected = (folderPath: string) => {
-      // Check if folderPath is valid string
       if (typeof folderPath === "string") {
         console.log("Folder selected:", folderPath);
         setSelectedFolder(folderPath);
@@ -191,6 +233,8 @@ const App = () => {
         setProcessingStatus({
           status: "processing",
           message: "Requesting file list...",
+          processed: 0,
+          directories: 0
         });
         window.electron.ipcRenderer.send("request-file-list", folderPath, exclusionPatterns);
       } else {
@@ -208,6 +252,8 @@ const App = () => {
       setProcessingStatus({
         status: "complete",
         message: `Loaded ${files.length} files`,
+        processed: files.length,
+        total: files.length
       });
 
       // Apply filters and sort to the new files
@@ -224,9 +270,19 @@ const App = () => {
     const handleProcessingStatus = (status: {
       status: "idle" | "processing" | "complete" | "error";
       message: string;
+      processed?: number;
+      directories?: number;
+      total?: number;
     }) => {
       console.log("Processing status:", status);
       setProcessingStatus(status);
+      
+      // If processing is complete or error, mark as not cancellable
+      if (status.status === "complete" || status.status === "error") {
+        setIsLoadingCancellable(false);
+      } else if (status.status === "processing") {
+        setIsLoadingCancellable(true);
+      }
     };
 
     window.electron.ipcRenderer.on("folder-selected", handleFolderSelected);
@@ -250,7 +306,7 @@ const App = () => {
         handleProcessingStatus,
       );
     };
-  }, [isElectron, sortOrder, searchTerm]);
+  }, [isElectron, sortOrder, searchTerm, exclusionPatterns, setSelectedFiles, setSelectedFolder, applyFiltersAndSort]);
 
   const openFolder = useCallback(() => {
     if (isElectron) {
@@ -280,42 +336,6 @@ const App = () => {
     
     // No need to manually clear localStorage entries - handled by useLocalStorage
   }, [setSelectedFolder, setSelectedFiles]);
-
-  // Apply filters and sorting to files
-  const applyFiltersAndSort = useCallback(
-    (files: FileData[], sort: string, filter: string) => {
-      let filtered = files;
-
-      // Apply filter
-      if (filter) {
-        const lowerFilter = filter.toLowerCase();
-        filtered = files.filter(
-          (file) =>
-            file.name.toLowerCase().includes(lowerFilter) ||
-            file.path.toLowerCase().includes(lowerFilter),
-        );
-      }
-
-      // Apply sort
-      const [sortKey, sortDir] = sort.split("-");
-      const sorted = [...filtered].sort((a, b) => {
-        let comparison = 0;
-
-        if (sortKey === "name") {
-          comparison = a.name.localeCompare(b.name);
-        } else if (sortKey === "tokens") {
-          comparison = a.tokenCount - b.tokenCount;
-        } else if (sortKey === "size") {
-          comparison = a.size - b.size;
-        }
-
-        return sortDir === "asc" ? comparison : -comparison;
-      });
-
-      setDisplayedFiles(sorted);
-    },
-    [setDisplayedFiles]
-  );
 
   // Toggle file selection
   const toggleFileSelection = useCallback((filePath: string) => {
@@ -619,27 +639,8 @@ const App = () => {
   const getFolderNameFromPath = (path: string) => {
     if (!path) return "";
     // Split the path by the separator and get the last part
-    const parts = path.split(/[\/\\]/);
+    const parts = path.split(/[/\\]/);
     return parts[parts.length - 1];
-  };
-
-  /**
-   * Parses a string of exclusion patterns separated by newlines into an array
-   * of individual patterns for file filtering.
-   *
-   * @param {string} patternsString - Raw string of patterns separated by newlines
-   * @returns {string[]} Array of individual patterns for filtering
-   */
-  const parseExclusionPatterns = (patternsString: string): string[] => {
-    if (!patternsString) return [];
-    
-    return patternsString
-      .split('\n')
-      .map(pattern => pattern.trim())
-      .filter(pattern => {
-        // Skip empty lines and comments
-        return pattern !== '' && !pattern.startsWith('#');
-      });
   };
 
   /**
@@ -663,16 +664,28 @@ const App = () => {
     }
   }, [selectedFolder, isElectron, setExclusionPatterns]);
 
-  // Handler for file tree sort order change
-  const handleFileTreeSortChange = useCallback((sortOrder: string) => {
-    console.log("File tree sort order changed to:", sortOrder);
-    setFileTreeSortOrder(sortOrder);
-    setSortDropdownOpen(false);
-  }, [setFileTreeSortOrder]);
-
   // Toggle filter modal visibility
   const toggleFilterModal = useCallback(() => {
     setFilterModalOpen((prevState: boolean) => !prevState);
+  }, []);
+
+  // Handler for file tree sort order change
+  const handleFileTreeSortChange = useCallback((sortOrder: string) => {
+    console.log("File tree sort order changed to:", sortOrder);
+    setSortDropdownOpen(false);
+  }, []);
+
+  // Add state to track if file loading can be canceled
+  const [isLoadingCancellable, setIsLoadingCancellable] = useState(false);
+  
+  // Add function to cancel file loading process
+  const handleCancelLoading = useCallback(() => {
+    window.electron.ipcRenderer.send("cancel-file-loading");
+    setProcessingStatus({
+      status: "idle",
+      message: "File loading cancelled",
+    });
+    setIsLoadingCancellable(false);
   }, []);
 
   return (
@@ -696,6 +709,30 @@ const App = () => {
           <div className="processing-indicator">
             <div className="spinner"></div>
             <span>{processingStatus.message}</span>
+            {processingStatus.processed !== undefined && (
+              <div className="progress-bar-container">
+                <div 
+                  className="progress-bar" 
+                  style={{ 
+                    width: processingStatus.total ? 
+                      `${Math.min((processingStatus.processed / processingStatus.total) * 100, 100)}%` : 
+                      `${Math.min(processingStatus.processed * 0.1, 100)}%` 
+                  }}
+                />
+                <span className="progress-details">
+                  {processingStatus.processed.toLocaleString()} files
+                  {processingStatus.directories ? ` · ${processingStatus.directories.toLocaleString()} directories` : ''}
+                </span>
+              </div>
+            )}
+            {isLoadingCancellable && (
+              <button 
+                className="cancel-button"
+                onClick={handleCancelLoading}
+              >
+                Cancel
+              </button>
+            )}
           </div>
         )}
 

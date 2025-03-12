@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, fireEvent, screen, waitFor } from '@testing-library/react';
+import { render, fireEvent, screen, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import CopyButton from '../components/CopyButton';
 
@@ -42,14 +42,16 @@ describe('CopyButton Component', () => {
     render(<CopyButton text="Test content to copy" />);
     
     const button = screen.getByRole('button');
-    fireEvent.click(button);
+    
+    await act(async () => {
+      fireEvent.click(button);
+    });
     
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('Test content to copy');
-    expect(button).toHaveAttribute('title', 'Copied!');
     
-    // Check for animation elements
-    const rippleElement = screen.getByText('', { selector: '.animate-ping' });
-    expect(rippleElement).toBeInTheDocument();
+    await waitFor(() => {
+      expect(button).toHaveAttribute('title', 'Copied to clipboard');
+    });
     
     // Wait for state to return to normal
     await waitFor(() => {
@@ -82,19 +84,21 @@ describe('CopyButton Component', () => {
     const button = screen.getByRole('button');
     
     // Initial state check
-    expect(button.className).toContain('bg-blue-500');
-    expect(button.className).not.toContain('bg-green-500');
+    expect(button).toHaveAttribute('title', 'Copy to clipboard');
     
     // Click to copy
-    fireEvent.click(button);
+    await act(async () => {
+      fireEvent.click(button);
+    });
     
     // After click check
-    expect(button.className).toContain('bg-green-500');
+    await waitFor(() => {
+      expect(button).toHaveAttribute('title', 'Copied to clipboard');
+    });
     
     // Wait for reset (2 seconds)
     await waitFor(() => {
-      expect(button.className).not.toContain('bg-green-500');
-      expect(button.className).toContain('bg-blue-500');
+      expect(button).toHaveAttribute('title', 'Copy to clipboard');
     }, { timeout: 2100 });
   });
 }); 

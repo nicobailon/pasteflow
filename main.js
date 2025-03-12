@@ -106,6 +106,25 @@ const BINARY_EXTENSIONS = [
 // Max file size to read (5MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
+// Regex pattern to detect potential binary content
+const BINARY_CONTENT_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]{30,}/;
+const SPECIAL_TOKEN_REGEX = /<\|endoftext\|>/;
+
+// Special file extensions to skip (not even try to read)
+const SPECIAL_FILE_EXTENSIONS = ['.asar', '.bin', '.dll', '.exe', '.so', '.dylib'];
+
+// Function to check if file content is likely binary
+function isLikelyBinaryContent(content) {
+  // Check for sequences of non-ASCII characters
+  return BINARY_CONTENT_REGEX.test(content) || SPECIAL_TOKEN_REGEX.test(content);
+}
+
+// Function to check if file has special extension that should be skipped
+function isSpecialFile(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return SPECIAL_FILE_EXTENSIONS.includes(ext);
+}
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200,
@@ -233,7 +252,7 @@ function loadGitignore(rootDir) {
 // Check if file is binary based on extension
 function isBinaryFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  return BINARY_EXTENSIONS.includes(ext);
+  return BINARY_EXTENSIONS.includes(ext) || isSpecialFile(filePath);
 }
 
 // Count tokens using tiktoken with o200k_base encoding
@@ -245,7 +264,19 @@ function countTokens(text) {
   }
 
   try {
-    const tokens = encoder.encode(text);
+    // Add sanitization to remove problematic tokens that cause tiktoken to fail
+    // This handles the <|endoftext|> token and other potential special tokens
+    const sanitizedText = text
+      .replace(/<\|endoftext\|>/g, "") // Remove the problematic token
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ""); // Remove control characters
+    
+    // If the sanitization removed a significant portion of the text, fall back to estimation
+    if (sanitizedText.length < text.length * 0.9) {
+      console.warn("Text contained many special tokens, using estimation instead");
+      return Math.ceil(text.length / 4);
+    }
+    
+    const tokens = encoder.encode(sanitizedText);
     return tokens.length;
   } catch (err) {
     console.error("Error counting tokens:", err);
@@ -254,144 +285,261 @@ function countTokens(text) {
   }
 }
 
-// Function to recursively read files from a directory
-function readFilesRecursively(dir, rootDir, ignoreFilter) {
-  rootDir = rootDir || dir;
-  ignoreFilter = ignoreFilter || loadGitignore(rootDir);
-
-  let results = [];
-
-  try {
-    const dirents = fs.readdirSync(dir, { withFileTypes: true });
-
-    // Process directories first, then files
-    const directories = [];
-    const files = [];
-
-    dirents.forEach((dirent) => {
-      const fullPath = path.join(dir, dirent.name);
-      const relativePath = path.relative(rootDir, fullPath);
-
-      // Skip if the path is ignored
-      if (ignoreFilter.ignores(relativePath)) {
-        return;
-      }
-
-      if (dirent.isDirectory()) {
-        directories.push(dirent);
-      } else if (dirent.isFile()) {
-        files.push(dirent);
-      }
-    });
-
-    // Process directories first
-    directories.forEach((dirent) => {
-      const fullPath = path.join(dir, dirent.name);
-      // Recursively read subdirectory
-      results = results.concat(
-        readFilesRecursively(fullPath, rootDir, ignoreFilter),
-      );
-    });
-
-    // Then process files
-    files.forEach((dirent) => {
-      const fullPath = path.join(dir, dirent.name);
-      try {
-        // Get file stats for size
-        const stats = fs.statSync(fullPath);
-        const fileSize = stats.size;
-
-        // Skip files that are too large
-        if (fileSize > MAX_FILE_SIZE) {
-          results.push({
-            name: dirent.name,
-            path: fullPath,
-            tokenCount: 0,
-            size: fileSize,
-            content: "",
-            isBinary: false,
-            isSkipped: true,
-            error: "File too large to process",
-          });
-          return;
-        }
-
-        // Check if the file is binary
-        const isBinary = isBinaryFile(fullPath);
-
-        if (isBinary) {
-          // Skip token counting for binary files
-          results.push({
-            name: dirent.name,
-            path: fullPath,
-            tokenCount: 0,
-            size: fileSize,
-            content: "",
-            isBinary: true,
-            isSkipped: false,
-            fileType: path.extname(fullPath).substring(1).toUpperCase(),
-          });
-        } else {
-          // Read file content
-          const fileContent = fs.readFileSync(fullPath, "utf8");
-
-          // Calculate token count
-          const tokenCount = countTokens(fileContent);
-
-          // Add file info with content and token count
-          results.push({
-            name: dirent.name,
-            path: fullPath,
-            content: fileContent,
-            tokenCount: tokenCount,
-            size: fileSize,
-            isBinary: false,
-            isSkipped: false,
-          });
-        }
-      } catch (err) {
-        console.error(`Error reading file ${fullPath}:`, err);
-        results.push({
-          name: dirent.name,
-          path: fullPath,
-          tokenCount: 0,
-          size: 0,
-          isBinary: false,
-          isSkipped: true,
-          error: "Could not read file",
-        });
-      }
-    });
-  } catch (err) {
-    console.error(`Error reading directory ${dir}:`, err);
-  }
-
-  return results;
-}
+// Global cancellation flag for file loading
+let fileLoadingCancelled = false;
 
 // Handle file list request
 ipcMain.on("request-file-list", (event, folderPath) => {
   try {
-    console.log("Processing file list for folder:", folderPath);
+    console.log("Received request for file list in:", folderPath);
+    
+    // Reset cancellation flag when starting a new request
+    fileLoadingCancelled = false;
 
-    // Send initial progress update
+    // Send status update to indicate processing has started
     event.sender.send("file-processing-status", {
       status: "processing",
       message: "Scanning directory structure...",
     });
 
-    // Process files in chunks to avoid blocking the UI
-    const processFiles = () => {
-      const files = readFilesRecursively(folderPath, folderPath);
-
+    // This will hold all the file entries
+    let allFiles = [];
+    
+    // Queue to keep track of directories to process
+    let directoryQueue = [{path: folderPath, depth: 0}];
+    
+    // Batch size - adjust based on performance testing
+    const BATCH_SIZE = 100;
+    
+    // Maximum directories to process in one batch
+    const MAX_DIRS_PER_BATCH = 20;
+    
+    // Maximum depth to process at once (process higher levels first)
+    const MAX_DEPTH = 20;
+    
+    // Track processed directories to avoid duplicate work
+    const processedDirs = new Set();
+    
+    // Create the ignore filter once
+    const ignoreFilter = loadGitignore(folderPath);
+    
+    // Process directories in batches
+    const processNextBatch = () => {
+      // Check if loading has been cancelled
+      if (fileLoadingCancelled) {
+        console.log("File loading cancelled");
+        event.sender.send("file-processing-status", {
+          status: "idle",
+          message: "File loading cancelled",
+        });
+        return;
+      }
+      
+      // Limit the number of directories we process in one go
+      let processedDirsCount = 0;
+      let filesInBatch = 0;
+      let nextBatchDirs = [];
+      
+      // While we have directories to process and haven't hit our batch limit
+      while (directoryQueue.length > 0 && 
+             processedDirsCount < MAX_DIRS_PER_BATCH && 
+             filesInBatch < BATCH_SIZE) {
+        
+        // Get the next directory to process (prioritize lower depths)
+        directoryQueue.sort((a, b) => a.depth - b.depth);
+        const { path: dirPath, depth } = directoryQueue.shift();
+        
+        // Skip if already processed
+        if (processedDirs.has(dirPath)) {
+          continue;
+        }
+        
+        // Skip if we've reached max depth for this batch
+        if (depth > MAX_DEPTH) {
+          nextBatchDirs.push({ path: dirPath, depth });
+          continue;
+        }
+        
+        processedDirs.add(dirPath);
+        processedDirsCount++;
+        
+        try {
+          // Read directory entries
+          const dirents = fs.readdirSync(dirPath, { withFileTypes: true });
+          
+          // Process each entry
+          for (const dirent of dirents) {
+            const fullPath = path.join(dirPath, dirent.name);
+            const relativePath = path.relative(folderPath, fullPath);
+            
+            // Skip if the path is ignored
+            if (ignoreFilter.ignores(relativePath)) {
+              continue;
+            }
+            
+            if (dirent.isDirectory()) {
+              // Queue subdirectory for later processing
+              directoryQueue.push({ path: fullPath, depth: depth + 1 });
+            } else if (dirent.isFile()) {
+              try {
+                // Get file stats
+                const stats = fs.statSync(fullPath);
+                const fileSize = stats.size;
+                
+                // Skip files that are too large
+                if (fileSize > MAX_FILE_SIZE) {
+                  allFiles.push({
+                    name: dirent.name,
+                    path: fullPath,
+                    tokenCount: 0,
+                    size: fileSize,
+                    content: "",
+                    isBinary: false,
+                    isSkipped: true,
+                    error: "File too large to process",
+                  });
+                  continue;
+                }
+                
+                // Check if file has special extension that should be skipped entirely
+                if (isSpecialFile(fullPath)) {
+                  allFiles.push({
+                    name: dirent.name,
+                    path: fullPath,
+                    tokenCount: 0,
+                    size: fileSize,
+                    content: "",
+                    isBinary: true,
+                    isSkipped: true,
+                    fileType: path.extname(fullPath).substring(1).toUpperCase(),
+                    error: "Special file type skipped",
+                  });
+                  continue;
+                }
+                
+                // Check if binary
+                const isBinary = isBinaryFile(fullPath);
+                
+                if (isBinary) {
+                  // Skip content for binary files
+                  allFiles.push({
+                    name: dirent.name,
+                    path: fullPath,
+                    tokenCount: 0,
+                    size: fileSize,
+                    content: "",
+                    isBinary: true,
+                    isSkipped: false,
+                    fileType: path.extname(fullPath).substring(1).toUpperCase(),
+                  });
+                } else {
+                  // Read file content with error handling
+                  try {
+                    const fileContent = fs.readFileSync(fullPath, "utf8");
+                    
+                    // Check if this is actually binary content that was missed by the extension check
+                    if (isLikelyBinaryContent(fileContent)) {
+                      console.log(`File ${fullPath} appears to contain binary data or special tokens, marking as binary`);
+                      allFiles.push({
+                        name: dirent.name,
+                        path: fullPath,
+                        tokenCount: 0,
+                        size: fileSize,
+                        content: "",
+                        isBinary: true,
+                        isSkipped: false,
+                        fileType: "BINARY",
+                      });
+                    } else {
+                      const tokenCount = countTokens(fileContent);
+                      
+                      allFiles.push({
+                        name: dirent.name,
+                        path: fullPath,
+                        content: fileContent,
+                        tokenCount: tokenCount,
+                        size: fileSize,
+                        isBinary: false,
+                        isSkipped: false,
+                      });
+                    }
+                  } catch (readErr) {
+                    // Improve error logging to be more concise
+                    if (readErr.code === 'ENOENT') {
+                      console.log(`File not found: ${fullPath}`);
+                    } else {
+                      console.error(`Error reading file ${fullPath}: ${readErr.code || readErr.message}`);
+                    }
+                    
+                    allFiles.push({
+                      name: dirent.name,
+                      path: fullPath,
+                      tokenCount: 0,
+                      size: fileSize,
+                      content: "",
+                      isBinary: false,
+                      isSkipped: true,
+                      error: readErr.code === 'ENOENT' ? "File not found" : "Could not read file",
+                    });
+                  }
+                }
+                
+                filesInBatch++;
+                
+                // If batch is full, break out to process this batch
+                if (filesInBatch >= BATCH_SIZE) {
+                  break;
+                }
+              } catch (fileErr) {
+                console.error(`Error processing file ${fullPath}:`, fileErr);
+              }
+            }
+          }
+          
+          // If batch is full, stop processing directories
+          if (filesInBatch >= BATCH_SIZE) {
+            break;
+          }
+        } catch (dirErr) {
+          console.error(`Error reading directory ${dirPath}:`, dirErr);
+        }
+      }
+      
+      // Add any skipped directories back to the queue
+      directoryQueue = [...directoryQueue, ...nextBatchDirs];
+      
+      // Send progress update
+      event.sender.send("file-processing-status", {
+        status: "processing",
+        message: `Processed ${allFiles.length} files... (${processedDirs.size} directories)`,
+        processed: allFiles.length,
+        directories: processedDirs.size
+      });
+      
+      // Check if we're done
+      if (directoryQueue.length === 0) {
+        finishProcessing();
+      } else {
+        // Schedule next batch with a small delay to let UI update
+        setTimeout(processNextBatch, 10);
+      }
+    };
+    
+    // Function to finish processing and send results
+    const finishProcessing = () => {
+      // Check if cancelled before finalizing
+      if (fileLoadingCancelled) {
+        return;
+      }
+      
       // Update with processing complete status
       event.sender.send("file-processing-status", {
         status: "complete",
-        message: `Found ${files.length} files`,
+        message: `Found ${allFiles.length} files`,
       });
-
+      
       // Process the files to ensure they're serializable
-      const serializableFiles = files.map((file) => {
+      const serializableFiles = allFiles.map((file) => {
         // Create a clean file object
         return {
           name: file.name ? String(file.name) : "",
@@ -407,16 +555,16 @@ ipcMain.on("request-file-list", (event, folderPath) => {
           isSkipped: Boolean(file.isSkipped),
           error: file.error ? String(file.error) : null,
           fileType: file.fileType ? String(file.fileType) : null,
-          excludedByDefault: shouldExcludeByDefault(file.path, folderPath), // Add new flag to identify excluded files
+          excludedByDefault: shouldExcludeByDefault(file.path, folderPath),
         };
       });
-
+      
       try {
         console.log(`Sending ${serializableFiles.length} files to renderer`);
         event.sender.send("file-list-data", serializableFiles);
       } catch (sendErr) {
         console.error("Error sending file data:", sendErr);
-
+        
         // If sending fails, try again with minimal data
         const minimalFiles = serializableFiles.map((file) => ({
           name: file.name,
@@ -427,21 +575,26 @@ ipcMain.on("request-file-list", (event, folderPath) => {
           isSkipped: file.isSkipped,
           excludedByDefault: file.excludedByDefault,
         }));
-
+        
         event.sender.send("file-list-data", minimalFiles);
       }
     };
-
-    // Use setTimeout to allow UI to update before processing starts
-    setTimeout(processFiles, 100);
+    
+    // Start processing the first batch
+    processNextBatch();
   } catch (err) {
     console.error("Error reading directory:", err);
     event.sender.send("file-processing-status", {
       status: "error",
-      message: "Error processing directory",
+      message: "Error reading directory: " + err.message,
     });
-    event.sender.send("file-list-data", []);
   }
+});
+
+// Add handler for cancel request
+ipcMain.on("cancel-file-loading", () => {
+  console.log("Received request to cancel file loading");
+  fileLoadingCancelled = true;
 });
 
 // Handle XML changes application
