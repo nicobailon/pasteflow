@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react-hooks';
+import { renderHook, act } from '@testing-library/react';
 import useFileTree from '../hooks/useFileTree';
 import { FileData, TreeNode } from '../types/FileTypes';
 

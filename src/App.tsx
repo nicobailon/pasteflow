@@ -615,9 +615,12 @@ const App = () => {
   // Handle expand/collapse state changes
   const toggleExpanded = useCallback((nodeId: string) => {
     setExpandedNodes((prev: Record<string, boolean>) => {
+      const currentState = prev[nodeId];
+      const newValue = currentState === undefined ? false : !currentState;
+      
       const newState = {
         ...prev,
-        [nodeId]: prev[nodeId] === undefined ? false : !prev[nodeId],
+        [nodeId]: newValue,
       };
 
       // Save to localStorage
