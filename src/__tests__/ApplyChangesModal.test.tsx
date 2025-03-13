@@ -8,7 +8,18 @@ import fs from 'fs';
 const mockSend = jest.fn();
 const mockOn = jest.fn();
 const mockRemoveListener = jest.fn();
-const mockInvoke = jest.fn();
+const mockInvoke = jest.fn().mockResolvedValue(`
+<changed_files>
+  <file>
+    <file_summary>Short summary of the changes</file_summary>
+    <file_operation>CREATE|UPDATE|DELETE</file_operation>
+    <file_path>path/to/file.tsx</file_path>
+    <file_code><![CDATA[
+      // All JSX/TSX code should be inside CDATA sections
+    ]]></file_code>
+  </file>
+</changed_files>
+`);
 
 // Sample XML for testing - simple case
 const simpleXml = `
@@ -240,56 +251,21 @@ export default CopyButton;
 
 // Setup global mocks
 beforeEach(() => {
-  // Reset mocks
-  mockSend.mockClear();
-  mockOn.mockClear();
-  mockRemoveListener.mockClear();
-  mockInvoke.mockClear();
-
-  // Reset mock implementations
-  mockSend.mockImplementation(() => {});
-  mockOn.mockImplementation((channel, handler) => {});
-  mockRemoveListener.mockImplementation((channel, handler) => {});
-  
-// Mock the invoke function to return format instructions and handle XML formatting
-  mockInvoke.mockImplementation((channel, ...args) => {
-    if (channel === 'get-xml-format-instructions') {
-      return Promise.resolve(`
-<changed_files>
-  <file>
-    <file_summary>Short summary of the changes</file_summary>
-    <file_operation>CREATE|UPDATE|DELETE</file_operation>
-    <file_path>path/to/file.tsx</file_path>
-    <file_code><![CDATA[
-      // All JSX/TSX code should be inside CDATA sections
-    ]]></file_code>
-  </file>
-</changed_files>
-  `);
-    }
-    if (channel === 'format-xml') {
-      const xmlString = args[0];
-      // Simulate the XML formatting by adding CDATA sections
-      if (!xmlString.includes('<![CDATA[')) {
-        return Promise.resolve(xmlString.replace(
-          /<file_code>([\s\S]*?)<\/file_code>/g,
-          (match: string, p1: string) => `<file_code><![CDATA[${p1}]]></file_code>`
-        ));
-      }
-      return Promise.resolve(xmlString);
-    }
-    return Promise.resolve(null);
-  });
+  // Reset all mocks
+  jest.clearAllMocks();
   
   // Setup window.electron mock
-  window.electron = {
-    ipcRenderer: {
-      send: mockSend,
-      on: mockOn,
-      removeListener: mockRemoveListener,
-      invoke: mockInvoke
-    }
-  };
+  Object.defineProperty(window, 'electron', {
+    value: {
+      ipcRenderer: {
+        send: mockSend,
+        on: mockOn,
+        removeListener: mockRemoveListener,
+        invoke: mockInvoke
+      }
+    },
+    writable: true
+  });
 
   // Setup mocks for file operations
   const mockReadFileSync = jest.fn().mockReturnValue('// Original CopyButton content');
@@ -317,7 +293,7 @@ describe('ApplyChangesModal', () => {
     expect(screen.getByText(selectedFolder)).toBeInTheDocument();
     
     // Check if the textarea is rendered
-    expect(screen.getByPlaceholderText('Paste XML here...')).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
     
     // Check if buttons are rendered
     expect(screen.getByText('Apply Changes')).toBeInTheDocument();
@@ -346,7 +322,6 @@ describe('ApplyChangesModal', () => {
       render(<ApplyChangesModal selectedFolder={selectedFolder} onClose={mockOnClose} />);
     });
     
-    // Create incomplete XML (missing required elements)
     const incompleteXml = `
 <changed_files>
   <file>
@@ -359,7 +334,7 @@ describe('ApplyChangesModal', () => {
   </file>
 </changed_files>`;
     
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: incompleteXml } });
     });
@@ -401,7 +376,7 @@ describe('ApplyChangesModal', () => {
   </file>
 </changed_files>`;
     
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: emptyCodeXml } });
     });
@@ -430,7 +405,7 @@ describe('ApplyChangesModal', () => {
     });
     
     // Enter XML in the textarea
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: simpleXml } });
     });
@@ -456,7 +431,7 @@ describe('ApplyChangesModal', () => {
     });
     
     // Enter complex JSX XML in the textarea
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: complexJsxXml } });
     });
@@ -512,7 +487,7 @@ export default () => <div className="template-literal someValue">Content</div>;
 </changed_files>`;
     
     // Enter XML without CDATA in the textarea
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: xmlWithoutCdata } });
     });
@@ -548,7 +523,7 @@ export default () => <div className="template-literal someValue">Content</div>;
     });
     
     // Enter XML with CDATA in the textarea
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: xmlWithCDATA } });
     });
@@ -574,7 +549,7 @@ export default () => <div className="template-literal someValue">Content</div>;
     });
     
     // Enter some XML in the textarea
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: simpleXml } });
     });
@@ -607,7 +582,7 @@ export default () => <div className="template-literal someValue">Content</div>;
     });
     
     // Enter some XML in the textarea
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: simpleXml } });
     });
@@ -651,7 +626,7 @@ export default () => <div className="template-literal someValue">Content</div>;
   </file>
 </changed_files>`;
     
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: malformedXml } });
     });
@@ -768,7 +743,7 @@ export default () => <div className="template-literal someValue">Content</div>;
   </file>
 </changed_files>`;
     
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: unformattedXml } });
     });
@@ -873,7 +848,7 @@ export default () => <div className="template-literal someValue">Content</div>;
     });
     
     // Enter the CopyButton XML in the textarea
-    const textarea = screen.getByPlaceholderText('Paste XML here...') as HTMLTextAreaElement;
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     
     await act(async () => {
       fireEvent.change(textarea, { target: { value: copyButtonXml } });
@@ -914,8 +889,9 @@ export default () => <div className="template-literal someValue">Content</div>;
     
     // Verify success message is displayed
     await waitFor(() => {
-      const content = screen.getByTestId('status-message').textContent || '';
-      expect(content.includes('Success: Changes applied to src/components/CopyButton.tsx')).toBe(true);
+      const statusElement = screen.getByText(/Success: Changes applied to src\/components\/CopyButton\.tsx/);
+      expect(statusElement).toBeInTheDocument();
+      expect(statusElement.className).toContain('success');
     });
     
     // Verify the XML input is cleared on success

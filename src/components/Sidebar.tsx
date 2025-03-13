@@ -144,8 +144,11 @@ const Sidebar = ({
 
     // Collapse all directory nodes
     const allDirectories = getAllDirectoryNodes(fileTree);
+    
     allDirectories.forEach(nodeId => {
-      if (expandedNodes[nodeId]) {
+      // Only toggle expanded nodes - since toggleExpanded toggles the state
+      // we only want to call it for nodes that are currently expanded
+      if (expandedNodes[nodeId] === true) {
         toggleExpanded(nodeId);
       }
     });
@@ -173,8 +176,14 @@ const Sidebar = ({
 
     // Expand all collapsed directory nodes
     const collapsedDirectories = getCollapsedDirectoryNodes(fileTree);
+    
     collapsedDirectories.forEach(nodeId => {
-      toggleExpanded(nodeId);
+      // Only toggle collapsed nodes - since toggleExpanded toggles the state
+      // we only want to call it for nodes that are currently collapsed
+      // This means nodes where expandedNodes[nodeId] is either false or undefined
+      if (expandedNodes[nodeId] !== true) {
+        toggleExpanded(nodeId);
+      }
     });
   }, [fileTree, expandedNodes, toggleExpanded]);
 
@@ -367,7 +376,7 @@ const Sidebar = ({
                 <div className="folder-actions">
                   <button 
                     className="folder-action-btn" 
-                    onClick={collapseAllFolders}
+                    onClick={() => collapseAllFolders()}
                     title="Collapse all folders"
                     disabled={!hasExpandedFolders()}
                   >
@@ -375,7 +384,7 @@ const Sidebar = ({
                   </button>
                   <button 
                     className="folder-action-btn" 
-                    onClick={expandAllFolders}
+                    onClick={() => expandAllFolders()}
                     title="Expand all folders"
                     disabled={areAllFoldersExpanded()}
                   >
