@@ -358,23 +358,28 @@ const App = () => {
     if (isSelected) {
       // Add all files from this folder that aren't already selected
       const filePaths = filesInFolder.map((file: FileData) => file.path);
+      
       setSelectedFiles((prev: string[]) => {
-        const newSelection = [...prev];
+        // Convert to Set for faster lookups and deduplication
+        const newSelectionSet = new Set(prev);
+        
+        // Add all paths from the folder
         filePaths.forEach((path: string) => {
-          if (!newSelection.includes(path)) {
-            newSelection.push(path);
-          }
+          newSelectionSet.add(path);
         });
-        return newSelection;
+        
+        // Convert back to array for state update
+        return Array.from(newSelectionSet);
       });
     } else {
       // Remove all files from this folder
-      setSelectedFiles((prev: string[]) =>
-        prev.filter(
-          (path: string) =>
-            !filesInFolder.some((file: FileData) => file.path === path),
-        ),
-      );
+      setSelectedFiles((prev: string[]) => {
+        // Create a Set of paths to remove for faster lookups
+        const folderPathsSet = new Set(filesInFolder.map((file: FileData) => file.path));
+        
+        // Keep only paths that are not in the folder
+        return prev.filter(path => !folderPathsSet.has(path));
+      });
     }
   }, [allFiles, setSelectedFiles]);
 
@@ -429,6 +434,92 @@ const App = () => {
   };
 
   /**
+   * Estimates token count for a given text.
+   * Uses a simple estimation based on character count.
+   * 
+   * @param {string} text - The text to estimate tokens for
+   * @returns {number} Estimated token count
+   */
+  const estimateTokenCount = (text: string) => {
+    // Simple estimation: ~4 characters per token on average
+    return Math.ceil(text.length / 4);
+  };
+
+  // Update instructions token count when user instructions change
+  const [userInstructions, setUserInstructions] = useState('');
+  const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
+
+  useEffect(() => {
+    setInstructionsTokenCount(estimateTokenCount(userInstructions));
+  }, [userInstructions]);
+
+  /**
+   * Calculate token counts for each file tree mode
+   * @returns {Record<FileTreeMode, number>} Token counts for each file tree mode
+   */
+  const calculateFileTreeTokens = useCallback(() => {
+    const tokenCounts: Record<FileTreeMode, number> = {
+      "none": 0,
+      "selected": 0,
+      "selected-with-roots": 0, 
+      "complete": 0
+    };
+    
+    if (!selectedFolder) return tokenCounts;
+    
+    // Create a Set for faster lookups
+    const selectedFilesSet = new Set(selectedFiles);
+    
+    // Pre-calculate commonly used filtered arrays
+    const selectedFileItems = allFiles
+      .filter((file: FileData) => selectedFilesSet.has(file.path))
+      .map((file: FileData) => ({ path: file.path, isFile: true }));
+    
+    // Calculate token counts for "selected" mode
+    if (selectedFileItems.length > 0) {
+      const selectedAsciiTree = generateAsciiFileTree(selectedFileItems, selectedFolder);
+      const selectedTreeContent = `<file_map>\n${selectedFolder}\n${selectedAsciiTree}\n</file_map>\n\n`;
+      tokenCounts["selected"] = estimateTokenCount(selectedTreeContent);
+    }
+    
+    // Calculate token counts for "selected-with-roots" mode
+    if (selectedFileItems.length > 0) {
+      // Filter non-skipped files only once
+      const nonSkippedFiles = allFiles.filter((file: FileData) => !file.isSkipped);
+      const allDirs = getAllDirectories(nonSkippedFiles, selectedFolder);
+      
+      const fileTreeItems = [
+        ...allDirs.map(dir => ({ path: dir, isFile: false })),
+        ...selectedFileItems
+      ];
+      
+      const asciiTree = generateAsciiFileTree(fileTreeItems, selectedFolder);
+      const treeContent = `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
+      tokenCounts["selected-with-roots"] = estimateTokenCount(treeContent);
+    }
+    
+    // Calculate token counts for "complete" mode
+    const nonSkippedFiles = allFiles.filter((file: FileData) => !file.isSkipped);
+    if (nonSkippedFiles.length > 0) {
+      const completeFileItems = nonSkippedFiles.map((file: FileData) => ({ path: file.path, isFile: true }));
+      const asciiTree = generateAsciiFileTree(completeFileItems, selectedFolder);
+      const treeContent = `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
+      tokenCounts["complete"] = estimateTokenCount(treeContent);
+    }
+    
+    return tokenCounts;
+  }, [selectedFolder, allFiles, selectedFiles]);
+
+  /**
+   * Get the token count for the current file tree mode
+   * @returns {number} Token count for current file tree mode
+   */
+  const getCurrentFileTreeTokens = useCallback(() => {
+    const tokenCounts = calculateFileTreeTokens();
+    return tokenCounts[fileTreeMode];
+  }, [calculateFileTreeTokens, fileTreeMode]);
+
+  /**
    * Generates a formatted string containing all selected files' contents without user instructions.
    * The function organizes files according to the current sort order and includes an ASCII file tree
    * representation based on the fileTreeMode setting.
@@ -436,10 +527,13 @@ const App = () => {
    * @returns {string} A formatted string with selected files' content wrapped in codebase tags.
    */
   const getSelectedFilesContentWithoutInstructions = () => {
+    // Create a Set from selectedFiles for faster lookups
+    const selectedFilesSet = new Set(selectedFiles);
+    
     // Sort selected files according to current sort order
     const [sortKey, sortDir] = sortOrder.split("-");
     const sortedSelected = allFiles
-      .filter((file: FileData) => selectedFiles.includes(file.path))
+      .filter((file: FileData) => selectedFilesSet.has(file.path))
       .sort((a: FileData, b: FileData) => {
         let comparison = 0;
 
@@ -586,21 +680,26 @@ const App = () => {
       .map((file: FileData) => file.path);
 
     setSelectedFiles((prev: string[]) => {
-      const newSelection = [...prev];
+      // Convert previous selections to a Set for faster lookups
+      const prevSet = new Set(prev);
+      
+      // Add each new path if not already in the set
       selectablePaths.forEach((path: string) => {
-        if (!newSelection.includes(path)) {
-          newSelection.push(path);
-        }
+        prevSet.add(path);
       });
-      return newSelection;
+      
+      // Convert back to array for state update
+      return Array.from(prevSet);
     });
   }, [displayedFiles, setSelectedFiles]);
 
   // Handle deselect all files
   const deselectAllFiles = useCallback(() => {
-    const displayedPaths = displayedFiles.map((file: FileData) => file.path);
+    // Convert displayed paths to a Set for faster lookups
+    const displayedPathsSet = new Set(displayedFiles.map((file: FileData) => file.path));
+    
     setSelectedFiles((prev: string[]) =>
-      prev.filter((path: string) => !displayedPaths.includes(path)),
+      prev.filter((path: string) => !displayedPathsSet.has(path))
     );
   }, [displayedFiles, setSelectedFiles]);
 
@@ -703,7 +802,11 @@ const App = () => {
                 }
               </h1>
             </div>
-            <FileTreeToggle currentMode={fileTreeMode} onChange={setFileTreeMode} />
+            <FileTreeToggle 
+              currentMode={fileTreeMode} 
+              onChange={setFileTreeMode} 
+              tokenCounts={calculateFileTreeTokens()}
+            />
             <ThemeToggle />
           </div>
         </header>
@@ -837,7 +940,7 @@ const App = () => {
                 </div>
 
                 <FileList
-                  files={displayedFiles}
+                  files={allFiles}
                   selectedFiles={selectedFiles}
                   toggleFileSelection={toggleFileSelection}
                   openFolder={openFolder}
@@ -845,38 +948,74 @@ const App = () => {
                 />
 
                 <div className="copy-button-container">
-                  <CopyButton
-                    text={getSelectedFilesContent}
-                    className="primary"
+                  <div className="copy-button-group">
+                    <CopyButton
+                      text={getSelectedFilesContent}
+                      className="primary"
+                      >
+                      <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
+                    </CopyButton>
+                    <div className="token-count-display">
+                      ~{(calculateTotalTokens() + (fileTreeMode !== "none" ? getCurrentFileTreeTokens() : 0)).toLocaleString()} tokens
+                    </div>
+                  </div>
+                  
+                  <div className="copy-button-group">
+                    <CopyButton
+                      text={() => {
+                        // Get the content without user instructions
+                        const baseContent = getSelectedFilesContentWithoutInstructions();
+                        // Get user instructions
+                        const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
+                        const userInstructions = userInstructionsElement?.value?.trim();
+                        
+                        // Combine content with XML instructions and user instructions at the end
+                        let result = `${baseContent}\n\n${XML_FORMATTING_INSTRUCTIONS}`;
+                        
+                        // Add user instructions at the very end if they exist
+                        if (userInstructions) {
+                          result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+                        }
+                        
+                        return result;
+                      }}
+                      className="secondary"
                     >
-                    <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
-                  </CopyButton>
-                  <CopyButton
-                    text={() => {
-                      // Get the content without user instructions
-                      const baseContent = getSelectedFilesContentWithoutInstructions();
-                      // Get user instructions
-                      const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
-                      const userInstructions = userInstructionsElement?.value?.trim();
-                      
-                      // Combine content with XML instructions and user instructions at the end
-                      let result = `${baseContent}\n\n${XML_FORMATTING_INSTRUCTIONS}`;
-                      
-                      // Add user instructions at the very end if they exist
-                      if (userInstructions) {
-                        result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
-                      }
-                      
-                      return result;
-                    }}
-                    className="secondary"
-                  >
-                    <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
-                  </CopyButton>
+                      <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
+                    </CopyButton>
+                    <div className="token-count-display">
+                      ~{(() => {
+                        // Calculate total tokens for selected files
+                        const filesTokens = calculateTotalTokens();
+                        
+                        // Add tokens for file tree if included
+                        const fileTreeTokens = fileTreeMode !== "none" ? getCurrentFileTreeTokens() : 0;
+                        
+                        // Add tokens for XML formatting instructions
+                        const xmlInstructionsTokens = estimateTokenCount(XML_FORMATTING_INSTRUCTIONS);
+                        
+                        // Add tokens for user instructions if they exist
+                        let total = filesTokens + xmlInstructionsTokens + fileTreeTokens;
+                        if (userInstructions.trim()) {
+                          total += instructionsTokenCount;
+                        }
+                        
+                        return total.toLocaleString();
+                      })().toString()} tokens
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="user-instructions-input-area">
-                <textarea className="user-instructions-input" placeholder="Enter your instructions here..." />
+                <div className="instructions-token-count">
+                  ~{instructionsTokenCount.toLocaleString()} tokens
+                </div>
+                <textarea 
+                  className="user-instructions-input" 
+                  placeholder="Enter your instructions here..." 
+                  value={userInstructions}
+                  onChange={(e) => setUserInstructions(e.target.value)}
+                />
               </div>
             </div>
           </div>

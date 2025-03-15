@@ -4,6 +4,7 @@ import { FileTreeMode } from "../types/FileTypes";
 interface FileTreeToggleProps {
   currentMode: FileTreeMode;
   onChange: (mode: FileTreeMode) => void;
+  tokenCounts?: Record<FileTreeMode, number>;
 }
 
 const fileTreeOptions = [
@@ -13,7 +14,7 @@ const fileTreeOptions = [
   { value: "complete" as FileTreeMode, label: "Complete File Tree" },
 ];
 
-const FileTreeToggle = ({ currentMode, onChange }: FileTreeToggleProps): JSX.Element => {
+const FileTreeToggle = ({ currentMode, onChange, tokenCounts }: FileTreeToggleProps): JSX.Element => {
   return (
     <div className="theme-segmented-control file-tree-snippet-toggle">
       {fileTreeOptions.map((option) => (
@@ -24,6 +25,11 @@ const FileTreeToggle = ({ currentMode, onChange }: FileTreeToggleProps): JSX.Ele
           title={getTooltipText(option.value)}
         >
           <span>{option.label}</span>
+          {tokenCounts && tokenCounts[option.value] > 0 && (
+            <span className="file-tree-token-count">
+              (~{tokenCounts[option.value].toLocaleString()})
+            </span>
+          )}
         </button>
       ))}
     </div>
