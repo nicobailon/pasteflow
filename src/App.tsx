@@ -837,7 +837,7 @@ const App = () => {
                 </div>
 
                 <FileList
-                  files={displayedFiles}
+                  files={allFiles}
                   selectedFiles={selectedFiles}
                   toggleFileSelection={toggleFileSelection}
                   openFolder={openFolder}
