@@ -358,23 +358,28 @@ const App = () => {
     if (isSelected) {
       // Add all files from this folder that aren't already selected
       const filePaths = filesInFolder.map((file: FileData) => file.path);
+      
       setSelectedFiles((prev: string[]) => {
-        const newSelection = [...prev];
+        // Convert to Set for faster lookups and deduplication
+        const newSelectionSet = new Set(prev);
+        
+        // Add all paths from the folder
         filePaths.forEach((path: string) => {
-          if (!newSelection.includes(path)) {
-            newSelection.push(path);
-          }
+          newSelectionSet.add(path);
         });
-        return newSelection;
+        
+        // Convert back to array for state update
+        return Array.from(newSelectionSet);
       });
     } else {
       // Remove all files from this folder
-      setSelectedFiles((prev: string[]) =>
-        prev.filter(
-          (path: string) =>
-            !filesInFolder.some((file: FileData) => file.path === path),
-        ),
-      );
+      setSelectedFiles((prev: string[]) => {
+        // Create a Set of paths to remove for faster lookups
+        const folderPathsSet = new Set(filesInFolder.map((file: FileData) => file.path));
+        
+        // Keep only paths that are not in the folder
+        return prev.filter(path => !folderPathsSet.has(path));
+      });
     }
   }, [allFiles, setSelectedFiles]);
 
@@ -462,38 +467,45 @@ const App = () => {
     
     if (!selectedFolder) return tokenCounts;
     
-    // Calculate for each mode
-    const modes: FileTreeMode[] = ["selected", "selected-with-roots", "complete"];
+    // Create a Set for faster lookups
+    const selectedFilesSet = new Set(selectedFiles);
     
-    modes.forEach(mode => {
-      let fileTreeItems: { path: string; isFile?: boolean }[] = [];
+    // Pre-calculate commonly used filtered arrays
+    const selectedFileItems = allFiles
+      .filter((file: FileData) => selectedFilesSet.has(file.path))
+      .map((file: FileData) => ({ path: file.path, isFile: true }));
+    
+    // Calculate token counts for "selected" mode
+    if (selectedFileItems.length > 0) {
+      const selectedAsciiTree = generateAsciiFileTree(selectedFileItems, selectedFolder);
+      const selectedTreeContent = `<file_map>\n${selectedFolder}\n${selectedAsciiTree}\n</file_map>\n\n`;
+      tokenCounts["selected"] = estimateTokenCount(selectedTreeContent);
+    }
+    
+    // Calculate token counts for "selected-with-roots" mode
+    if (selectedFileItems.length > 0) {
+      // Filter non-skipped files only once
+      const nonSkippedFiles = allFiles.filter((file: FileData) => !file.isSkipped);
+      const allDirs = getAllDirectories(nonSkippedFiles, selectedFolder);
       
-      if (mode === "selected") {
-        // Only include selected files
-        const sortedSelected = allFiles.filter((file: FileData) => selectedFiles.includes(file.path));
-        fileTreeItems = sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }));
-      } else if (mode === "selected-with-roots") {
-        // Include all directories and selected files
-        const filteredFiles = allFiles.filter((file: FileData) => !file.isSkipped);
-        const allDirs = getAllDirectories(filteredFiles, selectedFolder);
-        const sortedSelected = allFiles.filter((file: FileData) => selectedFiles.includes(file.path));
-        fileTreeItems = [
-          ...allDirs.map(dir => ({ path: dir, isFile: false })),
-          ...sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }))
-        ];
-      } else if (mode === "complete") {
-        // Include all non-skipped files
-        fileTreeItems = allFiles
-          .filter((file: FileData) => !file.isSkipped)
-          .map((file: FileData) => ({ path: file.path, isFile: true }));
-      }
+      const fileTreeItems = [
+        ...allDirs.map(dir => ({ path: dir, isFile: false })),
+        ...selectedFileItems
+      ];
       
-      if (fileTreeItems.length > 0) {
-        const asciiTree = generateAsciiFileTree(fileTreeItems, selectedFolder);
-        const treeContent = `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
-        tokenCounts[mode] = estimateTokenCount(treeContent);
-      }
-    });
+      const asciiTree = generateAsciiFileTree(fileTreeItems, selectedFolder);
+      const treeContent = `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
+      tokenCounts["selected-with-roots"] = estimateTokenCount(treeContent);
+    }
+    
+    // Calculate token counts for "complete" mode
+    const nonSkippedFiles = allFiles.filter((file: FileData) => !file.isSkipped);
+    if (nonSkippedFiles.length > 0) {
+      const completeFileItems = nonSkippedFiles.map((file: FileData) => ({ path: file.path, isFile: true }));
+      const asciiTree = generateAsciiFileTree(completeFileItems, selectedFolder);
+      const treeContent = `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
+      tokenCounts["complete"] = estimateTokenCount(treeContent);
+    }
     
     return tokenCounts;
   }, [selectedFolder, allFiles, selectedFiles]);
@@ -515,10 +527,13 @@ const App = () => {
    * @returns {string} A formatted string with selected files' content wrapped in codebase tags.
    */
   const getSelectedFilesContentWithoutInstructions = () => {
+    // Create a Set from selectedFiles for faster lookups
+    const selectedFilesSet = new Set(selectedFiles);
+    
     // Sort selected files according to current sort order
     const [sortKey, sortDir] = sortOrder.split("-");
     const sortedSelected = allFiles
-      .filter((file: FileData) => selectedFiles.includes(file.path))
+      .filter((file: FileData) => selectedFilesSet.has(file.path))
       .sort((a: FileData, b: FileData) => {
         let comparison = 0;
 
@@ -665,21 +680,26 @@ const App = () => {
       .map((file: FileData) => file.path);
 
     setSelectedFiles((prev: string[]) => {
-      const newSelection = [...prev];
+      // Convert previous selections to a Set for faster lookups
+      const prevSet = new Set(prev);
+      
+      // Add each new path if not already in the set
       selectablePaths.forEach((path: string) => {
-        if (!newSelection.includes(path)) {
-          newSelection.push(path);
-        }
+        prevSet.add(path);
       });
-      return newSelection;
+      
+      // Convert back to array for state update
+      return Array.from(prevSet);
     });
   }, [displayedFiles, setSelectedFiles]);
 
   // Handle deselect all files
   const deselectAllFiles = useCallback(() => {
-    const displayedPaths = displayedFiles.map((file: FileData) => file.path);
+    // Convert displayed paths to a Set for faster lookups
+    const displayedPathsSet = new Set(displayedFiles.map((file: FileData) => file.path));
+    
     setSelectedFiles((prev: string[]) =>
-      prev.filter((path: string) => !displayedPaths.includes(path)),
+      prev.filter((path: string) => !displayedPathsSet.has(path))
     );
   }, [displayedFiles, setSelectedFiles]);
 
