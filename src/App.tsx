@@ -429,6 +429,85 @@ const App = () => {
   };
 
   /**
+   * Estimates token count for a given text.
+   * Uses a simple estimation based on character count.
+   * 
+   * @param {string} text - The text to estimate tokens for
+   * @returns {number} Estimated token count
+   */
+  const estimateTokenCount = (text: string) => {
+    // Simple estimation: ~4 characters per token on average
+    return Math.ceil(text.length / 4);
+  };
+
+  // Update instructions token count when user instructions change
+  const [userInstructions, setUserInstructions] = useState('');
+  const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
+
+  useEffect(() => {
+    setInstructionsTokenCount(estimateTokenCount(userInstructions));
+  }, [userInstructions]);
+
+  /**
+   * Calculate token counts for each file tree mode
+   * @returns {Record<FileTreeMode, number>} Token counts for each file tree mode
+   */
+  const calculateFileTreeTokens = useCallback(() => {
+    const tokenCounts: Record<FileTreeMode, number> = {
+      "none": 0,
+      "selected": 0,
+      "selected-with-roots": 0, 
+      "complete": 0
+    };
+    
+    if (!selectedFolder) return tokenCounts;
+    
+    // Calculate for each mode
+    const modes: FileTreeMode[] = ["selected", "selected-with-roots", "complete"];
+    
+    modes.forEach(mode => {
+      let fileTreeItems: { path: string; isFile?: boolean }[] = [];
+      
+      if (mode === "selected") {
+        // Only include selected files
+        const sortedSelected = allFiles.filter((file: FileData) => selectedFiles.includes(file.path));
+        fileTreeItems = sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }));
+      } else if (mode === "selected-with-roots") {
+        // Include all directories and selected files
+        const filteredFiles = allFiles.filter((file: FileData) => !file.isSkipped);
+        const allDirs = getAllDirectories(filteredFiles, selectedFolder);
+        const sortedSelected = allFiles.filter((file: FileData) => selectedFiles.includes(file.path));
+        fileTreeItems = [
+          ...allDirs.map(dir => ({ path: dir, isFile: false })),
+          ...sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }))
+        ];
+      } else if (mode === "complete") {
+        // Include all non-skipped files
+        fileTreeItems = allFiles
+          .filter((file: FileData) => !file.isSkipped)
+          .map((file: FileData) => ({ path: file.path, isFile: true }));
+      }
+      
+      if (fileTreeItems.length > 0) {
+        const asciiTree = generateAsciiFileTree(fileTreeItems, selectedFolder);
+        const treeContent = `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
+        tokenCounts[mode] = estimateTokenCount(treeContent);
+      }
+    });
+    
+    return tokenCounts;
+  }, [selectedFolder, allFiles, selectedFiles]);
+
+  /**
+   * Get the token count for the current file tree mode
+   * @returns {number} Token count for current file tree mode
+   */
+  const getCurrentFileTreeTokens = useCallback(() => {
+    const tokenCounts = calculateFileTreeTokens();
+    return tokenCounts[fileTreeMode];
+  }, [calculateFileTreeTokens, fileTreeMode]);
+
+  /**
    * Generates a formatted string containing all selected files' contents without user instructions.
    * The function organizes files according to the current sort order and includes an ASCII file tree
    * representation based on the fileTreeMode setting.
@@ -703,7 +782,11 @@ const App = () => {
                 }
               </h1>
             </div>
-            <FileTreeToggle currentMode={fileTreeMode} onChange={setFileTreeMode} />
+            <FileTreeToggle 
+              currentMode={fileTreeMode} 
+              onChange={setFileTreeMode} 
+              tokenCounts={calculateFileTreeTokens()}
+            />
             <ThemeToggle />
           </div>
         </header>
@@ -845,38 +928,74 @@ const App = () => {
                 />
 
                 <div className="copy-button-container">
-                  <CopyButton
-                    text={getSelectedFilesContent}
-                    className="primary"
+                  <div className="copy-button-group">
+                    <CopyButton
+                      text={getSelectedFilesContent}
+                      className="primary"
+                      >
+                      <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
+                    </CopyButton>
+                    <div className="token-count-display">
+                      ~{(calculateTotalTokens() + (fileTreeMode !== "none" ? getCurrentFileTreeTokens() : 0)).toLocaleString()} tokens
+                    </div>
+                  </div>
+                  
+                  <div className="copy-button-group">
+                    <CopyButton
+                      text={() => {
+                        // Get the content without user instructions
+                        const baseContent = getSelectedFilesContentWithoutInstructions();
+                        // Get user instructions
+                        const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
+                        const userInstructions = userInstructionsElement?.value?.trim();
+                        
+                        // Combine content with XML instructions and user instructions at the end
+                        let result = `${baseContent}\n\n${XML_FORMATTING_INSTRUCTIONS}`;
+                        
+                        // Add user instructions at the very end if they exist
+                        if (userInstructions) {
+                          result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+                        }
+                        
+                        return result;
+                      }}
+                      className="secondary"
                     >
-                    <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
-                  </CopyButton>
-                  <CopyButton
-                    text={() => {
-                      // Get the content without user instructions
-                      const baseContent = getSelectedFilesContentWithoutInstructions();
-                      // Get user instructions
-                      const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
-                      const userInstructions = userInstructionsElement?.value?.trim();
-                      
-                      // Combine content with XML instructions and user instructions at the end
-                      let result = `${baseContent}\n\n${XML_FORMATTING_INSTRUCTIONS}`;
-                      
-                      // Add user instructions at the very end if they exist
-                      if (userInstructions) {
-                        result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
-                      }
-                      
-                      return result;
-                    }}
-                    className="secondary"
-                  >
-                    <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
-                  </CopyButton>
+                      <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
+                    </CopyButton>
+                    <div className="token-count-display">
+                      ~{(() => {
+                        // Calculate total tokens for selected files
+                        const filesTokens = calculateTotalTokens();
+                        
+                        // Add tokens for file tree if included
+                        const fileTreeTokens = fileTreeMode !== "none" ? getCurrentFileTreeTokens() : 0;
+                        
+                        // Add tokens for XML formatting instructions
+                        const xmlInstructionsTokens = estimateTokenCount(XML_FORMATTING_INSTRUCTIONS);
+                        
+                        // Add tokens for user instructions if they exist
+                        let total = filesTokens + xmlInstructionsTokens + fileTreeTokens;
+                        if (userInstructions.trim()) {
+                          total += instructionsTokenCount;
+                        }
+                        
+                        return total.toLocaleString();
+                      })().toString()} tokens
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="user-instructions-input-area">
-                <textarea className="user-instructions-input" placeholder="Enter your instructions here..." />
+                <div className="instructions-token-count">
+                  ~{instructionsTokenCount.toLocaleString()} tokens
+                </div>
+                <textarea 
+                  className="user-instructions-input" 
+                  placeholder="Enter your instructions here..." 
+                  value={userInstructions}
+                  onChange={(e) => setUserInstructions(e.target.value)}
+                />
               </div>
             </div>
           </div>

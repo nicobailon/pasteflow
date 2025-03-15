@@ -713,6 +713,27 @@ input[type="search"]:focus {
   min-height: 9.375rem;
 }
 
+.instructions-token-count {
+  font-size: 0.75rem;
+  color: var(--secondary-text-color);
+  margin-bottom: 0.25rem;
+  text-align: right;
+}
+
+.token-count-display {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+  text-align: center;
+}
+
+.file-tree-token-count {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  margin-left: 0.375rem;
+  white-space: nowrap;
+}
+
 .user-instructions-input {
   width: 100%;
   height: 100%;
@@ -943,11 +964,24 @@ input[type="search"]:focus {
 .copy-button-container {
   display: flex;
   flex-direction: row;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 1rem;
   justify-content: center;
   background-color: var(--background-primary);
   margin-top: auto;
   padding: 1rem;
+}
+
+.copy-button-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 25rem;
+}
+
+.copy-button-container .copy-button {
+  width: 100%;
 }
 
 .file-tree-format-container {
