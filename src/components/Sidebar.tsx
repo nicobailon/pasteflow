@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { SidebarProps, TreeNode } from "../types/FileTypes";
 import useFileTree from "../hooks/useFileTree";
 import SearchBar from "./SearchBar";
@@ -33,6 +33,7 @@ const Sidebar = ({
   onFileTreeSortChange = () => {/* Default handler - no operation */},
   toggleFilterModal = () => {/* Default handler - no operation */},
   refreshFileTree = () => {/* Default handler - no operation */},
+  processingStatus,
 }: SidebarProps) => {
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
@@ -57,6 +58,12 @@ const Sidebar = ({
   const MIN_SIDEBAR_WIDTH = 200;
   const MAX_SIDEBAR_WIDTH = 500;
 
+  const [isTreeLoading, setIsTreeLoading] = useState(false);
+  const loadingTimerRef = useRef(null); // Use untyped ref
+  
+  // Consolidated loading state that takes into account both processing status and tree building
+  const showLoadingIndicator = isTreeLoading || !isTreeBuildingComplete;
+  
   /**
    * Initiates the sidebar resizing operation.
    * Sets the isResizing state to true when the user starts dragging the resize handle.
@@ -102,6 +109,34 @@ const Sidebar = ({
       document.removeEventListener("mouseup", handleResizeEnd);
     };
   }, [isResizing]);
+
+  // Handle loading state with minimum display time
+  useEffect(() => {
+    // Start loading if processing status is "processing" or tree isn't built yet
+    if ((processingStatus && processingStatus.status === "processing") || !isTreeBuildingComplete) {
+      setIsTreeLoading(true);
+      
+      // Clear any existing timer
+      if (loadingTimerRef.current) {
+        window.clearTimeout(loadingTimerRef.current);
+        loadingTimerRef.current = null;
+      }
+    } else if (processingStatus && processingStatus.status !== "processing" && isTreeBuildingComplete && isTreeLoading) {
+      // Ensure loading spinner stays visible for at least 800ms to avoid flickering
+      const timerId = window.setTimeout(() => {
+        setIsTreeLoading(false);
+        loadingTimerRef.current = null;
+      }, 800);
+      
+      loadingTimerRef.current = timerId;
+    }
+    
+    return () => {
+      if (loadingTimerRef.current) {
+        window.clearTimeout(loadingTimerRef.current);
+      }
+    };
+  }, [processingStatus, isTreeLoading, isTreeBuildingComplete]);
 
   // All the tree management logic is now handled by the useFileTree hook
 
@@ -351,77 +386,83 @@ const Sidebar = ({
       </div>
 
       {allFiles.length > 0 ? (
-        isTreeBuildingComplete ? (
-          <div className="file-tree">
-            {selectedFolder && (
-              <div className="folder-header tree-item">
-                <div className="folder-header-left">
-                  <div className="tree-item-checkbox-container">
-                    <input
-                      type="checkbox"
-                      className="tree-item-checkbox"
-                      checked={areAllFilesSelected}
-                      onChange={handleSelectAllToggle}
-                      title={areAllFilesSelected ? "Deselect all files" : "Select all files"}
-                    />
-                    <span className="custom-checkbox"></span>
-                  </div>
-                  <div className="folder-icon">
-                    <Folder size={16} />
-                  </div>
-                  <div className="folder-path tree-item-name" title={selectedFolder}>
-                    {selectedFolder.split(/[/\\]/).pop()}
-                  </div>
+        <div className="file-tree">
+          {selectedFolder && (
+            <div className="folder-header tree-item">
+              <div className="folder-header-left">
+                <div className="tree-item-checkbox-container">
+                  <input
+                    type="checkbox"
+                    className="tree-item-checkbox"
+                    checked={areAllFilesSelected}
+                    onChange={handleSelectAllToggle}
+                    title={areAllFilesSelected ? "Deselect all files" : "Select all files"}
+                  />
+                  <span className="custom-checkbox"></span>
                 </div>
-                <div className="folder-actions">
-                  <button 
-                    className="folder-action-btn" 
-                    onClick={() => collapseAllFolders()}
-                    title="Collapse all folders"
-                    disabled={!hasExpandedFolders()}
-                  >
-                    <ChevronUp size={16} />
-                  </button>
-                  <button 
-                    className="folder-action-btn" 
-                    onClick={() => expandAllFolders()}
-                    title="Expand all folders"
-                    disabled={areAllFoldersExpanded()}
-                  >
-                    <ChevronDown size={16} />
-                  </button>
-                  <button 
-                    className="folder-action-btn" 
-                    onClick={closeCurrentFolder}
-                    title="Close folder"
-                  >
-                    <X size={16} />
-                  </button>
+                <div className="folder-icon">
+                  <Folder size={16} />
+                </div>
+                <div className="folder-path tree-item-name" title={selectedFolder}>
+                  {selectedFolder.split(/[/\\]/).pop()}
                 </div>
               </div>
-            )}
-            
-            {visibleTree.length > 0 ? (
-              visibleTree.map((node) => (
-                <TreeItem
-                  key={node.id}
-                  node={node}
-                  selectedFiles={selectedFiles}
-                  toggleFileSelection={toggleFileSelection}
-                  toggleFolderSelection={toggleFolderSelection}
-                  toggleExpanded={toggleExpanded}
-                />
-              ))
+              <div className="folder-actions">
+                <button 
+                  className="folder-action-btn" 
+                  onClick={() => collapseAllFolders()}
+                  title="Collapse all folders"
+                  disabled={!hasExpandedFolders()}
+                >
+                  <ChevronUp size={16} />
+                </button>
+                <button 
+                  className="folder-action-btn" 
+                  onClick={() => expandAllFolders()}
+                  title="Expand all folders"
+                  disabled={areAllFoldersExpanded()}
+                >
+                  <ChevronDown size={16} />
+                </button>
+                <button 
+                  className="folder-action-btn" 
+                  onClick={closeCurrentFolder}
+                  title="Close folder"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+          
+          <div className="tree-view">
+            {showLoadingIndicator ? (
+              <div className="tree-loading">
+                <div className="spinner"></div>
+                <span>Building file tree...</span>
+              </div>
             ) : (
-              <div className="tree-empty">No files match your search.</div>
+              <>
+                {visibleTree.length > 0 ? (
+                  visibleTree.map((node) => (
+                    <TreeItem
+                      key={node.id}
+                      node={node}
+                      selectedFiles={selectedFiles}
+                      toggleFileSelection={toggleFileSelection}
+                      toggleFolderSelection={toggleFolderSelection}
+                      toggleExpanded={toggleExpanded}
+                    />
+                  ))
+                ) : (
+                  <div className="no-results">
+                    <span>No files found.</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
-        ) : (
-          <div className="tree-loading">
-            <div className="spinner"></div>
-            <span>Building file tree...</span>
-          </div>
-        )
+        </div>
       ) : (
         <div className="tree-empty">No files found in this folder.</div>
       )}

@@ -10,8 +10,17 @@ import FileTreeToggle from "./components/FileTreeToggle";
 import { ApplyChangesModal } from "./components/ApplyChangesModal";
 import FilterModal from "./components/FilterModal";
 import { FolderOpen, Folder } from "lucide-react";
-import { generateAsciiFileTree, getAllDirectories } from "./utils/pathUtils";
+import { 
+  generateAsciiFileTree, 
+  getAllDirectories, 
+  basename, 
+  normalizePath, 
+  getRelativePath, 
+  extname 
+} from "./utils/pathUtils";
 import { XML_FORMATTING_INSTRUCTIONS } from "./utils/xmlTemplates";
+// Remove direct path import and use our custom utilities instead
+// import * as path from "path";
 
 // Access the electron API from the window object
 declare global {
@@ -470,14 +479,20 @@ const App = () => {
     // Create a Set for faster lookups
     const selectedFilesSet = new Set(selectedFiles);
     
+    // Normalize the root folder path
+    const normalizedRootFolder = normalizePath(selectedFolder);
+    
     // Pre-calculate commonly used filtered arrays
     const selectedFileItems = allFiles
       .filter((file: FileData) => selectedFilesSet.has(file.path))
-      .map((file: FileData) => ({ path: file.path, isFile: true }));
+      .map((file: FileData) => ({ 
+        path: file.path, 
+        isFile: true 
+      }));
     
     // Calculate token counts for "selected" mode
     if (selectedFileItems.length > 0) {
-      const selectedAsciiTree = generateAsciiFileTree(selectedFileItems, selectedFolder);
+      const selectedAsciiTree = generateAsciiFileTree(selectedFileItems, normalizedRootFolder);
       const selectedTreeContent = `<file_map>\n${selectedFolder}\n${selectedAsciiTree}\n</file_map>\n\n`;
       tokenCounts["selected"] = estimateTokenCount(selectedTreeContent);
     }
@@ -486,14 +501,14 @@ const App = () => {
     if (selectedFileItems.length > 0) {
       // Filter non-skipped files only once
       const nonSkippedFiles = allFiles.filter((file: FileData) => !file.isSkipped);
-      const allDirs = getAllDirectories(nonSkippedFiles, selectedFolder);
+      const allDirs = getAllDirectories(nonSkippedFiles, normalizedRootFolder);
       
       const fileTreeItems = [
         ...allDirs.map(dir => ({ path: dir, isFile: false })),
         ...selectedFileItems
       ];
       
-      const asciiTree = generateAsciiFileTree(fileTreeItems, selectedFolder);
+      const asciiTree = generateAsciiFileTree(fileTreeItems, normalizedRootFolder);
       const treeContent = `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
       tokenCounts["selected-with-roots"] = estimateTokenCount(treeContent);
     }
@@ -502,13 +517,13 @@ const App = () => {
     const nonSkippedFiles = allFiles.filter((file: FileData) => !file.isSkipped);
     if (nonSkippedFiles.length > 0) {
       const completeFileItems = nonSkippedFiles.map((file: FileData) => ({ path: file.path, isFile: true }));
-      const asciiTree = generateAsciiFileTree(completeFileItems, selectedFolder);
+      const asciiTree = generateAsciiFileTree(completeFileItems, normalizedRootFolder);
       const treeContent = `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
       tokenCounts["complete"] = estimateTokenCount(treeContent);
     }
     
     return tokenCounts;
-  }, [selectedFolder, allFiles, selectedFiles]);
+  }, [selectedFolder, allFiles, selectedFiles, estimateTokenCount]);
 
   /**
    * Get the token count for the current file tree mode
@@ -558,6 +573,7 @@ const App = () => {
     // Add ASCII file tree if enabled
     if (fileTreeMode !== "none" && selectedFolder) {
       let fileTreeItems: { path: string; isFile?: boolean }[] = [];
+      const normalizedRootFolder = normalizePath(selectedFolder);
 
       if (fileTreeMode === "selected") {
         // Only include selected files
@@ -566,7 +582,7 @@ const App = () => {
         // Include all directories and selected files to show the complete folder structure
         // Filter out skipped files when getting directories
         const filteredFiles = allFiles.filter((file: FileData) => !file.isSkipped);
-        const allDirs = getAllDirectories(filteredFiles, selectedFolder);
+        const allDirs = getAllDirectories(filteredFiles, normalizedRootFolder);
         fileTreeItems = [
           ...allDirs.map(dir => ({ path: dir, isFile: false })),
           ...sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }))
@@ -578,23 +594,31 @@ const App = () => {
           .map((file: FileData) => ({ path: file.path, isFile: true }));
       }
 
-      const asciiTree = generateAsciiFileTree(fileTreeItems, selectedFolder);
+      const asciiTree = generateAsciiFileTree(fileTreeItems, normalizedRootFolder);
       concatenatedString += `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
     }
     
     sortedSelected.forEach((file: FileData) => {
-      // Calculate the relative path from the selected folder
-      const normalizedFilePath = file.path.replace(/\\/g, "/");
-      const normalizedRootPath = selectedFolder ? selectedFolder.replace(/\\/g, "/").replace(/\/$/, "") : "";
-      
-      // Get the path relative to the project root
+      // Calculate the relative path from the selected folder using path module
       let relativePath = file.path;
-      if (normalizedRootPath && normalizedFilePath.startsWith(normalizedRootPath + "/")) {
-        relativePath = normalizedFilePath.substring(normalizedRootPath.length + 1);
+      
+      if (selectedFolder) {
+        // Normalize paths to handle platform-specific separators
+        const normalizedFilePath = normalizePath(file.path);
+        const normalizedRootPath = normalizePath(selectedFolder);
+        
+        try {
+          // getRelativePath expects (filePath, baseDir)
+          relativePath = getRelativePath(normalizedFilePath, normalizedRootPath);
+          // Normalization is already handled by getRelativePath
+        } catch (error) {
+          // Fallback if getRelativePath fails
+          console.error("Error calculating relative path:", error);
+        }
       }
       
       // Determine the file extension for the code block language
-      const extension = file.path.split('.').pop() || '';
+      const extension = extname(file.path).replace(/^\./, '').toLowerCase() || '';
       
       // Map file extensions to appropriate language identifiers for code blocks
       let languageIdentifier = extension;
@@ -735,14 +759,14 @@ const App = () => {
   /**
    * Extracts the folder/file name from a full path.
    * 
-   * @param {string} path - The full path to extract the name from
+   * @param {string} filePath - The full path to extract the name from
    * @returns {string} The last segment of the path (the folder or file name)
    */
-  const getFolderNameFromPath = (path: string) => {
-    if (!path) return "";
-    // Split the path by the separator and get the last part
-    const parts = path.split(/[/\\]/);
-    return parts[parts.length - 1];
+  const getFolderNameFromPath = (filePath: string) => {
+    if (!filePath) return "";
+    
+    // Use path.basename to correctly extract the last part of the path
+    return basename(filePath);
   };
 
   /**
@@ -892,6 +916,7 @@ const App = () => {
               onFileTreeSortChange={handleFileTreeSortChange}
               toggleFilterModal={toggleFilterModal}
               refreshFileTree={refreshFileTree}
+              processingStatus={processingStatus}
             />
             <div className="content-area">
               <div className="selected-files-content-area">
