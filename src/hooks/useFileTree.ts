@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { FileData, TreeNode } from '../types/FileTypes';
+import { normalizePath } from '../utils/pathUtils';
 
 interface UseFileTreeProps {
   allFiles: FileData[];
@@ -74,12 +75,15 @@ function useFileTree({
       batch.forEach((file) => {
         if (!file.path) return;
 
+        const normalizedFilePath = normalizePath(file.path);
+        const normalizedRootPath = selectedFolder ? normalizePath(selectedFolder) : '';
+        
         const relativePath = 
-          selectedFolder && file.path.startsWith(selectedFolder)
-            ? file.path
-                .substring(selectedFolder.length)
+          selectedFolder && normalizedFilePath.startsWith(normalizedRootPath)
+            ? normalizedFilePath
+                .substring(normalizedRootPath.length)
                 .replace(/^\/|^\\/, "")
-            : file.path;
+            : normalizedFilePath;
 
         const parts = relativePath.split(/[/\\]/);
         let currentPath = "";
@@ -95,8 +99,8 @@ function useFileTree({
           // For intermediate directories
           if (i < parts.length - 1) {
             const dirPath = selectedFolder
-              ? `${selectedFolder}/${currentPath}`
-              : `/${currentPath}`;
+              ? normalizePath(`${selectedFolder}/${currentPath}`)
+              : normalizePath(`/${currentPath}`);
             
             if (!current[part]) {
               current[part] = {
@@ -112,8 +116,8 @@ function useFileTree({
           // For files
           else {
             const filePath = selectedFolder
-              ? `${selectedFolder}/${currentPath}`
-              : `/${currentPath}`;
+              ? normalizePath(`${selectedFolder}/${currentPath}`)
+              : normalizePath(`/${currentPath}`);
             
             current[part] = {
               name: part,

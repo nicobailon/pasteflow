@@ -1,6 +1,10 @@
 /**
- * Browser-compatible path utilities to replace Node.js path module
+ * Path utilities for both browser and Node.js environments
  */
+import * as nodePath from 'path';
+
+// Check if we're in a Node.js environment
+const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
 /**
  * Extract the basename from a path string
@@ -9,7 +13,12 @@
  */
 export function basename(path: string | null | undefined): string {
   if (!path) return "";
+  
+  if (isNode) {
+    return nodePath.basename(String(path));
+  }
 
+  // Browser fallback implementation
   // Ensure path is a string
   const pathStr = String(path);
 
@@ -31,7 +40,12 @@ export function basename(path: string | null | undefined): string {
  */
 export function dirname(path: string | null | undefined): string {
   if (!path) return ".";
+  
+  if (isNode) {
+    return nodePath.dirname(String(path));
+  }
 
+  // Browser fallback implementation
   // Ensure path is a string
   const pathStr = String(path);
 
@@ -52,9 +66,14 @@ export function dirname(path: string | null | undefined): string {
  * @returns The joined path
  */
 export function join(...segments: (string | null | undefined)[]): string {
-  return segments
-    .filter(Boolean)
-    .map((seg) => String(seg))
+  const filteredSegments = segments.filter(Boolean).map(seg => String(seg));
+  
+  if (isNode) {
+    return nodePath.join(...filteredSegments);
+  }
+  
+  // Browser fallback implementation
+  return filteredSegments
     .join("/")
     .replace(/\/+/g, "/"); // Replace multiple slashes with a single one
 }
@@ -66,7 +85,12 @@ export function join(...segments: (string | null | undefined)[]): string {
  */
 export function extname(path: string | null | undefined): string {
   if (!path) return "";
+  
+  if (isNode) {
+    return nodePath.extname(String(path));
+  }
 
+  // Browser fallback implementation
   const basenameValue = basename(path);
   const dotIndex = basenameValue.lastIndexOf(".");
   return dotIndex === -1 || dotIndex === 0 ? "" : basenameValue.slice(dotIndex);
@@ -80,16 +104,44 @@ export function extname(path: string | null | undefined): string {
  */
 export function getTopLevelDirectories(files: { path: string }[], rootPath: string): string[] {
   const topLevelDirs = new Set<string>();
-  const normalizedRoot = rootPath.replace(/\\/g, "/").replace(/\/$/, "");
+  const normalizedRoot = normalizePath(rootPath);
 
   files.forEach(file => {
-    const normalizedPath = file.path.replace(/\\/g, "/");
-    if (normalizedPath.startsWith(normalizedRoot + "/")) {
-      const relativePath = normalizedPath.substring(normalizedRoot.length + 1);
-      const parts = relativePath.split("/");
-      if (parts.length > 0) {
-        topLevelDirs.add(`${normalizedRoot}/${parts[0]}`);
+    const normalizedPath = normalizePath(file.path);
+    let relativePath;
+    
+    if (isNode) {
+      try {
+        // Use Node's path module to get relative path
+        relativePath = nodePath.relative(normalizedRoot, normalizedPath);
+        // Convert to forward slashes for consistency
+        relativePath = relativePath.replace(/\\/g, '/');
+      } catch (error) {
+        console.error("Error calculating relative path:", error);
+        // Fallback to string manipulation if Node's path.relative fails
+        if (normalizedPath.startsWith(normalizedRoot + '/')) {
+          relativePath = normalizedPath.substring(normalizedRoot.length + 1);
+        } else {
+          // Skip this file if we can't calculate the relative path
+          return;
+        }
       }
+    } else {
+      // Browser environment - use string manipulation
+      if (normalizedPath.startsWith(normalizedRoot + '/')) {
+        relativePath = normalizedPath.substring(normalizedRoot.length + 1);
+      } else {
+        // Skip this file if it's not under the root
+        return;
+      }
+    }
+    
+    const parts = relativePath.split('/');
+    if (parts.length > 0) {
+      // Use join to ensure proper path handling
+      topLevelDirs.add(isNode ? 
+        nodePath.join(normalizedRoot, parts[0]).replace(/\\/g, '/') : 
+        `${normalizedRoot}/${parts[0]}`);
     }
   });
 
@@ -104,16 +156,50 @@ export function getTopLevelDirectories(files: { path: string }[], rootPath: stri
  */
 export function getAllDirectories(files: { path: string }[], rootPath: string): string[] {
   const directories = new Set<string>();
-  const normalizedRoot = rootPath.replace(/\\/g, "/").replace(/\/$/, "");
+  const normalizedRoot = normalizePath(rootPath);
 
   files.forEach(file => {
-    const normalizedPath = file.path.replace(/\\/g, "/");
-    if (normalizedPath.startsWith(normalizedRoot + "/")) {
-      // Extract all parent directories from file path
-      let currentPath = dirname(normalizedPath);
-      while (currentPath !== normalizedRoot && currentPath.length > normalizedRoot.length) {
-        directories.add(currentPath);
-        currentPath = dirname(currentPath);
+    const normalizedPath = normalizePath(file.path);
+    let relativePath;
+    
+    if (isNode) {
+      try {
+        // Check if the file is within the root directory
+        relativePath = nodePath.relative(normalizedRoot, normalizedPath);
+        // If the relative path starts with '..' then it's outside the root directory
+        if (relativePath.startsWith('..') || relativePath === '') {
+          return; // Skip this file
+        }
+      } catch (error) {
+        console.error("Error calculating relative path:", error);
+        // Fallback to string manipulation
+        if (!normalizedPath.startsWith(normalizedRoot + '/')) {
+          return; // Skip this file if it's not under the root
+        }
+      }
+    } else {
+      // Browser environment
+      if (!normalizedPath.startsWith(normalizedRoot + '/')) {
+        return; // Skip this file if it's not under the root
+      }
+    }
+    
+    // Extract all parent directories from file path
+    let currentPath = dirname(normalizedPath);
+    
+    while (currentPath !== normalizedRoot && currentPath.length >= normalizedRoot.length) {
+      // Normalize the current path before comparison
+      const normalizedCurrentPath = normalizePath(currentPath);
+      
+      // Add the directory to our set
+      directories.add(normalizedCurrentPath);
+      
+      // Get the parent directory
+      currentPath = dirname(normalizedCurrentPath);
+      
+      // Stop if we've reached or gone past the root
+      if (currentPath === normalizedRoot || currentPath.length < normalizedRoot.length) {
+        break;
       }
     }
   });
@@ -131,7 +217,7 @@ export function generateAsciiFileTree(items: { path: string; isFile?: boolean }[
   if (!items.length) return "No files selected.";
 
   // Normalize the root path for consistent path handling
-  const normalizedRoot = rootPath.replace(/\\/g, "/").replace(/\/$/, "");
+  const normalizedRoot = normalizePath(rootPath);
   
   // Create a tree structure from the file paths
   interface TreeNode {
@@ -145,10 +231,36 @@ export function generateAsciiFileTree(items: { path: string; isFile?: boolean }[
   // Insert a file path into the tree
   const insertPath = (item: { path: string; isFile?: boolean }, node: TreeNode) => {
     const { path: itemPath, isFile = true } = item;
-    const normalizedPath = itemPath.replace(/\\/g, "/");
-    if (!normalizedPath.startsWith(normalizedRoot)) return;
+    const normalizedPath = normalizePath(itemPath);
     
-    const relativePath = normalizedPath.substring(normalizedRoot.length).replace(/^\//, "");
+    let relativePath;
+    
+    if (isNode) {
+      try {
+        // Check if the path is under the root directory
+        relativePath = nodePath.relative(normalizedRoot, normalizedPath);
+        // If the relative path starts with '..' then it's outside the root directory
+        if (relativePath.startsWith('..')) {
+          return; // Skip this item
+        }
+        // Ensure forward slashes for consistency
+        relativePath = relativePath.replace(/\\/g, '/');
+      } catch (error) {
+        console.error("Error calculating relative path:", error);
+        // Fallback to string manipulation
+        if (!normalizedPath.startsWith(normalizedRoot)) {
+          return; // Skip this item if it's not under the root
+        }
+        relativePath = normalizedPath.substring(normalizedRoot.length).replace(/^\//, "");
+      }
+    } else {
+      // Browser environment
+      if (!normalizedPath.startsWith(normalizedRoot)) {
+        return; // Skip this item if it's not under the root
+      }
+      relativePath = normalizedPath.substring(normalizedRoot.length).replace(/^\//, "");
+    }
+    
     if (!relativePath) return;
     
     const pathParts = relativePath.split("/");
@@ -219,4 +331,54 @@ export function generateAsciiFileTree(items: { path: string; isFile?: boolean }[
   };
   
   return generateAscii(root);
+}
+
+/**
+ * Normalizes a file path to use forward slashes and no trailing slash
+ * @param path The path to normalize
+ * @returns Normalized path
+ */
+export function normalizePath(path: string | null | undefined): string {
+  if (!path) return '';
+  
+  if (isNode) {
+    // Normalize using Node.js path module, then ensure forward slashes
+    return nodePath.normalize(String(path)).replace(/\\/g, '/').replace(/\/$/, '');
+  }
+  
+  // Browser fallback implementation
+  return String(path).replace(/\\/g, '/').replace(/\/$/, '');
+}
+
+/**
+ * Gets a path relative to a base directory
+ * @param filePath The absolute file path
+ * @param baseDir The base directory path
+ * @returns Path relative to baseDir
+ */
+export function getRelativePath(filePath: string | null | undefined, baseDir: string | null | undefined): string {
+  if (!filePath) return '';
+  if (!baseDir) return String(filePath);
+  
+  if (isNode) {
+    try {
+      // Use Node.js path.relative function
+      const relativePath = nodePath.relative(String(baseDir), String(filePath));
+      // Convert to forward slashes for consistency
+      return relativePath.replace(/\\/g, '/');
+    } catch (error) {
+      console.error("Error calculating relative path:", error);
+      // Fall back to browser implementation if there's an error
+    }
+  }
+  
+  // Browser fallback implementation
+  const normalizedFile = normalizePath(filePath);
+  const normalizedBase = normalizePath(baseDir);
+  
+  if (normalizedBase && normalizedFile.startsWith(normalizedBase + '/')) {
+    return normalizedFile.substring(normalizedBase.length + 1);
+  }
+  
+  return normalizedFile;
 }

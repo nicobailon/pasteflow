@@ -39,6 +39,13 @@ export interface SidebarProps {
   onFileTreeSortChange?: (sortOrder: string) => void;
   toggleFilterModal?: () => void;
   refreshFileTree?: () => void;
+  processingStatus?: {
+    status: "idle" | "processing" | "complete" | "error";
+    message: string;
+    processed?: number;
+    directories?: number;
+    total?: number;
+  };
 }
 
 export interface FileListProps {
@@ -64,6 +71,7 @@ export interface TreeItemProps {
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
   toggleExpanded: (nodeId: string) => void;
+  expandedNodes?: Record<string, boolean>;
 }
 
 export interface SortOption {
