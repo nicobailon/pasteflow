@@ -33,6 +33,7 @@ const Sidebar = ({
   onFileTreeSortChange = () => {/* Default handler - no operation */},
   toggleFilterModal = () => {/* Default handler - no operation */},
   refreshFileTree = () => {/* Default handler - no operation */},
+  onViewFile,
   processingStatus,
 }: SidebarProps) => {
   // State for the sidebar width and resizing
@@ -452,6 +453,7 @@ const Sidebar = ({
                       toggleFileSelection={toggleFileSelection}
                       toggleFolderSelection={toggleFolderSelection}
                       toggleExpanded={toggleExpanded}
+                      onViewFile={onViewFile}
                     />
                   ))
                 ) : (

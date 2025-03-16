@@ -3,7 +3,8 @@ import useLocalStorage from "./hooks/useLocalStorage";
 import Sidebar from "./components/Sidebar";
 import FileList from "./components/FileList";
 import CopyButton from "./components/CopyButton";
-import { FileData, FileTreeMode } from "./types/FileTypes";
+import FileViewModal from "./components/FileViewModal";
+import { FileData, FileTreeMode, SelectedFileWithLines } from "./types/FileTypes";
 import { ThemeProvider } from "./context/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
 import FileTreeToggle from "./components/FileTreeToggle";
@@ -56,7 +57,7 @@ const App = () => {
     STORAGE_KEYS.SELECTED_FOLDER,
     null
   );
-  const [selectedFiles, setSelectedFiles] = useLocalStorage<string[]>(
+  const [selectedFiles, setSelectedFiles] = useLocalStorage<SelectedFileWithLines[]>(
     STORAGE_KEYS.SELECTED_FILES,
     []
   );
@@ -95,6 +96,8 @@ const App = () => {
   // State for modals
   const [showApplyChangesModal, setShowApplyChangesModal] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [fileViewModalOpen, setFileViewModalOpen] = useState(false);
+  const [currentViewedFilePath, setCurrentViewedFilePath] = useState("");
   const [exclusionPatterns, setExclusionPatterns] = useLocalStorage<string[]>(
     "pasteflow-exclusion-patterns",
     [
@@ -227,6 +230,34 @@ const App = () => {
     [setDisplayedFiles],
   );
 
+  // Function to open the file view modal
+  const handleViewFile = useCallback((filePath: string) => {
+    setCurrentViewedFilePath(filePath);
+    setFileViewModalOpen(true);
+  }, []);
+
+  // Function to close the file view modal
+  const handleCloseFileViewModal = useCallback(() => {
+    setFileViewModalOpen(false);
+  }, []);
+
+  // Set up viewFile event listener
+  useEffect(() => {
+    const handleViewFileEvent = (event: CustomEvent) => {
+      if (event.detail) {
+        handleViewFile(event.detail);
+      }
+    };
+    
+    // Add event listener
+    window.addEventListener('viewFile', handleViewFileEvent as EventListener);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('viewFile', handleViewFileEvent as EventListener);
+    };
+  }, [handleViewFile]);
+
   // Set up event listeners for Electron IPC
   useEffect(() => {
     if (!isElectron) return;
@@ -346,16 +377,52 @@ const App = () => {
     // No need to manually clear localStorage entries - handled by useLocalStorage
   }, [setSelectedFolder, setSelectedFiles]);
 
-  // Toggle file selection
-  const toggleFileSelection = useCallback((filePath: string) => {
-    setSelectedFiles((prev: string[]) => {
-      if (prev.includes(filePath)) {
-        return prev.filter((path: string) => path !== filePath);
+  // Function to update a selected file with line selections
+  const updateSelectedFile = useCallback((updatedFile: SelectedFileWithLines) => {
+    setSelectedFiles(prev => {
+      // Check if this file is already in the selection
+      const existingIndex = prev.findIndex(f => f.path === updatedFile.path);
+      
+      if (existingIndex >= 0) {
+        // Update existing file
+        const newSelection = [...prev];
+        newSelection[existingIndex] = updatedFile;
+        return newSelection;
       } else {
-        return [...prev, filePath];
+        // Add new file to selection
+        return [...prev, updatedFile];
       }
     });
   }, [setSelectedFiles]);
+
+  // Function to find a selected file by path
+  const findSelectedFile = useCallback((filePath: string): SelectedFileWithLines | undefined => {
+    return selectedFiles.find(f => f.path === filePath);
+  }, [selectedFiles]);
+
+  // Toggle file selection
+  const toggleFileSelection = useCallback((filePath: string) => {
+    setSelectedFiles((prev: SelectedFileWithLines[]) => {
+      const existingIndex = prev.findIndex(f => f.path === filePath);
+      
+      if (existingIndex >= 0) {
+        // Remove the file if it exists in selection
+        return prev.filter((f: SelectedFileWithLines) => f.path !== filePath);
+      } else {
+        // Add the file to selection (whole file)
+        // Find file content from allFiles
+        const fileData = allFiles.find((f: FileData) => f.path === filePath);
+        if (!fileData) return prev;
+        
+        return [...prev, {
+          path: filePath,
+          content: fileData.content,
+          tokenCount: fileData.tokenCount,
+          isFullFile: true
+        }];
+      }
+    });
+  }, [setSelectedFiles, allFiles]);
 
   // Toggle folder selection (select/deselect all files in folder)
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean) => {
@@ -366,28 +433,33 @@ const App = () => {
 
     if (isSelected) {
       // Add all files from this folder that aren't already selected
-      const filePaths = filesInFolder.map((file: FileData) => file.path);
-      
-      setSelectedFiles((prev: string[]) => {
-        // Convert to Set for faster lookups and deduplication
-        const newSelectionSet = new Set(prev);
+      setSelectedFiles((prev: SelectedFileWithLines[]) => {
+        // Convert to Map for faster lookups
+        const prevMap = new Map(prev.map(f => [f.path, f]));
         
-        // Add all paths from the folder
-        filePaths.forEach((path: string) => {
-          newSelectionSet.add(path);
+        // Add all files from folder that aren't already selected
+        filesInFolder.forEach((file: FileData) => {
+          if (!prevMap.has(file.path)) {
+            prevMap.set(file.path, {
+              path: file.path,
+              content: file.content,
+              tokenCount: file.tokenCount,
+              isFullFile: true
+            });
+          }
         });
         
-        // Convert back to array for state update
-        return Array.from(newSelectionSet);
+        // Convert back to array
+        return Array.from(prevMap.values());
       });
     } else {
       // Remove all files from this folder
-      setSelectedFiles((prev: string[]) => {
+      setSelectedFiles((prev: SelectedFileWithLines[]) => {
         // Create a Set of paths to remove for faster lookups
         const folderPathsSet = new Set(filesInFolder.map((file: FileData) => file.path));
         
         // Keep only paths that are not in the folder
-        return prev.filter(path => !folderPathsSet.has(path));
+        return prev.filter(f => !folderPathsSet.has(f.path));
       });
     }
   }, [allFiles, setSelectedFiles]);
@@ -436,9 +508,37 @@ const App = () => {
    * @returns {number} The sum of token counts from all selected files.
    */
   const calculateTotalTokens = () => {
-    return selectedFiles.reduce((total: number, path: string) => {
-      const file = allFiles.find((f: FileData) => f.path === path);
-      return total + (file ? file.tokenCount : 0);
+    return selectedFiles.reduce((total: number, file: SelectedFileWithLines) => {
+      // If we have a precomputed token count, use it
+      if (file.tokenCount !== undefined) {
+        return total + file.tokenCount;
+      }
+      
+      // If we have content, estimate tokens
+      if (file.content) {
+        return total + estimateTokenCount(file.content);
+      }
+      
+      // Otherwise, find the file in allFiles and use its tokenCount
+      const fileData = allFiles.find((f: FileData) => f.path === file.path);
+      
+      // If it has line selections, calculate tokens for those lines only
+      if (file.lines && file.lines.length > 0 && fileData) {
+        const lines = fileData.content.split('\n');
+        let selectedContent = '';
+        
+        file.lines.forEach(range => {
+          for (let i = range.start - 1; i < range.end; i++) {
+            if (i >= 0 && i < lines.length) {
+              selectedContent += lines[i] + '\n';
+            }
+          }
+        });
+        
+        return total + estimateTokenCount(selectedContent);
+      }
+      
+      return total + (fileData ? fileData.tokenCount : 0);
     }, 0);
   };
 
@@ -449,10 +549,10 @@ const App = () => {
    * @param {string} text - The text to estimate tokens for
    * @returns {number} Estimated token count
    */
-  const estimateTokenCount = (text: string) => {
+  const estimateTokenCount = useCallback((text: string) => {
     // Simple estimation: ~4 characters per token on average
     return Math.ceil(text.length / 4);
-  };
+  }, []);
 
   // Update instructions token count when user instructions change
   const [userInstructions, setUserInstructions] = useState('');
@@ -484,7 +584,7 @@ const App = () => {
     
     // Pre-calculate commonly used filtered arrays
     const selectedFileItems = allFiles
-      .filter((file: FileData) => selectedFilesSet.has(file.path))
+      .filter((file: FileData) => selectedFiles.some(selected => selected.path === file.path))
       .map((file: FileData) => ({ 
         path: file.path, 
         isFile: true 
@@ -542,13 +642,13 @@ const App = () => {
    * @returns {string} A formatted string with selected files' content wrapped in codebase tags.
    */
   const getSelectedFilesContentWithoutInstructions = () => {
-    // Create a Set from selectedFiles for faster lookups
-    const selectedFilesSet = new Set(selectedFiles);
+    // Create a Map from selectedFiles for faster lookups
+    const selectedFilesMap = new Map(selectedFiles.map(file => [file.path, file]));
     
     // Sort selected files according to current sort order
     const [sortKey, sortDir] = sortOrder.split("-");
     const sortedSelected = allFiles
-      .filter((file: FileData) => selectedFilesSet.has(file.path))
+      .filter((file: FileData) => selectedFilesMap.has(file.path))
       .sort((a: FileData, b: FileData) => {
         let comparison = 0;
 
@@ -567,7 +667,7 @@ const App = () => {
       return "No files selected.";
     }
 
-    // Start with opening file_contents tag
+    // Start with opening codebase tag
     let concatenatedString = "<codebase>\n";
     
     // Add ASCII file tree if enabled
@@ -599,7 +699,7 @@ const App = () => {
     }
     
     sortedSelected.forEach((file: FileData) => {
-      // Calculate the relative path from the selected folder using path module
+      // Calculate the relative path from the selected folder
       let relativePath = file.path;
       
       if (selectedFolder) {
@@ -610,7 +710,6 @@ const App = () => {
         try {
           // getRelativePath expects (filePath, baseDir)
           relativePath = getRelativePath(normalizedFilePath, normalizedRootPath);
-          // Normalization is already handled by getRelativePath
         } catch (error) {
           // Fallback if getRelativePath fails
           console.error("Error calculating relative path:", error);
@@ -664,11 +763,43 @@ const App = () => {
       // Fallback to plaintext if no matching language is found
       else if (!languageIdentifier) languageIdentifier = 'plaintext';
       
+      // Get the selected file info including any line selections
+      const selectedFileInfo = selectedFilesMap.get(file.path);
+      let content = file.content;
+      
+      // Format the file header
+      let fileHeader = `\nFile: ${relativePath}`;
+      
+      // If we have line selections, only include those lines
+      if (selectedFileInfo && selectedFileInfo.lines && selectedFileInfo.lines.length > 0) {
+        // Add a note about partial selection to the header
+        fileHeader += ` (Selected Lines)`;
+        
+        // If we have precomputed content, use it
+        if (selectedFileInfo.content) {
+          content = selectedFileInfo.content;
+        } else {
+          // Otherwise compute it from the ranges
+          const lines = content.split('\n');
+          const selectedContent: string[] = [];
+          
+          selectedFileInfo.lines.forEach(range => {
+            for (let i = range.start - 1; i < range.end; i++) {
+              if (i >= 0 && i < lines.length) {
+                selectedContent.push(lines[i]);
+              }
+            }
+          });
+          
+          content = selectedContent.join('\n');
+        }
+      }
+      
       // Add file content with file header and code block
-      concatenatedString += `\nFile: ${relativePath}\n\`\`\`${languageIdentifier}\n${file.content}\n\`\`\`\n`;
+      concatenatedString += `${fileHeader}\n\`\`\`${languageIdentifier}\n${content}\n\`\`\`\n`;
     });
     
-    // Close file_contents tag
+    // Close codebase tag
     concatenatedString += "</codebase>";
     
     return concatenatedString;
@@ -701,19 +832,26 @@ const App = () => {
   const selectAllFiles = useCallback(() => {
     const selectablePaths = displayedFiles
       .filter((file: FileData) => !file.isBinary && !file.isSkipped)
-      .map((file: FileData) => file.path);
+      .map((file: FileData) => ({
+        path: file.path,
+        content: file.content,
+        tokenCount: file.tokenCount,
+        isFullFile: true
+      }));
 
-    setSelectedFiles((prev: string[]) => {
-      // Convert previous selections to a Set for faster lookups
-      const prevSet = new Set(prev);
+    setSelectedFiles((prev: SelectedFileWithLines[]) => {
+      // Convert to Map for faster lookups
+      const prevMap = new Map(prev.map(f => [f.path, f]));
       
-      // Add each new path if not already in the set
-      selectablePaths.forEach((path: string) => {
-        prevSet.add(path);
+      // Add each new file if not already in selection
+      selectablePaths.forEach((file: SelectedFileWithLines) => {
+        if (!prevMap.has(file.path)) {
+          prevMap.set(file.path, file);
+        }
       });
       
-      // Convert back to array for state update
-      return Array.from(prevSet);
+      // Convert back to array
+      return Array.from(prevMap.values());
     });
   }, [displayedFiles, setSelectedFiles]);
 
@@ -722,8 +860,8 @@ const App = () => {
     // Convert displayed paths to a Set for faster lookups
     const displayedPathsSet = new Set(displayedFiles.map((file: FileData) => file.path));
     
-    setSelectedFiles((prev: string[]) =>
-      prev.filter((path: string) => !displayedPathsSet.has(path))
+    setSelectedFiles((prev: SelectedFileWithLines[]) =>
+      prev.filter((f: SelectedFileWithLines) => !displayedPathsSet.has(f.path))
     );
   }, [displayedFiles, setSelectedFiles]);
 
@@ -916,6 +1054,7 @@ const App = () => {
               onFileTreeSortChange={handleFileTreeSortChange}
               toggleFilterModal={toggleFilterModal}
               refreshFileTree={refreshFileTree}
+              onViewFile={handleViewFile}
               processingStatus={processingStatus}
             />
             <div className="content-area">
@@ -969,6 +1108,7 @@ const App = () => {
                   selectedFiles={selectedFiles}
                   toggleFileSelection={toggleFileSelection}
                   openFolder={openFolder}
+                  onViewFile={handleViewFile}
                   processingStatus={processingStatus}
                 />
 
@@ -976,7 +1116,7 @@ const App = () => {
                   <div className="copy-button-group">
                     <CopyButton
                       text={getSelectedFilesContent}
-                      className="primary"
+                      className="primary copy-selected-files-btn"
                       >
                       <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
                     </CopyButton>
@@ -1004,7 +1144,7 @@ const App = () => {
                         
                         return result;
                       }}
-                      className="secondary"
+                      className="secondary copy-selected-files-btn"
                     >
                       <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
                     </CopyButton>
@@ -1065,6 +1205,16 @@ const App = () => {
             onClose={() => setFilterModalOpen(false)}
           />
         )}
+
+        {/* File View Modal */}
+        <FileViewModal
+          isOpen={fileViewModalOpen}
+          onClose={handleCloseFileViewModal}
+          filePath={currentViewedFilePath}
+          allFiles={allFiles}
+          selectedFile={findSelectedFile(currentViewedFilePath)}
+          onUpdateSelectedFile={updateSelectedFile}
+        />
       </div>
     </ThemeProvider>
   );

@@ -1,4 +1,10 @@
 import React, { useState, useEffect } from "react";
+import Modal from "react-modal";
+
+// Set app element for accessibility
+if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
+  Modal.setAppElement('#root');
+}
 
 /**
  * Props for the FilterModal component
@@ -10,6 +16,8 @@ interface FilterModalProps {
   onSave: (patterns: string[]) => void;
   /** Callback function when the user closes the modal */
   onClose: () => void;
+  /** Whether the modal is open */
+  isOpen?: boolean;
 }
 
 /**
@@ -19,12 +27,14 @@ interface FilterModalProps {
  * @param exclusionPatterns - Array of current exclusion patterns
  * @param onSave - Callback function when patterns are saved
  * @param onClose - Callback function when modal is closed
+ * @param isOpen - Whether the modal is open (defaults to true)
  */
 const FilterModal = ({
   exclusionPatterns,
   onSave,
   onClose,
-}: FilterModalProps) => {
+  isOpen = true,
+}: FilterModalProps): JSX.Element => {
   // Convert array to string for editing
   const [patternsText, setPatternsText] = useState("");
   const [validationErrors, setValidationErrors] = useState([] as string[]);
@@ -115,8 +125,38 @@ const FilterModal = ({
     onSave(patterns);
   };
 
+  const customStyles = {
+    overlay: {
+      backgroundColor: 'rgba(0, 0, 0, 0.75)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    },
+    content: {
+      position: 'relative',
+      top: 'auto',
+      left: 'auto',
+      right: 'auto',
+      bottom: 'auto',
+      width: '80%',
+      maxWidth: '800px',
+      maxHeight: '90vh',
+      borderRadius: '4px',
+      padding: '0',
+      border: '1px solid #ccc',
+      background: '#fff'
+    }
+  };
+
   return (
-    <div className="modal-overlay">
+    // @ts-ignore - Modal component has incompatible typing
+    <Modal
+      isOpen={isOpen}
+      onRequestClose={onClose}
+      style={customStyles}
+      contentLabel="File Exclusion Filters"
+    >
       <div className="modal-content filter-modal">
         <div className="modal-header">
           <h2>File Exclusion Filters</h2>
@@ -159,7 +199,7 @@ const FilterModal = ({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

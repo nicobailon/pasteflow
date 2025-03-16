@@ -6,17 +6,111 @@
 - `npm run build-electron` - Build Electron app
 - `npm run lint` - Run ESLint checks
 - `npm run lint:strict` - Run ESLint with zero warnings allowed
+- `npm run test` - Run all tests
+- `npm run test:watch` - Run tests in watch mode
+- `npm test -- -t "test name"` - Run single test by name
+- `npm run test:coverage` - Run tests with coverage report
+- `npm run test:debug` - Run tests with Node debugger attached
 - `npm run package` - Build and package app for current platform
 - `npm run package:mac|win|linux` - Build for specific platform
-- `npm run verify-build` - Check build configuration
+
+# Project Structure
+
+- `/src` - Source code
+  - `/components` - React components
+  - `/hooks` - Custom React hooks
+  - `/styles` - CSS styles
+  - `/types` - TypeScript type definitions
+  - `/utils` - Utility functions and helpers
+    - `/pathUtils.ts` - Path handling utilities
+    - `/tokenCounter.ts` - Token estimation utilities
+    - `/xmlTemplates.ts` - XML formatting templates
+  - `/tests` - Test files
+- `/public` - Static assets
+- `/electron` - Electron-specific code
+- `/dist` - Build output directory
 
 # Code Style Guidelines
 
 - **TypeScript**: Use strong typing with interfaces in `src/types/`
-- **React Components**: Use functional components with hooks
-- **File Structure**: Put components in `src/components/` with PascalCase names
-- **Imports**: Group imports (React, local components, contexts, utils)
-- **Error Handling**: Use optional chaining and handle potential nulls
-- **Formatting**: Use 2-space indentation, semicolons, and single quotes
-- **Naming**: Use PascalCase for components, camelCase for variables and functions
-- **Utils**: Create utility functions in appropriate files under `src/utils/`
+  - Define comprehensive interfaces for component props and state
+  - Avoid using `any` type; prefer `unknown` when type is uncertain
+  - Use union types, generics, and type guards appropriately
+
+- **React Components**: 
+  - Use functional components with hooks
+  - Implement proper cleanup in useEffect hooks
+  - Memoize expensive calculations with useMemo
+  - Memoize callbacks with useCallback when passed as props
+
+- **File Structure**: 
+  - Put components in `src/components/` with PascalCase names
+  - Group related components in subdirectories
+  - Keep component files focused on a single responsibility
+  - Consider extracting complex logic to custom hooks
+
+- **Imports**: 
+  - Group imports in the following order:
+    1. React and React-related libraries
+    2. Third-party libraries
+    3. Local components
+    4. Types
+    5. Utilities and hooks
+    6. Assets (styles, images)
+
+- **Testing**: 
+  - Use Jest with React Testing Library
+  - Mock external APIs and services
+  - Test component behavior, not implementation details
+  - Write integration tests for critical user flows
+  - Use data-testid attributes for test selectors
+
+- **Error Handling**: 
+  - Use optional chaining and nullish coalescing for safer access
+  - Implement proper error boundaries for component failures
+  - Use try/catch with async/await for async operations
+  - Provide meaningful error messages and fallback UIs
+
+- **Formatting**: 
+  - 2-space indentation
+  - Semicolons required
+  - Single quotes for strings
+  - Trailing commas in multiline objects/arrays
+  - Maximum line length of 100 characters
+
+- **Naming**: 
+  - PascalCase for components and interfaces
+  - camelCase for variables, functions, and methods
+  - UPPER_SNAKE_CASE for constants
+  - Use descriptive, intention-revealing names
+
+- **Utils**: 
+  - Create utility functions in appropriate files under `src/utils/`
+  - Keep utility functions pure when possible
+  - Implement proper type signatures for all utilities
+  - Test utilities thoroughly
+
+- **Path Handling**:
+  - Use dedicated path utilities from `src/utils/pathUtils.ts`
+  - Normalize paths consistently using `normalizePath` function
+  - Calculate relative paths with `getRelativePath` utility
+  - Extract file extensions with `extname` function
+  - Get file/directory names with `basename` utility
+
+- **Sidebar Loading**:
+  - Implement consolidated loading state management
+  - Use minimum display times to prevent flickering
+  - Show appropriate loading indicators during async operations
+  - Handle component cleanup properly to prevent memory leaks
+
+- **Token Estimation**:
+  - Use `estimateTokenCount` utility for accurate token counting
+  - Calculate tokens for different file tree modes
+  - Track token counts for user instructions
+  - Optimize content to fit within model context limits
+
+- **Documentation**: 
+  - Add JSDoc comments for functions and components
+  - Document props with descriptive comments
+  - Maintain up-to-date README and documentation files
+  - Include examples for complex functionality
