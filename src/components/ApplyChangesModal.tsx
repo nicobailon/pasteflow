@@ -1,11 +1,22 @@
 import React, { useState, useEffect } from "react";
+import Modal from "react-modal";
+
+// Set app element for accessibility
+if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
+  Modal.setAppElement('#root');
+}
 
 interface ApplyChangesModalProps {
   selectedFolder: string;
   onClose: () => void;
+  isOpen?: boolean;
 }
 
-export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModalProps) {
+export function ApplyChangesModal({ 
+  selectedFolder, 
+  onClose, 
+  isOpen = true
+}: ApplyChangesModalProps): JSX.Element {
   const [xml, setXml] = useState("");
   const [status, setStatus] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -120,8 +131,36 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
 </changed_files>
   `.trim();
 
+  const customStyles = {
+    overlay: {
+      backgroundColor: 'rgba(0, 0, 0, 0.75)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    },
+    content: {
+      position: 'relative',
+      top: 'auto',
+      left: 'auto',
+      right: 'auto',
+      bottom: 'auto',
+      width: '80%',
+      maxWidth: '800px',
+      maxHeight: '90vh',
+      borderRadius: '4px',
+      padding: '0',
+    }
+  };
+
   return (
-    <div className="modal-overlay">
+    // @ts-ignore - Modal component has incompatible typing
+    <Modal
+      isOpen={isOpen}
+      onRequestClose={onClose}
+      style={customStyles}
+      contentLabel="Apply XML Changes"
+    >
       <div className="modal-content apply-changes-modal">
         <div className="modal-header">
           <h2>Apply XML Changes</h2>
@@ -176,6 +215,6 @@ export function ApplyChangesModal({ selectedFolder, onClose }: ApplyChangesModal
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 } 

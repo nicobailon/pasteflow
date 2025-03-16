@@ -115,12 +115,16 @@
     "vite": "^5.0.8"
   },
   "dependencies": {
+    "@types/react-modal": "^3.16.3",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@xmldom/xmldom": "^0.9.6",
     "gpt-3-encoder": "^1.1.4",
     "ignore": "^7.0.3",
     "lucide-react": "^0.477.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-modal": "^3.16.3",
+    "react-syntax-highlighter": "^15.6.1",
     "tiktoken": "^1.0.20"
   }
 }

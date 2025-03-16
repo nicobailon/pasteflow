@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import Sidebar from '../components/Sidebar';
-import { TreeNode, FileData } from '../types/FileTypes';
+import { TreeNode, FileData, SelectedFileWithLines } from '../types/FileTypes';
 
 // Mock the Lucide React icons
 jest.mock('lucide-react', () => ({
@@ -15,7 +15,8 @@ jest.mock('lucide-react', () => ({
   Filter: () => <div data-testid="filter-icon" />,
   RefreshCw: () => <div data-testid="refresh-icon" />,
   File: () => <div data-testid="file-icon" />,
-  Search: () => <div data-testid="search-icon" />
+  Search: () => <div data-testid="search-icon" />,
+  Eye: () => <div data-testid="eye-icon" />
 }));
 
 // Mock the hooks
@@ -173,7 +174,7 @@ describe('Sidebar Component', () => {
         isSkipped: false
       }
     ],
-    selectedFiles: [],
+    selectedFiles: [] as SelectedFileWithLines[],
     toggleFileSelection: jest.fn(),
     toggleFolderSelection: jest.fn(),
     searchTerm: '',
@@ -185,7 +186,8 @@ describe('Sidebar Component', () => {
     resetFolderState: jest.fn(),
     onFileTreeSortChange: jest.fn(),
     toggleFilterModal: jest.fn(),
-    refreshFileTree: jest.fn()
+    refreshFileTree: jest.fn(),
+    onViewFile: jest.fn()
   };
 
   beforeEach(() => {
@@ -375,5 +377,66 @@ describe('Sidebar Component', () => {
     expect(screen.getByText('file2.js')).toBeInTheDocument();
     expect(screen.getByText('file3.js')).toBeInTheDocument();
     expect(screen.getByText('nestedFile.js')).toBeInTheDocument();
+  });
+
+  it('calls onViewFile when clicking on view file button', async () => {
+    // Start with dir1 expanded so file1.js is visible
+    const expandedProps = {
+      ...mockProps,
+      expandedNodes: {
+        '/root/dir1': true
+      }
+    };
+    
+    render(<Sidebar {...expandedProps} />);
+    
+    // Verify file1.js is visible
+    expect(screen.getByText('file1.js')).toBeInTheDocument();
+    
+    // Find all eye icons and click the first one (which should be for file1.js)
+    const eyeIcons = screen.getAllByTestId('eye-icon');
+    const viewFileButton = eyeIcons[0].closest('button');
+    
+    if (viewFileButton) {
+      fireEvent.click(viewFileButton);
+      
+      // Verify onViewFile was called with the correct file path
+      expect(mockProps.onViewFile).toHaveBeenCalledWith('/root/dir1/file1.js');
+      expect(mockProps.onViewFile).toHaveBeenCalledTimes(1);
+    }
+  });
+  
+  it('passes the onViewFile prop to TreeItem components', () => {
+    // Create a prop with a file that has line selections
+    const propsWithSelectedFile = {
+      ...mockProps,
+      selectedFiles: [{
+        path: '/root/dir1/file1.js',
+        content: 'content1',
+        tokenCount: 10,
+        lines: [{ start: 1, end: 5 }],
+        isFullFile: false
+      }] as SelectedFileWithLines[],
+      expandedNodes: {
+        '/root/dir1': true
+      }
+    };
+    
+    render(<Sidebar {...propsWithSelectedFile} />);
+    
+    // Verify file1.js is visible and has a "Partial" badge
+    expect(screen.getByText('file1.js')).toBeInTheDocument();
+    expect(screen.getByText('Partial')).toBeInTheDocument();
+    
+    // Find the view file button and click it
+    const eyeIcons = screen.getAllByTestId('eye-icon');
+    const viewFileButton = eyeIcons[0].closest('button');
+    
+    if (viewFileButton) {
+      fireEvent.click(viewFileButton);
+      
+      // Verify onViewFile was called with the correct file path
+      expect(mockProps.onViewFile).toHaveBeenCalledWith('/root/dir1/file1.js');
+    }
   });
 }); 

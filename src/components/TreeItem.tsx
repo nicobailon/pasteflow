@@ -1,9 +1,6 @@
-import React, {
-  useRef,
-  useEffect,
-} from "react";
-import { TreeItemProps, TreeNode } from "../types/FileTypes";
-import { ChevronRight, File, Folder } from "lucide-react";
+import React from "react";
+import { TreeItemProps, TreeNode, SelectedFileWithLines } from "../types/FileTypes";
+import { ChevronRight, File, Folder, Eye } from "lucide-react";
 
 const TreeItem = ({
   node,
@@ -11,11 +8,16 @@ const TreeItem = ({
   toggleFileSelection,
   toggleFolderSelection,
   toggleExpanded,
+  onViewFile
 }: TreeItemProps) => {
   const { id, name, path, type, level, isExpanded, fileData } = node;
-  const checkboxRef = useRef(null);
+  // @ts-ignore - Typed useRef hook is flagged in strict mode
+  const checkboxRef = React.useRef<HTMLInputElement>(null);
 
-  const isSelected = type === "file" && selectedFiles.includes(path);
+  // Find the selected file (if any) for this node
+  const selectedFile = selectedFiles.find(f => f.path === path);
+  const isSelected = !!selectedFile;
+  const isPartiallySelected = isSelected && selectedFile?.lines && selectedFile.lines.length > 0;
 
   // Helper function to check if a node is fully selected
   const isNodeFullySelected = (node: TreeNode): boolean => {
@@ -23,7 +25,10 @@ const TreeItem = ({
       // Files are selected if they're in the selectedFiles array
       // Non-selectable files (binary/skipped) are ignored
       const isSelectable = !(node.fileData?.isBinary || node.fileData?.isSkipped);
-      return !isSelectable || selectedFiles.includes(node.path);
+      if (!isSelectable) return false;
+      
+      const selectedFile = selectedFiles.find(f => f.path === node.path);
+      return !!selectedFile;
     }
     
     if (node.type === "directory" && node.children) {
@@ -37,7 +42,12 @@ const TreeItem = ({
   // Helper function to check if a node is partially selected
   const isNodePartiallySelected = (node: TreeNode): boolean => {
     if (node.type === "file") {
-      return false; // Files can't be partially selected
+      // Files can be partially selected if they have line ranges defined
+      const isSelectable = !(node.fileData?.isBinary || node.fileData?.isSkipped);
+      if (!isSelectable) return false;
+      
+      const selectedFile = selectedFiles.find(f => f.path === node.path);
+      return !!selectedFile && !!selectedFile.lines && selectedFile.lines.length > 0;
     }
     
     if (node.type === "directory" && node.children) {
@@ -47,7 +57,9 @@ const TreeItem = ({
       const anySelected = node.children.some(child => {
         if (child.type === "file") {
           const isSelectable = !(child.fileData?.isBinary || child.fileData?.isSkipped);
-          return isSelectable && selectedFiles.includes(child.path);
+          if (!isSelectable) return false;
+          
+          return selectedFiles.some(f => f.path === child.path);
         }
         return isNodeFullySelected(child) || isNodePartiallySelected(child);
       });
@@ -66,13 +78,13 @@ const TreeItem = ({
   const isDirectoryPartiallySelected = type === "directory" ? isNodePartiallySelected(node) : false;
 
   // Update the indeterminate state manually whenever it changes
-  useEffect(() => {
+  React.useEffect(() => {
     if (checkboxRef.current) {
       checkboxRef.current.indeterminate = isDirectoryPartiallySelected;
     }
   }, [isDirectoryPartiallySelected]);
 
-  const handleToggle = (e: Event) => {
+  const handleToggle = (e: any) => {
     e.stopPropagation();
     toggleExpanded(id);
   };
@@ -85,13 +97,19 @@ const TreeItem = ({
     }
   };
 
-  const handleCheckboxChange = (e: Event) => {
+  const handleFileNameClick = (e: any) => {
+    e.stopPropagation();
+    if (type === "file" && !isDisabled && onViewFile) {
+      onViewFile(path);
+    }
+  };
+
+  const handleCheckboxChange = (e: any) => {
     e.stopPropagation();
     if (type === "file") {
       toggleFileSelection(path);
     } else if (type === "directory") {
-      const target = e.target as HTMLInputElement;
-      toggleFolderSelection(path, target.checked);
+      toggleFolderSelection(path, e.target.checked);
     }
   };
 
@@ -101,9 +119,22 @@ const TreeItem = ({
   // Check if the file is excluded by default (but still selectable)
   const isExcludedByDefault = fileData?.excludedByDefault || false;
 
+  // Format line ranges for display in tooltip
+  const formatSelectedLines = (): string => {
+    if (!selectedFile || !selectedFile.lines || selectedFile.lines.length === 0) {
+      return 'Entire file selected';
+    }
+    
+    return selectedFile.lines
+      .map(range => range.start === range.end 
+        ? `Line ${range.start}` 
+        : `Lines ${range.start}-${range.end}`)
+      .join(', ');
+  };
+
   return (
     <div
-      className={`tree-item ${isSelected ? "selected" : ""} ${
+      className={`tree-item ${isSelected ? "selected" : ""} ${isPartiallySelected ? "partially-selected" : ""} ${
         isExcludedByDefault ? "excluded-by-default" : ""
       }`}
       style={{ marginLeft: `${level * 16}px` }}
@@ -138,7 +169,20 @@ const TreeItem = ({
           {type === "directory" ? <Folder size={16} /> : <File size={16} />}
         </div>
 
-        <div className="tree-item-name">{name}</div>
+        <div 
+          className={`tree-item-name ${type === "file" && !isDisabled ? "clickable" : ""}`}
+          onClick={type === "file" && !isDisabled ? handleFileNameClick : undefined}
+          title={type === "file" && !isDisabled 
+            ? `Click to view file${isSelected ? `. ${formatSelectedLines()}` : ''}`
+            : name}
+        >
+          {name}
+          {isPartiallySelected && (
+            <span className="partial-selection-indicator" title={formatSelectedLines()}>
+              Partial
+            </span>
+          )}
+        </div>
 
         {fileData && fileData.tokenCount > 0 && (
           <span className="tree-item-tokens">
@@ -154,6 +198,19 @@ const TreeItem = ({
 
         {!isDisabled && isExcludedByDefault && (
           <span className="tree-item-badge excluded">Excluded</span>
+        )}
+        
+        {type === "file" && !isDisabled && onViewFile && (
+          <button 
+            className="tree-item-view-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewFile(path);
+            }}
+            title="View file"
+          >
+            <Eye size={14} />
+          </button>
         )}
       </div>
     </div>

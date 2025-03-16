@@ -11,6 +11,21 @@ export interface FileData {
   excludedByDefault?: boolean;
 }
 
+// New interface for selected line ranges
+export interface LineRange {
+  start: number;
+  end: number;
+}
+
+// New interface for selected files with line ranges
+export interface SelectedFileWithLines {
+  path: string;
+  lines?: LineRange[];  // Undefined or empty array means entire file
+  content?: string;     // Cached content of selected lines
+  tokenCount?: number;  // Pre-computed token count for selected content
+  isFullFile?: boolean; // Explicit flag indicating if the whole file is selected
+}
+
 export interface TreeNode {
   id: string;
   name: string;
@@ -26,7 +41,7 @@ export interface SidebarProps {
   selectedFolder: string | null;
   openFolder: () => void;
   allFiles: FileData[];
-  selectedFiles: string[];
+  selectedFiles: SelectedFileWithLines[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
   searchTerm: string;
@@ -39,6 +54,7 @@ export interface SidebarProps {
   onFileTreeSortChange?: (sortOrder: string) => void;
   toggleFilterModal?: () => void;
   refreshFileTree?: () => void;
+  onViewFile?: (filePath: string) => void; // New prop
   processingStatus?: {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
@@ -50,9 +66,10 @@ export interface SidebarProps {
 
 export interface FileListProps {
   files: FileData[];
-  selectedFiles: string[];
+  selectedFiles: SelectedFileWithLines[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   openFolder: () => void;
+  onViewFile?: (filePath: string) => void; // New prop
   processingStatus: {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
@@ -61,17 +78,19 @@ export interface FileListProps {
 
 export interface FileCardProps {
   file: FileData;
-  isSelected: boolean;
+  selectedFile: SelectedFileWithLines | undefined; // Updated type
   toggleSelection: (filePath: string) => void;
+  onViewFile?: (filePath: string) => void; // New prop
 }
 
 export interface TreeItemProps {
   node: TreeNode;
-  selectedFiles: string[];
+  selectedFiles: SelectedFileWithLines[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
   toggleExpanded: (nodeId: string) => void;
   expandedNodes?: Record<string, boolean>;
+  onViewFile?: (filePath: string) => void; // New prop
 }
 
 export interface SortOption {
@@ -85,9 +104,9 @@ export interface SearchBarProps {
 }
 
 export interface CopyButtonProps {
-  onCopy: () => void;
-  isDisabled: boolean;
-  copyStatus: boolean;
+  text: string | (() => string);
+  className?: string;
+  children?: JSX.Element | string;
 }
 
 export type FileTreeMode = "none" | "selected" | "selected-with-roots" | "complete";
@@ -107,4 +126,14 @@ export interface FileChange {
   operation: 'CREATE' | 'UPDATE' | 'DELETE';
   path: string;
   code?: string;
+}
+
+// New interface for file view modal
+export interface FileViewModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  filePath: string;
+  allFiles: FileData[];
+  selectedFile: SelectedFileWithLines | undefined;
+  onUpdateSelectedFile: (selectedFile: SelectedFileWithLines) => void;
 }

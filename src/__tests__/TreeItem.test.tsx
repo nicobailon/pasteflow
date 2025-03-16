@@ -2,13 +2,14 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import TreeItem from '../components/TreeItem';
-import { TreeNode } from '../types/FileTypes';
+import { TreeNode, SelectedFileWithLines } from '../types/FileTypes';
 
 // Mock icons
 jest.mock('lucide-react', () => ({
   ChevronRight: () => <div data-testid="chevron-icon" />,
   File: () => <div data-testid="file-icon" />,
   Folder: () => <div data-testid="folder-icon" />,
+  Eye: () => <div data-testid="eye-icon" />,
 }));
 
 describe('TreeItem Component', () => {
@@ -16,6 +17,7 @@ describe('TreeItem Component', () => {
   const toggleFileSelection = jest.fn();
   const toggleFolderSelection = jest.fn();
   const toggleExpanded = jest.fn();
+  const onViewFile = jest.fn();
   
   // Reset mocks before each test
   beforeEach(() => {
@@ -70,16 +72,28 @@ describe('TreeItem Component', () => {
     ...directoryNode,
     isExpanded: true,
   };
+
+  // Create mock selected files with the correct type
+  const selectedFilesEmpty: SelectedFileWithLines[] = [];
+  const selectedFilesWithExample: SelectedFileWithLines[] = [
+    {
+      path: '/path/to/example.js',
+      content: 'console.log("Hello World");',
+      tokenCount: 100,
+      isFullFile: true
+    }
+  ];
   
   describe('Event handlers', () => {
     it('calls toggleExpanded when clicking on directory chevron', () => {
       render(
         <TreeItem
           node={directoryNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -96,10 +110,11 @@ describe('TreeItem Component', () => {
       render(
         <TreeItem
           node={directoryNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -116,10 +131,11 @@ describe('TreeItem Component', () => {
       render(
         <TreeItem
           node={fileNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -136,10 +152,11 @@ describe('TreeItem Component', () => {
       render(
         <TreeItem
           node={disabledFileNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -151,16 +168,39 @@ describe('TreeItem Component', () => {
       }
     });
     
+    it('calls onViewFile when clicking the view icon for a file', () => {
+      render(
+        <TreeItem
+          node={fileNode}
+          selectedFiles={selectedFilesEmpty}
+          toggleFileSelection={toggleFileSelection}
+          toggleFolderSelection={toggleFolderSelection}
+          toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
+        />
+      );
+      
+      // Find and click the eye icon
+      const viewIcon = screen.getByTestId('eye-icon').closest('button');
+      if (viewIcon) {
+        fireEvent.click(viewIcon);
+        
+        expect(onViewFile).toHaveBeenCalledWith('/path/to/example.js');
+        expect(onViewFile).toHaveBeenCalledTimes(1);
+      }
+    });
+    
     it('responds correctly when checking/unchecking file checkbox', () => {
       // Mock the event handler implementation directly in TreeItem
       // by using a Test Double pattern
       const { rerender } = render(
         <TreeItem
           node={fileNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -168,10 +208,11 @@ describe('TreeItem Component', () => {
       rerender(
         <TreeItem
           node={fileNode}
-          selectedFiles={['/path/to/example.js']}
+          selectedFiles={selectedFilesWithExample}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -190,10 +231,11 @@ describe('TreeItem Component', () => {
       render(
         <TreeItem
           node={directoryNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -213,10 +255,11 @@ describe('TreeItem Component', () => {
       render(
         <TreeItem
           node={fileNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -240,10 +283,11 @@ describe('TreeItem Component', () => {
       render(
         <TreeItem
           node={fileNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -251,32 +295,36 @@ describe('TreeItem Component', () => {
       expect(screen.getByTestId('file-icon')).toBeInTheDocument();
       expect(screen.queryByTestId('chevron-icon')).not.toBeInTheDocument();
       expect(screen.getByText(/~100/)).toBeInTheDocument();
+      expect(screen.getByTestId('eye-icon')).toBeInTheDocument();
     });
     
     it('renders a directory item correctly', () => {
       render(
         <TreeItem
           node={directoryNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
       expect(screen.getByText('src')).toBeInTheDocument();
       expect(screen.getByTestId('folder-icon')).toBeInTheDocument();
       expect(screen.getByTestId('chevron-icon')).toBeInTheDocument();
+      expect(screen.queryByTestId('eye-icon')).not.toBeInTheDocument();
     });
     
     it('applies correct classes for expanded directories', () => {
       render(
         <TreeItem
           node={expandedDirectoryNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
@@ -291,14 +339,46 @@ describe('TreeItem Component', () => {
       render(
         <TreeItem
           node={disabledFileNode}
-          selectedFiles={[]}
+          selectedFiles={selectedFilesEmpty}
           toggleFileSelection={toggleFileSelection}
           toggleFolderSelection={toggleFolderSelection}
           toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
         />
       );
       
       expect(screen.getByText('Binary')).toBeInTheDocument();
+    });
+    
+    it('renders a file with partial selection correctly', () => {
+      // Simulate a file with lines selected
+      const fileWithLines = {
+        ...fileNode,
+        selectedLines: [{ start: 1, end: 5 }]
+      };
+      
+      // Create a selected file with line ranges
+      const selectedFilesWithLines: SelectedFileWithLines[] = [{
+        path: '/path/to/example.js',
+        content: 'console.log("Hello World");',
+        tokenCount: 100,
+        lines: [{ start: 1, end: 5 }],
+        isFullFile: false
+      }];
+      
+      render(
+        <TreeItem
+          node={fileWithLines}
+          selectedFiles={selectedFilesWithLines}
+          toggleFileSelection={toggleFileSelection}
+          toggleFolderSelection={toggleFolderSelection}
+          toggleExpanded={toggleExpanded}
+          onViewFile={onViewFile}
+        />
+      );
+      
+      // Check for partial selection indicator
+      expect(screen.getByText('Partial')).toBeInTheDocument();
     });
   });
 }); 

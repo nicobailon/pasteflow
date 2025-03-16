@@ -39,6 +39,18 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
   - Works across all browsers and environments with a robust fallback mechanism
   - Provides visual feedback when content is copied
   - Fully accessible with keyboard support
+- **Cross-Platform Path Handling**: Consistent normalization and relative path calculations across browser and Node.js environments
+  - Platform-independent path utilities for working with file paths
+  - Reliable path operations regardless of operating system
+  - Smart handling of path separators for Windows and Unix-like systems
+- **Enhanced Sidebar Loading State**: Improved user experience with consolidated loading indicators
+  - Smooth loading transitions with minimum display times to prevent flickering
+  - Visual feedback during file tree building and processing operations
+  - Concurrent handling of multiple loading states
+- **Token Estimation for Prompts**: Detailed token counting for all content components
+  - Real-time token estimation for user instructions
+  - Dynamic token counts for different file tree modes
+  - Accurate representation of context consumption for AI models
 
 ## Features in Latest Updates
 
@@ -47,6 +59,9 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
 - **Optimized Cache Management**: Enhanced cache invalidation in the file tree management to ensure consistent performance during sorting operations
 - **Code Optimization**: Replaced console logging with proper null operations for cleaner code execution
 - **Dependency Classification**: Properly categorized dependencies for development versus runtime to optimize bundle size
+- **Path Utilities Refactoring**: Introduced new path utilities for consistent path normalization and relative path calculations
+- **Sidebar Loading Enhancement**: Consolidated processing status and tree building completion states for smoother user experience
+- **Token Estimation Improvements**: Added comprehensive token estimation for user instructions and different file tree modes
 
 ## Installation
 
@@ -149,6 +164,7 @@ Code signing ensures users can install and run the application without security 
   - `utils/` - Utility functions
     - `useFileTree/` - Custom hook for file tree management and sorting
     - `useLocalStorage/` - Enhanced localStorage hook with type safety
+    - `pathUtils/` - Utilities for path handling and normalization
   - `__tests__/` - Unit tests
 - `main.js` - Electron main process
 - `build.js` - Build script for production
