@@ -1,6 +1,7 @@
 import React from "react";
-import { FileListProps, FileData, SelectedFileWithLines, LineRange } from "../types/FileTypes";
+import { FileListProps, FileData, SelectedFileWithLines, LineRange, SystemPrompt } from "../types/FileTypes";
 import FileCard from "./FileCard";
+import SystemPromptCard from "./SystemPromptCard";
 import { FolderOpen } from "lucide-react";
 
 // Interface for expanded file card display
@@ -17,9 +18,12 @@ const FileList = ({
   files,
   selectedFiles,
   toggleFileSelection,
+  toggleSelection,
   openFolder,
   onViewFile,
   processingStatus,
+  selectedSystemPrompts = [],
+  toggleSystemPromptSelection,
 }: FileListProps) => {
   // Create a Map for faster lookups
   const selectedFilesMap = new Map(selectedFiles.map(file => [file.path, file]));
@@ -69,10 +73,23 @@ const FileList = ({
     }
   });
 
+  // Calculate if we have any items to display (either files or system prompts)
+  const hasItemsToDisplay = expandedCards.length > 0 || selectedSystemPrompts.length > 0;
+
   return (
     <div className="file-list-container">
-      {expandedCards.length > 0 ? (
+      {hasItemsToDisplay ? (
         <div className="file-list">
+          {/* Display system prompts at the top */}
+          {selectedSystemPrompts.map((prompt) => (
+            <SystemPromptCard
+              key={`prompt-${prompt.id}`}
+              prompt={prompt}
+              toggleSelection={toggleSystemPromptSelection || ((prompt: SystemPrompt) => {})}
+            />
+          ))}
+          
+          {/* Display selected files */}
           {expandedCards.map((cardData, index) => {
             // Create a modified selected file object for each card
             const modifiedSelectedFile: SelectedFileWithLines = {
@@ -88,7 +105,7 @@ const FileList = ({
                 key={`${cardData.selectedFilePath}-${cardData.lineRange?.start || 'full'}-${index}`}
                 file={cardData.originalFile}
                 selectedFile={modifiedSelectedFile}
-                toggleSelection={toggleFileSelection}
+                toggleSelection={toggleSelection || toggleFileSelection}
                 onViewFile={onViewFile}
               />
             );

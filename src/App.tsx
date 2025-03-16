@@ -4,13 +4,21 @@ import Sidebar from "./components/Sidebar";
 import FileList from "./components/FileList";
 import CopyButton from "./components/CopyButton";
 import FileViewModal from "./components/FileViewModal";
-import { FileData, FileTreeMode, SelectedFileWithLines } from "./types/FileTypes";
+import {
+  FileData,
+  SelectedFileWithLines,
+  TreeNode,
+  LineRange,
+  FileTreeMode,
+  SystemPrompt
+} from "./types/FileTypes";
 import { ThemeProvider } from "./context/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
 import FileTreeToggle from "./components/FileTreeToggle";
 import { ApplyChangesModal } from "./components/ApplyChangesModal";
 import FilterModal from "./components/FilterModal";
-import { FolderOpen, Folder } from "lucide-react";
+import SystemPromptsModal from "./components/SystemPromptsModal";
+import { FolderOpen, Folder, Settings } from "lucide-react";
 import { 
   generateAsciiFileTree, 
   getAllDirectories, 
@@ -49,6 +57,7 @@ const STORAGE_KEYS = {
   SEARCH_TERM: "pasteflow-search-term",
   EXPANDED_NODES: "pasteflow-expanded-nodes",
   FILE_TREE_MODE: "pasteflow-file-tree-mode",
+  SYSTEM_PROMPTS: "pasteflow-system-prompts",
 };
 
 const App = () => {
@@ -97,6 +106,7 @@ const App = () => {
   const [showApplyChangesModal, setShowApplyChangesModal] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [fileViewModalOpen, setFileViewModalOpen] = useState(false);
+  const [systemPromptsModalOpen, setSystemPromptsModalOpen] = useState(false);
   const [currentViewedFilePath, setCurrentViewedFilePath] = useState("");
   const [exclusionPatterns, setExclusionPatterns] = useLocalStorage<string[]>(
     "pasteflow-exclusion-patterns",
@@ -122,6 +132,13 @@ const App = () => {
       "**/package-lock.json",
     ]
   );
+
+  // System prompts state
+  const [systemPrompts, setSystemPrompts] = useLocalStorage<SystemPrompt[]>(
+    STORAGE_KEYS.SYSTEM_PROMPTS,
+    []
+  );
+  const [selectedSystemPrompts, setSelectedSystemPrompts] = useState([] as SystemPrompt[]);
 
   // State for sort dropdown
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
@@ -424,6 +441,45 @@ const App = () => {
     });
   }, [setSelectedFiles, allFiles]);
 
+  // Toggle selection for a specific line range within a file
+  const toggleSelection = useCallback((filePath: string, lineRange?: LineRange) => {
+    setSelectedFiles((prev: SelectedFileWithLines[]) => {
+      // Find the file in the current selection
+      const existingIndex = prev.findIndex(f => f.path === filePath);
+      
+      if (existingIndex < 0) {
+        // File not found in selection, this should not happen
+        return prev;
+      }
+      
+      const selectedFile = prev[existingIndex];
+      
+      // If no line range is provided or the file is a full file selection, remove the entire file
+      if (!lineRange || selectedFile.isFullFile) {
+        return prev.filter((f: SelectedFileWithLines) => f.path !== filePath);
+      }
+      
+      // If line range is provided, only remove that specific range
+      const updatedLines = selectedFile.lines?.filter(
+        range => !(range.start === lineRange.start && range.end === lineRange.end)
+      ) || [];
+      
+      // If no more lines are selected, remove the entire file
+      if (updatedLines.length === 0) {
+        return prev.filter((f: SelectedFileWithLines) => f.path !== filePath);
+      }
+      
+      // Otherwise, update the file with the remaining line ranges
+      const newSelection = [...prev];
+      newSelection[existingIndex] = {
+        ...selectedFile,
+        lines: updatedLines
+      };
+      
+      return newSelection;
+    });
+  }, [setSelectedFiles]);
+
   // Toggle folder selection (select/deselect all files in folder)
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean) => {
     const filesInFolder = allFiles.filter(
@@ -635,6 +691,16 @@ const App = () => {
   }, [calculateFileTreeTokens, fileTreeMode]);
 
   /**
+   * Calculate total token count for all selected system prompts
+   * @returns {number} Total tokens for selected system prompts
+   */
+  const calculateSystemPromptsTokens = useCallback(() => {
+    return selectedSystemPrompts.reduce((total: number, prompt: SystemPrompt) => {
+      return total + estimateTokenCount(prompt.content);
+    }, 0);
+  }, [selectedSystemPrompts, estimateTokenCount]);
+
+  /**
    * Generates a formatted string containing all selected files' contents without user instructions.
    * The function organizes files according to the current sort order and includes an ASCII file tree
    * representation based on the fileTreeMode setting.
@@ -820,12 +886,51 @@ const App = () => {
     const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
     const userInstructions = userInstructionsElement?.value?.trim();
     
-    // Append user instructions if they exist
-    if (userInstructions) {
-      return `${baseContent}\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+    let result = baseContent;
+    
+    // Add system prompts if selected
+    if (selectedSystemPrompts.length > 0) {
+      selectedSystemPrompts.forEach((prompt: SystemPrompt) => {
+        result += `\n\n<guidelines>\n${prompt.content}\n</guidelines>`;
+      });
     }
     
-    return baseContent;
+    // Append user instructions if they exist
+    if (userInstructions) {
+      result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+    }
+    
+    return result;
+  };
+  
+  /**
+   * Generates content with XML formatting instructions and optional system prompt and user instructions.
+   * 
+   * @returns {string} A formatted string with selected files' content, XML instructions, and optional prompts.
+   */
+  const getContentWithXmlPrompt = () => {
+    // Get the content without user instructions
+    const baseContent = getSelectedFilesContentWithoutInstructions();
+    // Get user instructions
+    const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
+    const userInstructions = userInstructionsElement?.value?.trim();
+    
+    // Combine content with XML instructions
+    let result = `${baseContent}\n\n${XML_FORMATTING_INSTRUCTIONS}`;
+    
+    // Add system prompts if selected
+    if (selectedSystemPrompts.length > 0) {
+      selectedSystemPrompts.forEach((prompt: SystemPrompt) => {
+        result += `\n\n<guidelines>\n${prompt.content}\n</guidelines>`;
+      });
+    }
+    
+    // Add user instructions at the very end if they exist
+    if (userInstructions) {
+      result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+    }
+    
+    return result;
   };
 
   // Handle select all files
@@ -950,6 +1055,42 @@ const App = () => {
       message: "File loading cancelled",
     });
     setIsLoadingCancellable(false);
+  }, []);
+
+  // System prompts management functions
+  const handleAddSystemPrompt = useCallback((prompt: SystemPrompt) => {
+    setSystemPrompts([...systemPrompts, prompt]);
+  }, [systemPrompts, setSystemPrompts]);
+
+  const handleDeleteSystemPrompt = useCallback((id: string) => {
+    setSystemPrompts(systemPrompts.filter(prompt => prompt.id !== id));
+    // Also remove from selected prompts if it was selected
+    setSelectedSystemPrompts((prev: SystemPrompt[]) => prev.filter(prompt => prompt.id !== id));
+  }, [systemPrompts, setSystemPrompts]);
+
+  const handleUpdateSystemPrompt = useCallback((updatedPrompt: SystemPrompt) => {
+    setSystemPrompts(systemPrompts.map(prompt => 
+      prompt.id === updatedPrompt.id ? updatedPrompt : prompt
+    ));
+    
+    // Also update in selected prompts if it was selected
+    setSelectedSystemPrompts((prev: SystemPrompt[]) => prev.map((prompt: SystemPrompt) => 
+      prompt.id === updatedPrompt.id ? updatedPrompt : prompt
+    ));
+  }, [systemPrompts, setSystemPrompts]);
+
+  const toggleSystemPromptSelection = useCallback((prompt: SystemPrompt) => {
+    setSelectedSystemPrompts((prev: SystemPrompt[]) => {
+      const isAlreadySelected = prev.some(p => p.id === prompt.id);
+      
+      if (isAlreadySelected) {
+        // Remove prompt if already selected
+        return prev.filter(p => p.id !== prompt.id);
+      } else {
+        // Add prompt if not already selected
+        return [...prev, prompt];
+      }
+    });
   }, []);
 
   return (
@@ -1101,18 +1242,42 @@ const App = () => {
                       Apply XML Changes
                     </button>
                   )}
+
+                  <button 
+                    className="system-prompts-button"
+                    onClick={() => setSystemPromptsModalOpen(true)}
+                  >
+                    <Settings size={16} />
+                    <span>System Prompts</span>
+                    {selectedSystemPrompts.length > 0 && (
+                      <span className="selected-prompt-indicator">{selectedSystemPrompts.length} selected</span>
+                    )}
+                  </button>
                 </div>
 
                 <FileList
                   files={allFiles}
                   selectedFiles={selectedFiles}
                   toggleFileSelection={toggleFileSelection}
+                  toggleSelection={toggleSelection}
                   openFolder={openFolder}
                   onViewFile={handleViewFile}
                   processingStatus={processingStatus}
+                  selectedSystemPrompts={selectedSystemPrompts}
+                  toggleSystemPromptSelection={toggleSystemPromptSelection}
                 />
-
-                <div className="copy-button-container">
+              </div>
+              <div className="user-instructions-input-area">
+                <div className="instructions-token-count">
+                  ~{instructionsTokenCount.toLocaleString()} tokens
+                </div>
+                <textarea 
+                  className="user-instructions-input" 
+                  placeholder="Enter your instructions here..." 
+                  value={userInstructions}
+                  onChange={(e) => setUserInstructions(e.target.value)}
+                />
+                  <div className="copy-button-container">
                   <div className="copy-button-group">
                     <CopyButton
                       text={getSelectedFilesContent}
@@ -1121,29 +1286,30 @@ const App = () => {
                       <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
                     </CopyButton>
                     <div className="token-count-display">
-                      ~{(calculateTotalTokens() + (fileTreeMode !== "none" ? getCurrentFileTreeTokens() : 0)).toLocaleString()} tokens
+                      ~{(() => {
+                        // Calculate total tokens for selected files
+                        const filesTokens = calculateTotalTokens();
+                        
+                        // Add tokens for file tree if included
+                        const fileTreeTokens = fileTreeMode !== "none" ? getCurrentFileTreeTokens() : 0;
+                        
+                        // Add tokens for system prompts if selected
+                        const systemPromptTokens = calculateSystemPromptsTokens();
+                        
+                        // Add tokens for user instructions if they exist
+                        let total = filesTokens + fileTreeTokens + systemPromptTokens;
+                        if (userInstructions.trim()) {
+                          total += instructionsTokenCount;
+                        }
+                        
+                        return total.toLocaleString();
+                      })().toString()} tokens
                     </div>
                   </div>
                   
                   <div className="copy-button-group">
                     <CopyButton
-                      text={() => {
-                        // Get the content without user instructions
-                        const baseContent = getSelectedFilesContentWithoutInstructions();
-                        // Get user instructions
-                        const userInstructionsElement = document.querySelector('.user-instructions-input') as HTMLTextAreaElement;
-                        const userInstructions = userInstructionsElement?.value?.trim();
-                        
-                        // Combine content with XML instructions and user instructions at the end
-                        let result = `${baseContent}\n\n${XML_FORMATTING_INSTRUCTIONS}`;
-                        
-                        // Add user instructions at the very end if they exist
-                        if (userInstructions) {
-                          result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
-                        }
-                        
-                        return result;
-                      }}
+                      text={getContentWithXmlPrompt}
                       className="secondary copy-selected-files-btn"
                     >
                       <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
@@ -1159,8 +1325,11 @@ const App = () => {
                         // Add tokens for XML formatting instructions
                         const xmlInstructionsTokens = estimateTokenCount(XML_FORMATTING_INSTRUCTIONS);
                         
+                        // Add tokens for system prompts if selected
+                        const systemPromptTokens = calculateSystemPromptsTokens();
+                        
                         // Add tokens for user instructions if they exist
-                        let total = filesTokens + xmlInstructionsTokens + fileTreeTokens;
+                        let total = filesTokens + xmlInstructionsTokens + fileTreeTokens + systemPromptTokens;
                         if (userInstructions.trim()) {
                           total += instructionsTokenCount;
                         }
@@ -1170,17 +1339,6 @@ const App = () => {
                     </div>
                   </div>
                 </div>
-              </div>
-              <div className="user-instructions-input-area">
-                <div className="instructions-token-count">
-                  ~{instructionsTokenCount.toLocaleString()} tokens
-                </div>
-                <textarea 
-                  className="user-instructions-input" 
-                  placeholder="Enter your instructions here..." 
-                  value={userInstructions}
-                  onChange={(e) => setUserInstructions(e.target.value)}
-                />
               </div>
             </div>
           </div>
@@ -1214,6 +1372,19 @@ const App = () => {
           allFiles={allFiles}
           selectedFile={findSelectedFile(currentViewedFilePath)}
           onUpdateSelectedFile={updateSelectedFile}
+        />
+        
+        {/* System Prompts Modal */}
+        <SystemPromptsModal
+          isOpen={systemPromptsModalOpen}
+          onClose={() => setSystemPromptsModalOpen(false)}
+          systemPrompts={systemPrompts}
+          onAddPrompt={handleAddSystemPrompt}
+          onDeletePrompt={handleDeleteSystemPrompt}
+          onUpdatePrompt={handleUpdateSystemPrompt}
+          onSelectPrompt={toggleSystemPromptSelection}
+          selectedSystemPrompts={selectedSystemPrompts}
+          toggleSystemPromptSelection={toggleSystemPromptSelection}
         />
       </div>
     </ThemeProvider>

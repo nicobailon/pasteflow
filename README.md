@@ -14,6 +14,10 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
 - **Token Counting**: View the approximate token count for each file (useful for LLM context limits)
 - **Search Capabilities**: Quickly find files by name or content
 - **Selection Management**: Select multiple files and copy their contents together
+- **System Prompts Management**: Create, edit, and select reusable system prompts
+  - Store commonly used instructions as system prompts
+  - Select multiple system prompts to include with your code
+  - Track token usage of system prompts
 - **Advanced Sorting Options**: Sort files by name, size, token count, extension, or date with the following capabilities:
   - Priority-based sorting for directories and files
   - Natural sorting for filenames
@@ -54,6 +58,9 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
 
 ## Features in Latest Updates
 
+- **System Prompts**: Added ability to create and manage reusable system prompts that can be included with code selections
+- **Enhanced Selection Control**: Added the ability to toggle specific line ranges within selected files
+- **Improved Token Counting**: Enhanced token calculations to include system prompts in the total count
 - **Enhanced Clipboard Compatibility**: Added fallback mechanism to ensure the copy functionality works across all environments, including those without navigator.clipboard support
 - **Advanced Pattern Validation**: Improved validation in the FilterModal for complex exclusion patterns to prevent performance issues
 - **Optimized Cache Management**: Enhanced cache invalidation in the file tree management to ensure consistent performance during sorting operations
