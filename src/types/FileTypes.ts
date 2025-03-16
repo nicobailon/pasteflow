@@ -68,18 +68,21 @@ export interface FileListProps {
   files: FileData[];
   selectedFiles: SelectedFileWithLines[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
+  toggleSelection?: (filePath: string, lineRange?: LineRange) => void;
   openFolder: () => void;
   onViewFile?: (filePath: string) => void; // New prop
   processingStatus: {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
   };
+  selectedSystemPrompts?: SystemPrompt[];
+  toggleSystemPromptSelection?: (prompt: SystemPrompt) => void;
 }
 
 export interface FileCardProps {
   file: FileData;
   selectedFile: SelectedFileWithLines | undefined; // Updated type
-  toggleSelection: (filePath: string) => void;
+  toggleSelection: (filePath: string, lineRange?: LineRange) => void;
   onViewFile?: (filePath: string) => void; // New prop
 }
 
@@ -136,4 +139,23 @@ export interface FileViewModalProps {
   allFiles: FileData[];
   selectedFile: SelectedFileWithLines | undefined;
   onUpdateSelectedFile: (selectedFile: SelectedFileWithLines) => void;
+}
+
+// Interface for system prompts
+export interface SystemPrompt {
+  id: string;
+  title: string;
+  content: string;
+}
+
+export interface SystemPromptsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  systemPrompts: SystemPrompt[];
+  onAddPrompt: (prompt: SystemPrompt) => void;
+  onDeletePrompt: (id: string) => void;
+  onUpdatePrompt: (prompt: SystemPrompt) => void;
+  onSelectPrompt: (prompt: SystemPrompt) => void;
+  selectedSystemPrompts?: SystemPrompt[];
+  toggleSystemPromptSelection: (prompt: SystemPrompt) => void;
 }

@@ -81,6 +81,8 @@ const FileViewModal = ({
   const [lastSelectedLine, setLastSelectedLine] = useState<number | null>(null);
   // @ts-ignore - Typed useRef hook is flagged in strict mode
   const containerRef = useRef<HTMLDivElement>(null);
+  // Track total token count
+  const [totalTokenCount, setTotalTokenCount] = useState(0);
   
   // Track mouse state for drag selection
   const [isDragging, setIsDragging] = useState(false);
@@ -94,8 +96,16 @@ const FileViewModal = ({
     if (filePath) {
       const foundFile = allFiles.find((file: FileData) => file.path === filePath);
       setFile(foundFile || null);
+      
+      // Calculate total token count when file changes
+      if (foundFile && foundFile.content) {
+        setTotalTokenCount(calculateTokenCount(foundFile.content));
+      } else {
+        setTotalTokenCount(0);
+      }
     } else {
       setFile(null);
+      setTotalTokenCount(0);
     }
   }, [filePath, allFiles]);
   
@@ -837,9 +847,13 @@ const FileViewModal = ({
           )}
         </div>
         
-        {selectionMode === 'specific' && selectedLines.length > 0 && (
+        {selectionMode === 'specific' && selectedLines.length > 0 ? (
           <div className="token-estimate">
-            ~{calculateTokenCount(getSelectedContent()).toLocaleString()} tokens
+            ~{calculateTokenCount(getSelectedContent()).toLocaleString()} tokens selected / {totalTokenCount.toLocaleString()} total tokens
+          </div>
+        ) : (
+          <div className="token-estimate">
+            ~{totalTokenCount.toLocaleString()} total tokens
           </div>
         )}
       </div>

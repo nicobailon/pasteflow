@@ -71,8 +71,8 @@ const FileCard = ({
           {""}
         </CopyButton>
         <button
-          className="file-card-action"
-          onClick={() => toggleSelection(filePath)}
+          className="file-card-action remove-selection-btn"
+          onClick={() => toggleSelection(filePath, selectedFile?.lines?.[0])}
           title={isSelected ? "Remove from selection" : "Add to selection"}
         >
           {isSelected ? <X size={16} /> : <Plus size={16} />}

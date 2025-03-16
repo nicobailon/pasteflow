@@ -1,0 +1,59 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`SystemPromptCard Component matches snapshot for consistent UI rendering 1`] = `
+<div>
+  <div
+    class="file-card system-prompt-card"
+  >
+    <div
+      class="file-card-header"
+    >
+      <div
+        class="file-card-icon"
+      >
+        <div
+          data-testid="message-square-code-icon"
+        />
+      </div>
+      <div
+        class="file-card-name monospace"
+      >
+        Test Prompt Title
+      </div>
+    </div>
+    <div
+      class="file-card-line-badge system-prompt-badge"
+    >
+      System Prompt
+    </div>
+    <div
+      class="file-card-info"
+    >
+      <div
+        class="file-card-tokens"
+      >
+        ~
+        20
+         tokens
+      </div>
+    </div>
+    <div
+      class="file-card-actions"
+    >
+      <button
+        class="file-card-action"
+        data-copy-text="This is a test system prompt content with enough text to test token counting."
+        data-testid="copy-button"
+      />
+      <button
+        class="file-card-action remove-selection-btn"
+        title="Remove from selection"
+      >
+        <div
+          data-testid="x-icon"
+        />
+      </button>
+    </div>
+  </div>
+</div>
+`;
