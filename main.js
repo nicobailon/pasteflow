@@ -107,14 +107,18 @@ const BINARY_EXTENSIONS = [
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 // Regex pattern to detect potential binary content
-const BINARY_CONTENT_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]{30,}/;
+const BINARY_CONTENT_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]{50,}/;
 const SPECIAL_TOKEN_REGEX = /<\|endoftext\|>/;
 
 // Special file extensions to skip (not even try to read)
 const SPECIAL_FILE_EXTENSIONS = ['.asar', '.bin', '.dll', '.exe', '.so', '.dylib'];
 
 // Function to check if file content is likely binary
-function isLikelyBinaryContent(content) {
+function isLikelyBinaryContent(content, filePath) {
+  // Skip binary content check for JavaScript files
+  if (filePath && path.extname(filePath).toLowerCase() === '.js') {
+    return false;
+  }
   // Check for sequences of non-ASCII characters
   return BINARY_CONTENT_REGEX.test(content) || SPECIAL_TOKEN_REGEX.test(content);
 }
@@ -438,7 +442,7 @@ ipcMain.on("request-file-list", (event, folderPath) => {
                     const fileContent = fs.readFileSync(fullPath, "utf8");
                     
                     // Check if this is actually binary content that was missed by the extension check
-                    if (isLikelyBinaryContent(fileContent)) {
+                    if (isLikelyBinaryContent(fileContent, fullPath)) {
                       console.log(`File ${fullPath} appears to contain binary data or special tokens, marking as binary`);
                       allFiles.push({
                         name: dirent.name,
