@@ -1,7 +1,8 @@
 import React from "react";
-import { FileListProps, FileData, SelectedFileWithLines, LineRange, SystemPrompt } from "../types/FileTypes";
+import { FileListProps, FileData, SelectedFileWithLines, LineRange, SystemPrompt, RolePrompt } from "../types/FileTypes";
 import FileCard from "./FileCard";
 import SystemPromptCard from "./SystemPromptCard";
+import RolePromptCard from "./RolePromptCard";
 import { FolderOpen } from "lucide-react";
 
 // Interface for expanded file card display
@@ -24,6 +25,8 @@ const FileList = ({
   processingStatus,
   selectedSystemPrompts = [],
   toggleSystemPromptSelection,
+  selectedRolePrompts = [],
+  toggleRolePromptSelection,
 }: FileListProps) => {
   // Create a Map for faster lookups
   const selectedFilesMap = new Map(selectedFiles.map(file => [file.path, file]));
@@ -73,8 +76,8 @@ const FileList = ({
     }
   });
 
-  // Calculate if we have any items to display (either files or system prompts)
-  const hasItemsToDisplay = expandedCards.length > 0 || selectedSystemPrompts.length > 0;
+  // Calculate if we have any items to display (files, system prompts, or role prompts)
+  const hasItemsToDisplay = expandedCards.length > 0 || selectedSystemPrompts.length > 0 || selectedRolePrompts.length > 0;
 
   return (
     <div className="file-list-container">
@@ -83,9 +86,18 @@ const FileList = ({
           {/* Display system prompts at the top */}
           {selectedSystemPrompts.map((prompt) => (
             <SystemPromptCard
-              key={`prompt-${prompt.id}`}
+              key={`system-prompt-${prompt.id}`}
               prompt={prompt}
               toggleSelection={toggleSystemPromptSelection || ((prompt: SystemPrompt) => {})}
+            />
+          ))}
+          
+          {/* Display role prompts below system prompts */}
+          {selectedRolePrompts.map((prompt) => (
+            <RolePromptCard
+              key={`role-prompt-${prompt.id}`}
+              prompt={prompt}
+              toggleSelection={toggleRolePromptSelection || ((prompt: RolePrompt) => {})}
             />
           ))}
           

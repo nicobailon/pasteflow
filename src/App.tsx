@@ -10,7 +10,8 @@ import {
   TreeNode,
   LineRange,
   FileTreeMode,
-  SystemPrompt
+  SystemPrompt,
+  RolePrompt
 } from "./types/FileTypes";
 import { ThemeProvider } from "./context/ThemeContext";
 import ThemeToggle from "./components/ThemeToggle";
@@ -18,7 +19,8 @@ import FileTreeToggle from "./components/FileTreeToggle";
 import { ApplyChangesModal } from "./components/ApplyChangesModal";
 import FilterModal from "./components/FilterModal";
 import SystemPromptsModal from "./components/SystemPromptsModal";
-import { FolderOpen, Folder, Settings } from "lucide-react";
+import RolePromptsModal from "./components/RolePromptsModal";
+import { FolderOpen, Folder, Settings, User } from "lucide-react";
 import { 
   generateAsciiFileTree, 
   getAllDirectories, 
@@ -58,6 +60,7 @@ const STORAGE_KEYS = {
   EXPANDED_NODES: "pasteflow-expanded-nodes",
   FILE_TREE_MODE: "pasteflow-file-tree-mode",
   SYSTEM_PROMPTS: "pasteflow-system-prompts",
+  ROLE_PROMPTS: "pasteflow-role-prompts",
 };
 
 const App = () => {
@@ -107,6 +110,7 @@ const App = () => {
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [fileViewModalOpen, setFileViewModalOpen] = useState(false);
   const [systemPromptsModalOpen, setSystemPromptsModalOpen] = useState(false);
+  const [rolePromptsModalOpen, setRolePromptsModalOpen] = useState(false);
   const [currentViewedFilePath, setCurrentViewedFilePath] = useState("");
   const [exclusionPatterns, setExclusionPatterns] = useLocalStorage<string[]>(
     "pasteflow-exclusion-patterns",
@@ -139,6 +143,13 @@ const App = () => {
     []
   );
   const [selectedSystemPrompts, setSelectedSystemPrompts] = useState([] as SystemPrompt[]);
+  
+  // Role prompts state
+  const [rolePrompts, setRolePrompts] = useLocalStorage<RolePrompt[]>(
+    STORAGE_KEYS.ROLE_PROMPTS,
+    []
+  );
+  const [selectedRolePrompts, setSelectedRolePrompts] = useState([] as RolePrompt[]);
 
   // State for sort dropdown
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
@@ -699,6 +710,16 @@ const App = () => {
       return total + estimateTokenCount(prompt.content);
     }, 0);
   }, [selectedSystemPrompts, estimateTokenCount]);
+  
+  /**
+   * Calculate total token count for all selected role prompts
+   * @returns {number} Total tokens for selected role prompts
+   */
+  const calculateRolePromptsTokens = useCallback(() => {
+    return selectedRolePrompts.reduce((total: number, prompt: RolePrompt) => {
+      return total + estimateTokenCount(prompt.content);
+    }, 0);
+  }, [selectedRolePrompts, estimateTokenCount]);
 
   /**
    * Generates a formatted string containing all selected files' contents without user instructions.
@@ -888,6 +909,13 @@ const App = () => {
     
     let result = baseContent;
     
+    // Add role prompts if selected (before system prompts)
+    if (selectedRolePrompts.length > 0) {
+      selectedRolePrompts.forEach((prompt: RolePrompt) => {
+        result += `\n\n<role>\n${prompt.content}\n</role>`;
+      });
+    }
+    
     // Add system prompts if selected
     if (selectedSystemPrompts.length > 0) {
       selectedSystemPrompts.forEach((prompt: SystemPrompt) => {
@@ -917,6 +945,13 @@ const App = () => {
     
     // Combine content with XML instructions
     let result = `${baseContent}\n\n${XML_FORMATTING_INSTRUCTIONS}`;
+    
+    // Add role prompts if selected
+    if (selectedRolePrompts.length > 0) {
+      selectedRolePrompts.forEach((prompt: RolePrompt) => {
+        result += `\n\n<role>\n${prompt.content}\n</role>`;
+      });
+    }
     
     // Add system prompts if selected
     if (selectedSystemPrompts.length > 0) {
@@ -1092,6 +1127,42 @@ const App = () => {
       }
     });
   }, []);
+  
+  // Role prompts management functions
+  const handleAddRolePrompt = useCallback((prompt: RolePrompt) => {
+    setRolePrompts([...rolePrompts, prompt]);
+  }, [rolePrompts, setRolePrompts]);
+
+  const handleDeleteRolePrompt = useCallback((id: string) => {
+    setRolePrompts(rolePrompts.filter(prompt => prompt.id !== id));
+    // Also remove from selected prompts if it was selected
+    setSelectedRolePrompts((prev: RolePrompt[]) => prev.filter(prompt => prompt.id !== id));
+  }, [rolePrompts, setRolePrompts]);
+
+  const handleUpdateRolePrompt = useCallback((updatedPrompt: RolePrompt) => {
+    setRolePrompts(rolePrompts.map(prompt => 
+      prompt.id === updatedPrompt.id ? updatedPrompt : prompt
+    ));
+    
+    // Also update in selected prompts if it was selected
+    setSelectedRolePrompts((prev: RolePrompt[]) => prev.map((prompt: RolePrompt) => 
+      prompt.id === updatedPrompt.id ? updatedPrompt : prompt
+    ));
+  }, [rolePrompts, setRolePrompts]);
+
+  const toggleRolePromptSelection = useCallback((prompt: RolePrompt) => {
+    setSelectedRolePrompts((prev: RolePrompt[]) => {
+      const isAlreadySelected = prev.some(p => p.id === prompt.id);
+      
+      if (isAlreadySelected) {
+        // Remove prompt if already selected
+        return prev.filter(p => p.id !== prompt.id);
+      } else {
+        // Add prompt if not already selected
+        return [...prev, prompt];
+      }
+    });
+  }, []);
 
   return (
     <ThemeProvider>
@@ -1243,16 +1314,29 @@ const App = () => {
                     </button>
                   )}
 
-                  <button 
-                    className="system-prompts-button"
-                    onClick={() => setSystemPromptsModalOpen(true)}
-                  >
-                    <Settings size={16} />
-                    <span>System Prompts</span>
-                    {selectedSystemPrompts.length > 0 && (
-                      <span className="selected-prompt-indicator">{selectedSystemPrompts.length} selected</span>
-                    )}
-                  </button>
+                  <div className="prompts-buttons-container">
+                    <button 
+                      className="system-prompts-button"
+                      onClick={() => setSystemPromptsModalOpen(true)}
+                    >
+                      <Settings size={16} />
+                      <span>System Prompts</span>
+                      {selectedSystemPrompts.length > 0 && (
+                        <span className="selected-prompt-indicator">{selectedSystemPrompts.length} selected</span>
+                      )}
+                    </button>
+                    
+                    <button 
+                      className="role-prompts-button"
+                      onClick={() => setRolePromptsModalOpen(true)}
+                    >
+                      <User size={16} />
+                      <span>Role Prompts</span>
+                      {selectedRolePrompts.length > 0 && (
+                        <span className="selected-prompt-indicator">{selectedRolePrompts.length} selected</span>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 <FileList
@@ -1296,8 +1380,11 @@ const App = () => {
                         // Add tokens for system prompts if selected
                         const systemPromptTokens = calculateSystemPromptsTokens();
                         
+                        // Add tokens for role prompts if selected
+                        const rolePromptTokens = calculateRolePromptsTokens();
+                        
                         // Add tokens for user instructions if they exist
-                        let total = filesTokens + fileTreeTokens + systemPromptTokens;
+                        let total = filesTokens + fileTreeTokens + systemPromptTokens + rolePromptTokens;
                         if (userInstructions.trim()) {
                           total += instructionsTokenCount;
                         }
@@ -1328,8 +1415,11 @@ const App = () => {
                         // Add tokens for system prompts if selected
                         const systemPromptTokens = calculateSystemPromptsTokens();
                         
+                        // Add tokens for role prompts if selected
+                        const rolePromptTokens = calculateRolePromptsTokens();
+                        
                         // Add tokens for user instructions if they exist
-                        let total = filesTokens + xmlInstructionsTokens + fileTreeTokens + systemPromptTokens;
+                        let total = filesTokens + xmlInstructionsTokens + fileTreeTokens + systemPromptTokens + rolePromptTokens;
                         if (userInstructions.trim()) {
                           total += instructionsTokenCount;
                         }
@@ -1385,6 +1475,19 @@ const App = () => {
           onSelectPrompt={toggleSystemPromptSelection}
           selectedSystemPrompts={selectedSystemPrompts}
           toggleSystemPromptSelection={toggleSystemPromptSelection}
+        />
+        
+        {/* Role Prompts Modal */}
+        <RolePromptsModal
+          isOpen={rolePromptsModalOpen}
+          onClose={() => setRolePromptsModalOpen(false)}
+          rolePrompts={rolePrompts}
+          onAddPrompt={handleAddRolePrompt}
+          onDeletePrompt={handleDeleteRolePrompt}
+          onUpdatePrompt={handleUpdateRolePrompt}
+          onSelectPrompt={toggleRolePromptSelection}
+          selectedRolePrompts={selectedRolePrompts}
+          toggleRolePromptSelection={toggleRolePromptSelection}
         />
       </div>
     </ThemeProvider>
