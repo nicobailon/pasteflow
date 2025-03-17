@@ -1908,14 +1908,12 @@ input[type="text"].search-input:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
   border-radius: 4px;
   border: none;
   background: transparent;
   color: var(--text-primary);
   cursor: pointer;
-  margin-left: 8px;
+  margin-left: .5rem;
 }
 
 .file-view-modal-close-btn:hover {

@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import React, { useState, useEffect } from "react";
 import Modal from "react-modal";
 
@@ -160,7 +161,7 @@ const FilterModal = ({
       <div className="modal-content filter-modal">
         <div className="modal-header">
           <h2>File Exclusion Filters</h2>
-          <button className="close-button" onClick={onClose}>×</button>
+          <button className="close-button" onClick={onClose}><X size={16} /></button>
         </div>
         
         <div className="modal-body">

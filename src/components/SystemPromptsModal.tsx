@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import Modal from "react-modal";
 import { SystemPrompt, SystemPromptsModalProps } from "../types/FileTypes";
-import { Plus, Trash, Pencil, CirclePlus, Clipboard, Check } from "lucide-react";
+import { Plus, Trash, Pencil, CirclePlus, Clipboard, Check, X } from "lucide-react";
 
 // Set app element for accessibility
 if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
@@ -98,7 +98,7 @@ const SystemPromptsModal = ({
       <div className="modal-content system-prompts-modal notes-app-layout">
         <div className="modal-header">
           <h2>System Prompts</h2>
-          <button className="close-button" onClick={onClose}>×</button>
+          <button className="close-button" onClick={onClose}><X size={16} /></button>
         </div>
         
         <div className="modal-body">
