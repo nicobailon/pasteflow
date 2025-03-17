@@ -77,6 +77,8 @@ export interface FileListProps {
   };
   selectedSystemPrompts?: SystemPrompt[];
   toggleSystemPromptSelection?: (prompt: SystemPrompt) => void;
+  selectedRolePrompts?: RolePrompt[];
+  toggleRolePromptSelection?: (prompt: RolePrompt) => void;
 }
 
 export interface FileCardProps {
@@ -148,6 +150,13 @@ export interface SystemPrompt {
   content: string;
 }
 
+// Interface for role prompts
+export interface RolePrompt {
+  id: string;
+  title: string;
+  content: string;
+}
+
 export interface SystemPromptsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -158,4 +167,16 @@ export interface SystemPromptsModalProps {
   onSelectPrompt: (prompt: SystemPrompt) => void;
   selectedSystemPrompts?: SystemPrompt[];
   toggleSystemPromptSelection: (prompt: SystemPrompt) => void;
+}
+
+export interface RolePromptsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  rolePrompts: RolePrompt[];
+  onAddPrompt: (prompt: RolePrompt) => void;
+  onDeletePrompt: (id: string) => void;
+  onUpdatePrompt: (prompt: RolePrompt) => void;
+  onSelectPrompt: (prompt: RolePrompt) => void;
+  selectedRolePrompts?: RolePrompt[];
+  toggleRolePromptSelection: (prompt: RolePrompt) => void;
 }
