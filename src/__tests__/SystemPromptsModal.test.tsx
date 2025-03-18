@@ -4,19 +4,28 @@ import '@testing-library/jest-dom';
 import { SystemPrompt } from '../types/FileTypes';
 import { mockDateNow } from './testHelpers';
 
-// Mock the Modal component and setAppElement before importing SystemPromptsModal
-jest.mock('react-modal', () => {
+// Mock the Radix Dialog components
+jest.mock('@radix-ui/react-dialog', () => {
   return {
     __esModule: true,
-    default: ({ isOpen, onRequestClose, children, contentLabel, className, overlayClassName }: any) => {
-      if (!isOpen) return null;
-      return (
-        <div data-testid="modal" aria-modal="true" aria-label={contentLabel} className={className}>
-          {children}
-        </div>
-      );
+    Root: ({ open, onOpenChange, children }: any) => {
+      if (!open) return null;
+      return <div data-testid="dialog-root">{children}</div>;
     },
-    setAppElement: jest.fn()
+    Portal: ({ children }: any) => <div data-testid="dialog-portal">{children}</div>,
+    Overlay: () => <div data-testid="dialog-overlay" />,
+    Content: ({ children, className }: any) => (
+      <div data-testid="modal" aria-modal="true" className={className}>
+        {children}
+      </div>
+    ),
+    Title: ({ asChild, children }: any) => (
+      <div data-testid="dialog-title">{asChild ? children : <h2>{children}</h2>}</div>
+    ),
+    Description: ({ children }: any) => <div data-testid="dialog-description">{children}</div>,
+    Close: ({ asChild, children }: any) => (
+      <div data-testid="dialog-close">{asChild ? children : <button>{children}</button>}</div>
+    )
   };
 });
 
@@ -28,7 +37,8 @@ jest.mock('lucide-react', () => ({
   Clipboard: () => <div data-testid="clipboard-icon" />,
   Check: () => <div data-testid="check-icon" />,
   Pencil: () => <div data-testid="pencil-icon" />,
-  CirclePlus: () => <div data-testid="circle-plus-icon" />
+  CirclePlus: () => <div data-testid="circle-plus-icon" />,
+  X: () => <>×</>
 }));
 
 // Now import SystemPromptsModal after mocking

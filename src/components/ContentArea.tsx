@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, ChevronDown, Settings, User } from 'lucide-react';
+import { Check, ChevronDown, Settings, User, FileText } from 'lucide-react';
 import FileList from './FileList';
 import CopyButton from './CopyButton';
 import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt } from '../types/FileTypes';
@@ -36,9 +36,10 @@ interface ContentAreaProps {
   setShowApplyChangesModal: (show: boolean) => void;
   setSystemPromptsModalOpen: (open: boolean) => void;
   setRolePromptsModalOpen: (open: boolean) => void;
+  setDocsModalOpen: (open: boolean) => void;
 }
 
-const ContentArea: React.FC<ContentAreaProps> = ({
+const ContentArea = ({
   selectedFiles,
   allFiles,
   toggleFileSelection,
@@ -66,8 +67,9 @@ const ContentArea: React.FC<ContentAreaProps> = ({
   rolePromptTokens,
   setShowApplyChangesModal,
   setSystemPromptsModalOpen,
-  setRolePromptsModalOpen
-}) => {
+  setRolePromptsModalOpen,
+  setDocsModalOpen
+}: ContentAreaProps) => {
   return (
     <div className="content-area">
       <div className="selected-files-content-area">
@@ -82,7 +84,7 @@ const ContentArea: React.FC<ContentAreaProps> = ({
               </button>
               {sortDropdownOpen && (
                 <div className="sort-options">
-                  {sortOptions.map((option) => (
+                  {sortOptions.map((option: { value: string; label: string }) => (
                     <div
                       key={option.value}
                       className={`sort-option ${
@@ -123,6 +125,14 @@ const ContentArea: React.FC<ContentAreaProps> = ({
               {selectedRolePrompts.length > 0 && (
                 <span className="selected-prompt-indicator"><Check size={12} /> {selectedRolePrompts.length}</span>
               )}
+            </button>
+
+            <button 
+              className="docs-button"
+              onClick={() => setDocsModalOpen(true)}
+            >
+              <FileText size={16} />
+              <span>Docs</span>
             </button>
           </div>
         </div>

@@ -14,14 +14,14 @@ const usePromptState = () => {
     STORAGE_KEYS.SYSTEM_PROMPTS,
     []
   );
-  const [selectedSystemPrompts, setSelectedSystemPrompts] = useState<SystemPrompt[]>([]);
+  const [selectedSystemPrompts, setSelectedSystemPrompts] = useState([] as SystemPrompt[]);
   
   // Role prompts state
   const [rolePrompts, setRolePrompts] = useLocalStorage<RolePrompt[]>(
     STORAGE_KEYS.ROLE_PROMPTS,
     []
   );
-  const [selectedRolePrompts, setSelectedRolePrompts] = useState<RolePrompt[]>([]);
+  const [selectedRolePrompts, setSelectedRolePrompts] = useState([] as RolePrompt[]);
 
   // System prompts management functions
   const handleAddSystemPrompt = useCallback((prompt: SystemPrompt) => {
@@ -31,7 +31,7 @@ const usePromptState = () => {
   const handleDeleteSystemPrompt = useCallback((id: string) => {
     setSystemPrompts(systemPrompts.filter(prompt => prompt.id !== id));
     // Also remove from selected prompts if it was selected
-    setSelectedSystemPrompts((prev: SystemPrompt[]) => prev.filter(prompt => prompt.id !== id));
+    setSelectedSystemPrompts((prev: SystemPrompt[]) => prev.filter((prompt: SystemPrompt) => prompt.id !== id));
   }, [systemPrompts, setSystemPrompts]);
 
   const handleUpdateSystemPrompt = useCallback((updatedPrompt: SystemPrompt) => {
@@ -47,11 +47,11 @@ const usePromptState = () => {
 
   const toggleSystemPromptSelection = useCallback((prompt: SystemPrompt) => {
     setSelectedSystemPrompts((prev: SystemPrompt[]) => {
-      const isAlreadySelected = prev.some(p => p.id === prompt.id);
+      const isAlreadySelected = prev.some((p: SystemPrompt) => p.id === prompt.id);
       
       if (isAlreadySelected) {
         // Remove prompt if already selected
-        return prev.filter(p => p.id !== prompt.id);
+        return prev.filter((p: SystemPrompt) => p.id !== prompt.id);
       } else {
         // Add prompt if not already selected
         return [...prev, prompt];
@@ -67,7 +67,7 @@ const usePromptState = () => {
   const handleDeleteRolePrompt = useCallback((id: string) => {
     setRolePrompts(rolePrompts.filter(prompt => prompt.id !== id));
     // Also remove from selected prompts if it was selected
-    setSelectedRolePrompts((prev: RolePrompt[]) => prev.filter(prompt => prompt.id !== id));
+    setSelectedRolePrompts((prev: RolePrompt[]) => prev.filter((prompt: RolePrompt) => prompt.id !== id));
   }, [rolePrompts, setRolePrompts]);
 
   const handleUpdateRolePrompt = useCallback((updatedPrompt: RolePrompt) => {
@@ -83,11 +83,11 @@ const usePromptState = () => {
 
   const toggleRolePromptSelection = useCallback((prompt: RolePrompt) => {
     setSelectedRolePrompts((prev: RolePrompt[]) => {
-      const isAlreadySelected = prev.some(p => p.id === prompt.id);
+      const isAlreadySelected = prev.some((p: RolePrompt) => p.id === prompt.id);
       
       if (isAlreadySelected) {
         // Remove prompt if already selected
-        return prev.filter(p => p.id !== prompt.id);
+        return prev.filter((p: RolePrompt) => p.id !== prompt.id);
       } else {
         // Add prompt if not already selected
         return [...prev, prompt];

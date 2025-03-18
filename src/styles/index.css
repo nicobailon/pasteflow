@@ -1,3 +1,6 @@
+/* Import Radix UI Dialog styles */
+@import './radix-modal.css';
+
 :root {
   --background-primary: #e6e6e6;
   --background-secondary: #dedede;
@@ -1775,6 +1778,7 @@ input[type="text"].search-input:focus {
 }
 
 /* File View Modal Styles */
+/* This is now handled by the .modal-overlay class in radix-modal.css
 .file-view-modal-overlay {
   position: fixed;
   top: 0;
@@ -1787,6 +1791,7 @@ input[type="text"].search-input:focus {
   align-items: center;
   justify-content: center;
 }
+*/
 
 /* Custom cursor for drag selection */
 .file-view-modal-content.selection-active pre span[style*="cursor: pointer"] {
@@ -2098,11 +2103,6 @@ input[type="text"].search-input:focus {
   font-style: italic;
 }
 
-.ReactModal__Content {
-  border: 0 !important;
-  background: none !important;
-}
-
 /* System Prompt Card Styling */
 .system-prompt-card {
   border-color: #6a3ecf;
@@ -2226,7 +2226,8 @@ input[type="text"].search-input:focus {
 
 /* System Prompts Modal */
 .system-prompts-modal .modal-body,
-.role-prompts-modal .modal-body {
+.role-prompts-modal .modal-body,
+.docs-modal .modal-body {
   display: flex;
   flex-direction: row;
   padding: 0;
@@ -2234,32 +2235,9 @@ input[type="text"].search-input:focus {
   overflow: hidden;
 }
 
-.notes-app-layout {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.notes-app-layout .modal-header {
-  border-bottom: 1px solid var(--border-color);
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background-color: var(--background-secondary);
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-}
-
-.notes-app-layout .modal-header h2 {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin: 0;
-}
-
 .system-prompts-list,
-.role-prompts-list {
+.role-prompts-list,
+.docs-list {
   border: none;
   border-right: 1px solid var(--border-color);
   border-radius: 0;
@@ -2272,7 +2250,8 @@ input[type="text"].search-input:focus {
 }
 
 .sidebar.system-prompts-list,
-.sidebar.role-prompts-list {
+.sidebar.role-prompts-list,
+.sidebar.docs-list {
   padding: 8px 0;
 }
 
@@ -2284,7 +2263,8 @@ input[type="text"].search-input:focus {
 }
 
 .system-prompt-item,
-.role-prompt-item {
+.role-prompt-item,
+.doc-item {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -2298,12 +2278,14 @@ input[type="text"].search-input:focus {
 }
 
 .system-prompt-item:hover,
-.role-prompt-item:hover {
+.role-prompt-item:hover,
+.doc-item:hover {
   background-color: rgba(0, 0, 0, 0.03);
 }
 
 .system-prompt-item.selected,
-.role-prompt-item.selected {
+.role-prompt-item.selected,
+.doc-item.selected {
   background-color: var(--background-selected);
 }
 
@@ -2341,7 +2323,8 @@ input[type="text"].search-input:focus {
 }
 
 .system-prompt-item:hover .prompt-actions,
-.role-prompt-item:hover .prompt-actions {
+.role-prompt-item:hover .prompt-actions,
+.doc-item:hover .prompt-actions {
   display: flex;
 }
 
@@ -2371,7 +2354,8 @@ input[type="text"].search-input:focus {
 }
 
 .content-area.system-prompt-editor,
-.content-area.role-prompt-editor {
+.content-area.role-prompt-editor,
+.content-area.doc-editor {
   padding: 2rem;
   background-color: var(--background-primary);
   border-radius: 0;
@@ -2451,4 +2435,42 @@ input[type="text"].search-input:focus {
   transition: background-color 0.2s;
   height: 2rem;
   margin-left: auto;
+}
+
+.notes-app-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.notes-app-layout .modal-header {
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--background-secondary);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.notes-app-layout .modal-header h2 {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.system-prompts-list,
+.role-prompts-list,
+.docs-list {
+  border: none;
+  border-right: 1px solid var(--border-color);
+  border-radius: 0;
+  margin-bottom: 0;
+  max-height: none;
+  overflow-y: auto;
+  width: 260px;
+  background-color: var(--background-secondary);
+  flex-shrink: 0;
 } 

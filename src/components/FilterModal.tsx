@@ -1,11 +1,6 @@
 import { X } from "lucide-react";
 import React, { useState, useEffect } from "react";
-import Modal from "react-modal";
-
-// Set app element for accessibility
-if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
-  Modal.setAppElement('#root');
-}
+import * as Dialog from "@radix-ui/react-dialog";
 
 /**
  * Props for the FilterModal component
@@ -126,81 +121,60 @@ const FilterModal = ({
     onSave(patterns);
   };
 
-  const customStyles = {
-    overlay: {
-      backgroundColor: 'rgba(0, 0, 0, 0.75)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000
-    },
-    content: {
-      position: 'relative',
-      top: 'auto',
-      left: 'auto',
-      right: 'auto',
-      bottom: 'auto',
-      width: '80%',
-      maxWidth: '800px',
-      maxHeight: '90vh',
-      borderRadius: '4px',
-      padding: '0',
-      border: '1px solid #ccc',
-      background: '#fff'
-    }
-  };
-
   return (
-    // @ts-ignore - Modal component has incompatible typing
-    <Modal
-      isOpen={isOpen}
-      onRequestClose={onClose}
-      style={customStyles}
-      contentLabel="File Exclusion Filters"
-    >
-      <div className="modal-content filter-modal">
-        <div className="modal-header">
-          <h2>File Exclusion Filters</h2>
-          <button className="close-button" onClick={onClose}><X size={16} /></button>
-        </div>
-        
-        <div className="modal-body">
-          <p className="modal-description">
-            Files matching these patterns will be excluded from the file list.
-            Changes will apply after saving and refreshing the file list.
-          </p>
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="modal-overlay" />
+        <Dialog.Content className="modal-content filter-modal">
+          <div className="modal-header">
+            <Dialog.Title asChild>
+              <h2>File Exclusion Filters</h2>
+            </Dialog.Title>
+            <Dialog.Close asChild>
+              <button className="close-button"><X size={16} /></button>
+            </Dialog.Close>
+          </div>
           
-          <textarea
-            className="xml-input"
-            value={patternsText}
-            onChange={(e) => setPatternsText(e.target.value)}
-            spellCheck={false}
-            rows={15}
-          />
+          <div className="modal-body">
+            <p className="modal-description">
+              Files matching these patterns will be excluded from the file list.
+              Changes will apply after saving and refreshing the file list.
+            </p>
+            
+            <textarea
+              className="xml-input"
+              value={patternsText}
+              onChange={(e) => setPatternsText(e.target.value)}
+              spellCheck={false}
+              rows={15}
+            />
+            
+            {validationErrors.length > 0 && (
+              <div className="validation-errors">
+                <h3>Invalid patterns detected:</h3>
+                <ul>
+                  {validationErrors.map((error: string, index: number) => (
+                    <li key={index} className="error-message">{error}</li>
+                  ))}
+                </ul>
+                <p>Please fix these issues before saving.</p>
+              </div>
+            )}
+          </div>
           
-          {validationErrors.length > 0 && (
-            <div className="validation-errors">
-              <h3>Invalid patterns detected:</h3>
-              <ul>
-                {validationErrors.map((error: string, index: number) => (
-                  <li key={index} className="error-message">{error}</li>
-                ))}
-              </ul>
-              <p>Please fix these issues before saving.</p>
-            </div>
-          )}
-        </div>
-        
-        <div className="modal-footer">
-          <button className="cancel-button" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="apply-button" onClick={onSaveClick}>
-            Save Filters
-          </button>
-        </div>
-      </div>
-    </Modal>
+          <div className="modal-footer">
+            <Dialog.Close asChild>
+              <button className="cancel-button">
+                Cancel
+              </button>
+            </Dialog.Close>
+            <button className="apply-button" onClick={onSaveClick}>
+              Save Filters
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 };
 

@@ -1,15 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Modal from 'react-modal';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { FileViewModalProps, LineRange, FileData } from '../types/FileTypes';
 import { useTheme } from '../context/ThemeContext';
 import { Check, Trash, CheckSquare, Square, X } from 'lucide-react';
-
-// Set the app element for screen readers
-if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
-  Modal.setAppElement('#root');
-}
 
 // Map file extensions to language identifiers for syntax highlighting
 const getLanguageFromPath = (filePath: string): string => {
@@ -760,255 +755,256 @@ const FileViewModal = ({
   // using the built-in line numbering from SyntaxHighlighter
   
   return (
-    // @ts-ignore - Modal component has incompatible typing
-    <Modal
-      isOpen={isOpen}
-      onRequestClose={onClose}
-      contentLabel="File View Modal"
-      className="file-view-modal"
-      overlayClassName="file-view-modal-overlay"
-      ariaHideApp={false}
-    >
-      <div className="file-view-modal-header">
-        <h2>{file?.name || 'File Viewer'}</h2>
-        <button 
-          className="file-view-modal-close-btn" 
-          onClick={onClose}
-          title="Close"
-        >
-          <X size={16} />
-        </button>
-      </div>
-
-      <div className="file-view-modal-controls">
-        <div className="selection-mode-radio">
-          <label>
-            <input
-              type="radio"
-              checked={selectionMode === 'entire'}
-              onChange={() => toggleSelectionMode('entire')}
-            />
-            <span>Entire file</span>
-          </label>
-          <label>
-            <input
-              type="radio"
-              checked={selectionMode === 'specific'}
-              onChange={() => toggleSelectionMode('specific')}
-            />
-            <span>Specific lines</span>
-          </label>
-        </div>
-        
-        {selectionMode === 'specific' && (
-          <div className="file-view-modal-selection-actions">
-            <button 
-              className="file-view-modal-action-btn" 
-              onClick={selectAllLines}
-              title="Select All Lines"
-            >
-              <CheckSquare size={16} />
-              <span>Select All</span>
-            </button>
-            <button 
-              className="file-view-modal-action-btn" 
-              onClick={clearSelection}
-              title="Clear Selection"
-            >
-              <Square size={16} />
-              <span>Clear</span>
-            </button>
-            {/* Only show Reset button if there was a previous selection */}
-            {initialSelection.length > 0 && (
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="modal-overlay" />
+        <Dialog.Content className="modal-content file-view-modal">
+          <div className="file-view-modal-header">
+            <Dialog.Title asChild>
+              <h2>{file?.name || 'File Viewer'}</h2>
+            </Dialog.Title>
+            <Dialog.Close asChild>
               <button 
-                className="file-view-modal-action-btn" 
-                onClick={resetSelection}
-                title="Reset to Previous Selection"
+                className="file-view-modal-close-btn" 
+                title="Close"
               >
-                <Trash size={16} />
-                <span>Reset</span>
+                <X size={16} />
               </button>
+            </Dialog.Close>
+          </div>
+
+          <div className="file-view-modal-controls">
+            <div className="selection-mode-radio">
+              <label>
+                <input
+                  type="radio"
+                  checked={selectionMode === 'entire'}
+                  onChange={() => toggleSelectionMode('entire')}
+                />
+                <span>Entire file</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  checked={selectionMode === 'specific'}
+                  onChange={() => toggleSelectionMode('specific')}
+                />
+                <span>Specific lines</span>
+              </label>
+            </div>
+            
+            {selectionMode === 'specific' && (
+              <div className="file-view-modal-selection-actions">
+                <button 
+                  className="file-view-modal-action-btn" 
+                  onClick={selectAllLines}
+                  title="Select All Lines"
+                >
+                  <CheckSquare size={16} />
+                  <span>Select All</span>
+                </button>
+                <button 
+                  className="file-view-modal-action-btn" 
+                  onClick={clearSelection}
+                  title="Clear Selection"
+                >
+                  <Square size={16} />
+                  <span>Clear</span>
+                </button>
+                {/* Only show Reset button if there was a previous selection */}
+                {initialSelection.length > 0 && (
+                  <button 
+                    className="file-view-modal-action-btn" 
+                    onClick={resetSelection}
+                    title="Reset to Previous Selection"
+                  >
+                    <Trash size={16} />
+                    <span>Reset</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-      
-      <div className="file-view-modal-selection-info">
-        <div className="selection-status">
-          {selectionMode === 'entire' ? (
-            <span>Selecting entire file</span>
-          ) : (
-            <>
-              <span>Selection: {formatLineRanges(selectedLines)}</span>
-              {isEntireFileSelected() && (
-                <span className="file-view-modal-entire-file">(Entire File)</span>
+          
+          <div className="file-view-modal-selection-info">
+            <div className="selection-status">
+              {selectionMode === 'entire' ? (
+                <span>Selecting entire file</span>
+              ) : (
+                <>
+                  <span>Selection: {formatLineRanges(selectedLines)}</span>
+                  {isEntireFileSelected() && (
+                    <span className="file-view-modal-entire-file">(Entire File)</span>
+                  )}
+                </>
               )}
-            </>
-          )}
-        </div>
-        
-        {selectionMode === 'specific' && selectedLines.length > 0 ? (
-          <div className="token-estimate">
-            ~{calculateTokenCount(getSelectedContent()).toLocaleString()} tokens selected / {totalTokenCount.toLocaleString()} total tokens
+            </div>
+            
+            {selectionMode === 'specific' && selectedLines.length > 0 ? (
+              <div className="token-estimate">
+                ~{calculateTokenCount(getSelectedContent()).toLocaleString()} tokens selected / {totalTokenCount.toLocaleString()} total tokens
+              </div>
+            ) : (
+              <div className="token-estimate">
+                ~{totalTokenCount.toLocaleString()} total tokens
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="token-estimate">
-            ~{totalTokenCount.toLocaleString()} total tokens
-          </div>
-        )}
-      </div>
-      
-      <div 
-        className={`file-view-modal-content ${selectionMode === 'specific' ? 'selection-active' : ''}`}
-        ref={containerRef}
-        onMouseUp={() => {
-          // Handle text selection when mouse is released - no setTimeout for better responsiveness
-          if (selectionMode === 'specific' && !isDragging) {
-            handleSelectionChange();
-          }
-        }}
-      >
-        {file ? (
+          
           <div 
-            className="syntax-highlighter-wrapper"
+            className={`file-view-modal-content ${selectionMode === 'specific' ? 'selection-active' : ''}`}
+            ref={containerRef}
+            onMouseUp={() => {
+              // Handle text selection when mouse is released - no setTimeout for better responsiveness
+              if (selectionMode === 'specific' && !isDragging) {
+                handleSelectionChange();
+              }
+            }}
           >
-            {/* @ts-ignore - SyntaxHighlighter props typing issue */}
-            <SyntaxHighlighter
-              language={getLanguageFromPath(file.path)}
-              style={currentTheme === 'dark' ? oneDark : oneLight}
-              showLineNumbers={true}
-              wrapLines={true}
-              lineProps={(lineNumber: number) => {
-                // Check if this line is part of a drag selection
-                const isDragSelected = isDragging && 
-                  dragStartLine !== null && 
-                  dragCurrentLine !== null && 
-                  lineNumber >= Math.min(dragStartLine, dragCurrentLine) && 
-                  lineNumber <= Math.max(dragStartLine, dragCurrentLine);
-                
-                // Check if line is selected (use memoized function)
-                const isSelected = isLineSelected(lineNumber);
-                
-                // Background color based on selection state
-                const bgColor = isSelected || isDragSelected
-                  ? (currentTheme === 'dark' ? 'rgba(62, 68, 82, 0.5)' : 'rgba(230, 242, 255, 0.5)')
-                  : undefined;
-                
-                return {
-                  style: { 
-                    display: 'block',
-                    cursor: selectionMode === 'specific' ? 'pointer' : 'default',
-                    backgroundColor: bgColor,
-                  },
-                  onClick: () => handleLineClick(lineNumber),
-                  onMouseDown: (e: any) => {
-                    if (selectionMode === 'specific') {
-                      handleMouseDown(lineNumber, e);
-                    }
-                  },
-                  onMouseMove: () => {
-                    if (isDragging) {
-                      handleMouseMove(lineNumber);
-                    }
-                  },
-                  // Add data attribute to help identify line numbers
-                  'data-line-number': lineNumber
-                };
-              }}
-              lineNumberStyle={(lineNumber: number) => {
-                // Check for selection and drag states (same as above)
-                const isDragSelected = isDragging && 
-                  dragStartLine !== null && 
-                  dragCurrentLine !== null && 
-                  lineNumber >= Math.min(dragStartLine, dragCurrentLine) && 
-                  lineNumber <= Math.max(dragStartLine, dragCurrentLine);
-                  
-                const isSelected = isLineSelected(lineNumber);
-                
-                // Color based on selection
-                const textColor = isSelected || isDragSelected
-                  ? (currentTheme === 'dark' ? '#61afef' : '#0366d6') 
-                  : (currentTheme === 'dark' ? '#636d83' : '#999');
-                
-                // Background color based on selection
-                const bgColor = isSelected || isDragSelected
-                  ? (currentTheme === 'dark' ? 'rgba(62, 68, 82, 0.8)' : 'rgba(230, 242, 255, 0.8)')
-                  : undefined;
-                
-                return {
-                  minWidth: '3em',
-                  paddingRight: '1em',
-                  textAlign: 'right',
-                  userSelect: 'none',
-                  cursor: selectionMode === 'specific' ? 'pointer' : 'default',
-                  color: textColor,
-                  backgroundColor: bgColor,
-                  // Add handlers for line number selection with improved event handling
-                  onClick: (e: any) => {
-                    // Handle line number clicks directly for better responsiveness
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (selectionMode === 'specific') {
-                      handleLineClick(lineNumber);
-                    }
-                  },
-                  onMouseDown: (e: any) => {
-                    // Only handle mouse down for drag operations
-                    e.preventDefault(); // Prevent default to avoid text selection
-                    e.stopPropagation(); // Stop propagation to prevent unintended interactions
-                    if (selectionMode === 'specific') {
-                      handleMouseDown(lineNumber, e);
-                    }
-                  },
-                  onMouseMove: () => {
-                    if (isDragging) {
-                      handleMouseMove(lineNumber);
-                    }
-                  },
-                };
-              }}
-              customStyle={{
-                margin: 0,
-                borderRadius: '4px',
-                fontSize: '14px',
-                overflow: 'auto'
-              }}
-            >
-              {file.content}
-            </SyntaxHighlighter>
+            {file ? (
+              <div 
+                className="syntax-highlighter-wrapper"
+              >
+                {/* @ts-ignore - SyntaxHighlighter props typing issue */}
+                <SyntaxHighlighter
+                  language={getLanguageFromPath(file.path)}
+                  style={currentTheme === 'dark' ? oneDark : oneLight}
+                  showLineNumbers={true}
+                  wrapLines={true}
+                  lineProps={(lineNumber: number) => {
+                    // Check if this line is part of a drag selection
+                    const isDragSelected = isDragging && 
+                      dragStartLine !== null && 
+                      dragCurrentLine !== null && 
+                      lineNumber >= Math.min(dragStartLine, dragCurrentLine) && 
+                      lineNumber <= Math.max(dragStartLine, dragCurrentLine);
+                    
+                    // Check if line is selected (use memoized function)
+                    const isSelected = isLineSelected(lineNumber);
+                    
+                    // Background color based on selection state
+                    const bgColor = isSelected || isDragSelected
+                      ? (currentTheme === 'dark' ? 'rgba(62, 68, 82, 0.5)' : 'rgba(230, 242, 255, 0.5)')
+                      : undefined;
+                    
+                    return {
+                      style: { 
+                        display: 'block',
+                        cursor: selectionMode === 'specific' ? 'pointer' : 'default',
+                        backgroundColor: bgColor,
+                      },
+                      onClick: () => handleLineClick(lineNumber),
+                      onMouseDown: (e: any) => {
+                        if (selectionMode === 'specific') {
+                          handleMouseDown(lineNumber, e);
+                        }
+                      },
+                      onMouseMove: () => {
+                        if (isDragging) {
+                          handleMouseMove(lineNumber);
+                        }
+                      },
+                      // Add data attribute to help identify line numbers
+                      'data-line-number': lineNumber
+                    };
+                  }}
+                  lineNumberStyle={(lineNumber: number) => {
+                    // Check for selection and drag states (same as above)
+                    const isDragSelected = isDragging && 
+                      dragStartLine !== null && 
+                      dragCurrentLine !== null && 
+                      lineNumber >= Math.min(dragStartLine, dragCurrentLine) && 
+                      lineNumber <= Math.max(dragStartLine, dragCurrentLine);
+                      
+                    const isSelected = isLineSelected(lineNumber);
+                    
+                    // Color based on selection
+                    const textColor = isSelected || isDragSelected
+                      ? (currentTheme === 'dark' ? '#61afef' : '#0366d6') 
+                      : (currentTheme === 'dark' ? '#636d83' : '#999');
+                    
+                    // Background color based on selection
+                    const bgColor = isSelected || isDragSelected
+                      ? (currentTheme === 'dark' ? 'rgba(62, 68, 82, 0.8)' : 'rgba(230, 242, 255, 0.8)')
+                      : undefined;
+                    
+                    return {
+                      minWidth: '3em',
+                      paddingRight: '1em',
+                      textAlign: 'right',
+                      userSelect: 'none',
+                      cursor: selectionMode === 'specific' ? 'pointer' : 'default',
+                      color: textColor,
+                      backgroundColor: bgColor,
+                      // Add handlers for line number selection with improved event handling
+                      onClick: (e: any) => {
+                        // Handle line number clicks directly for better responsiveness
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (selectionMode === 'specific') {
+                          handleLineClick(lineNumber);
+                        }
+                      },
+                      onMouseDown: (e: any) => {
+                        // Only handle mouse down for drag operations
+                        e.preventDefault(); // Prevent default to avoid text selection
+                        e.stopPropagation(); // Stop propagation to prevent unintended interactions
+                        if (selectionMode === 'specific') {
+                          handleMouseDown(lineNumber, e);
+                        }
+                      },
+                      onMouseMove: () => {
+                        if (isDragging) {
+                          handleMouseMove(lineNumber);
+                        }
+                      },
+                    };
+                  }}
+                  customStyle={{
+                    margin: 0,
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    overflow: 'auto'
+                  }}
+                >
+                  {file.content}
+                </SyntaxHighlighter>
+              </div>
+            ) : (
+              <div className="file-view-modal-loading">Loading file...</div>
+            )}
           </div>
-        ) : (
-          <div className="file-view-modal-loading">Loading file...</div>
-        )}
-      </div>
-      
-      <div className="file-view-modal-footer">
-        <div className="selection-help">
-          {selectionMode === 'specific' && (
-            <span>
-              Click to select a line. Shift+click to select ranges. Click line numbers and drag to select multiple lines.
-              Text selection is also supported - just select text with your mouse. Click selected lines to deselect.
-            </span>
-          )}
-        </div>
-        <div className="file-view-modal-buttons">
-          <button 
-            className="file-view-modal-btn cancel" 
-            onClick={onClose}
-            title="Cancel"
-          >
-            Cancel
-          </button>
-          <button 
-            className="file-view-modal-btn apply" 
-            onClick={handleApplySelection}
-            title="Apply Selection"
-          >
-            Apply
-          </button>
-        </div>
-      </div>
-    </Modal>
+          
+          <div className="file-view-modal-footer">
+            <div className="selection-help">
+              {selectionMode === 'specific' && (
+                <span>
+                  Click to select a line. Shift+click to select ranges. Click line numbers and drag to select multiple lines.
+                  Text selection is also supported - just select text with your mouse. Click selected lines to deselect.
+                </span>
+              )}
+            </div>
+            <div className="file-view-modal-buttons">
+              <Dialog.Close asChild>
+                <button 
+                  className="file-view-modal-btn cancel" 
+                  title="Cancel"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button 
+                className="file-view-modal-btn apply" 
+                onClick={handleApplySelection}
+                title="Apply Selection"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 };
 

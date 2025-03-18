@@ -1,11 +1,6 @@
 import { X } from "lucide-react";
 import React, { useState, useEffect } from "react";
-import Modal from "react-modal";
-
-// Set app element for accessibility
-if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
-  Modal.setAppElement('#root');
-}
+import * as Dialog from "@radix-ui/react-dialog";
 
 interface ApplyChangesModalProps {
   selectedFolder: string;
@@ -132,90 +127,70 @@ export function ApplyChangesModal({
 </changed_files>
   `.trim();
 
-  const customStyles = {
-    overlay: {
-      backgroundColor: 'rgba(0, 0, 0, 0.75)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000
-    },
-    content: {
-      position: 'relative',
-      top: 'auto',
-      left: 'auto',
-      right: 'auto',
-      bottom: 'auto',
-      width: '80%',
-      maxWidth: '800px',
-      maxHeight: '90vh',
-      borderRadius: '4px',
-      padding: '0',
-    }
-  };
-
   return (
-    // @ts-ignore - Modal component has incompatible typing
-    <Modal
-      isOpen={isOpen}
-      onRequestClose={onClose}
-      style={customStyles}
-      contentLabel="Apply XML Changes"
-    >
-      <div className="modal-content apply-changes-modal">
-        <div className="modal-header">
-          <h2>Apply XML Changes</h2>
-          <button className="close-button" onClick={onClose}><X size={16} /></button>
-        </div>
-        
-        <div className="modal-body">
-          <p className="modal-description">
-            Paste XML to apply file changes to the selected folder:
-            <br />
-            <strong>{selectedFolder}</strong>
-          </p>
-
-          <textarea
-              className="xml-input"
-              value={xml}
-              onChange={(e) => setXml(e.target.value)}
-              placeholder={placeholderText}
-              rows={15}
-              disabled={isProcessing}
-            />
-
-          <p>
-            <a href="#" className="documentation-link" onClick={(e) => {
-              e.preventDefault();
-              window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
-            }}>View full documentation</a>
-          </p>
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="modal-overlay" />
+        <Dialog.Content className="modal-content apply-changes-modal">
+          <div className="modal-header">
+            <Dialog.Title asChild>
+              <h2>Apply XML Changes</h2>
+            </Dialog.Title>
+            <Dialog.Close asChild>
+              <button className="close-button"><X size={16} /></button>
+            </Dialog.Close>
+          </div>
           
-          {status && (
-            <div className={`status-message ${status.startsWith("Error") ? "error" : status.startsWith("Success") ? "success" : ""}`}
-                 style={{ whiteSpace: "pre-line" }}>
-              {status}
-            </div>
-          )}
-        </div>
-        
-        <div className="modal-footer">
-          <button 
-            className="apply-button"
-            onClick={handleApply}
-            disabled={!xml.trim() || isProcessing}
-          >
-            {isProcessing ? "Applying..." : "Apply Changes"}
-          </button>
-          <button 
-            className="cancel-button"
-            onClick={onClose}
-            disabled={isProcessing}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </Modal>
+          <div className="modal-body">
+            <p className="modal-description">
+              Paste XML to apply file changes to the selected folder:
+              <br />
+              <strong>{selectedFolder}</strong>
+            </p>
+
+            <textarea
+                className="xml-input"
+                value={xml}
+                onChange={(e) => setXml(e.target.value)}
+                placeholder={placeholderText}
+                rows={15}
+                disabled={isProcessing}
+              />
+
+            <p>
+              <a href="#" className="documentation-link" onClick={(e) => {
+                e.preventDefault();
+                window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
+              }}>View full documentation</a>
+            </p>
+            
+            {status && (
+              <div className={`status-message ${status.startsWith("Error") ? "error" : status.startsWith("Success") ? "success" : ""}`}
+                   style={{ whiteSpace: "pre-line" }}>
+                {status}
+              </div>
+            )}
+          </div>
+          
+          <div className="modal-footer">
+            <button 
+              className="apply-button"
+              onClick={handleApply}
+              disabled={!xml.trim() || isProcessing}
+            >
+              {isProcessing ? "Applying..." : "Apply Changes"}
+            </button>
+            <Dialog.Close asChild>
+              <button 
+                className="cancel-button"
+                disabled={isProcessing}
+              >
+                Close
+              </button>
+            </Dialog.Close>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 } 

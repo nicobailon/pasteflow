@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import useLocalStorage from './useLocalStorage';
 import useFileSelectionState from './useFileSelectionState';
 import usePromptState from './usePromptState';
+import useDocState from './useDocState';
 import useModalState from './useModalState';
 import { FileData, FileTreeMode } from '../types/FileTypes';
 import { STORAGE_KEYS } from '../constants';
@@ -79,6 +80,7 @@ const useAppState = () => {
   const fileSelection = useFileSelectionState(allFiles);
   const promptState = usePromptState();
   const modalState = useModalState();
+  const docState = useDocState();
 
   // Update instructions token count when user instructions change
   const [userInstructions, setUserInstructions] = useState('');
@@ -386,6 +388,9 @@ const useAppState = () => {
     
     // Modal state
     ...modalState,
+    
+    // Doc state
+    ...docState,
     
     // Actions
     openFolder,

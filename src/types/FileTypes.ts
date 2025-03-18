@@ -181,7 +181,8 @@ export interface RolePromptsModalProps {
   toggleRolePromptSelection: (prompt: RolePrompt) => void;
 }
 
-// Interface for documentation
+// If these types don't exist, add them:
+
 export interface Doc {
   id: string;
   title: string;
@@ -196,6 +197,6 @@ export interface DocsModalProps {
   onDeleteDoc: (id: string) => void;
   onUpdateDoc: (doc: Doc) => void;
   onSelectDoc: (doc: Doc) => void;
-  selectedDocs?: Doc[];
+  selectedDocs: Doc[];
   toggleDocSelection: (doc: Doc) => void;
 }

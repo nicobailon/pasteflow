@@ -3,36 +3,18 @@ import { Doc } from "../types/FileTypes";
 import { X, FileText } from "lucide-react";
 import CopyButton from "./CopyButton";
 
-/**
- * Interface defining the props for the DocCard component
- */
 interface DocCardProps {
   doc: Doc;
   toggleSelection: (doc: Doc) => void;
 }
 
-/**
- * DocCard component - Displays a single documentation card
- * with its title, content preview, and token estimate.
- * Provides functionality to copy content and remove from selection.
- * 
- * @param {Doc} doc - The documentation object to display
- * @param {Function} toggleSelection - Function to toggle selection status
- * @returns {JSX.Element} - Rendered DocCard component
- */
 const DocCard = ({
   doc,
   toggleSelection
 }: DocCardProps) => {
   const { title, content } = doc;
   
-  /**
-   * Estimates token count for text content
-   * Uses a simple calculation of dividing character count by 4
-   * 
-   * @param {string} text - The text to estimate tokens for
-   * @returns {number} - Estimated token count
-   */
+  // Estimate token count for the doc (simple calculation)
   const estimateTokenCount = (text: string) => {
     return Math.ceil(text.length / 4);
   };
