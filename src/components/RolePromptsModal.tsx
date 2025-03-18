@@ -112,7 +112,10 @@ const RolePromptsModal = ({
                 <div 
                   key={prompt.id} 
                   className={`role-prompt-item ${isPromptSelected(prompt) ? 'selected' : ''}`}
-                  onClick={() => toggleRolePromptSelection(prompt)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEdit(prompt);
+                  }}
                 >
                   <div className="prompt-details">
                     <div className="prompt-title">{prompt.title}</div>
@@ -136,16 +139,6 @@ const RolePromptsModal = ({
                       ) : (
                         <CirclePlus size={14} />
                       )}
-                    </button>
-                    <button 
-                      className="prompt-action-button edit-button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startEdit(prompt);
-                      }}
-                      title="Edit this prompt"
-                    >
-                      <Pencil size={14} />
                     </button>
                     <button 
                       className="prompt-action-button delete-button"

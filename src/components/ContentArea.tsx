@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, User } from 'lucide-react';
+import { Check, ChevronDown, Settings, User } from 'lucide-react';
 import FileList from './FileList';
 import CopyButton from './CopyButton';
 import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt } from '../types/FileTypes';
@@ -73,15 +73,12 @@ const ContentArea: React.FC<ContentAreaProps> = ({
       <div className="selected-files-content-area">
         <div className="selected-files-content-header">
           <div className="content-actions">
-            <strong className="content-title">Selected Files</strong>
             <div className="sort-dropdown sort-dropdown-selected-files">
               <button
                 className="sort-dropdown-button"
                 onClick={toggleSortDropdown}
               >
-                Sort:{" "}
-                {sortOptions.find((opt) => opt.value === sortOrder)
-                  ?.label || sortOrder}
+                <ChevronDown size={16} /> Sort
               </button>
               {sortDropdownOpen && (
                 <div className="sort-options">
@@ -105,13 +102,6 @@ const ContentArea: React.FC<ContentAreaProps> = ({
               {calculateTotalTokens().toLocaleString()} tokens
             </div>
           </div>
-          <button
-            className="apply-changes-btn"
-            onClick={() => setShowApplyChangesModal(true)}
-          >
-            Apply XML Changes
-          </button>
-
           <div className="prompts-buttons-container">
             <button 
               className="system-prompts-button"
@@ -120,7 +110,7 @@ const ContentArea: React.FC<ContentAreaProps> = ({
               <Settings size={16} />
               <span>System Prompts</span>
               {selectedSystemPrompts.length > 0 && (
-                <span className="selected-prompt-indicator">{selectedSystemPrompts.length} selected</span>
+                <span className="selected-prompt-indicator"><Check size={12} /> {selectedSystemPrompts.length}</span>
               )}
             </button>
             
@@ -131,7 +121,7 @@ const ContentArea: React.FC<ContentAreaProps> = ({
               <User size={16} />
               <span>Role Prompts</span>
               {selectedRolePrompts.length > 0 && (
-                <span className="selected-prompt-indicator">{selectedRolePrompts.length} selected</span>
+                <span className="selected-prompt-indicator"><Check size={12} /> {selectedRolePrompts.length}</span>
               )}
             </button>
           </div>
@@ -211,6 +201,15 @@ const ContentArea: React.FC<ContentAreaProps> = ({
                 return total.toLocaleString();
               })().toString()} tokens
             </div>
+          </div>
+
+          <div className="copy-button-group">
+            <button
+              className="apply-changes-btn"
+              onClick={() => setShowApplyChangesModal(true)}
+            >
+              Apply XML Changes
+            </button>
           </div>
         </div>
       </div>

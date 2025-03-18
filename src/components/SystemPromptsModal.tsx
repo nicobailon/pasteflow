@@ -138,16 +138,6 @@ const SystemPromptsModal = ({
                       )}
                     </button>
                     <button 
-                      className="prompt-action-button edit-button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startEdit(prompt);
-                      }}
-                      title="Edit this prompt"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button 
                       className="prompt-action-button delete-button"
                       onClick={(e) => {
                         e.stopPropagation();
