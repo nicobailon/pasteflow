@@ -1,0 +1,198 @@
+/* Radix UI Dialog Styles */
+
+/* Dialog Overlay - background overlay */
+.modal-overlay {
+  background-color: rgba(0, 0, 0, 0.75);
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+/* Dialog Content - the modal container */
+.modal-content {
+  position: relative;
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 0;
+  border: 1px solid #ccc;
+  max-width: 90%;
+  width: 1000px;
+  max-height: 90vh;
+  margin: auto;
+  overflow: hidden;
+  z-index: 1001;
+  bottom: 50%;
+  transform: translateY(-50%);
+}
+
+/* System prompts modal */
+.system-prompts-modal,
+.role-prompts-modal,
+.docs-modal {
+  display: flex;
+  flex-direction: column;
+  height: 90vh;
+  background-color: #f5f5f5;
+}
+
+/* Apply changes modal */
+.apply-changes-modal {
+  width: 80%;
+  max-width: 800px;
+  max-height: 90vh;
+}
+
+/* Filter modal */
+.filter-modal {
+  width: 80%;
+  max-width: 800px;
+  max-height: 90vh;
+}
+
+/* File view modal */
+.file-view-modal {
+  position: relative;
+  width: 90%;
+  max-width: 1200px;
+  height: 90vh;
+  border-radius: 8px;
+  padding: 0;
+  margin: auto;
+  background-color: #fff;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Modal Header */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e0e0e0;
+  background-color: #f5f5f5;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #333;
+}
+
+/* Modal Body */
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Notes app layout - used by prompts and docs modals */
+.notes-app-layout .modal-body {
+  display: flex;
+  gap: 16px;
+  padding: 0;
+  overflow: hidden;
+  height: calc(100% - 50px); /* Subtract header height */
+}
+
+.notes-app-layout .sidebar {
+  width: 280px;
+  overflow-y: auto;
+  border-right: 1px solid #e0e0e0;
+  padding: 12px;
+}
+
+.notes-app-layout .content-area {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+/* Modal Footer */
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid #e0e0e0;
+  background-color: #f5f5f5;
+}
+
+/* Buttons */
+.apply-button,
+.cancel-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.apply-button {
+  background-color: #0366d6;
+  color: white;
+}
+
+.apply-button:hover {
+  background-color: #0256b5;
+}
+
+.apply-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.cancel-button {
+  background-color: #f0f0f0;
+  color: #333;
+}
+
+.cancel-button:hover {
+  background-color: #e0e0e0;
+}
+
+.cancel-button:disabled {
+  color: #999;
+  cursor: not-allowed;
+}
+
+/* Animation for dialog */
+@keyframes dialogContentShow {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes dialogOverlayShow {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+} 

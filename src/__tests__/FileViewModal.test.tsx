@@ -3,37 +3,50 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { FileData, FileViewModalProps, SelectedFileWithLines } from '../types/FileTypes';
 
-// Mock the Modal component and setAppElement before importing FileViewModal
-jest.mock('react-modal', () => {
+// Mock the Radix Dialog components
+jest.mock('@radix-ui/react-dialog', () => {
+  const mockOnOpenChange = jest.fn();
+  
   return {
     __esModule: true,
-    default: ({ isOpen, onRequestClose, children, contentLabel, className, overlayClassName }: any) => {
-      if (!isOpen) return null;
-      return (
-        <div data-testid="modal" aria-modal="true" aria-label={contentLabel} className={className}>
-          {children}
-        </div>
-      );
+    Root: ({ open, onOpenChange, children }: any) => {
+      // Store the onOpenChange callback for use in the Close component
+      if (onOpenChange) {
+        mockOnOpenChange.mockImplementation(onOpenChange);
+      }
+      if (!open) return null;
+      return <div data-testid="dialog-root">{children}</div>;
     },
-    setAppElement: jest.fn()
+    Portal: ({ children }: any) => <div data-testid="dialog-portal">{children}</div>,
+    Overlay: () => <div data-testid="dialog-overlay" />,
+    Content: ({ children, className }: any) => (
+      <div data-testid="modal" aria-modal="true" className={className}>
+        {children}
+      </div>
+    ),
+    Title: ({ asChild, children }: any) => (
+      <div data-testid="dialog-title">{asChild ? children : <h2>{children}</h2>}</div>
+    ),
+    Description: ({ children }: any) => <div data-testid="dialog-description">{children}</div>,
+    Close: ({ asChild, children }: any) => (
+      <div data-testid="dialog-close" onClick={() => mockOnOpenChange(false)}>
+        {asChild ? children : <button>{children}</button>}
+      </div>
+    )
   };
 });
 
-// Now import FileViewModal after mocking react-modal
-import FileViewModal from '../components/FileViewModal';
-
-// Mock theme context
+// Mock the ThemeContext
 jest.mock('../context/ThemeContext', () => ({
   useTheme: () => ({ currentTheme: 'light' }),
 }));
 
-// Mock the syntax highlighter to avoid issues with its implementation
+// Mock SyntaxHighlighter
 jest.mock('react-syntax-highlighter', () => ({
-  Prism: ({ children }: { children: any }) => (
-    <pre data-testid="syntax-highlighter">{children}</pre>
-  ),
+  Prism: ({ children }: any) => <pre data-testid="syntax-highlighter">{children}</pre>,
 }));
 
+// Mock styles
 jest.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
   oneDark: {},
   oneLight: {},
@@ -45,8 +58,11 @@ jest.mock('lucide-react', () => ({
   Trash: () => <div data-testid="trash-icon" />,
   CheckSquare: () => <div data-testid="check-square-icon" />,
   Square: () => <div data-testid="square-icon" />,
-  X: () => <div data-testid="x-icon" />
+  X: () => <div data-testid="x-icon">×</div>,
 }));
+
+// Now import FileViewModal after mocking
+import FileViewModal from '../components/FileViewModal';
 
 describe('FileViewModal Component', () => {
   // Test data
@@ -96,7 +112,7 @@ describe('FileViewModal Component', () => {
   it('calls onClose when close button is clicked', () => {
     render(<FileViewModal {...defaultProps} />);
     
-    const closeButton = screen.getByTitle('Close');
+    const closeButton = screen.getByText('×');
     fireEvent.click(closeButton);
     
     expect(mockOnClose).toHaveBeenCalledTimes(1);

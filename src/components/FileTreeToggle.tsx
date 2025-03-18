@@ -8,10 +8,10 @@ interface FileTreeToggleProps {
 }
 
 const fileTreeOptions = [
-  { value: "none" as FileTreeMode, label: "No File Tree" },
-  { value: "selected" as FileTreeMode, label: "Selected Files Only" },
+  { value: "none" as FileTreeMode, label: "None" },
+  { value: "selected" as FileTreeMode, label: "Selected Files" },
   { value: "selected-with-roots" as FileTreeMode, label: "Selected + Folders" },
-  { value: "complete" as FileTreeMode, label: "Complete File Tree" },
+  { value: "complete" as FileTreeMode, label: "Full File Tree" },
 ];
 
 const FileTreeToggle = ({ currentMode, onChange, tokenCounts }: FileTreeToggleProps): JSX.Element => {

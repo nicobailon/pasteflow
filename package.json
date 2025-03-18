@@ -115,6 +115,8 @@
     "vite": "^5.0.8"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/themes": "^3.2.1",
     "@types/react-modal": "^3.16.3",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@xmldom/xmldom": "^0.9.6",

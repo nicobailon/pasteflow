@@ -180,3 +180,23 @@ export interface RolePromptsModalProps {
   selectedRolePrompts?: RolePrompt[];
   toggleRolePromptSelection: (prompt: RolePrompt) => void;
 }
+
+// If these types don't exist, add them:
+
+export interface Doc {
+  id: string;
+  title: string;
+  content: string;
+}
+
+export interface DocsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  docs: Doc[];
+  onAddDoc: (doc: Doc) => void;
+  onDeleteDoc: (id: string) => void;
+  onUpdateDoc: (doc: Doc) => void;
+  onSelectDoc: (doc: Doc) => void;
+  selectedDocs: Doc[];
+  toggleDocSelection: (doc: Doc) => void;
+}

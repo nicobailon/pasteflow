@@ -10,6 +10,7 @@ import FilterModal from "./components/FilterModal";
 import SystemPromptsModal from "./components/SystemPromptsModal";
 import RolePromptsModal from "./components/RolePromptsModal";
 import FileViewModal from "./components/FileViewModal";
+import DocsModal from "./components/DocsModal";
 import useAppState from "./hooks/useAppState";
 import { SORT_OPTIONS } from "./constants";
 
@@ -113,6 +114,7 @@ const App = () => {
             setShowApplyChangesModal={appState.setShowApplyChangesModal}
             setSystemPromptsModalOpen={appState.setSystemPromptsModalOpen}
             setRolePromptsModalOpen={appState.setRolePromptsModalOpen}
+            setDocsModalOpen={appState.setDocsModalOpen}
           />
         </div>
         
@@ -167,6 +169,18 @@ const App = () => {
           onSelectPrompt={appState.toggleRolePromptSelection}
           selectedRolePrompts={appState.selectedRolePrompts}
           toggleRolePromptSelection={appState.toggleRolePromptSelection}
+        />
+        
+        <DocsModal
+          isOpen={appState.docsModalOpen}
+          onClose={() => appState.setDocsModalOpen(false)}
+          docs={appState.docs}
+          onAddDoc={appState.handleAddDoc}
+          onDeleteDoc={appState.handleDeleteDoc}
+          onUpdateDoc={appState.handleUpdateDoc}
+          onSelectDoc={appState.toggleDocSelection}
+          selectedDocs={appState.selectedDocs}
+          toggleDocSelection={appState.toggleDocSelection}
         />
       </div>
     </ThemeProvider>
