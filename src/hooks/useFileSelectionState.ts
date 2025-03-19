@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { FileData, SelectedFileWithLines, LineRange } from '../types/FileTypes';
 import useLocalStorage from './useLocalStorage';
 import { STORAGE_KEYS } from '../constants';

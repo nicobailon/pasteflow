@@ -5,11 +5,6 @@ import SearchBar from "./SearchBar";
 import TreeItem from "./TreeItem";
 import { Folder, ChevronDown, ChevronUp, X, FolderOpen, Filter, RefreshCw } from "lucide-react";
 
-// Storage keys for local storage
-const STORAGE_KEYS = {
-  EXPANDED_NODES: "pasteflow_expanded_nodes",
-};
-
 // Custom type for resize events
 type ResizeMouseEvent = {
   preventDefault: () => void;

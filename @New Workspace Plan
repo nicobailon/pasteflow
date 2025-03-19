@@ -1,0 +1,670 @@
+# New Workspace Plan
+
+You are tasked with implementing a workspace feature for the PasteFlow application, allowing users to save and manage their current workspace state. This includes the file tree state (expanded nodes and sort order), selected files and lines, user instructions, token counts, and custom prompts specific to each workspace. The feature enhances productivity by enabling users to switch between projects or restore their work environment easily. Per the CEO's urgent request: the workspace button must be placed at the top right of the app, next to the dark/light mode toggle in AppHeader.tsx, not in the sidebar, due to space constraints.
+
+You will follow a series of discrete steps, each corresponding to a Jira ticket. After completing each step, you must stop and request feedback to confirm correctness before proceeding. Do not move to the next step until feedback is received. Each step is self-contained, builds on previous steps where necessary, and uses the provided codebase files. Follow the instructions exactly as written, as they are intentionally specific to keep you on track.
+
+## Important Rules
+
+- **Order Matters**: Complete the steps in the exact order listed (1 through 14).
+- **Specificity**: Use the exact file paths, variable names, and code snippets provided unless instructed to derive them from the codebase.
+- **Stop for Feedback**: After each step, include a clear statement like: "Stop here and request feedback to confirm [specific aspect]."
+- **Codebase Reference**: Refer to the provided files (e.g., src/hooks/useAppState.ts) for context, types, and existing implementations.
+- **CEO Directive**: Integrate the workspace button in AppHeader.tsx, not Sidebar.tsx, despite any initial plans suggesting otherwise.
+
+## Step 1: Define WorkspaceState Interface in src/types/FileTypes.ts
+
+1. Open src/types/FileTypes.ts in your code editor.
+2. Review the existing types and states in the following hooks to determine precise types:
+   - useFileTree.ts: expandedNodes: Record<string, boolean>, fileTreeSortOrder: string.
+   - useFileSelectionState.ts: selectedFiles: SelectedFileWithLines[].
+   - useAppState.ts: userInstructions: string, sortOrder: string.
+   - usePromptState.ts: systemPrompts: SystemPrompt[], rolePrompts: RolePrompt[], selectedSystemPrompts: SystemPrompt[], selectedRolePrompts: RolePrompt[].
+3. At the bottom of the file, after existing interfaces, add the following WorkspaceState interface:
+
+```typescript
+export interface WorkspaceState {
+  selectedFolder: string;                    // From useAppState.ts
+  expandedNodes: Record<string, boolean>;    // From useFileTree.ts
+  fileTreeSortOrder: string;                 // From useFileTree.ts
+  selectedFiles: SelectedFileWithLines[];    // From useFileSelectionState.ts
+  userInstructions: string;                  // From useAppState.ts
+  sortOrder: string;                         // From useAppState.ts
+  systemPrompts: SystemPrompt[];             // From usePromptState.ts
+  rolePrompts: RolePrompt[];                 // From usePromptState.ts
+  selectedSystemPromptIds: string[];         // IDs of selected system prompts
+  selectedRolePromptIds: string[];           // IDs of selected role prompts
+  totalTokenCount: number;                   // Total tokens from selected files
+}
+```
+
+### Notes
+
+- Use selectedSystemPromptIds and selectedRolePromptIds (arrays of IDs) instead of full prompt objects to reference selected prompts within the workspace's systemPrompts and rolePrompts.
+- selectedFolder is included to support switching projects tied to specific folders.
+- Save the file.
+
+**Stop here and request feedback to confirm the WorkspaceState interface is correct and includes all required properties with precise types.**
+
+## Step 2: Add WORKSPACES Storage Key in src/constants/index.ts
+
+1. Open src/constants/index.ts in your code editor.
+2. Locate the STORAGE_KEYS object (it contains keys like SELECTED_FOLDER).
+3. Inside the STORAGE_KEYS object, add a new property at the end:
+
+```typescript
+WORKSPACES: "pasteflow-workspaces",
+```
+
+4. The updated STORAGE_KEYS object should look like this (with other existing keys preserved):
+
+```typescript
+export const STORAGE_KEYS = {
+  SELECTED_FOLDER: "pasteflow-selected-folder",
+  SELECTED_FILES: "pasteflow-selected-files",
+  SORT_ORDER: "pasteflow-sort-order",
+  FILE_TREE_SORT_ORDER: "pasteflow-file-tree-sort-order",
+  SEARCH_TERM: "pasteflow-search-term",
+  EXPANDED_NODES: "pasteflow-expanded-nodes",
+  FILE_TREE_MODE: "pasteflow-file-tree-mode",
+  SYSTEM_PROMPTS: "pasteflow-system-prompts",
+  ROLE_PROMPTS: "pasteflow-role-prompts",
+  WORKSPACES: "pasteflow-workspaces",
+};
+```
+
+**Stop here and request feedback to confirm the WORKSPACES key is added correctly to STORAGE_KEYS.**
+
+## Step 3: Implement Workspace Saving in src/hooks/useAppState.ts
+
+1. Open src/hooks/useAppState.ts in your code editor.
+2. Import the WorkspaceState type and WORKSPACES key:
+
+```typescript
+import { WorkspaceState } from '../types/FileTypes';
+import { STORAGE_KEYS } from '../constants';
+```
+
+3. Inside the useAppState hook, after existing state declarations (e.g., after const docState = useDocState();), add the saveWorkspace function:
+
+```typescript
+const saveWorkspace = (name: string) => {
+  const workspace: WorkspaceState = {
+    selectedFolder,
+    expandedNodes,
+    fileTreeSortOrder: localStorage.getItem(STORAGE_KEYS.FILE_TREE_SORT_ORDER) || 'default',
+    selectedFiles: fileSelection.selectedFiles,
+    userInstructions,
+    sortOrder,
+    systemPrompts: promptState.systemPrompts,
+    rolePrompts: promptState.rolePrompts,
+    selectedSystemPromptIds: promptState.selectedSystemPrompts.map(p => p.id),
+    selectedRolePromptIds: promptState.selectedRolePrompts.map(p => p.id),
+    totalTokenCount: calculateTotalTokens(),
+  };
+  const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
+  workspaces[name] = JSON.stringify(workspace);
+  localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+};
+```
+
+### Notes
+
+- fileTreeSortOrder is retrieved from localStorage since it's not directly managed in useAppState.ts but passed to useFileTree.ts.
+- Use existing variables: selectedFolder, expandedNodes, fileSelection, userInstructions, sortOrder, promptState, calculateTotalTokens.
+
+4. Add saveWorkspace to the return object, after existing actions like handleResetFolderState:
+
+```typescript
+return {
+  // ... existing properties ...
+  handleResetFolderState,
+  saveWorkspace,
+  // ... remaining properties ...
+};
+```
+
+**Stop here and request feedback to ensure the saveWorkspace function gathers all states correctly and saves them to localStorage.**
+
+## Step 4: Implement Workspace Loading in src/hooks/useAppState.ts
+
+1. Open src/hooks/useAppState.ts in your code editor.
+2. Ensure imports for WorkspaceState and STORAGE_KEYS are present (added in Step 3).
+3. Add a pendingWorkspaceState state after existing state declarations (e.g., after const docState = useDocState();):
+
+```typescript
+const [pendingWorkspaceState, setPendingWorkspaceState] = useState<WorkspaceState | null>(null);
+```
+
+4. Add the loadWorkspace function after saveWorkspace:
+
+```typescript
+const loadWorkspace = (name: string) => {
+  const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
+  const workspaceStr = workspaces[name];
+  if (!workspaceStr) return;
+  const workspace: WorkspaceState = JSON.parse(workspaceStr);
+  setPendingWorkspaceState(workspace);
+  handleResetFolderState(); // Reset current state
+  setSelectedFolder(workspace.selectedFolder); // Trigger file loading
+};
+```
+
+5. In the Electron IPC handler (inside the useEffect that calls setupElectronHandlers), after setAllFiles(files);, add logic to apply the pending workspace state:
+
+```typescript
+useEffect(() => {
+  if (!isElectron) return;
+  let cleanup: () => void = () => {};
+  try {
+    cleanup = setupElectronHandlers(
+      isElectron,
+      setSelectedFolder,
+      setAllFiles,
+      setProcessingStatus,
+      fileSelection.clearSelectedFiles,
+      handleFiltersAndSort,
+      sortOrder,
+      searchTerm,
+      setIsLoadingCancellable,
+      setAppInitialized
+    );
+    // Modify the 'file-list' handler
+    window.electron.ipcRenderer.on('file-list', (_, files: FileData[]) => {
+      setAllFiles(files);
+      handleFiltersAndSort(files, sortOrder, searchTerm);
+      setProcessingStatus({ status: "complete", message: "File loading complete", processed: files.length, directories: 0, total: files.length });
+      setIsLoadingCancellable(false);
+      if (pendingWorkspaceState) {
+        setExpandedNodes(pendingWorkspaceState.expandedNodes);
+        localStorage.setItem(STORAGE_KEYS.FILE_TREE_SORT_ORDER, pendingWorkspaceState.fileTreeSortOrder);
+        fileSelection.setSelectedFiles(pendingWorkspaceState.selectedFiles);
+        setUserInstructions(pendingWorkspaceState.userInstructions);
+        setSortOrder(pendingWorkspaceState.sortOrder);
+        promptState.setSystemPrompts(pendingWorkspaceState.systemPrompts);
+        promptState.setRolePrompts(pendingWorkspaceState.rolePrompts);
+        const selectedSystemPrompts = pendingWorkspaceState.systemPrompts.filter(p =>
+          pendingWorkspaceState.selectedSystemPromptIds.includes(p.id)
+        );
+        promptState.setSelectedSystemPrompts(selectedSystemPrompts);
+        const selectedRolePrompts = pendingWorkspaceState.rolePrompts.filter(p =>
+          pendingWorkspaceState.selectedRolePromptIds.includes(p.id)
+        );
+        promptState.setSelectedRolePrompts(selectedRolePrompts);
+        setPendingWorkspaceState(null);
+      }
+    });
+  } catch (error) {
+    console.error("Error setting up Electron handlers:", error);
+    setProcessingStatus({
+      status: "error",
+      message: `Error initializing app: ${error instanceof Error ? error.message : "Unknown error"}`
+    });
+  }
+  return cleanup;
+}, [isElectron, sortOrder, searchTerm, fileSelection.clearSelectedFiles, handleFiltersAndSort]);
+```
+
+6. Add loadWorkspace to the return object, after saveWorkspace:
+
+```typescript
+return {
+  // ... existing properties ...
+  saveWorkspace,
+  loadWorkspace,
+  // ... remaining properties ...
+};
+```
+
+**Stop here and request feedback to verify the loadWorkspace function and IPC handler update correctly load and apply the workspace state.**
+
+## Step 5: Create useWorkspaceState.ts Hook
+
+1. Create a new file src/hooks/useWorkspaceState.ts in your code editor.
+2. Add the following code:
+
+```typescript
+import { useAppState } from './useAppState';
+import { STORAGE_KEYS } from '../constants';
+
+export const useWorkspaceState = () => {
+  const { saveWorkspace, loadWorkspace } = useAppState();
+
+  const deleteWorkspace = (name: string) => {
+    const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
+    delete workspaces[name];
+    localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+  };
+
+  const getWorkspaceNames = () => {
+    const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
+    return Object.keys(workspaces);
+  };
+
+  return { saveWorkspace, loadWorkspace, deleteWorkspace, getWorkspaceNames };
+};
+```
+
+**Stop here and request feedback to confirm the useWorkspaceState hook provides all required functions correctly.**
+
+## Step 6: Modify useFileSelectionState.ts for Workspace Support
+
+1. Open src/hooks/useFileSelectionState.ts in your code editor.
+2. After the existing functions (e.g., clearSelectedFiles), add:
+
+```typescript
+const getSelectionState = () => ({ selectedFiles });
+
+const setSelectionState = (state: { selectedFiles: SelectedFileWithLines[] }) => {
+  setSelectedFiles(state.selectedFiles);
+};
+```
+
+3. Update the return object to include these functions, after clearSelectedFiles:
+
+```typescript
+return {
+  selectedFiles,
+  setSelectedFiles,
+  updateSelectedFile,
+  findSelectedFile,
+  toggleFileSelection,
+  toggleSelection,
+  toggleFolderSelection,
+  selectAllFiles,
+  deselectAllFiles,
+  clearSelectedFiles,
+  getSelectionState,
+  setSelectionState
+};
+```
+
+**Stop here and request feedback to ensure getSelectionState and setSelectionState correctly export and import the file selection state.**
+
+## Step 7: Modify usePromptState.ts for Workspace-Specific Prompts
+
+1. Open src/hooks/usePromptState.ts in your code editor.
+2. After the existing functions (e.g., toggleRolePromptSelection), add:
+
+```typescript
+const getPrompts = () => ({
+  systemPrompts,
+  rolePrompts,
+  selectedSystemPrompts,
+  selectedRolePrompts
+});
+
+const setPrompts = (prompts: {
+  systemPrompts: SystemPrompt[];
+  rolePrompts: RolePrompt[];
+  selectedSystemPromptIds: string[];
+  selectedRolePromptIds: string[];
+}) => {
+  setSystemPrompts(prompts.systemPrompts);
+  setRolePrompts(prompts.rolePrompts);
+  const selectedSystem = prompts.systemPrompts.filter(p => prompts.selectedSystemPromptIds.includes(p.id));
+  setSelectedSystemPrompts(selectedSystem);
+  const selectedRole = prompts.rolePrompts.filter(p => prompts.selectedRolePromptIds.includes(p.id));
+  setSelectedRolePrompts(selectedRole);
+};
+```
+
+3. Update the return object to include these functions, after toggleRolePromptSelection:
+
+```typescript
+return {
+  systemPrompts,
+  selectedSystemPrompts,
+  handleAddSystemPrompt,
+  handleDeleteSystemPrompt,
+  handleUpdateSystemPrompt,
+  toggleSystemPromptSelection,
+  rolePrompts,
+  selectedRolePrompts,
+  handleAddRolePrompt,
+  handleDeleteRolePrompt,
+  handleUpdateRolePrompt,
+  toggleRolePromptSelection,
+  getPrompts,
+  setPrompts
+};
+```
+
+**Stop here and request feedback to verify getPrompts and setPrompts correctly manage workspace-specific prompts.**
+
+## Step 8: Create WorkspaceModal.tsx Component
+
+1. Create a new file src/components/WorkspaceModal.tsx in your code editor.
+2. Add the following code:
+
+```typescript
+import React, { useState } from 'react';
+import { useWorkspaceState } from '../hooks/useWorkspaceState';
+
+interface WorkspaceModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({ isOpen, onClose }) => {
+  const { saveWorkspace, loadWorkspace, deleteWorkspace, getWorkspaceNames } = useWorkspaceState();
+  const [name, setName] = useState('');
+  const names = getWorkspaceNames();
+
+  const handleSave = () => {
+    if (names.includes(name)) {
+      if (window.confirm(`Workspace "${name}" exists. Overwrite?`)) {
+        saveWorkspace(name);
+        setName('');
+      }
+    } else {
+      saveWorkspace(name);
+      setName('');
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content">
+        <h2>Manage Workspaces</h2>
+        <div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter workspace name"
+          />
+          <button onClick={handleSave} disabled={!name.trim()}>
+            Save
+          </button>
+        </div>
+        <ul>
+          {names.map((n) => (
+            <li key={n}>
+              {n}
+              <button onClick={() => loadWorkspace(n)}>Load</button>
+              <button onClick={() => deleteWorkspace(n)}>Delete</button>
+            </li>
+          ))}
+        </ul>
+        <button onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+};
+```
+
+### Notes
+
+- This is a basic modal; styling (e.g., modal-overlay, modal-content) should match your app's CSS (e.g., src/styles/index.css).
+- The handleSave function prompts for overwrite confirmation.
+
+**Stop here and request feedback to confirm the WorkspaceModal component renders correctly and handles save/load/delete actions.**
+
+## Step 9: Integrate Workspace UI into AppHeader.tsx
+
+1. Open src/components/AppHeader.tsx in your code editor.
+2. Assume it contains a ThemeToggle component (for dark/light mode). If not present, the button will still be added at the end.
+3. Add a prop to receive setIsWorkspaceModalOpen:
+
+```typescript
+interface AppHeaderProps {
+  selectedFolder: string | null;
+  fileTreeMode: FileTreeMode;
+  setFileTreeMode: (mode: FileTreeMode) => void;
+  tokenCounts: { none: number; selected: number; "selected-with-roots": number; complete: number };
+  setIsWorkspaceModalOpen: (open: boolean) => void; // Add this
+}
+```
+
+4. In the JSX, after the ThemeToggle (or at the end of the header content), add:
+
+```typescript
+<button onClick={() => setIsWorkspaceModalOpen(true)}>Workspaces</button>
+```
+
+5. Example updated AppHeader.tsx (adjust based on actual content):
+
+```typescript
+import React from 'react';
+import { FileTreeMode } from '../types/FileTypes';
+import ThemeToggle from './ThemeToggle';
+
+interface AppHeaderProps {
+  selectedFolder: string | null;
+  fileTreeMode: FileTreeMode;
+  setFileTreeMode: (mode: FileTreeMode) => void;
+  tokenCounts: { none: number; selected: number; "selected-with-roots": number; complete: number };
+  setIsWorkspaceModalOpen: (open: boolean) => void;
+}
+
+const AppHeader: React.FC<AppHeaderProps> = ({
+  selectedFolder,
+  fileTreeMode,
+  setFileTreeMode,
+  tokenCounts,
+  setIsWorkspaceModalOpen
+}) => {
+  return (
+    <header className="app-header">
+      <div>{selectedFolder?.split(/[/\\]/).pop() || 'No Folder Selected'}</div>
+      {/* Existing content */}
+      <ThemeToggle />
+      <button onClick={() => setIsWorkspaceModalOpen(true)}>Workspaces</button>
+    </header>
+  );
+};
+
+export default AppHeader;
+```
+
+**Stop here and request feedback to ensure the workspace button is correctly placed in AppHeader.tsx next to the dark/light mode toggle.**
+
+## Step 10: Integrate Workspace State into App.tsx
+
+1. Open src/App.tsx in your code editor.
+2. Import the WorkspaceModal:
+
+```typescript
+import { WorkspaceModal } from './components/WorkspaceModal';
+```
+
+3. Add state for the modal after const appState = useAppState();:
+
+```typescript
+const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
+```
+
+4. Pass setIsWorkspaceModalOpen to AppHeader:
+
+```typescript
+<AppHeader
+  selectedFolder={appState.selectedFolder}
+  fileTreeMode={appState.fileTreeMode}
+  setFileTreeMode={appState.setFileTreeMode}
+  tokenCounts={appState.fileTreeTokenCounts()}
+  setIsWorkspaceModalOpen={setIsWorkspaceModalOpen}
+/>
+```
+
+5. Add the WorkspaceModal after other modals (e.g., after <DocsModal>):
+
+```typescript
+<WorkspaceModal
+  isOpen={isWorkspaceModalOpen}
+  onClose={() => setIsWorkspaceModalOpen(false)}
+/>
+```
+
+**Stop here and request feedback to confirm the workspace state and modal are integrated correctly in App.tsx.**
+
+## Step 11: Create workspaceUtils.ts for Utility Functions
+
+1. Create a new file src/utils/workspaceUtils.ts in your code editor.
+2. Add the following code:
+
+```typescript
+import { WorkspaceState } from '../types/FileTypes';
+
+export const serializeWorkspace = (state: WorkspaceState): string => {
+  return JSON.stringify(state);
+};
+
+export const deserializeWorkspace = (data: string): WorkspaceState => {
+  return JSON.parse(data) as WorkspaceState;
+};
+```
+
+**Stop here and request feedback to verify the utility functions in workspaceUtils.ts work correctly.**
+
+## Step 12: Handle Edge Cases and Errors
+
+1. Update WorkspaceModal.tsx:
+   - Open src/components/WorkspaceModal.tsx.
+   - Ensure the handleSave function (added in Step 8) prompts for overwrite confirmation (it already does via window.confirm).
+   - Verify it's robust; no changes needed if it matches Step 8.
+
+2. Update useAppState.ts:
+   - Open src/hooks/useAppState.ts.
+   - In the loadWorkspace IPC handler (modified in Step 4), after setAllFiles(files);, add file validation:
+
+```typescript
+if (pendingWorkspaceState) {
+  const validSelectedFiles = pendingWorkspaceState.selectedFiles.filter(sf =>
+    files.some(f => f.path === sf.path)
+  );
+  setExpandedNodes(pendingWorkspaceState.expandedNodes);
+  localStorage.setItem(STORAGE_KEYS.FILE_TREE_SORT_ORDER, pendingWorkspaceState.fileTreeSortOrder);
+  fileSelection.setSelectedFiles(validSelectedFiles);
+  setUserInstructions(pendingWorkspaceState.userInstructions);
+  setSortOrder(pendingWorkspaceState.sortOrder);
+  promptState.setSystemPrompts(pendingWorkspaceState.systemPrompts);
+  promptState.setRolePrompts(pendingWorkspaceState.rolePrompts);
+  const selectedSystemPrompts = pendingWorkspaceState.systemPrompts.filter(p =>
+    pendingWorkspaceState.selectedSystemPromptIds.includes(p.id)
+  );
+  promptState.setSelectedSystemPrompts(selectedSystemPrompts);
+  const selectedRolePrompts = pendingWorkspaceState.rolePrompts.filter(p =>
+    pendingWorkspaceState.selectedRolePromptIds.includes(p.id)
+  );
+  promptState.setSelectedRolePrompts(selectedRolePrompts);
+  setPendingWorkspaceState(null);
+  if (validSelectedFiles.length < pendingWorkspaceState.selectedFiles.length) {
+    console.warn('Some selected files were not found and have been removed from the workspace.');
+  }
+}
+```
+
+This filters out selected files that no longer exist in allFiles.
+
+**Stop here and request feedback to ensure edge cases (duplicate names, missing files) are handled robustly.**
+
+## Step 13: Write Unit and Integration Tests
+
+1. Create src/**tests**/useAppState.test.ts (or append if it exists):
+
+```typescript
+import { renderHook, act } from '@testing-library/react-hooks';
+import useAppState from '../hooks/useAppState';
+
+describe('useAppState Workspace Features', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  test('saves and loads a workspace', () => {
+    const { result } = renderHook(() => useAppState());
+    act(() => {
+      result.current.saveWorkspace('testWorkspace');
+    });
+    const workspaces = JSON.parse(localStorage.getItem('pasteflow-workspaces') || '{}');
+    expect(workspaces['testWorkspace']).toBeDefined();
+
+    act(() => {
+      result.current.loadWorkspace('testWorkspace');
+    });
+    expect(result.current.pendingWorkspaceState).toBeDefined();
+  });
+});
+```
+
+2. Create src/**tests**/useWorkspaceState.test.ts:
+
+```typescript
+import { renderHook, act } from '@testing-library/react-hooks';
+import { useWorkspaceState } from '../hooks/useWorkspaceState';
+
+describe('useWorkspaceState', () => {
+  test('deletes a workspace', () => {
+    localStorage.setItem('pasteflow-workspaces', JSON.stringify({ test: '{}' }));
+    const { result } = renderHook(() => useWorkspaceState());
+    act(() => {
+      result.current.deleteWorkspace('test');
+    });
+    const workspaces = JSON.parse(localStorage.getItem('pasteflow-workspaces') || '{}');
+    expect(workspaces['test']).toBeUndefined();
+  });
+
+  test('gets workspace names', () => {
+    localStorage.setItem('pasteflow-workspaces', JSON.stringify({ ws1: '{}', ws2: '{}' }));
+    const { result } = renderHook(() => useWorkspaceState());
+    const names = result.current.getWorkspaceNames();
+    expect(names).toEqual(['ws1', 'ws2']);
+  });
+});
+```
+
+3. Create src/**tests**/WorkspaceModal.test.tsx:
+
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { WorkspaceModal } from '../components/WorkspaceModal';
+
+describe('WorkspaceModal', () => {
+  test('renders and saves a workspace', () => {
+    render(<WorkspaceModal isOpen={true} onClose={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText('Enter workspace name'), { target: { value: 'test' } });
+    fireEvent.click(screen.getByText('Save'));
+    // Further assertions depend on mocking useWorkspaceState
+  });
+});
+```
+
+### Notes
+
+These are basic tests; expand for 80% coverage as needed.
+
+**Stop here and request feedback on test coverage and correctness.**
+
+## Step 14: Update User Documentation
+
+1. Open docs/README.md (or your main user doc file) in your code editor.
+2. At the bottom, add:
+
+```markdown
+## Workspace Feature
+
+The workspace feature allows you to save and manage your current application state.
+
+### Saving a Workspace
+1. Click the "Workspaces" button at the top right (next to the dark/light mode toggle).
+2. Enter a name in the input field.
+3. Click "Save". If the name exists, confirm to overwrite.
+
+### Loading a Workspace
+1. Click the "Workspaces" button.
+2. Find your workspace in the list.
+3. Click "Load" next to it.
+
+### Deleting a Workspace
+1. Click the "Workspaces" button.
+2. Find your workspace in the list.
+3. Click "Delete" next to it.
+```
+
+**Stop here and request feedback on the clarity and completeness of the documentation.**
+
+## Final Note
+
+Follow these steps exactly in order, stopping after each one to request feedback. This ensures the workspace feature is implemented incrementally and correctly, meeting all requirements, including the CEO's directive to place the button in AppHeader.tsx. If you encounter issues or need clarification, note them in your feedback request rather than proceeding.

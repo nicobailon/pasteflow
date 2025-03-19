@@ -200,3 +200,14 @@ export interface DocsModalProps {
   selectedDocs: Doc[];
   toggleDocSelection: (doc: Doc) => void;
 }
+
+export interface WorkspaceState {
+  fileTreeState: Record<string, boolean>;
+  selectedFiles: SelectedFileWithLines[];
+  userInstructions: string;
+  tokenCounts: { [filePath: string]: number };
+  customPrompts: {
+    systemPrompts: SystemPrompt[];
+    rolePrompts: RolePrompt[];
+  };
+}

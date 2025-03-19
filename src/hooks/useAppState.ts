@@ -4,7 +4,7 @@ import useFileSelectionState from './useFileSelectionState';
 import usePromptState from './usePromptState';
 import useDocState from './useDocState';
 import useModalState from './useModalState';
-import { FileData, FileTreeMode } from '../types/FileTypes';
+import { FileData, FileTreeMode, WorkspaceState } from '../types/FileTypes';
 import { STORAGE_KEYS } from '../constants';
 import { estimateTokenCount, calculateFileTreeTokens, getFileTreeModeTokens, calculateSystemPromptsTokens, calculateRolePromptsTokens } from '../utils/tokenUtils';
 import { getSelectedFilesContent, getContentWithXmlPrompt } from '../utils/contentFormatter';
@@ -358,6 +358,82 @@ const useAppState = () => {
     };
   }, [modalState.openFileViewModal]);
 
+  const saveWorkspace = (name: string) => {
+    const workspace: WorkspaceState = {
+      fileTreeState: expandedNodes,
+      selectedFiles: fileSelection.selectedFiles,
+      userInstructions: userInstructions,
+      tokenCounts: fileSelection.selectedFiles.reduce((acc, file) => {
+        acc[file.path] = file.tokenCount || 0;
+        return acc;
+      }, {} as { [filePath: string]: number }),
+      customPrompts: {
+        systemPrompts: promptState.selectedSystemPrompts,
+        rolePrompts: promptState.selectedRolePrompts
+      }
+    };
+    const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
+    workspaces[name] = JSON.stringify(workspace);
+    localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+  };
+
+  const loadWorkspace = (name: string) => {
+    const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
+    if (!workspaces[name]) {
+      console.error(`Workspace "${name}" not found`);
+      return;
+    }
+    const workspace: WorkspaceState = JSON.parse(workspaces[name]);
+    
+    // Restore file tree state
+    setExpandedNodes(workspace.fileTreeState || {});
+    
+    // Restore selected files
+    fileSelection.setSelectedFiles(workspace.selectedFiles);
+    
+    // Restore user instructions
+    setUserInstructions(workspace.userInstructions || '');
+    
+    // Clear current system prompts and add the saved ones
+    // We need to toggle each prompt individually since there's no direct setter exposed
+    const currentSystemPrompts = [...promptState.selectedSystemPrompts];
+    
+    // First, deselect all current system prompts
+    currentSystemPrompts.forEach(prompt => {
+      promptState.toggleSystemPromptSelection(prompt);
+    });
+    
+    // Then select all the ones from the workspace
+    if (workspace.customPrompts?.systemPrompts) {
+      workspace.customPrompts.systemPrompts.forEach(prompt => {
+        // Find the prompt in the available prompts
+        const availablePrompt = promptState.systemPrompts.find(p => p.id === prompt.id);
+        if (availablePrompt) {
+          promptState.toggleSystemPromptSelection(availablePrompt);
+        }
+      });
+    }
+    
+    // Do the same for role prompts
+    const currentRolePrompts = [...promptState.selectedRolePrompts];
+    
+    // First, deselect all current role prompts
+    currentRolePrompts.forEach(prompt => {
+      promptState.toggleRolePromptSelection(prompt);
+    });
+    
+    // Then select all the ones from the workspace
+    if (workspace.customPrompts?.rolePrompts) {
+      workspace.customPrompts.rolePrompts.forEach(prompt => {
+        // Find the prompt in the available prompts
+        const availablePrompt = promptState.rolePrompts.find(p => p.id === prompt.id);
+        if (availablePrompt) {
+          promptState.toggleRolePromptSelection(availablePrompt);
+        }
+      });
+    }
+  };
+
   return {
     // Core state
     isElectron,
@@ -412,7 +488,11 @@ const useAppState = () => {
     
     // Content formatting
     getFormattedContent,
-    getFormattedContentWithXml
+    getFormattedContentWithXml,
+    
+    // Workspace management
+    saveWorkspace,
+    loadWorkspace
   };
 };
 
