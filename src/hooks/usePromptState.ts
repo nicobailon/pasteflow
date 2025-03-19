@@ -95,6 +95,18 @@ const usePromptState = () => {
     });
   }, []);
 
+  // Get prompts for workspace state
+  const getPrompts = () => ({
+    systemPrompts: selectedSystemPrompts,
+    rolePrompts: selectedRolePrompts,
+  });
+
+  // Set prompts from workspace state
+  const setPrompts = (prompts: { systemPrompts: SystemPrompt[]; rolePrompts: RolePrompt[] }) => {
+    setSelectedSystemPrompts(prompts.systemPrompts);
+    setSelectedRolePrompts(prompts.rolePrompts);
+  };
+
   return {
     // System prompts
     systemPrompts,
@@ -110,7 +122,11 @@ const usePromptState = () => {
     handleAddRolePrompt,
     handleDeleteRolePrompt,
     handleUpdateRolePrompt,
-    toggleRolePromptSelection
+    toggleRolePromptSelection,
+    
+    // Workspace support
+    getPrompts,
+    setPrompts
   };
 };
 

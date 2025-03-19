@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Doc, DocsModalProps } from "../types/FileTypes";
-import { Plus, Trash, CirclePlus, Check, X, FileText } from "lucide-react";
+import { Plus, Trash, CirclePlus, Check, X } from "lucide-react";
 
 /**
  * DocsModal component - Provides a modal dialog for managing documentation
@@ -14,7 +14,6 @@ const DocsModal = ({
   onAddDoc,
   onDeleteDoc,
   onUpdateDoc,
-  onSelectDoc,
   selectedDocs = [],
   toggleDocSelection,
 }: DocsModalProps): JSX.Element => {

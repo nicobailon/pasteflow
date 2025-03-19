@@ -4,7 +4,8 @@ import useFileSelectionState from './useFileSelectionState';
 import usePromptState from './usePromptState';
 import useDocState from './useDocState';
 import useModalState from './useModalState';
-import { FileData, FileTreeMode } from '../types/FileTypes';
+import useFileTree from './useFileTree';
+import { FileData, FileTreeMode, WorkspaceState } from '../types/FileTypes';
 import { STORAGE_KEYS } from '../constants';
 import { estimateTokenCount, calculateFileTreeTokens, getFileTreeModeTokens, calculateSystemPromptsTokens, calculateRolePromptsTokens } from '../utils/tokenUtils';
 import { getSelectedFilesContent, getContentWithXmlPrompt } from '../utils/contentFormatter';
@@ -81,6 +82,14 @@ const useAppState = () => {
   const promptState = usePromptState();
   const modalState = useModalState();
   const docState = useDocState();
+  // Rename fileTree to _ to indicate it's intentionally unused
+  const { fileTree: _ } = useFileTree({
+    allFiles,
+    selectedFolder,
+    expandedNodes,
+    searchTerm,
+    fileTreeSortOrder: localStorage.getItem(STORAGE_KEYS.FILE_TREE_SORT_ORDER) || 'default'
+  });
 
   // Update instructions token count when user instructions change
   const [userInstructions, setUserInstructions] = useState('');
@@ -171,9 +180,64 @@ const useAppState = () => {
     );
   }, [isElectron, selectedFolder, exclusionPatterns, fileSelection.clearSelectedFiles]);
 
+  // Save workspace function
+  const saveWorkspace = (name: string) => {
+    const workspace: WorkspaceState = {
+      fileTreeState: expandedNodes, // From useAppState
+      selectedFiles: fileSelection.selectedFiles, // From useFileSelectionState
+      userInstructions: userInstructions, // From useAppState
+      tokenCounts: fileSelection.selectedFiles.reduce((acc, file) => {
+        acc[file.path] = file.tokenCount || 0;
+        return acc;
+      }, {} as { [filePath: string]: number }), // Calculated from selectedFiles
+      customPrompts: {
+        systemPrompts: promptState.selectedSystemPrompts, // From usePromptState
+        rolePrompts: promptState.selectedRolePrompts // From usePromptState
+      }
+    };
+    const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}') as Record<string, string>;
+    workspaces[name] = JSON.stringify(workspace);
+    localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+  };
+
+  // Load workspace function
+  const loadWorkspace = (name: string) => {
+    const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}') as Record<string, string>;
+    if (!workspaces[name]) {
+      console.error(`Workspace "${name}" not found`);
+      return;
+    }
+    
+    try {
+      const workspace: WorkspaceState = JSON.parse(workspaces[name]) as WorkspaceState;
+      
+      // Validate file existence
+      const validFiles = workspace.selectedFiles.filter((file) => {
+        const exists = allFiles.some((f: FileData) => f.path === file.path);
+        if (!exists) console.warn(`File ${file.path} no longer exists`);
+        return exists;
+      });
+      
+      // Apply workspace state with fallbacks for missing properties
+      setExpandedNodes(workspace.fileTreeState || {});
+      fileSelection.setSelectedFiles(validFiles);
+      setUserInstructions(workspace.userInstructions || '');
+      
+      // Handle potentially missing custom prompts
+      promptState.setPrompts({
+        systemPrompts: workspace.customPrompts?.systemPrompts || [],
+        rolePrompts: workspace.customPrompts?.rolePrompts || []
+      });
+      
+      console.log(`Workspace "${name}" loaded successfully`);
+    } catch (error) {
+      console.error(`Error loading workspace "${name}":`, error);
+    }
+  };
+
   // Toggle expand/collapse state changes
   const toggleExpanded = useCallback((nodeId: string) => {
-    setExpandedNodes((prev) => {
+    setExpandedNodes((prev: Record<string, boolean>) => {
       const currentState = prev[nodeId];
       const newValue = currentState === undefined ? false : !currentState;
       
@@ -412,7 +476,11 @@ const useAppState = () => {
     
     // Content formatting
     getFormattedContent,
-    getFormattedContentWithXml
+    getFormattedContentWithXml,
+    
+    // Workspace management
+    saveWorkspace,
+    loadWorkspace
   };
 };
 

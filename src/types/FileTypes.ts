@@ -55,6 +55,7 @@ export interface SidebarProps {
   toggleFilterModal?: () => void;
   refreshFileTree?: () => void;
   onViewFile?: (filePath: string) => void; // New prop
+  toggleWorkspaceModal?: () => void; // New prop for workspace modal
   processingStatus?: {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
@@ -199,4 +200,16 @@ export interface DocsModalProps {
   onSelectDoc: (doc: Doc) => void;
   selectedDocs: Doc[];
   toggleDocSelection: (doc: Doc) => void;
+}
+
+// Workspace state interface for saving application state
+export interface WorkspaceState {
+  fileTreeState: Record<string, boolean>;
+  selectedFiles: SelectedFileWithLines[];
+  userInstructions: string;
+  tokenCounts: { [filePath: string]: number };
+  customPrompts: {
+    systemPrompts: SystemPrompt[];
+    rolePrompts: RolePrompt[];
+  };
 }

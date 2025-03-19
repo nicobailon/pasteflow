@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   FILE_TREE_MODE: "pasteflow-file-tree-mode",
   SYSTEM_PROMPTS: "pasteflow-system-prompts",
   ROLE_PROMPTS: "pasteflow-role-prompts",
+  WORKSPACES: "pasteflow-workspaces",
 };
 
 // Sort options for the dropdown

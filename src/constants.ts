@@ -8,7 +8,8 @@ export const STORAGE_KEYS = {
   FILE_TREE_MODE: 'pasteflow.file_tree_mode',
   SYSTEM_PROMPTS: 'pasteflow.system_prompts',
   ROLE_PROMPTS: 'pasteflow.role_prompts',
-  DOCS: 'pasteflow.docs'
+  DOCS: 'pasteflow.docs',
+  WORKSPACES: 'pasteflow.workspaces'
 };
 
 export const SORT_OPTIONS = [
@@ -18,4 +19,4 @@ export const SORT_OPTIONS = [
   { value: "tokens-desc", label: "Tokens (Highest First)" },
   { value: "size-asc", label: "Size (Smallest First)" },
   { value: "size-desc", label: "Size (Largest First)" }
-]; 
+];

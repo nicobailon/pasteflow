@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { FileData, SelectedFileWithLines, LineRange } from '../types/FileTypes';
 import useLocalStorage from './useLocalStorage';
 import { STORAGE_KEYS } from '../constants';
@@ -183,6 +183,14 @@ const useFileSelectionState = (allFiles: FileData[]) => {
     setSelectedFiles([]);
   }, [setSelectedFiles]);
 
+  // Get current selection state for workspaces
+  const getSelectionState = () => selectedFiles;
+
+  // Set selection state from workspace
+  const setSelectionState = (state: SelectedFileWithLines[]) => {
+    setSelectedFiles(state);
+  };
+
   return {
     selectedFiles,
     setSelectedFiles,
@@ -193,7 +201,9 @@ const useFileSelectionState = (allFiles: FileData[]) => {
     toggleFolderSelection,
     selectAllFiles,
     deselectAllFiles,
-    clearSelectedFiles
+    clearSelectedFiles,
+    getSelectionState,
+    setSelectionState
   };
 };
 

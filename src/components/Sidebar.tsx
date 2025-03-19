@@ -3,12 +3,8 @@ import { SidebarProps, TreeNode } from "../types/FileTypes";
 import useFileTree from "../hooks/useFileTree";
 import SearchBar from "./SearchBar";
 import TreeItem from "./TreeItem";
+import WorkspaceModal from "./WorkspaceModal";
 import { Folder, ChevronDown, ChevronUp, X, FolderOpen, Filter, RefreshCw } from "lucide-react";
-
-// Storage keys for local storage
-const STORAGE_KEYS = {
-  EXPANDED_NODES: "pasteflow_expanded_nodes",
-};
 
 // Custom type for resize events
 type ResizeMouseEvent = {
@@ -36,6 +32,8 @@ const Sidebar = ({
   onViewFile,
   processingStatus,
 }: SidebarProps) => {
+  // State for workspace modal
+  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
@@ -377,6 +375,10 @@ const Sidebar = ({
         <button onClick={openFolder} className="sidebar-button" title="Open Folder">
           <FolderOpen size={16} />
         </button>
+        <button onClick={() => setIsWorkspaceModalOpen(true)} className="sidebar-button" title="Workspaces">
+          <Folder size={16} />
+          <span>Workspaces</span>
+        </button>
       </div>
       <div className="sidebar-search">
         <SearchBar
@@ -474,6 +476,11 @@ const Sidebar = ({
         onMouseDown={handleResizeStart}
         title="Drag to resize sidebar"
       ></div>
+
+      <WorkspaceModal
+        isOpen={isWorkspaceModalOpen}
+        onClose={() => setIsWorkspaceModalOpen(false)}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { ThemeProvider } from "./context/ThemeContext";
 import Sidebar from "./components/Sidebar";
 import AppHeader from "./components/AppHeader";
@@ -12,11 +12,17 @@ import RolePromptsModal from "./components/RolePromptsModal";
 import FileViewModal from "./components/FileViewModal";
 import DocsModal from "./components/DocsModal";
 import useAppState from "./hooks/useAppState";
-import { SORT_OPTIONS } from "./constants";
+// Import but don't use directly - will be used in future implementation
+// of workspace features
+import useWorkspaceState from "./hooks/useWorkspaceState";
+import { SORT_OPTIONS } from "./constants.ts";
 
 const App = () => {
   // Use our main app state hook
   const appState = useAppState();
+  // Commented out until fully implemented in UI
+  // const workspaceState = useWorkspaceState();
+  // const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
 
   // Process error state
   if (appState.processingStatus.status === "error") {
@@ -83,6 +89,7 @@ const App = () => {
             refreshFileTree={appState.handleRefreshFileTree}
             onViewFile={appState.openFileViewModal}
             processingStatus={appState.processingStatus}
+            toggleWorkspaceModal={() => {}} // Will be implemented with workspace feature
           />
           
           <ContentArea 
