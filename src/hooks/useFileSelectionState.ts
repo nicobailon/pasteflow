@@ -183,6 +183,14 @@ const useFileSelectionState = (allFiles: FileData[]) => {
     setSelectedFiles([]);
   }, [setSelectedFiles]);
 
+  // Get the current selection state for workspace saving
+  const getSelectionState = () => selectedFiles;
+
+  // Set the selection state from a workspace
+  const setSelectionState = (state: SelectedFileWithLines[]) => {
+    setSelectedFiles(state);
+  };
+
   return {
     selectedFiles,
     setSelectedFiles,
@@ -193,7 +201,9 @@ const useFileSelectionState = (allFiles: FileData[]) => {
     toggleFolderSelection,
     selectAllFiles,
     deselectAllFiles,
-    clearSelectedFiles
+    clearSelectedFiles,
+    getSelectionState,
+    setSelectionState
   };
 };
 

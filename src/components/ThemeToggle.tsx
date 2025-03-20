@@ -1,12 +1,12 @@
 import React from "react";
 import { useTheme } from "../context/ThemeContext";
-import { Sun, Moon, Monitor } from "lucide-react";
+import { Sun, Moon } from "lucide-react";
 
 const ThemeToggle = (): JSX.Element => {
   const { theme, setTheme } = useTheme();
   
   return (
-    <div className="theme-segmented-control">
+    <div className="theme-segmented-control dark-mode-toggle-container">
       <button
         className={`theme-segment ${theme === "light" ? "active" : ""}`}
         onClick={() => setTheme("light")}

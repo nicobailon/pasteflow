@@ -1,3 +1,6 @@
+/* Import color variables */
+@import './colors.css';
+
 /* Radix UI Dialog Styles */
 
 /* Dialog Overlay - background overlay */
@@ -14,10 +17,10 @@
 /* Dialog Content - the modal container */
 .modal-content {
   position: relative;
-  background-color: #fff;
+  background-color: var(--background-primary);
   border-radius: 8px;
   padding: 0;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-color);
   max-width: 90%;
   width: 1000px;
   max-height: 90vh;
@@ -35,7 +38,7 @@
   display: flex;
   flex-direction: column;
   height: 90vh;
-  background-color: #f5f5f5;
+  background-color: var(--background-primary);
 }
 
 /* Apply changes modal */
@@ -61,7 +64,7 @@
   border-radius: 8px;
   padding: 0;
   margin: auto;
-  background-color: #fff;
+  background-color: var(--background-primary);
   overflow: hidden;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
@@ -72,14 +75,15 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid #e0e0e0;
-  background-color: #f5f5f5;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--background-secondary);
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .close-button {
@@ -88,15 +92,15 @@
   padding: 4px;
   cursor: pointer;
   border-radius: 4px;
-  color: #666;
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .close-button:hover {
-  background-color: rgba(0, 0, 0, 0.05);
-  color: #333;
+  background-color: var(--hover-color);
+  color: var(--text-primary);
 }
 
 /* Modal Body */
@@ -104,6 +108,7 @@
   padding: 16px;
   overflow-y: auto;
   flex: 1;
+  background-color: var(--background-primary);
 }
 
 /* Notes app layout - used by prompts and docs modals */
@@ -118,14 +123,16 @@
 .notes-app-layout .sidebar {
   width: 280px;
   overflow-y: auto;
-  border-right: 1px solid #e0e0e0;
+  border-right: 1px solid var(--border-color);
   padding: 12px;
+  background-color: var(--background-secondary);
 }
 
 .notes-app-layout .content-area {
   flex: 1;
   padding: 16px;
   overflow-y: auto;
+  background-color: var(--background-primary);
 }
 
 /* Modal Footer */
@@ -134,8 +141,8 @@
   justify-content: flex-end;
   gap: 12px;
   padding: 12px 16px;
-  border-top: 1px solid #e0e0e0;
-  background-color: #f5f5f5;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--background-secondary);
 }
 
 /* Buttons */
@@ -149,30 +156,31 @@
 }
 
 .apply-button {
-  background-color: #0366d6;
-  color: white;
+  background-color: var(--primary-button-background);
+  color: var(--primary-button-text);
 }
 
 .apply-button:hover {
-  background-color: #0256b5;
+  background-color: var(--accent-blue);
 }
 
 .apply-button:disabled {
-  background-color: #ccc;
+  background-color: var(--text-disabled);
   cursor: not-allowed;
 }
 
 .cancel-button {
-  background-color: #f0f0f0;
-  color: #333;
+  background-color: var(--background-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .cancel-button:hover {
-  background-color: #e0e0e0;
+  background-color: var(--hover-color);
 }
 
 .cancel-button:disabled {
-  color: #999;
+  color: var(--text-disabled);
   cursor: not-allowed;
 }
 

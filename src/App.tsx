@@ -11,12 +11,16 @@ import SystemPromptsModal from "./components/SystemPromptsModal";
 import RolePromptsModal from "./components/RolePromptsModal";
 import FileViewModal from "./components/FileViewModal";
 import DocsModal from "./components/DocsModal";
+import WorkspaceModal from "./components/WorkspaceModal";
 import useAppState from "./hooks/useAppState";
+import { useWorkspaceState } from "./hooks/useWorkspaceState";
 import { SORT_OPTIONS } from "./constants";
 
 const App = () => {
   // Use our main app state hook
   const appState = useAppState();
+  const workspaceState = useWorkspaceState();
+  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = React.useState(false);
 
   // Process error state
   if (appState.processingStatus.status === "error") {
@@ -48,6 +52,8 @@ const App = () => {
           fileTreeMode={appState.fileTreeMode}
           setFileTreeMode={appState.setFileTreeMode}
           tokenCounts={appState.fileTreeTokenCounts()}
+          toggleWorkspaceModal={() => setIsWorkspaceModalOpen(true)}
+          currentWorkspace={appState.currentWorkspace}
         />
 
         {/* Processing indicator overlay */}
@@ -181,6 +187,11 @@ const App = () => {
           onSelectDoc={appState.toggleDocSelection}
           selectedDocs={appState.selectedDocs}
           toggleDocSelection={appState.toggleDocSelection}
+        />
+        
+        <WorkspaceModal
+          isOpen={isWorkspaceModalOpen}
+          onClose={() => setIsWorkspaceModalOpen(false)}
         />
       </div>
     </ThemeProvider>

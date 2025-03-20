@@ -131,7 +131,7 @@ export function ApplyChangesModal({
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal-content apply-changes-modal">
+        <Dialog.Content className="modal-content notes-app-layout">
           <div className="modal-header">
             <Dialog.Title asChild>
               <h2>Apply XML Changes</h2>
@@ -142,14 +142,15 @@ export function ApplyChangesModal({
           </div>
           
           <div className="modal-body">
-            <p className="modal-description">
-              Paste XML to apply file changes to the selected folder:
-              <br />
-              <strong>{selectedFolder}</strong>
-            </p>
+            <div className="xml-editor-container">
+              <p className="modal-description">
+                Paste XML to apply file changes to the selected folder:
+                <br />
+                <strong>{selectedFolder}</strong>
+              </p>
 
-            <textarea
-                className="xml-input"
+              <textarea
+                className="prompt-content-input xml-input"
                 value={xml}
                 onChange={(e) => setXml(e.target.value)}
                 placeholder={placeholderText}
@@ -157,19 +158,20 @@ export function ApplyChangesModal({
                 disabled={isProcessing}
               />
 
-            <p>
-              <a href="#" className="documentation-link" onClick={(e) => {
-                e.preventDefault();
-                window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
-              }}>View full documentation</a>
-            </p>
-            
-            {status && (
-              <div className={`status-message ${status.startsWith("Error") ? "error" : status.startsWith("Success") ? "success" : ""}`}
-                   style={{ whiteSpace: "pre-line" }}>
-                {status}
-              </div>
-            )}
+              <p>
+                <a href="#" className="documentation-link" onClick={(e) => {
+                  e.preventDefault();
+                  window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
+                }}>View full documentation</a>
+              </p>
+              
+              {status && (
+                <div className={`status-message ${status.startsWith("Error") ? "error" : status.startsWith("Success") ? "success" : ""}`}
+                    style={{ whiteSpace: "pre-line" }}>
+                  {status}
+                </div>
+              )}
+            </div>
           </div>
           
           <div className="modal-footer">

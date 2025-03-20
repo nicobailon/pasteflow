@@ -1,0 +1,55 @@
+:root {
+  --background-primary: #e6e6e6;
+  --background-secondary: #dedede;
+  --background-selected: rgba(0,0,0,0.08);
+  --accent-blue: #0E639C;
+  --border-color: #c0c0c0;
+  --hover-color: #d3d3d3;
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --text-disabled: #aaaaaa;
+  --icon-color: #555555;
+  --success-color: #1e8449;
+  --warning-color: #f39c12;
+  --error-color: #e74c3c;
+  --primary-button-background: #6d6d6d;
+  --primary-button-text: #ffffff;
+  --file-card-selected-border: #808080;
+  --checkbox-border: #808080;
+  --checkbox-background: transparent;
+  --icon-stroke-color: #808080;
+  --icon-hover-stroke-color: #666666;
+  --scrollbar-track: #cecece;
+  --scrollbar-thumb: #aaaaaa;
+  --scrollbar-thumb-hover: #888888;
+  --option-selected-bg: #333333;
+  --option-selected-text: #ffffff;
+}
+
+.dark-mode {
+  --background-primary: #1E1E1E;
+  --background-secondary: #252526;
+  --background-selected: #2A2D2E;
+  --accent-blue: #0E639C;
+  --border-color: #3E3E42;
+  --hover-color: #333333;
+  --text-primary: #E8E8E8;
+  --text-secondary: #BBBBBB;
+  --text-disabled: #808080;
+  --icon-color: #CCCCCC;
+  --success-color: #2ecc71;
+  --warning-color: #f39c12;
+  --error-color: #e74c3c;
+  --primary-button-background: #0E639C;
+  --primary-button-text: #ffffff;
+  --file-card-selected-border: #3E3E42;
+  --checkbox-border: #666666;
+  --checkbox-background: transparent;
+  --icon-stroke-color: #666666;
+  --icon-hover-stroke-color: #808080;
+  --scrollbar-track: #1E1E1E;
+  --scrollbar-thumb: #3E3E42;
+  --scrollbar-thumb-hover: #505050;
+  --option-selected-bg: #dedede;
+  --option-selected-text: #333333;
+} 

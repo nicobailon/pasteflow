@@ -63,9 +63,9 @@ const useAppState = () => {
   );
 
   // Non-persistent state
-  const [allFiles, setAllFiles] = useState<FileData[]>([]);
-  const [displayedFiles, setDisplayedFiles] = useState<FileData[]>([]);
-  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  const [allFiles, setAllFiles] = useState([]);
+  const [displayedFiles, setDisplayedFiles] = useState([]);
+  const [expandedNodes, setExpandedNodes] = useState({});
   const [appInitialized, setAppInitialized] = useState(false);
   const [processingStatus, setProcessingStatus] = useState({
     status: "idle" as "idle" | "processing" | "complete" | "error",
@@ -75,6 +75,10 @@ const useAppState = () => {
     total: 0
   });
   const [isLoadingCancellable, setIsLoadingCancellable] = useState(false);
+  const [currentWorkspace, setCurrentWorkspace] = useState(() => {
+    // Initialize with the last loaded workspace if it exists
+    return localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE) || null;
+  });
 
   // Integration with specialized hooks
   const fileSelection = useFileSelectionState(allFiles);
@@ -173,7 +177,7 @@ const useAppState = () => {
 
   // Toggle expand/collapse state changes
   const toggleExpanded = useCallback((nodeId: string) => {
-    setExpandedNodes((prev) => {
+    setExpandedNodes((prev: Record<string, boolean>) => {
       const currentState = prev[nodeId];
       const newValue = currentState === undefined ? false : !currentState;
       
@@ -275,7 +279,8 @@ const useAppState = () => {
               status: "processing",
               message: "Loading files from previously selected folder...",
               processed: 0,
-              directories: 0
+              directories: 0,
+              total: 0
             });
             
             // Clear any previously selected files when loading initial data
@@ -293,7 +298,10 @@ const useAppState = () => {
             console.error("Error loading saved folder:", error);
             setProcessingStatus({
               status: "error",
-              message: `Error loading saved folder: ${error instanceof Error ? error.message : "Unknown error"}`
+              message: `Error loading saved folder: ${error instanceof Error ? error.message : "Unknown error"}`,
+              processed: 0,
+              directories: 0,
+              total: 0
             });
           }
         }, 1000); // 1-second delay
@@ -304,7 +312,7 @@ const useAppState = () => {
       // If we already loaded data in this session, mark as initialized
       setAppInitialized(true);
     }
-  }, [isElectron, selectedFolder, exclusionPatterns, fileSelection.clearSelectedFiles]);
+  }, [isElectron, selectedFolder, exclusionPatterns, fileSelection, setSelectedFolder]);
 
   // Set up Electron event handlers
   useEffect(() => {
@@ -338,7 +346,8 @@ const useAppState = () => {
     sortOrder,
     searchTerm,
     fileSelection.clearSelectedFiles,
-    handleFiltersAndSort
+    handleFiltersAndSort,
+    setSelectedFolder
   ]);
 
   // Set up viewFile event listener
@@ -356,7 +365,7 @@ const useAppState = () => {
     return () => {
       window.removeEventListener('viewFile', handleViewFileEvent as EventListener);
     };
-  }, [modalState.openFileViewModal]);
+  }, [modalState]);
 
   const saveWorkspace = (name: string) => {
     const workspace: WorkspaceState = {
@@ -375,6 +384,9 @@ const useAppState = () => {
     const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
     workspaces[name] = JSON.stringify(workspace);
     localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+    
+    // After saving, immediately load the workspace to set it as current
+    loadWorkspace(name);
   };
 
   const loadWorkspace = (name: string) => {
@@ -385,11 +397,22 @@ const useAppState = () => {
     }
     const workspace: WorkspaceState = JSON.parse(workspaces[name]);
     
+    // Set current workspace name and store in localStorage
+    setCurrentWorkspace(name);
+    localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, name);
+    
+    // Validate that selected files exist in the current workspace
+    const validFiles = workspace.selectedFiles.filter((file) => {
+      const exists = allFiles.some((f: FileData) => f.path === file.path);
+      if (!exists) console.warn(`File ${file.path} no longer exists`);
+      return exists;
+    });
+    
     // Restore file tree state
     setExpandedNodes(workspace.fileTreeState || {});
     
-    // Restore selected files
-    fileSelection.setSelectedFiles(workspace.selectedFiles);
+    // Restore selected files (only valid ones)
+    fileSelection.setSelectedFiles(validFiles);
     
     // Restore user instructions
     setUserInstructions(workspace.userInstructions || '');
@@ -450,6 +473,7 @@ const useAppState = () => {
     exclusionPatterns,
     setExclusionPatterns,
     isLoadingCancellable,
+    currentWorkspace,
     
     // UI state
     sortDropdownOpen,
