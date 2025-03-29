@@ -347,7 +347,11 @@ const useAppState = () => {
     searchTerm,
     fileSelection.clearSelectedFiles,
     handleFiltersAndSort,
-    setSelectedFolder
+    setSelectedFolder,
+    setAllFiles, 
+    setProcessingStatus, 
+    setIsLoadingCancellable, 
+    setAppInitialized
   ]);
 
   // Set up viewFile event listener
@@ -368,6 +372,8 @@ const useAppState = () => {
   }, [modalState]);
 
   const saveWorkspace = (name: string) => {
+    console.log("saveWorkspace function called with name:", name);
+    
     const workspace: WorkspaceState = {
       fileTreeState: expandedNodes,
       selectedFiles: fileSelection.selectedFiles,
@@ -381,13 +387,72 @@ const useAppState = () => {
         rolePrompts: promptState.selectedRolePrompts
       }
     };
+    
+    console.log("Workspace object created:", {
+      hasFileTreeState: Object.keys(workspace.fileTreeState || {}).length > 0,
+      selectedFilesCount: workspace.selectedFiles.length,
+      userInstructionsLength: workspace.userInstructions.length,
+      instructionsPreview: workspace.userInstructions.substring(0, 50) + (workspace.userInstructions.length > 50 ? "..." : ""),
+    });
+    
     const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
+    console.log("Existing workspaces object:", { workspaceNames: Object.keys(workspaces) });
+    
     workspaces[name] = JSON.stringify(workspace);
     localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+    console.log("Workspace saved to localStorage");
     
-    // After saving, immediately load the workspace to set it as current
-    loadWorkspace(name);
+    // After saving, immediately set it as current
+    setCurrentWorkspace(name);
+    localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, name);
+    console.log("Current workspace set to:", name);
+    
+    // Verify the save by reading it back
+    try {
+      const savedWorkspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
+      const savedWorkspace = JSON.parse(savedWorkspaces[name] || 'null');
+      console.log("Verification - Workspace read back:", {
+        exists: !!savedWorkspace,
+        userInstructionsMatch: savedWorkspace?.userInstructions === workspace.userInstructions,
+        selectedFilesCountMatch: savedWorkspace?.selectedFiles?.length === workspace.selectedFiles.length
+      });
+    } catch (error) {
+      console.error("Error verifying saved workspace:", error);
+    }
   };
+
+  const saveCurrentWorkspace = useCallback(() => {
+    console.log("saveCurrentWorkspace called", { currentWorkspace });
+    
+    if (!currentWorkspace) {
+      console.warn("No current workspace selected, cannot save.");
+      return;
+    }
+
+    // Log all data that will be saved
+    console.log("About to save workspace data:", {
+      workspaceName: currentWorkspace,
+      fileTreeState: expandedNodes,
+      selectedFiles: fileSelection.selectedFiles,
+      userInstructions: userInstructions,
+      numOfSelectedFiles: fileSelection.selectedFiles.length,
+      hasSystemPrompts: promptState.selectedSystemPrompts.length > 0,
+      hasRolePrompts: promptState.selectedRolePrompts.length > 0
+    });
+
+    // Reuse the existing saveWorkspace function with the current workspace name
+    saveWorkspace(currentWorkspace);
+    
+    console.log("Workspace saved successfully");
+  }, [
+    currentWorkspace, 
+    expandedNodes, 
+    fileSelection.selectedFiles, 
+    userInstructions, 
+    promptState.selectedSystemPrompts, 
+    promptState.selectedRolePrompts,
+    saveWorkspace
+  ]);
 
   const loadWorkspace = (name: string) => {
     const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
@@ -401,6 +466,10 @@ const useAppState = () => {
     setCurrentWorkspace(name);
     localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, name);
     
+    applyWorkspaceData(workspace);
+  };
+  
+  const applyWorkspaceData = useCallback((workspace: WorkspaceState) => {
     // Validate that selected files exist in the current workspace
     const validFiles = workspace.selectedFiles.filter((file) => {
       const exists = allFiles.some((f: FileData) => f.path === file.path);
@@ -455,7 +524,29 @@ const useAppState = () => {
         }
       });
     }
-  };
+  }, [
+    allFiles,
+    setExpandedNodes,
+    fileSelection,
+    setUserInstructions,
+    promptState
+  ]);
+  
+  // Listen for workspace loaded events
+  useEffect(() => {
+    const handleWorkspaceLoaded = (event: CustomEvent) => {
+      if (event.detail && event.detail.workspace) {
+        setCurrentWorkspace(event.detail.name);
+        applyWorkspaceData(event.detail.workspace);
+      }
+    };
+    
+    window.addEventListener('workspaceLoaded', handleWorkspaceLoaded as EventListener);
+    
+    return () => {
+      window.removeEventListener('workspaceLoaded', handleWorkspaceLoaded as EventListener);
+    };
+  }, [allFiles, promptState.systemPrompts, promptState.rolePrompts, applyWorkspaceData]);
 
   return {
     // Core state
@@ -516,7 +607,8 @@ const useAppState = () => {
     
     // Workspace management
     saveWorkspace,
-    loadWorkspace
+    loadWorkspace,
+    saveCurrentWorkspace
   };
 };
 

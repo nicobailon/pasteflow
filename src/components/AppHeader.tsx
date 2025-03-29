@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, Save, ChevronDown } from 'lucide-react';
+import { Archive, Folder, Save, ChevronDown } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import FileTreeToggle from './FileTreeToggle';
 import WorkspaceModal from './WorkspaceModal';
@@ -14,6 +14,7 @@ interface AppHeaderProps {
   tokenCounts: Record<FileTreeMode, number>;
   toggleWorkspaceModal?: () => void;
   currentWorkspace?: string | null;
+  saveCurrentWorkspace?: () => void;
 }
 
 const AppHeader = ({
@@ -22,7 +23,8 @@ const AppHeader = ({
   setFileTreeMode,
   tokenCounts,
   toggleWorkspaceModal,
-  currentWorkspace
+  currentWorkspace,
+  saveCurrentWorkspace
 }: AppHeaderProps): JSX.Element => {
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -30,14 +32,10 @@ const AppHeader = ({
   const [workspaceNames, setWorkspaceNames] = useState([] as string[]);
   
   useEffect(() => {
-    setWorkspaceNames(getWorkspaceNames());
-  }, [getWorkspaceNames, isWorkspaceModalOpen]);
-  
-  useEffect(() => {
-    if (isDropdownOpen) {
+    if (isWorkspaceModalOpen || isDropdownOpen) {
       setWorkspaceNames(getWorkspaceNames());
     }
-  }, [isDropdownOpen, getWorkspaceNames]);
+  }, [isWorkspaceModalOpen, isDropdownOpen, getWorkspaceNames]);
   
   const handleWorkspaceToggle = () => {
     setIsDropdownOpen(false);
@@ -53,7 +51,10 @@ const AppHeader = ({
   };
   
   const handleWorkspaceSelect = (name: string) => {
-    loadWorkspace(name);
+    const workspace = loadWorkspace(name);
+    if (workspace && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name, workspace } }));
+    }
     setIsDropdownOpen(false);
   };
   
@@ -108,8 +109,18 @@ const AppHeader = ({
           className="workspace-button"
           title="Manage Workspaces"
         >
-          <Save size={18} />
+          <Archive size={18} />
         </button>
+        {saveCurrentWorkspace && (
+          <button 
+            onClick={saveCurrentWorkspace} 
+            className="workspace-button"
+            title={currentWorkspace ? `Save Current Workspace (${currentWorkspace})` : "Save Current Workspace (No workspace loaded)"}
+            disabled={!currentWorkspace}
+          >
+            <Save size={18} />
+          </button>
+        )}
         <ThemeToggle />
       </div>
       {!toggleWorkspaceModal && (

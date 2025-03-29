@@ -13,13 +13,11 @@ import FileViewModal from "./components/FileViewModal";
 import DocsModal from "./components/DocsModal";
 import WorkspaceModal from "./components/WorkspaceModal";
 import useAppState from "./hooks/useAppState";
-import { useWorkspaceState } from "./hooks/useWorkspaceState";
 import { SORT_OPTIONS } from "./constants";
 
 const App = () => {
   // Use our main app state hook
   const appState = useAppState();
-  const workspaceState = useWorkspaceState();
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = React.useState(false);
 
   // Process error state
@@ -54,6 +52,7 @@ const App = () => {
           tokenCounts={appState.fileTreeTokenCounts()}
           toggleWorkspaceModal={() => setIsWorkspaceModalOpen(true)}
           currentWorkspace={appState.currentWorkspace}
+          saveCurrentWorkspace={appState.saveCurrentWorkspace}
         />
 
         {/* Processing indicator overlay */}

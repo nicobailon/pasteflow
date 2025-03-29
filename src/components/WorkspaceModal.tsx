@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useWorkspaceState } from '../hooks/useWorkspaceState';
+import useAppState from '../hooks/useAppState';
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 
@@ -10,6 +11,7 @@ interface WorkspaceModalProps {
 
 const WorkspaceModal = ({ isOpen, onClose }: WorkspaceModalProps): JSX.Element => {
   const { saveWorkspace, loadWorkspace, deleteWorkspace, getWorkspaceNames } = useWorkspaceState();
+  const appState = useAppState();
   const [name, setName] = useState('');
   const [workspaceNames, setWorkspaceNames] = useState([]);
   
@@ -21,23 +23,37 @@ const WorkspaceModal = ({ isOpen, onClose }: WorkspaceModalProps): JSX.Element =
   }, [isOpen, getWorkspaceNames]);
 
   const handleSave = () => {
-    if (workspaceNames.includes(name)) {
-      if (window.confirm(`Workspace "${name}" exists. Overwrite?`)) {
-        saveWorkspace(name);
-        setName('');
-        // Refresh workspace list after saving
-        setWorkspaceNames(getWorkspaceNames());
-        // Close the modal after saving
-        onClose();
+    // Create workspace object from current appState
+    const workspace = {
+      fileTreeState: appState.expandedNodes,
+      selectedFiles: appState.selectedFiles,
+      userInstructions: appState.userInstructions,
+      tokenCounts: appState.selectedFiles.reduce((acc, file) => {
+        acc[file.path] = file.tokenCount || 0;
+        return acc;
+      }, {} as { [filePath: string]: number }),
+      customPrompts: {
+        systemPrompts: appState.selectedSystemPrompts,
+        rolePrompts: appState.selectedRolePrompts
       }
-    } else {
-      saveWorkspace(name);
-      setName('');
-      // Refresh workspace list after saving
-      setWorkspaceNames(getWorkspaceNames());
-      // Close the modal after saving
-      onClose();
+    };
+    
+    // Check if workspace already exists
+    if (workspaceNames.includes(name)) {
+      if (!window.confirm(`Workspace "${name}" exists. Overwrite?`)) {
+        return; // User cancelled the overwrite
+      }
     }
+    
+    // Save workspace
+    saveWorkspace(name, workspace);
+    setName('');
+    
+    // Refresh workspace list after saving
+    setWorkspaceNames(getWorkspaceNames());
+    
+    // Close the modal after saving
+    onClose();
   };
   
   const handleDelete = (wsName: string) => {
@@ -49,7 +65,11 @@ const WorkspaceModal = ({ isOpen, onClose }: WorkspaceModalProps): JSX.Element =
   };
 
   const handleLoad = (wsName: string) => {
-    loadWorkspace(wsName);
+    const workspace = loadWorkspace(wsName);
+    if (workspace) {
+      // Dispatch event for useAppState to handle
+      window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name: wsName, workspace } }));
+    }
     // Close the modal after loading
     onClose();
   };
