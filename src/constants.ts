@@ -8,7 +8,9 @@ export const STORAGE_KEYS = {
   FILE_TREE_MODE: 'pasteflow.file_tree_mode',
   SYSTEM_PROMPTS: 'pasteflow.system_prompts',
   ROLE_PROMPTS: 'pasteflow.role_prompts',
-  DOCS: 'pasteflow.docs'
+  DOCS: 'pasteflow.docs',
+  WORKSPACES: 'pasteflow.workspaces',
+  CURRENT_WORKSPACE: 'pasteflow.current_workspace'
 };
 
 export const SORT_OPTIONS = [

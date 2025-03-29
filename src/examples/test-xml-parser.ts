@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { parseXmlChanges, validateXmlChanges, generateChangesSummary } from '../utils/xmlParser';
+import { parseXmlChanges, validateXmlChanges, generateChangesSummary } from '../utils/xml-parser';
 
 /**
  * This script demonstrates how to use the XML parser to parse and validate XML changes.

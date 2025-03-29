@@ -1,5 +1,5 @@
 import React from "react";
-import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeProvider } from "./context/theme-context";
 import Sidebar from "./components/sidebar";
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
@@ -12,7 +12,7 @@ import RolePromptsModal from "./components/role-prompts-modal";
 import FileViewModal from "./components/file-view-modal";
 import DocsModal from "./components/docs-modal";
 import WorkspaceModal from "./components/workspace-modal";
-import useAppState from "./hooks/useAppState";
+import useAppState from "./hooks/use-app-state";
 import { SORT_OPTIONS } from "./constants";
 
 const App = () => {

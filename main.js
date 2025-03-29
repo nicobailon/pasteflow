@@ -3,8 +3,8 @@ const fs = require("fs");
 const path = require("path");
 
 // Import XML utilities
-const { parseXmlString, applyFileChanges, prepareXmlWithCdata } = require("./src/main/xmlUtils");
-const { xmlFormatInstructions } = require('./src/main/xmlFormatInstructions');
+const { parseXmlString, applyFileChanges, prepareXmlWithCdata } = require("./src/main/xml-utils");
+const { xmlFormatInstructions } = require('./src/main/xml-format-instructions');
 
 // Add handling for the 'ignore' module
 let ignore;
