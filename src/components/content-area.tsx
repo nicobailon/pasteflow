@@ -1,8 +1,8 @@
 import React from 'react';
 import { Check, ChevronDown, Settings, User, FileText } from 'lucide-react';
-import FileList from './FileList';
-import CopyButton from './CopyButton';
-import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt } from '../types/FileTypes';
+import FileList from './file-list';
+import CopyButton from './copy-button';
+import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt } from '../types/file-types';
 
 interface ContentAreaProps {
   selectedFiles: SelectedFileWithLines[];

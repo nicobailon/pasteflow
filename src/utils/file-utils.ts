@@ -1,4 +1,4 @@
-import { basename } from './pathUtils';
+import { basename } from './path-utils';
 
 /**
  * Function to reset the app to its blank starting state

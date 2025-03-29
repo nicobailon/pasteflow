@@ -1,5 +1,5 @@
 import { STORAGE_KEYS } from '../constants';
-import { WorkspaceState } from '../types/FileTypes';
+import { WorkspaceState } from '../types/file-types';
 import { useCallback } from 'react';
 
 export const useWorkspaceState = () => {

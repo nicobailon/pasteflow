@@ -459,7 +459,7 @@ const DeepNesting = () => (
     
     test('should reject empty XML input', async () => {
       await expect(parseXmlString('')).rejects.toThrow(/Empty or null XML input/);
-      // @ts-ignore - testing null input handling, even though TS doesn't allow it
+      // @ts-expect-error - testing null input handling, even though TS doesn't allow it
       await expect(parseXmlString(null)).rejects.toThrow(/Empty or null XML input/);
       await expect(parseXmlString('   ')).rejects.toThrow(/Empty or null XML input/);
     });

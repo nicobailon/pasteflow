@@ -1,20 +1,20 @@
 import React from "react";
-import { SystemPrompt } from "../types/FileTypes";
-import { X, Settings, MessageSquareCode } from "lucide-react";
-import CopyButton from "./CopyButton";
+import { Doc } from "../types/file-types";
+import { X, FileText } from "lucide-react";
+import CopyButton from "./copy-button";
 
-interface SystemPromptCardProps {
-  prompt: SystemPrompt;
-  toggleSelection: (prompt: SystemPrompt) => void;
+interface DocCardProps {
+  doc: Doc;
+  toggleSelection: (doc: Doc) => void;
 }
 
-const SystemPromptCard = ({
-  prompt,
+const DocCard = ({
+  doc,
   toggleSelection
-}: SystemPromptCardProps) => {
-  const { title, content } = prompt;
+}: DocCardProps) => {
+  const { title, content } = doc;
   
-  // Estimate token count for the prompt (simple calculation)
+  // Estimate token count for the doc (simple calculation)
   const estimateTokenCount = (text: string) => {
     return Math.ceil(text.length / 4);
   };
@@ -22,15 +22,15 @@ const SystemPromptCard = ({
   const tokenCount = estimateTokenCount(content);
 
   return (
-    <div className="file-card system-prompt-card">
+    <div className="file-card doc-card">
       <div className="file-card-header">
         <div className="file-card-icon">
-          <MessageSquareCode size={16} />
+          <FileText size={16} />
         </div>
         <div className="file-card-name monospace">{title}</div>
       </div>
-      <div className="file-card-line-badge system-prompt-badge">
-        System Prompt
+      <div className="file-card-line-badge doc-badge">
+        Documentation
       </div>
       <div className="file-card-info">
         <div className="file-card-tokens">~{tokenCount.toLocaleString()} tokens</div>
@@ -42,7 +42,7 @@ const SystemPromptCard = ({
         </CopyButton>
         <button
           className="file-card-action remove-selection-btn"
-          onClick={() => toggleSelection(prompt)}
+          onClick={() => toggleSelection(doc)}
           title="Remove from selection"
         >
           <X size={16} />
@@ -52,4 +52,4 @@ const SystemPromptCard = ({
   );
 };
 
-export default SystemPromptCard; 
+export default DocCard; 

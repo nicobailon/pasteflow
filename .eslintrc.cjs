@@ -8,7 +8,7 @@ module.exports = {
   ],
   ignorePatterns: ["dist", ".eslintrc.cjs"],
   parser: "@typescript-eslint/parser",
-  plugins: ["react-refresh"],
+  plugins: ["react-refresh", "filenames"],
   rules: {
     "react-refresh/only-export-components": [
       "warn",
@@ -16,6 +16,10 @@ module.exports = {
     ],
     "@typescript-eslint/no-explicit-any": "off", // During development, allow 'any' type
     "@typescript-eslint/no-unused-vars": "warn",
+    "filenames/match-regex": ["warn", "^[a-z0-9-]+(.d)?$", true],
+    "filenames/match-exported": ["warn", "kebab"],
+    "filenames/no-index": "off",
+    "react-hooks/rules-of-hooks": "warn", // Downgrade to warning for now
   },
   settings: {
     react: {

@@ -1,5 +1,5 @@
-import { FileData } from '../types/FileTypes';
-import { requestFileList } from './electronHandlers';
+import { FileData } from '../types/file-types';
+import { requestFileList } from './electron-handlers';
 
 /**
  * Applies filters and sorting to files

@@ -1,4 +1,4 @@
-import { FileData } from '../types/FileTypes';
+import { FileData } from '../types/file-types';
 
 // Type for processing status
 export interface ProcessingStatus {

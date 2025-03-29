@@ -9,8 +9,8 @@ declare global {
   interface Window {
     isBinaryFile: (path: string) => boolean;
   }
-  var isBinaryFile: (path: string) => boolean;
-  var fileLoadingCancelled: boolean;
+  let isBinaryFile: (path: string) => boolean;
+  let fileLoadingCancelled: boolean;
 }
 
 // In Jest, we can use the expect.fail() approach

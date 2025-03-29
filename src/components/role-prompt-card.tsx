@@ -1,7 +1,7 @@
 import React from "react";
-import { RolePrompt } from "../types/FileTypes";
+import { RolePrompt } from "../types/file-types";
 import { X, User } from "lucide-react";
-import CopyButton from "./CopyButton";
+import CopyButton from "./copy-button";
 
 interface RolePromptCardProps {
   prompt: RolePrompt;

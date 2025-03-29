@@ -1,7 +1,7 @@
 import React from "react";
-import { FileCardProps, LineRange } from "../types/FileTypes";
+import { FileCardProps, LineRange } from "../types/file-types";
 import { Plus, X, FileText, Eye } from "lucide-react";
-import CopyButton from "./CopyButton";
+import CopyButton from "./copy-button";
 
 const FileCard = ({
   file,

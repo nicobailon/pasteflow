@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Archive, Folder, Save, ChevronDown } from 'lucide-react';
-import ThemeToggle from './ThemeToggle';
-import FileTreeToggle from './FileTreeToggle';
-import WorkspaceModal from './WorkspaceModal';
-import { FileTreeMode } from '../types/FileTypes';
-import { getFolderNameFromPath } from '../utils/fileUtils';
-import { useWorkspaceState } from '../hooks/useWorkspaceState';
+import ThemeToggle from './theme-toggle';
+import FileTreeToggle from './file-tree-toggle';
+import WorkspaceModal from './workspace-modal';
+import { FileTreeMode } from '../types/file-types';
+import { getFolderNameFromPath } from '../utils/file-utils';
+import { useWorkspaceState } from '../hooks/use-workspace-state';
 
 interface AppHeaderProps {
   selectedFolder: string | null;

@@ -1,20 +1,20 @@
 import React from "react";
-import { Doc } from "../types/FileTypes";
-import { X, FileText } from "lucide-react";
-import CopyButton from "./CopyButton";
+import { SystemPrompt } from "../types/file-types";
+import { X, Settings, MessageSquareCode } from "lucide-react";
+import CopyButton from "./copy-button";
 
-interface DocCardProps {
-  doc: Doc;
-  toggleSelection: (doc: Doc) => void;
+interface SystemPromptCardProps {
+  prompt: SystemPrompt;
+  toggleSelection: (prompt: SystemPrompt) => void;
 }
 
-const DocCard = ({
-  doc,
+const SystemPromptCard = ({
+  prompt,
   toggleSelection
-}: DocCardProps) => {
-  const { title, content } = doc;
+}: SystemPromptCardProps) => {
+  const { title, content } = prompt;
   
-  // Estimate token count for the doc (simple calculation)
+  // Estimate token count for the prompt (simple calculation)
   const estimateTokenCount = (text: string) => {
     return Math.ceil(text.length / 4);
   };
@@ -22,15 +22,15 @@ const DocCard = ({
   const tokenCount = estimateTokenCount(content);
 
   return (
-    <div className="file-card doc-card">
+    <div className="file-card system-prompt-card">
       <div className="file-card-header">
         <div className="file-card-icon">
-          <FileText size={16} />
+          <MessageSquareCode size={16} />
         </div>
         <div className="file-card-name monospace">{title}</div>
       </div>
-      <div className="file-card-line-badge doc-badge">
-        Documentation
+      <div className="file-card-line-badge system-prompt-badge">
+        System Prompt
       </div>
       <div className="file-card-info">
         <div className="file-card-tokens">~{tokenCount.toLocaleString()} tokens</div>
@@ -42,7 +42,7 @@ const DocCard = ({
         </CopyButton>
         <button
           className="file-card-action remove-selection-btn"
-          onClick={() => toggleSelection(doc)}
+          onClick={() => toggleSelection(prompt)}
           title="Remove from selection"
         >
           <X size={16} />
@@ -52,4 +52,4 @@ const DocCard = ({
   );
 };
 
-export default DocCard; 
+export default SystemPromptCard; 

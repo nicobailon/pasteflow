@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { FileViewModalProps, LineRange, FileData } from '../types/FileTypes';
-import { useTheme } from '../context/ThemeContext';
-import { Check, Trash, CheckSquare, Square, X } from 'lucide-react';
+import { FileViewModalProps, LineRange, FileData } from '../types/file-types';
+import { useTheme } from '../context/theme-context';
+import { Trash, CheckSquare, Square, X } from 'lucide-react';
 
 // Map file extensions to language identifiers for syntax highlighting
 const getLanguageFromPath = (filePath: string): string => {
@@ -62,28 +62,28 @@ const FileViewModal = ({
   onUpdateSelectedFile,
 }: FileViewModalProps): JSX.Element => {
   const { currentTheme } = useTheme();
-  // @ts-ignore - Typed useState hooks are flagged in strict mode
+  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [file, setFile] = useState<FileData | null>(null);
-  // @ts-ignore - Typed useState hooks are flagged in strict mode
+  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [selectedLines, setSelectedLines] = useState<LineRange[]>([]);
-  // @ts-ignore - Typed useState hooks are flagged in strict mode
+  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [initialSelection, setInitialSelection] = useState<LineRange[]>([]);
-  // @ts-ignore - Typed useState hooks are flagged in strict mode
+  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [selectionMode, setSelectionMode] = useState<'entire'|'specific'>('entire');
   const [isSelectionActive, setIsSelectionActive] = useState(false);
   const [shiftKeyPressed, setShiftKeyPressed] = useState(false);
-  // @ts-ignore - Typed useState hooks are flagged in strict mode
+  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [lastSelectedLine, setLastSelectedLine] = useState<number | null>(null);
-  // @ts-ignore - Typed useRef hook is flagged in strict mode
+  // @ts-expect-error - Typed useRef hook is flagged in strict mode
   const containerRef = useRef<HTMLDivElement>(null);
   // Track total token count
   const [totalTokenCount, setTotalTokenCount] = useState(0);
   
   // Track mouse state for drag selection
   const [isDragging, setIsDragging] = useState(false);
-  // @ts-ignore - Typed useState hooks are flagged in strict mode
+  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [dragStartLine, setDragStartLine] = useState<number | null>(null);
-  // @ts-ignore - Typed useState hooks are flagged in strict mode
+  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [dragCurrentLine, setDragCurrentLine] = useState<number | null>(null);
   
   // Find the file in allFiles when filePath changes
@@ -865,7 +865,7 @@ const FileViewModal = ({
               <div 
                 className="syntax-highlighter-wrapper"
               >
-                {/* @ts-ignore - SyntaxHighlighter props typing issue */}
+                {/* @ts-expect-error - SyntaxHighlighter props typing issue */}
                 <SyntaxHighlighter
                   language={getLanguageFromPath(file.path)}
                   style={currentTheme === 'dark' ? oneDark : oneLight}

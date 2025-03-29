@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import useLocalStorage from './useLocalStorage';
-import useFileSelectionState from './useFileSelectionState';
-import usePromptState from './usePromptState';
-import useDocState from './useDocState';
-import useModalState from './useModalState';
-import { FileData, FileTreeMode, WorkspaceState } from '../types/FileTypes';
+import useLocalStorage from './use-local-storage';
+import useFileSelectionState from './use-file-selection-state';
+import usePromptState from './use-prompt-state';
+import useDocState from './use-doc-state';
+import useModalState from './use-modal-state';
+import { FileData, FileTreeMode, WorkspaceState } from '../types/file-types';
 import { STORAGE_KEYS } from '../constants';
-import { estimateTokenCount, calculateFileTreeTokens, getFileTreeModeTokens, calculateSystemPromptsTokens, calculateRolePromptsTokens } from '../utils/tokenUtils';
-import { getSelectedFilesContent, getContentWithXmlPrompt } from '../utils/contentFormatter';
-import { applyFiltersAndSort, refreshFileTree } from '../handlers/filterHandlers';
-import { setupElectronHandlers, openFolderDialog, cancelFileLoading } from '../handlers/electronHandlers';
-import { resetFolderState } from '../utils/fileUtils';
-import { XML_FORMATTING_INSTRUCTIONS } from '../utils/xmlTemplates';
+import { estimateTokenCount, calculateFileTreeTokens, getFileTreeModeTokens, calculateSystemPromptsTokens, calculateRolePromptsTokens } from '../utils/token-utils';
+import { getSelectedFilesContent, getContentWithXmlPrompt } from '../utils/content-formatter';
+import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
+import { setupElectronHandlers, openFolderDialog, cancelFileLoading } from '../handlers/electron-handlers';
+import { resetFolderState } from '../utils/file-utils';
+import { XML_FORMATTING_INSTRUCTIONS } from '../utils/xml-templates';
 
 /**
  * Main application state hook

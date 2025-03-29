@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { FileData, TreeNode } from '../types/FileTypes';
-import { normalizePath } from '../utils/pathUtils';
+import { FileData, TreeNode } from '../types/file-types';
+import { normalizePath } from '../utils/path-utils';
 
 interface UseFileTreeProps {
   allFiles: FileData[];

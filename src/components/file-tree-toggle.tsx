@@ -1,5 +1,5 @@
 import React from "react";
-import { FileTreeMode } from "../types/FileTypes";
+import { FileTreeMode } from "../types/file-types";
 
 interface FileTreeToggleProps {
   currentMode: FileTreeMode;

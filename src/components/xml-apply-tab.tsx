@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { XmlApplyTabProps, FileChange } from "../types/FileTypes";
+import { XmlApplyTabProps, FileChange } from "../types/file-types";
 // @ts-expect-error - Module is imported from main process and TypeScript can't resolve it
-import { parseXmlString, formatOutputWithXmlInstructions } from "../main/xmlUtils";
+import { parseXmlString, formatOutputWithXmlInstructions } from "../main/xml-utils";
 
 // XML instructions template
 const DEFAULT_XML_INSTRUCTIONS = `### Role

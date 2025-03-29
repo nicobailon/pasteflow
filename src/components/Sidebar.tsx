@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { SidebarProps, TreeNode } from "../types/FileTypes";
-import useFileTree from "../hooks/useFileTree";
-import SearchBar from "./SearchBar";
-import TreeItem from "./TreeItem";
+import { SidebarProps, TreeNode } from "../types/file-types";
+import useFileTree from "../hooks/use-file-tree";
+import SearchBar from "./search-bar";
+import TreeItem from "./tree-item";
 import { Folder, ChevronDown, ChevronUp, X, FolderOpen, Filter, RefreshCw } from "lucide-react";
 
 // Custom type for resize events

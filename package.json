@@ -22,6 +22,9 @@
     "release": "vite build && electron-builder --publish=onTagOrDraft",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "lint:strict": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint:filenames": "eslint . --ext ts,tsx --rule \"filenames/match-regex: error\" --rule \"filenames/match-exported: error\" --rule \"filenames/no-index: off\"",
+    "rename:check": "node scripts/rename-to-kebab-case.js --dry-run",
+    "rename:files": "node scripts/rename-to-kebab-case.js",
     "preview": "vite preview",
     "test": "jest",
     "test:watch": "jest --watch"
@@ -104,6 +107,7 @@
     "electron": "^34.3.0",
     "electron-builder": "^24.13.3",
     "eslint": "^8.55.0",
+    "eslint-plugin-filenames": "^1.3.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
     "identity-obj-proxy": "^3.0.0",

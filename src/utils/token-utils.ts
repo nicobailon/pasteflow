@@ -1,5 +1,5 @@
-import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt, FileTreeMode } from "../types/FileTypes";
-import { generateAsciiFileTree, getAllDirectories, normalizePath } from "./pathUtils";
+import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt, FileTreeMode } from "../types/file-types";
+import { generateAsciiFileTree, getAllDirectories, normalizePath } from "./path-utils";
 
 /**
  * Estimates token count for a given text.

@@ -138,7 +138,7 @@ jest.mock('lucide-react', () => ({
 }));
 
 // Provide a basic implementation of the ThemeProvider context
-jest.mock('../context/ThemeContext', () => ({
+jest.mock('../context/theme-context', () => ({
   ThemeProvider: ({ children }: { children: any }) => (
     <div data-testid="theme-provider-mock">{children}</div>
   ),

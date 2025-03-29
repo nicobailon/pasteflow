@@ -11,7 +11,7 @@ const TreeItem = ({
   onViewFile
 }: TreeItemProps) => {
   const { id, name, path, type, level, isExpanded, fileData } = node;
-  // @ts-ignore - Typed useRef hook is flagged in strict mode
+  // @ts-expect-error - Typed useRef hook is flagged in strict mode
   const checkboxRef = React.useRef<HTMLInputElement>(null);
 
   // Find the selected file (if any) for this node

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useWorkspaceState } from '../hooks/useWorkspaceState';
-import useAppState from '../hooks/useAppState';
+import { useWorkspaceState } from '../hooks/use-workspace-state';
+import useAppState from '../hooks/use-app-state';
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 

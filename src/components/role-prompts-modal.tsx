@@ -1,31 +1,31 @@
 import React, { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { SystemPrompt, SystemPromptsModalProps } from "../types/FileTypes";
-import { Plus, Trash, Pencil, CirclePlus, Clipboard, Check, X } from "lucide-react";
+import { RolePrompt, RolePromptsModalProps } from "../types/file-types";
+import { Plus, Trash, Pencil, CirclePlus, Clipboard, Check, X, User } from "lucide-react";
 
 /**
- * SystemPromptsModal component - Provides a modal dialog for managing system prompts
+ * RolePromptsModal component - Provides a modal dialog for managing role prompts
  * with the ability to add, edit, delete, and select prompts
  */
-const SystemPromptsModal = ({
+const RolePromptsModal = ({
   isOpen,
   onClose,
-  systemPrompts,
+  rolePrompts,
   onAddPrompt,
   onDeletePrompt,
   onUpdatePrompt,
   onSelectPrompt,
-  selectedSystemPrompts = [],
-  toggleSystemPromptSelection,
-}: SystemPromptsModalProps): JSX.Element => {
-  const [editingPrompt, setEditingPrompt] = useState(null as SystemPrompt | null);
+  selectedRolePrompts = [],
+  toggleRolePromptSelection,
+}: RolePromptsModalProps): JSX.Element => {
+  const [editingPrompt, setEditingPrompt] = useState(null as RolePrompt | null);
   const [newPromptTitle, setNewPromptTitle] = useState("");
   const [newPromptContent, setNewPromptContent] = useState("");
 
   const handleAddPrompt = () => {
     if (!newPromptTitle || !newPromptContent) return;
     
-    const newPrompt: SystemPrompt = {
+    const newPrompt: RolePrompt = {
       id: Date.now().toString(),
       title: newPromptTitle,
       content: newPromptContent
@@ -44,7 +44,7 @@ const SystemPromptsModal = ({
     setEditingPrompt(null);
   };
 
-  const startEdit = (prompt: SystemPrompt) => {
+  const startEdit = (prompt: RolePrompt) => {
     setEditingPrompt({ ...prompt });
   };
 
@@ -53,18 +53,18 @@ const SystemPromptsModal = ({
   };
 
   // Check if a prompt is currently selected
-  const isPromptSelected = (prompt: SystemPrompt) => {
-    return selectedSystemPrompts.some(p => p.id === prompt.id);
+  const isPromptSelected = (prompt: RolePrompt) => {
+    return selectedRolePrompts.some(p => p.id === prompt.id);
   };
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal-content system-prompts-modal notes-app-layout">
+        <Dialog.Content className="modal-content role-prompts-modal notes-app-layout">
           <div className="modal-header">
             <Dialog.Title asChild>
-              <h2>System Prompts</h2>
+              <h2>Role Prompts</h2>
             </Dialog.Title>
             <Dialog.Close asChild>
               <button className="close-button"><X size={16} /></button>
@@ -72,16 +72,16 @@ const SystemPromptsModal = ({
           </div>
           
           <div className="modal-body">
-            <div className="sidebar system-prompts-list">
-              {systemPrompts.length === 0 ? (
+            <div className="sidebar role-prompts-list">
+              {rolePrompts.length === 0 ? (
                 <div className="no-prompts-message">
-                  No system prompts yet. Add one to get started.
+                  No role prompts yet. Add one to get started.
                 </div>
               ) : (
-                systemPrompts.map((prompt) => (
+                rolePrompts.map((prompt) => (
                   <div 
                     key={prompt.id} 
-                    className={`system-prompt-item ${isPromptSelected(prompt) ? 'selected' : ''}`}
+                    className={`role-prompt-item ${isPromptSelected(prompt) ? 'selected' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       startEdit(prompt);
@@ -100,7 +100,7 @@ const SystemPromptsModal = ({
                         className={`prompt-action-button toggle-selection-button ${isPromptSelected(prompt) ? 'selected' : ''}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          toggleSystemPromptSelection(prompt);
+                          toggleRolePromptSelection(prompt);
                         }}
                         title={isPromptSelected(prompt) ? "Remove from selection" : "Add to selection"}
                       >
@@ -126,10 +126,10 @@ const SystemPromptsModal = ({
               )}
             </div>
             
-            <div className="content-area system-prompt-editor">
+            <div className="content-area role-prompt-editor">
               {editingPrompt ? (
                 <div className="edit-prompt-form">
-                  <h3>Edit System Prompt</h3>
+                  <h3>Edit Role Prompt</h3>
                   <input
                     type="text"
                     className="prompt-title-input"
@@ -166,7 +166,7 @@ const SystemPromptsModal = ({
               ) : (
                 <div className="add-prompt-form">
                   <div className="prompt-add-action">
-                    <h3>Add New System Prompt</h3>
+                    <h3>Add New Role Prompt</h3>
                     <button 
                       className="apply-button add-prompt-button"
                       onClick={handleAddPrompt}
@@ -200,4 +200,4 @@ const SystemPromptsModal = ({
   );
 };
 
-export default SystemPromptsModal; 
+export default RolePromptsModal;

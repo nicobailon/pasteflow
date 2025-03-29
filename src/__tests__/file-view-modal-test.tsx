@@ -37,7 +37,7 @@ jest.mock('@radix-ui/react-dialog', () => {
 });
 
 // Mock the ThemeContext
-jest.mock('../context/ThemeContext', () => ({
+jest.mock('../context/theme-context', () => ({
   useTheme: () => ({ currentTheme: 'light' }),
 }));
 

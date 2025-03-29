@@ -1,8 +1,8 @@
 import React from "react";
-import { FileListProps, FileData, SelectedFileWithLines, LineRange, SystemPrompt, RolePrompt } from "../types/FileTypes";
-import FileCard from "./FileCard";
-import SystemPromptCard from "./SystemPromptCard";
-import RolePromptCard from "./RolePromptCard";
+import { FileListProps, FileData, SelectedFileWithLines, LineRange, SystemPrompt, RolePrompt } from "../types/file-types";
+import FileCard from "./file-card";
+import SystemPromptCard from "./system-prompt-card";
+import RolePromptCard from "./role-prompt-card";
 import { FolderOpen } from "lucide-react";
 
 // Interface for expanded file card display

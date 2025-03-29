@@ -1,5 +1,5 @@
-import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt, FileTreeMode } from "../types/FileTypes";
-import { generateAsciiFileTree, getAllDirectories, normalizePath, getRelativePath, extname } from "./pathUtils";
+import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt, FileTreeMode } from "../types/file-types";
+import { generateAsciiFileTree, getAllDirectories, normalizePath, getRelativePath, extname } from "./path-utils";
 
 /**
  * Generates a formatted string containing all selected files' contents without user instructions.

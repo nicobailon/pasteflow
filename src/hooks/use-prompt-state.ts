@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import { SystemPrompt, RolePrompt } from '../types/FileTypes';
-import useLocalStorage from './useLocalStorage';
+import { SystemPrompt, RolePrompt } from '../types/file-types';
+import useLocalStorage from './use-local-storage';
 import { STORAGE_KEYS } from '../constants';
 
 /**
