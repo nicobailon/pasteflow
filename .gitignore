@@ -63,5 +63,6 @@ dist/
 # test coverage
 coverage/
 
-# cursor tasks
+# cursor / cline
 .cursor-tasks.md
+memory-bank/

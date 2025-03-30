@@ -1,4 +1,4 @@
-import { parseXmlString } from '../main/xmlUtils';
+import { parseXmlString } from '../main/xml-utils';
 
 describe('Multi-Language XML Parser Support', () => {
   test('should parse Swift code with string interpolation', async () => {

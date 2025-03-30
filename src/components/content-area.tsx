@@ -3,6 +3,7 @@ import { Check, ChevronDown, FileText, Settings, User } from 'lucide-react';
 import { FileData, RolePrompt, SelectedFileWithLines, SystemPrompt } from '../types/file-types';
 
 import CopyButton from './copy-button';
+import Dropdown from './dropdown';
 import FileList from './file-list';
 
 interface ContentAreaProps {
@@ -76,38 +77,21 @@ const ContentArea = ({
       <div className="selected-files-content-area">
         <div className="selected-files-content-header">
           <div className="content-actions">
-            <div className="sort-dropdown sort-dropdown-selected-files">
-              <button
-                className="sort-dropdown-button"
-                onClick={toggleSortDropdown}
-              >
-                <ChevronDown size={16} /> Sort
-              </button>
-              {sortDropdownOpen && (
-                <div className="sort-options">
-                  {sortOptions.map((option: { value: string; label: string }) => (
-                    <div
-                      key={option.value}
-                      className={`sort-option ${
-                        sortOrder === option.value ? "active" : ""
-                      }`}
-                      onClick={() => handleSortChange(option.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          handleSortChange(option.value);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      {option.label}
-                      {sortOrder === option.value && <span className="checkmark">✓</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <Dropdown
+              options={sortOptions.map(option => ({
+                value: option.value,
+                label: option.label
+              }))}
+              value={sortOrder}
+              onChange={handleSortChange}
+              buttonLabel="Sort"
+              buttonIcon={<ChevronDown size={16} />}
+              containerClassName="sort-dropdown sort-dropdown-selected-files"
+              buttonClassName="sort-dropdown-button"
+              menuClassName="sort-options"
+              itemClassName="sort-option"
+              activeItemClassName="active"
+            />
             <div className="file-stats">
               {selectedFiles.length} files | ~
               {calculateTotalTokens().toLocaleString()} tokens

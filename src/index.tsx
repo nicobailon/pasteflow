@@ -10,7 +10,6 @@ import ProcessingIndicator from "./components/processing-indicator";
 import RolePromptsModal from "./components/role-prompts-modal";
 import Sidebar from "./components/sidebar";
 import SystemPromptsModal from "./components/system-prompts-modal";
-import WelcomeScreen from "./components/welcome-screen";
 import WorkspaceModal from "./components/workspace-modal";
 import { SORT_OPTIONS } from "./constants";
 import { ThemeProvider } from "./context/theme-context";
@@ -32,16 +31,10 @@ const App = () => {
     );
   }
 
-  // Show welcome screen if app not initialized or no folder selected
-  if (!appState.appInitialized || !appState.selectedFolder) {
-    return (
-      <ThemeProvider>
-        <div className="app-container">
-          <WelcomeScreen openFolder={appState.openFolder} />
-        </div>
-      </ThemeProvider>
-    );
-  }
+  // If the app isn't initialized or no folder is selected, render nothing or a minimal loading state.
+  // For now, we'll just let it proceed to the main return block, which might need adjustment
+  // depending on how the components handle the lack of a selected folder.
+  // Consider adding a loading indicator or a prompt to select a folder here if needed.
 
   return (
     <ThemeProvider>
@@ -54,6 +47,7 @@ const App = () => {
           toggleWorkspaceModal={() => setIsWorkspaceModalOpen(true)}
           currentWorkspace={appState.currentWorkspace}
           saveCurrentWorkspace={appState.saveCurrentWorkspace}
+          headerSaveState={appState.headerSaveState} // Pass the new state down
         />
 
         {/* Processing indicator overlay */}

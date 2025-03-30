@@ -56,6 +56,13 @@ button {
   color: var(--text-primary);
 }
 
+/* Ensure icon-only buttons maintain size */
+.workspace-button {
+  width: 2rem; /* Match height */
+  padding: 0; /* Remove padding if only icon */
+  gap: 0; /* Remove gap if only icon */
+}
+
 button:hover {
   background-color: var(--hover-color);
 }
@@ -1187,6 +1194,7 @@ input[type="search"]:focus {
   display: flex;
   justify-content: center;
   align-items: center;
+  gap: 1rem;
 }
 
 .welcome-button {
@@ -1340,6 +1348,9 @@ input[type="text"].search-input:focus {
   width: 0.625rem;
   height: 100%;
   cursor: col-resize;
+  padding: 0;
+  border: 0;
+  width: 6px;
   z-index: 10;
   opacity: 0;
 }
@@ -2498,7 +2509,8 @@ input[type="text"].search-input:focus {
   color: var(--text-secondary);
   transition: color 0.2s;
   padding: 0.25rem 0.375rem;
-  border-radius: 0.25rem;
+  border-radius: 0.375rem;
+  font-size: 0.6875rem;
 }
 
 .dropdown-header:hover {
@@ -2539,4 +2551,265 @@ input[type="text"].search-input:focus {
 .dropdown-item.active {
   background-color: var(--hover-color);
   font-weight: 500;
-} 
+}
+
+/* Sort dropdown and other dropdowns styling */
+.dropdown-container {
+  position: relative;
+}
+
+.dropdown-button {
+  display: flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  text-align: left;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.375rem;
+  background: none;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.dropdown-button svg {
+  stroke: var(--icon-stroke-color);
+  fill: var(--background-primary);
+  stroke-width: 0.09375rem;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background-color: var(--background-primary);
+  border-radius: 0.375rem;
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 10rem;
+  border: 0.0625rem solid var(--border-color);
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  text-align: left;
+  padding: 0.5rem 1rem;
+  background: none;
+  border: none;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.dropdown-item:hover {
+  background-color: var(--hover-color);
+}
+
+.dropdown-item.active {
+  background-color: var(--option-selected-bg);
+  font-weight: 500;
+  color: var(--option-selected-text);
+}
+
+.dropdown-item span {
+  margin-right: 0.5rem;
+}
+
+.dropdown-item .checkmark {
+  margin-left: auto;
+  margin-right: 0;
+  color: var(--option-selected-text);
+}
+
+.dropdown-divider {
+  height: 0.0625rem;
+  margin: 0.5rem 0;
+  background-color: var(--border-color);
+}
+
+/* Legacy dropdown styles - keep for backward compatibility */
+.sort-dropdown-container {
+  width: 25%;
+  position: relative;
+}
+
+.sort-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background-color: var(--background-color);
+  border-radius: 0.375rem;
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+}
+
+.sort-dropdown-file-tree {
+  background-color: var(--background-primary);
+}
+
+.sort-dropdown-button {
+  display: flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  text-align: left;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.375rem;
+  background: none;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.sort-dropdown-button svg {
+  stroke: var(--icon-stroke-color);
+  fill: var(--background-primary);
+  stroke-width: 0.09375rem;
+}
+
+/* Apply sort-dropdown-button styles to all buttons in sort-dropdown-file-tree */
+.sort-dropdown-file-tree button {
+  display: flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  text-align: left;
+  padding: 0.5rem 1rem;
+  background: none;
+  border: none;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.sort-dropdown button span {
+  margin-right: 0.5rem;
+}
+
+.sort-dropdown button .checkmark {
+  margin-left: auto;
+  margin-right: 0;
+  color: var(--option-selected-text);
+}
+
+.sort-option {
+  display: flex;
+  font-size: 0.6875rem;
+  padding: 0.5rem 1rem;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  color: var(--text-primary);
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.sort-option:hover {
+  background-color: var(--hover-color);
+}
+
+.sort-option.active, 
+.active.sort-option {
+  background-color: var(--option-selected-bg);
+  font-weight: 600;
+  color: var(--option-selected-text);
+}
+
+/* Workspace dropdown styles - updated to match other dropdowns */
+.workspace-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.dropdown-header {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+  padding: 0.25rem 0.375rem;
+  border-radius: 0.375rem;
+  font-size: 0.6875rem;
+}
+
+.dropdown-header:hover {
+  color: var(--text-primary);
+  background-color: var(--hover-color);
+}
+
+/* Remove these specific workspace styles as they're now covered by .dropdown-menu and .dropdown-item */
+.workspace-dropdown .dropdown-menu {
+  min-width: 12rem;
+}
+
+/* Save Button Animation Styles */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Reverted Checkmark Animation */
+@keyframes checkmark-appear {
+  0% { transform: scale(0.5) rotate(-45deg); opacity: 0; }
+  50% { transform: scale(1.1) rotate(0deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+.save-button {
+  position: relative; /* Ensure positioning context for icons */
+  overflow: hidden; /* Hide elements outside the button bounds */
+  transition: background-color 0.2s ease, color 0.2s ease; /* Smooth transitions */
+}
+
+.save-button .button-text {
+  transition: opacity 0.15s ease-in-out;
+  display: inline-block; /* Ensure span takes space */
+}
+
+.save-button .button-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0; /* Icons start hidden */
+  /* transition: opacity 0.15s ease-in-out; REMOVED - rely on state classes */
+  color: var(--primary-button-text); /* Default icon color */
+}
+
+.save-button.save-saving .button-text,
+.save-button.save-success .button-text {
+  opacity: 0;
+}
+
+.save-button.save-saving .spin {
+  opacity: 1;
+  animation: spin 1s linear infinite;
+}
+
+.save-button.save-success {
+  background-color: var(--success-color); /* Override default bg */
+  border-color: var(--success-color); /* Match border */
+  border-style: solid; /* Re-apply border style */
+  border-width: 0.0625rem; /* Re-apply border width (assuming default button width) */
+}
+
+/* Style for the checkmark icon (if rendered) */
+.save-button.save-success .success-check {
+  opacity: 1;
+  animation: checkmark-appear 0.3s ease-out forwards;
+  color: var(--primary-button-text); /* Ensure checkmark is visible */
+}
+
+
+/* Ensure icon color matches button text color */
+.save-button .button-icon {
+  color: inherit; /* Inherit color from button */
+}
+
+/* Specific color for success checkmark if needed (usually white/light on green) */
+.save-button.save-success .success-check {
+   color: var(--primary-button-text); /* Use button text color for contrast */
+}

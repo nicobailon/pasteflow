@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import useFileTree from "../hooks/use-file-tree";
 import { SidebarProps, TreeNode } from "../types/file-types";
 
+import Dropdown, { DropdownOption } from './dropdown';
 import SearchBar from "./search-bar";
 import TreeItem from "./tree-item";
 
@@ -307,6 +308,17 @@ const Sidebar = ({
     onFileTreeSortChange('default');
   }, [refreshFileTree, deselectAllFiles, onFileTreeSortChange]);
 
+  // Define sort options for the dropdown
+  const sortOptions: DropdownOption[] = [
+    { value: 'default', label: 'Developer-Focused', icon: <span>↕</span> },
+    { value: 'name-asc', label: 'Name (A–Z)', icon: <span>↑</span> },
+    { value: 'name-desc', label: 'Name (Z–A)', icon: <span>↓</span> },
+    { value: 'extension-asc', label: 'Extension (A–Z)', icon: <span>↑</span> },
+    { value: 'extension-desc', label: 'Extension (Z–A)', icon: <span>↓</span> },
+    { value: 'date-desc', label: 'Date Modified (Newest)', icon: <span>↓</span> },
+    { value: 'date-asc', label: 'Date Modified (Oldest)', icon: <span>↑</span> },
+  ];
+
   // Button element rendering helper
   const getSortButtonClassName = (sortOption: string) => 
     currentSortOption === sortOption ? ACTIVE_SORT_OPTION : SORT_OPTION;
@@ -314,65 +326,16 @@ const Sidebar = ({
   return (
     <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
       <div className="sidebar-buttons">
-        <div className="sort-dropdown-container sort-dropdown-container-file-tree">
-          <button onClick={() => setSortDropdownOpen(!sortDropdownOpen)} className="sidebar-button sort-dropdown-button" title="Sort Files">
-            <ChevronDown size={16} />
-            <span>Sort</span>
-          </button>
-          {sortDropdownOpen && (
-            <div className="sort-dropdown sort-dropdown-file-tree">
-              <button 
-                onClick={() => handleFileTreeSortChange('default')}
-                className={getSortButtonClassName('default')}
-              >
-                <span>↕</span> Developer-Focused
-                {currentSortOption === 'default' && <span className="checkmark">✓</span>}
-              </button>
-              <button 
-                onClick={() => handleFileTreeSortChange('name-asc')}
-                className={getSortButtonClassName('name-asc')}
-              >
-                <span>↑</span> Name (A–Z)
-                {currentSortOption === 'name-asc' && <span className="checkmark">✓</span>}
-              </button>
-              <button 
-                onClick={() => handleFileTreeSortChange('name-desc')}
-                className={getSortButtonClassName('name-desc')}
-              >
-                <span>↓</span> Name (Z–A)
-                {currentSortOption === 'name-desc' && <span className="checkmark">✓</span>}
-              </button>
-              <button 
-                onClick={() => handleFileTreeSortChange('extension-asc')}
-                className={getSortButtonClassName('extension-asc')}
-              >
-                <span>↑</span> Extension (A–Z)
-                {currentSortOption === 'extension-asc' && <span className="checkmark">✓</span>}
-              </button>
-              <button 
-                onClick={() => handleFileTreeSortChange('extension-desc')}
-                className={getSortButtonClassName('extension-desc')}
-              >
-                <span>↓</span> Extension (Z–A)
-                {currentSortOption === 'extension-desc' && <span className="checkmark">✓</span>}
-              </button>
-              <button 
-                onClick={() => handleFileTreeSortChange('date-desc')}
-                className={getSortButtonClassName('date-desc')}
-              >
-                <span>↓</span> Date Modified (Newest)
-                {currentSortOption === 'date-desc' && <span className="checkmark">✓</span>}
-              </button>
-              <button 
-                onClick={() => handleFileTreeSortChange('date-asc')}
-                className={getSortButtonClassName('date-asc')}
-              >
-                <span>↑</span> Date Modified (Oldest)
-                {currentSortOption === 'date-asc' && <span className="checkmark">✓</span>}
-              </button>
-            </div>
-          )}
-        </div>
+        <Dropdown
+          options={sortOptions}
+          value={currentSortOption}
+          onChange={handleFileTreeSortChange}
+          buttonLabel="Sort"
+          buttonIcon={<ChevronDown size={16} />}
+          containerClassName="sort-dropdown-container sort-dropdown-container-file-tree"
+          buttonClassName="sidebar-button sort-dropdown-button"
+          menuClassName="sort-dropdown-file-tree"
+        />
         <button onClick={handleToggleFilterModal} className="sidebar-button filter-button" title="Filters">
           <Filter size={16} />
         </button>

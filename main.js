@@ -102,6 +102,7 @@ const BINARY_EXTENSIONS = new Set([
   // Others
   ".bin",
   ".dat",
+  ".lockb",
 ].concat(binaryExtensions || [])); // Add any additional binary extensions from excluded-files.js
 
 // Max file size to read (5MB)

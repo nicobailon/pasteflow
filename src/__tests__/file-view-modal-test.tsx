@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
-import { FileData, FileViewModalProps, SelectedFileWithLines } from '../types/FileTypes';
+import { FileData, FileViewModalProps, SelectedFileWithLines } from '../types/file-types';
 
 // Mock the Radix Dialog components
 jest.mock('@radix-ui/react-dialog', () => {
@@ -63,7 +63,7 @@ jest.mock('lucide-react', () => ({
 }));
 
 // Now import FileViewModal after mocking
-import FileViewModal from '../components/FileViewModal';
+import FileViewModal from '../components/file-view-modal';
 
 describe('FileViewModal Component', () => {
   // Test data

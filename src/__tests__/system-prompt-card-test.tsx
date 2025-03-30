@@ -2,7 +2,7 @@ import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
-import { SystemPrompt } from '../types/FileTypes';
+import { SystemPrompt } from '../types/file-types';
 
 // Mock CopyButton component
 jest.mock('../components/CopyButton', () => {
@@ -24,7 +24,7 @@ jest.mock('lucide-react', () => ({
 }));
 
 // Import after mocking dependencies
-import SystemPromptCard from '../components/SystemPromptCard';
+import SystemPromptCard from '../components/system-prompt-card';
 
 describe('SystemPromptCard Component', () => {
   // Test data

@@ -8,10 +8,10 @@ import * as path from 'node:path';
 
 // Mock fs/promises module first, before importing it
 jest.mock('fs/promises', () => ({
-  mkdir: jest.fn().mockResolvedValue(),
-  writeFile: jest.fn().mockResolvedValue(),
-  access: jest.fn().mockResolvedValue(),
-  rm: jest.fn().mockResolvedValue()
+  mkdir: jest.fn().mockResolvedValue(undefined),
+  writeFile: jest.fn().mockResolvedValue(undefined),
+  access: jest.fn().mockResolvedValue(undefined),
+  rm: jest.fn().mockResolvedValue(undefined)
 }));
 
 // Now import the mocked module
@@ -19,16 +19,26 @@ import * as fsPromises from 'node:fs/promises';
 
 // Import the actual functions from xmlUtils
 import {
-  prepareXmlWithCdata,
-  containsProblematicJsx,
   parseXmlString,
   applyFileChanges,
+  prepareXmlWithCdata,
+  containsProblematicJsx,
   findProblemArea,
   preprocessXml,
   wrapFileCodeInCData,
   FileOperation,
-  FileChange
-} from '../main/xmlUtils';
+  FileChange,
+  // Remove the non-existent imports:
+  // saveXmlToFile,
+  // getXmlOutputPath,
+  // convertChangesToXml,
+  // generateApplyScript,
+  // loadSavedXmlFiles,
+  // splitChangesIntoChunks,
+  // saveJsonToFile,
+  // loadAppliedChanges,
+  // MAX_CHANGES_PER_FILE
+} from '../main/xml-utils';
 
 // Cast the mocked module to the right type
 const mockedFsPromises = fsPromises as jest.Mocked<typeof fsPromises>;
@@ -272,6 +282,21 @@ const Button = () => (
       expect(result).not.toBe(problematicXml);
       expect(result.includes('<!-- Copy //')).toBe(true);
     });
+
+    // Test with invalid XML formats
+    test('preprocessXml should handle invalid XML content', () => {
+      // Valid, correctly formatted XML
+      expect(preprocessXml('<xml><file></file></xml>')).toBe('<xml><file></file></xml>');
+      
+      // Null check (removed @ts-expect-error since we're now checking explicitly)
+      expect(() => preprocessXml(null as unknown as string)).toThrow();
+      
+      // Empty string
+      expect(preprocessXml('')).toBe('');
+      
+      // Non-XML content
+      expect(preprocessXml('Not XML')).toBe('Not XML');
+    });
   });
 
   describe('prepareXmlWithCdata', () => {
@@ -460,8 +485,7 @@ const DeepNesting = () => (
     
     test('should reject empty XML input', async () => {
       await expect(parseXmlString('')).rejects.toThrow(/Empty or null XML input/);
-      // @ts-expect-error - testing null input handling, even though TS doesn't allow it
-      await expect(parseXmlString(null)).rejects.toThrow(/Empty or null XML input/);
+      await expect(parseXmlString(undefined as unknown as string)).rejects.toThrow(/Empty or null XML input/);
       await expect(parseXmlString('   ')).rejects.toThrow(/Empty or null XML input/);
     });
   });

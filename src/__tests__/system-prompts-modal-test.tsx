@@ -2,9 +2,9 @@ import React from 'react';
 import { render, fireEvent, screen, within } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
-import { SystemPrompt } from '../types/FileTypes';
+import { SystemPrompt } from '../types/file-types';
 
-import { mockDateNow } from './testHelpers';
+import { mockDateNow } from './test-helpers';
 
 // Mock the Radix Dialog components
 jest.mock('@radix-ui/react-dialog', () => {
@@ -44,7 +44,7 @@ jest.mock('lucide-react', () => ({
 }));
 
 // Now import SystemPromptsModal after mocking
-import SystemPromptsModal from '../components/SystemPromptsModal';
+import SystemPromptsModal from '../components/system-prompts-modal';
 
 describe('SystemPromptsModal Component', () => {
   // Test data

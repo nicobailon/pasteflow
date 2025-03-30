@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
-import { ApplyChangesModal } from '../components/ApplyChangesModal';
+import { ApplyChangesModal } from '../components/apply-changes-modal';
 
 import fs from 'node:fs';
 
