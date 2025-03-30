@@ -15,12 +15,12 @@ interface ApplyChangesResponse {
   error?: string;
   details?: string;
   updatedFiles?: string[];
-  failedFiles?: Array<{ path: string, reason: string }>;
+  failedFiles?: { path: string, reason: string }[];
   warningMessage?: string;
 }
 
 // Helper function to format failed files list - moved to outer scope
-const formatFailedFiles = (failedFiles?: Array<{ path: string, reason: string }>): string => {
+const formatFailedFiles = (failedFiles?: { path: string, reason: string }[]): string => {
   if (!failedFiles?.length) return "";
   
   let message = "\n\nFailed files:";

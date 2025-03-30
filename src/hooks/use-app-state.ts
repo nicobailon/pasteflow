@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Dispatch, SetStateAction, MutableRefObject } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, setupElectronHandlers } from '../handlers/electron-handlers';
@@ -439,18 +438,16 @@ const useAppState = () => {
     persistWorkspace
   ]);
 
-  // Define applyWorkspaceData first so it can be used by loadWorkspace
-  // This function now handles the logic for applying workspace data, potentially deferring parts if the folder changes.
+  // This function handles applying workspace data, with proper file selection management
   const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null, applyImmediately = false) => {
     if (!workspaceData || !workspaceName) {
       console.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
       setPendingWorkspaceData(null); // Clear any pending data if null is passed
-      // Should we reset currentWorkspace if null is passed explicitly? Maybe not here.
       return;
     }
     console.log(`[useAppState.applyWorkspaceData] Applying workspace "${workspaceName}" data (applyImmediately=${applyImmediately})...`);
 
-    // Access state via refs
+    // Access state via refs for consistency
     const currentAllFiles = allFilesRef.current;
     const currentSelectedFolder = selectedFolderRef.current;
     const currentProcessingStatus = processingStatusRef.current;
@@ -463,38 +460,40 @@ const useAppState = () => {
 
     console.log(`  - Workspace folder: "${workspaceFolder}", Current folder: "${currentSelectedFolder}", Folder changed: ${folderChanged}, Is processing: ${isProcessing}`);
 
-    // --- Folder Handling ---
+    // Always clear selected files first to avoid stale selections
+    console.log("  - Clearing existing file selections to prevent stale selections");
+    fileSelection.clearSelectedFiles();
+
     if (folderChanged && !isProcessing) {
       console.log(`  - Folder changed and not processing. Setting selectedFolder to "${workspaceFolder}".`);
-      setSelectedFolder(workspaceFolder); // Trigger folder load
-
-      // If setting to null, reset state immediately
+      
+      // Set the current workspace name immediately before folder change
+      console.log(`  - Setting current workspace name state to: "${workspaceName}"`);
+      setCurrentWorkspace(workspaceName);
+      
       if (workspaceFolder === null) {
         console.log("  - Workspace folder is null, resetting folder state immediately.");
         currentHandleResetFolderState();
         setPendingWorkspaceData(null); // No pending data needed if resetting
       } else {
         // Defer the rest of the workspace application
-        const { selectedFolder: _folder, ...restOfData } = workspaceData;
+        // Using destructuring but ignoring the selectedFolder property since we handle it separately
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { selectedFolder: _, ...restOfData } = workspaceData;
         console.log("  - Deferring application of remaining workspace data:", Object.keys(restOfData));
-        // Store the name along with the pending data if needed, though maybe not necessary as it's set below
-        setPendingWorkspaceData(restOfData); 
+        setPendingWorkspaceData(restOfData);
       }
-      // Set the current workspace name immediately even if folder is changing
-      console.log(`  - Setting current workspace name state to: "${workspaceName}"`);
-      setCurrentWorkspace(workspaceName); 
+      
+      setSelectedFolder(workspaceFolder);
       return; // Stop execution here, wait for file-list-updated
     } else if (folderChanged && isProcessing) {
       console.warn(`  - Folder changed but currently processing. Cannot change folder to "${workspaceFolder}". Aborting workspace load.`);
       setPendingWorkspaceData(null); // Clear any pending data
-      // Optionally alert the user or provide feedback
       return;
     }
 
-    // --- Apply Remaining Data (if folder didn't change or applyImmediately is true) ---
-    console.log("  - Applying remaining workspace data (or all data if folder didn't change).");
+    console.log("  - Applying workspace data (folder didn't change or applyImmediately=true).");
     
-    // Set current workspace name state directly
     console.log(`  - Setting current workspace name state to: "${workspaceName}"`);
     setCurrentWorkspace(workspaceName); 
     
@@ -503,58 +502,59 @@ const useAppState = () => {
     // Apply expanded nodes
     const fileTreeState = applyImmediately ? pendingWorkspaceData?.fileTreeState : workspaceData.fileTreeState;
     expandedNodes[1](fileTreeState || {});
-    console.log(`  - Applied ${Object.keys(fileTreeState || {}).length} expanded nodes.`);
     localStorage.setItem(STORAGE_KEYS.EXPANDED_NODES, JSON.stringify(fileTreeState || {}));
 
     // Apply selected files (filter against current file list)
     const selectedFilesToApply = applyImmediately ? pendingWorkspaceData?.selectedFiles : workspaceData.selectedFiles;
-    const validFiles = (selectedFilesToApply || []).filter((file: FileData) => { // Added FileData type
-      const exists = currentAllFiles.some((f: FileData) => f.path === file.path);
-      if (!exists) console.warn(`  - [applyWorkspaceData] File ${file.path} from workspace "${workspaceName}" no longer exists in current file list.`);
-      return exists;
-    });
-    fileSelection.setSelectedFiles(validFiles);
-    console.log(`  - Applied ${validFiles.length} valid selected files (out of ${selectedFilesToApply?.length || 0}).`);
+    
+    // Filter for valid files that exist in the current file list
+    const validFiles = (selectedFilesToApply || []).filter((file: FileData) => 
+      currentAllFiles.some((f: FileData) => f.path === file.path)
+    );
+    
+    console.log(`  - Found ${validFiles.length} valid files out of ${selectedFilesToApply?.length || 0} in workspace data`);
+    
+    // Apply the valid files to the selection
+    if (validFiles.length > 0) {
+      fileSelection.setSelectedFiles(validFiles);
+    }
 
     // Apply user instructions
     const instructionsToApply = applyImmediately ? pendingWorkspaceData?.userInstructions : workspaceData.userInstructions;
     setUserInstructions(instructionsToApply || '');
-    console.log(`  - Applied user instructions (length: ${instructionsToApply?.length || 0}).`);
 
     // Apply prompts
     const promptsToApply = applyImmediately ? pendingWorkspaceData?.customPrompts : workspaceData.customPrompts;
 
     // Deselect current prompts first
-    [...currentPromptState.selectedSystemPrompts].forEach(prompt => currentPromptState.toggleSystemPromptSelection(prompt));
-    [...currentPromptState.selectedRolePrompts].forEach(prompt => currentPromptState.toggleRolePromptSelection(prompt));
+    for (const prompt of currentPromptState.selectedSystemPrompts) currentPromptState.toggleSystemPromptSelection(prompt);
+    for (const prompt of currentPromptState.selectedRolePrompts) currentPromptState.toggleRolePromptSelection(prompt);
     console.log("  - Deselected current prompts.");
 
-    // Apply system prompts from workspace
     if (promptsToApply?.systemPrompts) {
       console.log(`  - Restoring ${promptsToApply.systemPrompts.length} system prompts.`);
-      promptsToApply.systemPrompts.forEach((savedPrompt: SystemPrompt) => { // Added SystemPrompt type
+      for (const savedPrompt of promptsToApply.systemPrompts) {
         const availablePrompt = currentPromptState.systemPrompts.find((p: SystemPrompt) => p.id === savedPrompt.id);
         if (availablePrompt && !currentPromptState.selectedSystemPrompts.some((p: SystemPrompt) => p.id === availablePrompt.id)) {
           currentPromptState.toggleSystemPromptSelection(availablePrompt);
         } else if (!availablePrompt) {
           console.warn(`  - Saved system prompt ID ${savedPrompt.id} not found.`);
         }
-      });
+      }
     } else {
       console.log('  - No system prompts in workspace data to apply.');
     }
 
-    // Apply role prompts from workspace
     if (promptsToApply?.rolePrompts) {
       console.log(`  - Restoring ${promptsToApply.rolePrompts.length} role prompts.`);
-      promptsToApply.rolePrompts.forEach((savedPrompt: RolePrompt) => { // Added RolePrompt type
+      for (const savedPrompt of promptsToApply.rolePrompts) {
         const availablePrompt = currentPromptState.rolePrompts.find((p: RolePrompt) => p.id === savedPrompt.id);
         if (availablePrompt && !currentPromptState.selectedRolePrompts.some((p: RolePrompt) => p.id === availablePrompt.id)) {
           currentPromptState.toggleRolePromptSelection(availablePrompt);
         } else if (!availablePrompt) {
           console.warn(`  - Saved role prompt ID ${savedPrompt.id} not found.`);
         }
-      });
+      }
     } else {
       console.log('  - No role prompts in workspace data to apply.');
     }
@@ -562,14 +562,13 @@ const useAppState = () => {
     console.log("[useAppState.applyWorkspaceData] Finished applying workspace data.");
 
   }, [
-      // Keep dependencies stable: setters and assumed-stable setters/functions from hooks.
-      // State values accessed via refs.
       expandedNodes[1],
+      fileSelection.clearSelectedFiles,
       fileSelection.setSelectedFiles,
       setUserInstructions,
       setSelectedFolder,
       setPendingWorkspaceData, 
-      setCurrentWorkspace, // Added setter
+      setCurrentWorkspace,
       promptState.toggleSystemPromptSelection,
       promptState.toggleRolePromptSelection
   ]);
@@ -665,13 +664,13 @@ const useAppState = () => {
 
   // Define loadWorkspace after applyWorkspaceData
   const loadWorkspace = useCallback((name: string) => {
-    console.log(`[useAppState.loadWorkspace] Attempting to load and apply workspace: ${name}`);
     const workspaceData = loadPersistedWorkspace(name);
+    
     if (workspaceData) {
-        console.log(`[useAppState.loadWorkspace] Workspace data loaded for "${name}", applying...`);
-        applyWorkspaceData(name, workspaceData); // Pass name and data
+        // File selection clearing is now handled within applyWorkspaceData
+        applyWorkspaceData(name, workspaceData);
     } else {
-        console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}" from persistence layer.`);
+        console.error(`Failed to load workspace data for "${name}"`);
     }
   }, [loadPersistedWorkspace, applyWorkspaceData]);
 

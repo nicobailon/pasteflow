@@ -31,15 +31,12 @@ export const setupElectronHandlers = (
   searchTerm: string,
   setIsLoadingCancellable: (cancellable: boolean) => void,
   setAppInitialized: (initialized: boolean) => void,
-  // --- NEW PARAMS ---
   currentWorkspace: string | null,
   setCurrentWorkspace: (name: string | null) => void,
   persistWorkspace: (name: string, state: WorkspaceState) => void,
-  // --- MORE NEW PARAMS ---
   pendingWorkspaceData: PendingWorkspaceData | null,
-  applyWorkspaceData: (data: WorkspaceState | null, applyImmediately?: boolean) => void,
-  selectedFolder: string | null // Need current folder to reconstruct WorkspaceState
-  // --- END MORE NEW PARAMS ---
+  applyWorkspaceData: (name: string | null, data: WorkspaceState | null, applyImmediately?: boolean) => void,
+  selectedFolder: string | null
 ): (() => void) => {
   if (!isElectron) return () => {};
 
@@ -123,18 +120,14 @@ export const setupElectronHandlers = (
       setAppInitialized(true);
       sessionStorage.setItem("hasLoadedInitialData", "true");
 
-      // --- APPLY PENDING WORKSPACE DATA ---
       if (pendingWorkspaceData) {
-        console.log("[electron-handler.handleFileListData] Pending workspace data found. Applying now...");
-        // Reconstruct the full WorkspaceState object
+        console.log("Applying pending workspace data after file list update");
         const fullWorkspaceData: WorkspaceState = {
-          selectedFolder: selectedFolder, // Use the folder that was just loaded
+          selectedFolder: selectedFolder,
           ...pendingWorkspaceData
         };
-        applyWorkspaceData(fullWorkspaceData, true); // Apply immediately
-        // applyWorkspaceData should clear the pending state itself
+        applyWorkspaceData(currentWorkspace, fullWorkspaceData, true);
       }
-      // --- END APPLY PENDING WORKSPACE DATA ---
 
     } catch (error) {
       console.error("Error handling file list data:", error);

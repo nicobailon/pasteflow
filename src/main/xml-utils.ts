@@ -335,7 +335,7 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
       // Search for this tag in the XML
       const tagRegex = new RegExp(`<${tagName}[^>]*>|</${tagName}>`, 'g');
       let tagMatch: RegExpExecArray | null;
-      const occurrences: Array<{index: number, text: string}> = [];
+      const occurrences: {index: number, text: string}[] = [];
       
       // Find all occurrences of the tag
       while ((tagMatch = tagRegex.exec(xmlString)) !== null) {

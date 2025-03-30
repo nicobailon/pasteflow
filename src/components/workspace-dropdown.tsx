@@ -2,7 +2,8 @@ import { ChevronDown } from 'lucide-react';
 import React, { useCallback } from 'react';
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
-import Dropdown, { DropdownOption } from './dropdown';
+
+import Dropdown from './dropdown';
 
 interface WorkspaceDropdownProps {
   currentWorkspace: string | null | undefined;
@@ -35,29 +36,24 @@ const WorkspaceDropdown = ({
     }
   };
 
-  const getWorkspaceOptions = useCallback((): DropdownOption[] => {
+  const getWorkspaceOptions = useCallback(() => {
     const currentNames = getWorkspaceNames();
-    console.log("[WorkspaceDropdown.getWorkspaceOptions] Fetched workspace names:", currentNames);
-    console.log("[WorkspaceDropdown.getWorkspaceOptions] Current workspace:", currentWorkspace);
-
-    // Ensure currentWorkspace is in the list if it exists but isn't saved yet
     const displayNames = new Set(currentNames);
     if (currentWorkspace) {
-        displayNames.add(currentWorkspace);
+      displayNames.add(currentWorkspace);
     }
-    const sortedNames = Array.from(displayNames).sort();
+    const sortedNames = [...displayNames].sort();
 
-
-    const options: DropdownOption[] = [
-      ...sortedNames.map((name: string) => ({ value: name, label: name })),
-    ];
+    const options = sortedNames.map((name: string) => ({ value: name, label: name }));
 
     if (sortedNames.length > 0) {
       options.push({ value: '__divider1__', label: '──────────' }); // Use unique value if multiple dividers
     }
     
-    options.push({ value: '__new__', label: 'New Workspace' }); // Added New Workspace option
-    options.push({ value: '__manage__', label: 'Manage Workspaces' });
+    options.push(
+      { value: '__new__', label: 'New Workspace' }, 
+      { value: '__manage__', label: 'Manage Workspaces' }
+    );
     console.log("[WorkspaceDropdown.getWorkspaceOptions] Final options:", options);
     return options;
   }, [getWorkspaceNames, currentWorkspace]);

@@ -37,7 +37,6 @@ const Sidebar = ({
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
-  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
   
   // Get the current file tree sort order from localStorage
   const [currentSortOption, setCurrentSortOption] = useState(
@@ -62,10 +61,6 @@ const Sidebar = ({
   
   // Consolidated loading state that takes into account both processing status and tree building
   const showLoadingIndicator = isTreeLoading || !isTreeBuildingComplete;
-  
-  // Component constants
-  const ACTIVE_SORT_OPTION = 'active sort-option';
-  const SORT_OPTION = 'sort-option';
   
   /**
    * Initiates the sidebar resizing operation.
@@ -276,7 +271,6 @@ const Sidebar = ({
    */
   const handleFileTreeSortChange = useCallback((sortOption: string) => {
     console.log(`Sort option selected: ${sortOption}`);
-    setSortDropdownOpen(false);
     setCurrentSortOption(sortOption);
     onFileTreeSortChange(sortOption);
   }, [onFileTreeSortChange]);
@@ -318,10 +312,6 @@ const Sidebar = ({
     { value: 'date-desc', label: 'Date Modified (Newest)', icon: <span>↓</span> },
     { value: 'date-asc', label: 'Date Modified (Oldest)', icon: <span>↑</span> },
   ];
-
-  // Button element rendering helper
-  const getSortButtonClassName = (sortOption: string) => 
-    currentSortOption === sortOption ? ACTIVE_SORT_OPTION : SORT_OPTION;
 
   return (
     <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>

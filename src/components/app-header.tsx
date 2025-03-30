@@ -1,11 +1,8 @@
 import { Archive, Check, Folder, Loader2, Save } from 'lucide-react'; // Added Check, Loader2
 import { useState } from 'react';
 
-import { useWorkspaceState } from '../hooks/use-workspace-state'; // Removed unused useWorkspaceState
 import { FileTreeMode } from '../types/file-types';
-import { getFolderNameFromPath } from '../utils/file-utils';
 
-import Dropdown, { DropdownOption } from './dropdown';
 import FileTreeToggle from './file-tree-toggle';
 import ThemeToggle from './theme-toggle';
 import WorkspaceDropdown from './workspace-dropdown'; // Import the actual component
@@ -59,6 +56,26 @@ const AppHeader = ({
   // handleWorkspaceDropdownChange
   // renderCustomOption
   
+  const getButtonClassName = () => {
+    let className = "workspace-button save-button";
+    if (headerSaveState && headerSaveState !== 'idle') {
+      className += ` save-${headerSaveState}`;
+    }
+    return className;
+  };
+
+  const getButtonTitle = () => {
+    if (headerSaveState === 'saving') {
+      return "Saving...";
+    } else if (headerSaveState === 'success') {
+      return "Saved!";
+    } else if (currentWorkspace) {
+      return `Save Current Workspace (${currentWorkspace})`;
+    } else {
+      return "Save Current Workspace (No workspace loaded)";
+    }
+  };
+
   return (
     <header className="header">
       <div className="header-actions">
@@ -97,12 +114,8 @@ const AppHeader = ({
         {saveCurrentWorkspace && (
           <button
             onClick={saveCurrentWorkspace}
-            className={`workspace-button save-button ${headerSaveState && headerSaveState !== 'idle' ? `save-${headerSaveState}` : ''}`} // Apply dynamic classes
-            title={
-              headerSaveState === 'saving' ? "Saving..." :
-              headerSaveState === 'success' ? "Saved!" :
-              currentWorkspace ? `Save Current Workspace (${currentWorkspace})` : "Save Current Workspace (No workspace loaded)"
-            }
+            className={getButtonClassName()}
+            title={getButtonTitle()}
             disabled={!currentWorkspace || headerSaveState === 'saving' || headerSaveState === 'success'} // Disable when no workspace or during save/success
             style={{ position: 'relative', overflow: 'hidden' }} // Needed for icon positioning
           >

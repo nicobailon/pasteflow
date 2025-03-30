@@ -11,8 +11,7 @@ module.exports = {
     "plugin:import/errors",
     "plugin:import/warnings",
     "plugin:import/typescript",
-    "plugin:jsx-a11y/recommended",
-    "plugin:json/recommended"
+    "plugin:jsx-a11y/recommended"
   ],
   ignorePatterns: ["dist", ".eslintrc.cjs"],
   parser: "@typescript-eslint/parser",
@@ -207,7 +206,6 @@ module.exports = {
       // JSON files
       files: ["*.json"],
       parser: "jsonc-eslint-parser",
-      extends: ["plugin:json/recommended"],
       rules: {}
     },
     {

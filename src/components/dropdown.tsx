@@ -42,6 +42,7 @@ const Dropdown = ({
 }: DropdownProps): JSX.Element => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const menuRef = useRef(null);
 
   const handleToggle = useCallback(() => {
     setIsOpen((isCurrentlyOpen: boolean) => !isCurrentlyOpen);
@@ -57,10 +58,10 @@ const Dropdown = ({
   const handleKeyDown = useCallback((event: any, value?: string) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      if (value !== undefined) {
-        handleSelect(value);
-      } else {
+      if (value === undefined) {
         handleToggle();
+      } else {
+        handleSelect(value);
       }
     } else if (event.key === "Escape" && isOpen) {
       setIsOpen(false);
@@ -70,19 +71,21 @@ const Dropdown = ({
   // Close the dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
-
-    document.addEventListener("mousedown", handleClickOutside);
+    
+    // Add event listener when dropdown is open
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    
+    // Clean up event listener
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, []);
+  }, [isOpen]);
 
   return (
     <div 
@@ -123,10 +126,24 @@ const Dropdown = ({
               );
             }
             
+            const getItemClassName = () => {
+              let className = "dropdown-item";
+              if (isActive) {
+                className += " active";
+                if (activeItemClassName) {
+                  className += ` ${activeItemClassName}`;
+                }
+              }
+              if (itemClassName) {
+                className += ` ${itemClassName}`;
+              }
+              return className;
+            };
+            
             return (
               <div
                 key={option.value}
-                className={`dropdown-item ${isActive ? `active ${activeItemClassName}` : ''} ${itemClassName}`}
+                className={getItemClassName()}
                 onClick={() => handleSelect(option.value)}
                 onKeyDown={(e) => handleKeyDown(e, option.value)}
                 role="menuitem"
