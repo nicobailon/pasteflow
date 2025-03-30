@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, screen, waitFor, act } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
 import CopyButton from '../components/CopyButton';
 

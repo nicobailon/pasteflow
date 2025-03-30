@@ -1,7 +1,9 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
 import { FileData, SelectedFileWithLines, LineRange } from '../types/FileTypes';
+
 import { setupMockLocalStorage } from './testHelpers';
 
 // Custom FileList component for testing

@@ -5,9 +5,9 @@
  * by ensuring all required modules are properly copied to the application directory.
  */
 
-const { execSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
+const { execSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
 
 console.log("🔧 PasteFlow Dependency Fixer");
 console.log("============================");
@@ -43,8 +43,8 @@ function getAppResourcesPath() {
     }
 
     return appPath;
-  } catch (err) {
-    console.error("❌ Could not determine application path:", err.message);
+  } catch (error) {
+    console.error("❌ Could not determine application path:", error.message);
     return null;
   }
 }
@@ -94,8 +94,8 @@ function fixDependencies() {
     console.log(
       "This will create a distributable that correctly includes the critical dependencies.",
     );
-  } catch (err) {
-    console.error("❌ Error fixing dependencies:", err.message);
+  } catch (error) {
+    console.error("❌ Error fixing dependencies:", error.message);
   }
 }
 

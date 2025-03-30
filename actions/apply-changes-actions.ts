@@ -1,7 +1,7 @@
 "use server";
 
 import { applyFileChanges } from "../lib/apply-changes";
-import { parseXmlString } from "../src/main/xmlUtils";
+import { parseXmlString } from "../src/main/xml-utils";
 
 export async function applyChangesAction(xml: string, projectDirectory: string) {
   try {

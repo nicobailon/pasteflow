@@ -17,28 +17,27 @@ export function parseXmlChanges(xmlContent: string): FileChange[] {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
     
-    const fileNodes = xmlDoc.getElementsByTagName('file');
+    const fileNodes = xmlDoc.querySelectorAll('file');
     const changes: FileChange[] = [];
     
-    for (let i = 0; i < fileNodes.length; i++) {
-      const fileNode = fileNodes[i];
+    for (const fileNode of fileNodes) {
       
       // Get file summary
-      const summaryNode = fileNode.getElementsByTagName('file_summary')[0];
+      const summaryNode = fileNode.querySelectorAll('file_summary')[0];
       const summary = summaryNode?.textContent || '';
       
       // Get file operation
-      const operationNode = fileNode.getElementsByTagName('file_operation')[0];
+      const operationNode = fileNode.querySelectorAll('file_operation')[0];
       const operation = operationNode?.textContent as 'CREATE' | 'UPDATE' | 'DELETE';
       
       // Get file path
-      const pathNode = fileNode.getElementsByTagName('file_path')[0];
+      const pathNode = fileNode.querySelectorAll('file_path')[0];
       const path = pathNode?.textContent || '';
       
       // Get file code (if not DELETE operation)
       let code: string | undefined;
       if (operation !== 'DELETE') {
-        const codeNode = fileNode.getElementsByTagName('file_code')[0];
+        const codeNode = fileNode.querySelectorAll('file_code')[0];
         code = codeNode?.textContent || '';
       }
       
@@ -112,12 +111,10 @@ export function generateChangesSummary(changes: FileChange[]): string {
   const updateCount = changes.filter(c => c.operation === 'UPDATE').length;
   const deleteCount = changes.filter(c => c.operation === 'DELETE').length;
   
-  const summary = [
+  return [
     `Total changes: ${changes.length}`,
-    createCount > 0 ? `${createCount} file${createCount !== 1 ? 's' : ''} to create` : '',
-    updateCount > 0 ? `${updateCount} file${updateCount !== 1 ? 's' : ''} to update` : '',
-    deleteCount > 0 ? `${deleteCount} file${deleteCount !== 1 ? 's' : ''} to delete` : ''
+    createCount > 0 ? `${createCount} file${createCount === 1 ? '' : 's'} to create` : '',
+    updateCount > 0 ? `${updateCount} file${updateCount === 1 ? '' : 's'} to update` : '',
+    deleteCount > 0 ? `${deleteCount} file${deleteCount === 1 ? '' : 's'} to delete` : ''
   ].filter(Boolean).join(', ');
-  
-  return summary;
 } 

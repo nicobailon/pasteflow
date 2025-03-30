@@ -17,7 +17,7 @@ Object.defineProperty(window, 'electron', {
 document.getElementById = jest.fn().mockImplementation(() => {
   const div = document.createElement('div');
   div.id = 'root';
-  document.body.appendChild(div);
+  document.body.append(div);
   return div;
 });
 

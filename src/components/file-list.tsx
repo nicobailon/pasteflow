@@ -1,9 +1,10 @@
-import React from "react";
-import { FileListProps, FileData, SelectedFileWithLines, LineRange, SystemPrompt, RolePrompt } from "../types/file-types";
-import FileCard from "./file-card";
-import SystemPromptCard from "./system-prompt-card";
-import RolePromptCard from "./role-prompt-card";
 import { FolderOpen } from "lucide-react";
+
+import { FileData, FileListProps, LineRange, SelectedFileWithLines } from "../types/file-types";
+
+import FileCard from "./file-card";
+import RolePromptCard from "./role-prompt-card";
+import SystemPromptCard from "./system-prompt-card";
 
 // Interface for expanded file card display
 interface ExpandedFileCard {
@@ -40,10 +41,10 @@ const FileList = ({
   // Create expanded cards - one card per line range for files with multiple line ranges
   const expandedCards: ExpandedFileCard[] = [];
   
-  displayableFiles.forEach(file => {
+  for (const file of displayableFiles) {
     const selectedFile = selectedFilesMap.get(file.path);
     
-    if (!selectedFile) return;
+    if (!selectedFile) continue;
     
     // If the file has no line ranges or is a full file, create a single card
     if (!selectedFile.lines || selectedFile.lines.length === 0 || selectedFile.isFullFile) {
@@ -57,7 +58,7 @@ const FileList = ({
     } 
     // If the file has line ranges, create a separate card for each range
     else if (selectedFile.lines && selectedFile.lines.length > 0) {
-      selectedFile.lines.forEach(lineRange => {
+      for (const lineRange of selectedFile.lines) {
         // Calculate content and token count for this specific line range
         const lines = file.content.split('\n');
         const rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
@@ -72,9 +73,9 @@ const FileList = ({
           tokenCount: rangeTokenCount,
           isFullFile: false
         });
-      });
+      }
     }
-  });
+  }
 
   // Calculate if we have any items to display (files, system prompts, or role prompts)
   const hasItemsToDisplay = expandedCards.length > 0 || selectedSystemPrompts.length > 0 || selectedRolePrompts.length > 0;
@@ -88,7 +89,7 @@ const FileList = ({
             <SystemPromptCard
               key={`system-prompt-${prompt.id}`}
               prompt={prompt}
-              toggleSelection={toggleSystemPromptSelection || ((prompt: SystemPrompt) => {})}
+              toggleSelection={toggleSystemPromptSelection || (() => {})}
             />
           ))}
           
@@ -97,7 +98,7 @@ const FileList = ({
             <RolePromptCard
               key={`role-prompt-${prompt.id}`}
               prompt={prompt}
-              toggleSelection={toggleRolePromptSelection || ((prompt: RolePrompt) => {})}
+              toggleSelection={toggleRolePromptSelection || (() => {})}
             />
           ))}
           

@@ -1,8 +1,10 @@
-import React from 'react';
-import { render, fireEvent, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { SystemPrompt } from '../types/FileTypes';
-import { setupMockLocalStorage } from './testHelpers';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
+
+import { SystemPrompt } from '../types/file-types';
+
+import { setupMockLocalStorage } from './test-helpers';
 
 // Mock necessary components that are not the focus of testing
 jest.mock('../components/Sidebar', () => {

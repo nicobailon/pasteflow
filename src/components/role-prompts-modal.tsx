@@ -1,7 +1,8 @@
-import React, { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { Check, CirclePlus, Plus, Trash, X } from "lucide-react";
+import { useState } from "react";
+
 import { RolePrompt, RolePromptsModalProps } from "../types/file-types";
-import { Plus, Trash, Pencil, CirclePlus, Clipboard, Check, X, User } from "lucide-react";
 
 /**
  * RolePromptsModal component - Provides a modal dialog for managing role prompts
@@ -14,7 +15,7 @@ const RolePromptsModal = ({
   onAddPrompt,
   onDeletePrompt,
   onUpdatePrompt,
-  onSelectPrompt,
+  // onSelectPrompt, // This prop seems unused in the component
   selectedRolePrompts = [],
   toggleRolePromptSelection,
 }: RolePromptsModalProps): JSX.Element => {
@@ -86,12 +87,21 @@ const RolePromptsModal = ({
                       e.stopPropagation();
                       startEdit(prompt);
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startEdit(prompt);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="prompt-details">
                       <div className="prompt-title">{prompt.title}</div>
                       <div className="prompt-preview">
                         {prompt.content.length > 60 
-                          ? prompt.content.substring(0, 60) + "..." 
+                          ? prompt.content.slice(0, 60) + "..." 
                           : prompt.content}
                       </div>
                     </div>

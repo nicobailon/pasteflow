@@ -1,4 +1,4 @@
-import React from "react";
+
 import { FileTreeMode } from "../types/file-types";
 
 interface FileTreeToggleProps {
@@ -13,6 +13,26 @@ const fileTreeOptions = [
   { value: "selected-with-roots" as FileTreeMode, label: "Selected + Folders" },
   { value: "complete" as FileTreeMode, label: "Full File Tree" },
 ];
+
+function getTooltipText(mode: FileTreeMode): string {
+  switch (mode) {
+    case "none": {
+      return "No file tree included";
+    }
+    case "selected": {
+      return "Include tree structure for selected files only";
+    }
+    case "selected-with-roots": {
+      return "Include all top-level folders and selected files";
+    }
+    case "complete": {
+      return "Include the complete file tree";
+    }
+    default: {
+      return "";
+    }
+  }
+}
 
 const FileTreeToggle = ({ currentMode, onChange, tokenCounts }: FileTreeToggleProps): JSX.Element => {
   return (
@@ -35,20 +55,5 @@ const FileTreeToggle = ({ currentMode, onChange, tokenCounts }: FileTreeTogglePr
     </div>
   );
 };
-
-function getTooltipText(mode: FileTreeMode): string {
-  switch (mode) {
-    case "none":
-      return "No file tree included";
-    case "selected":
-      return "Include tree structure for selected files only";
-    case "selected-with-roots":
-      return "Include all top-level folders and selected files";
-    case "complete":
-      return "Include the complete file tree";
-    default:
-      return "";
-  }
-}
 
 export default FileTreeToggle;

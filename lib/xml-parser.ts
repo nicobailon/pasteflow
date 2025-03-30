@@ -15,27 +15,26 @@ export async function parseXmlString(xmlString: string): Promise<ParsedFileChang
     const doc = parser.parseFromString(xmlContent, "text/xml");
 
     // Extract the root element
-    const codeChangesNode = doc.getElementsByTagName("code_changes")[0];
+    const codeChangesNode = doc.querySelectorAll("code_changes")[0];
     if (!codeChangesNode) {
       console.error("No code_changes element found in the XML");
       return null;
     }
 
-    const changedFilesNode = doc.getElementsByTagName("changed_files")[0];
+    const changedFilesNode = doc.querySelectorAll("changed_files")[0];
     if (!changedFilesNode) {
       console.error("No changed_files element found in the XML");
       return null;
     }
 
-    const fileNodes = changedFilesNode.getElementsByTagName("file");
+    const fileNodes = changedFilesNode.querySelectorAll("file");
     const changes: ParsedFileChange[] = [];
 
-    for (let i = 0; i < fileNodes.length; i++) {
-      const fileNode = fileNodes[i];
+    for (const fileNode of fileNodes) {
 
-      const fileOperationNode = fileNode.getElementsByTagName("file_operation")[0];
-      const filePathNode = fileNode.getElementsByTagName("file_path")[0];
-      const fileCodeNode = fileNode.getElementsByTagName("file_code")[0];
+      const fileOperationNode = fileNode.querySelectorAll("file_operation")[0];
+      const filePathNode = fileNode.querySelectorAll("file_path")[0];
+      const fileCodeNode = fileNode.querySelectorAll("file_code")[0];
 
       if (!fileOperationNode || !filePathNode) {
         console.warn("Missing required file_operation or file_path element");
@@ -45,7 +44,7 @@ export async function parseXmlString(xmlString: string): Promise<ParsedFileChang
       const file_operation = fileOperationNode.textContent?.trim() ?? "";
       const file_path = filePathNode.textContent?.trim() ?? "";
 
-      let file_code: string | undefined = undefined;
+      let file_code: string | undefined;
       if (fileCodeNode) {
         // Handle CDATA content correctly
         file_code = extractNodeContent(fileCodeNode);

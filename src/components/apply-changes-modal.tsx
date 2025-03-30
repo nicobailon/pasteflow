@@ -1,12 +1,62 @@
-import { X } from "lucide-react";
-import React, { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface ApplyChangesModalProps {
   selectedFolder: string;
   onClose: () => void;
   isOpen?: boolean;
 }
+
+// Response type definition
+interface ApplyChangesResponse {
+  success: boolean; 
+  message?: string;
+  error?: string;
+  details?: string;
+  updatedFiles?: string[];
+  failedFiles?: Array<{ path: string, reason: string }>;
+  warningMessage?: string;
+}
+
+// Helper function to format failed files list - moved to outer scope
+const formatFailedFiles = (failedFiles?: Array<{ path: string, reason: string }>): string => {
+  if (!failedFiles?.length) return "";
+  
+  let message = "\n\nFailed files:";
+  for (const failure of failedFiles) {
+    message += `\n- ${failure.path}: ${failure.reason}`;
+  }
+  return message;
+};
+
+// Helper function to format a success message
+const formatSuccessMessage = (response: ApplyChangesResponse): string => {
+  let statusMessage = `Success: ${response.message || "Changes applied successfully"}`;
+  
+  // Add updated files list
+  if (response.updatedFiles?.length) {
+    const updatedFilesList = response.updatedFiles.map(file => `- ${file}`).join('\n');
+    statusMessage += `\n\nUpdated files:\n${updatedFilesList}`;
+  } else {
+    statusMessage += "\n\nNote: No files were actually updated.";
+  }
+  
+  // Add warnings if present
+  if (response.warningMessage) {
+    statusMessage += `\n\nWarning: ${response.warningMessage}`;
+    statusMessage += formatFailedFiles(response.failedFiles);
+  }
+  
+  return statusMessage;
+};
+
+// Helper function to format an error message
+const formatErrorMessage = (response: ApplyChangesResponse): string => {
+  let errorMessage = `Error: ${response.error || "Failed to apply changes"}`;
+  errorMessage += formatFailedFiles(response.failedFiles);
+  return errorMessage;
+};
 
 export function ApplyChangesModal({ 
   selectedFolder, 
@@ -48,57 +98,14 @@ export function ApplyChangesModal({
     fetchFormatInstructions();
 
     // Handle response from the main process for apply changes
-    const handleResponse = (response: { 
-      success: boolean; 
-      message?: string;
-      error?: string;
-      details?: string;
-      updatedFiles?: string[];
-      failedFiles?: Array<{ path: string, reason: string }>;
-      warningMessage?: string;
-    }) => {
+    const handleResponse = (response: ApplyChangesResponse) => {
       setIsProcessing(false);
       
       if (response.success) {
-        // Build a detailed status message that shows both successes and warnings
-        let statusMessage = `Success: ${response.message || "Changes applied successfully"}`;
-        
-        // Always list the specific files that were updated
-        if (response.updatedFiles && response.updatedFiles.length > 0) {
-          statusMessage += `\n\nUpdated files:\n${response.updatedFiles.map(file => `- ${file}`).join('\n')}`;
-        } else {
-          // This should not happen if success is true, but just in case
-          statusMessage += "\n\nNote: No files were actually updated.";
-        }
-        
-        // Add warnings about failed files if any
-        if (response.warningMessage) {
-          statusMessage += `\n\nWarning: ${response.warningMessage}`;
-          
-          // Add detailed reasons for failures if available
-          if (response.failedFiles && response.failedFiles.length > 0) {
-            statusMessage += "\n\nFailure details:";
-            response.failedFiles.forEach(failure => {
-              statusMessage += `\n- ${failure.path}: ${failure.reason}`;
-            });
-          }
-        }
-        
-        setStatus(statusMessage);
-        // Clear the XML input on success
-        setXml("");
+        setStatus(formatSuccessMessage(response));
+        setXml(""); // Clear the XML input on success
       } else {
-        let errorMessage = `Error: ${response.error || "Failed to apply changes"}`;
-        
-        // If there are failed files, list them
-        if (response.failedFiles && response.failedFiles.length > 0) {
-          errorMessage += "\n\nFailed files:";
-          response.failedFiles.forEach(failure => {
-            errorMessage += `\n- ${failure.path}: ${failure.reason}`;
-          });
-        }
-        
-        setStatus(errorMessage);
+        setStatus(formatErrorMessage(response));
       }
     };
 
@@ -159,14 +166,18 @@ export function ApplyChangesModal({
               />
 
               <p>
-                <a href="#" className="documentation-link" onClick={(e) => {
-                  e.preventDefault();
-                  window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
-                }}>View full documentation</a>
+                <button 
+                  className="documentation-link" 
+                  onClick={() => {
+                    window.electron.ipcRenderer.send('open-docs', 'XML_CHANGES.md');
+                  }}
+                >
+                  View full documentation
+                </button>
               </p>
               
               {status && (
-                <div className={`status-message ${status.startsWith("Error") ? "error" : status.startsWith("Success") ? "success" : ""}`}
+                <div className={`status-message ${status.startsWith("Error") ? "error" : (status.startsWith("Success") ? "success" : "")}`}
                     style={{ whiteSpace: "pre-line" }}>
                   {status}
                 </div>

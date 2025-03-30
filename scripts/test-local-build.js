@@ -3,10 +3,10 @@
  * This helps verify that electron-builder is working correctly on your machine
  */
 
-const { execSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
+const { execSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
 
 const platform = process.platform;
 const buildType = process.argv[2] || platform;
@@ -26,7 +26,7 @@ try {
     }
   }
   console.log("✅ Clean complete");
-} catch (err) {
+} catch {
   console.log("⚠️ Clean failed, but continuing...");
 }
 
@@ -35,9 +35,9 @@ try {
   console.log("🔨 Building Vite app...");
   execSync("npm run build", { stdio: "inherit" });
   console.log("✅ Build complete");
-} catch (err) {
+} catch (error) {
   console.error("❌ Build failed:");
-  console.error(err.message);
+  console.error(error.message);
   process.exit(1);
 }
 
@@ -48,33 +48,38 @@ try {
 
   switch (buildType) {
     case "darwin":
-    case "mac":
+    case "mac": {
       command = "npm run package:mac";
       break;
+    }
     case "win32":
     case "windows":
-    case "win":
+    case "win": {
       command = "npm run package:win";
       break;
-    case "linux":
+    }
+    case "linux": {
       command = "npm run package:linux";
       break;
-    case "all":
+    }
+    case "all": {
       command = "npm run package:all";
       break;
-    default:
+    }
+    default: {
       console.log(`Unknown build type: ${buildType}, using current platform`);
       command = `npm run package:${
-        platform === "win32" ? "win" : platform === "darwin" ? "mac" : "linux"
+        platform === "win32" ? "win" : (platform === "darwin" ? "mac" : "linux")
       }`;
+    }
   }
 
   console.log(`Running command: ${command}`);
   execSync(command, { stdio: "inherit" });
   console.log("✅ Packaging complete");
-} catch (err) {
+} catch (error) {
   console.error("❌ Packaging failed:");
-  console.error(err.message);
+  console.error(error.message);
   process.exit(1);
 }
 
@@ -88,9 +93,9 @@ if (!fs.existsSync(path.join(__dirname, "../release-builds"))) {
 let files;
 try {
   files = fs.readdirSync(path.join(__dirname, "../release-builds"));
-} catch (err) {
+} catch (error) {
   console.error("❌ Failed to read release-builds directory:");
-  console.error(err.message);
+  console.error(error.message);
   process.exit(1);
 }
 
@@ -100,11 +105,11 @@ if (files.length === 0) {
 }
 
 console.log("📃 Files in release-builds directory:");
-files.forEach((file) => {
+for (const file of files) {
   const stats = fs.statSync(path.join(__dirname, "../release-builds", file));
   const size = stats.size / (1024 * 1024); // Convert to MB
   console.log(`- ${file} (${size.toFixed(2)} MB)`);
-});
+}
 
 console.log(
   "\n✅ Build test complete! Your electron-builder setup appears to be working correctly.",

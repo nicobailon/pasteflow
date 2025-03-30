@@ -1,4 +1,5 @@
-import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt, FileTreeMode } from "../types/file-types";
+import { FileData, FileTreeMode, RolePrompt, SelectedFileWithLines, SystemPrompt } from "../types/file-types";
+
 import { generateAsciiFileTree, getAllDirectories, normalizePath } from "./path-utils";
 
 /**
@@ -22,6 +23,27 @@ export const estimateTokenCount = (text: string): number => {
 };
 
 /**
+ * Calculate token count for a specific file with line selections
+ * @param fileData - The file data containing content
+ * @param lines - Array of line ranges
+ * @returns - Estimated token count for selected lines
+ */
+const calculateSelectedLinesTokens = (fileData: FileData, lines: { start: number; end: number }[]): number => {
+  const contentLines = fileData.content.split('\n');
+  let selectedContent = '';
+  
+  for (const range of lines) {
+    for (let i = range.start - 1; i < range.end; i++) {
+      if (i >= 0 && i < contentLines.length) {
+        selectedContent += contentLines[i] + '\n';
+      }
+    }
+  }
+  
+  return estimateTokenCount(selectedContent);
+};
+
+/**
  * Calculates the total token count for all selected files.
  * 
  * @param {SelectedFileWithLines[]} selectedFiles - Array of selected files
@@ -32,38 +54,34 @@ export const calculateTotalTokens = (
   selectedFiles: SelectedFileWithLines[],
   allFiles: FileData[]
 ): number => {
-  return selectedFiles.reduce((total: number, file: SelectedFileWithLines) => {
+  let total = 0;
+  
+  for (const file of selectedFiles) {
     // If we have a precomputed token count, use it
     if (file.tokenCount !== undefined) {
-      return total + file.tokenCount;
+      total += file.tokenCount;
+      continue;
     }
     
     // If we have content, estimate tokens
     if (file.content) {
-      return total + estimateTokenCount(file.content);
+      total += estimateTokenCount(file.content);
+      continue;
     }
     
     // Otherwise, find the file in allFiles and use its tokenCount
     const fileData = allFiles.find((f: FileData) => f.path === file.path);
     
-    // If it has line selections, calculate tokens for those lines only
-    if (file.lines && file.lines.length > 0 && fileData) {
-      const lines = fileData.content.split('\n');
-      let selectedContent = '';
-      
-      file.lines.forEach(range => {
-        for (let i = range.start - 1; i < range.end; i++) {
-          if (i >= 0 && i < lines.length) {
-            selectedContent += lines[i] + '\n';
-          }
-        }
-      });
-      
-      return total + estimateTokenCount(selectedContent);
+    // If we don't have file data, skip this file
+    if (!fileData) {
+      continue;
     }
     
-    return total + (fileData ? fileData.tokenCount : 0);
-  }, 0);
+    // If it has line selections, calculate tokens for those lines only
+    total += file.lines && file.lines.length > 0 ? calculateSelectedLinesTokens(fileData, file.lines) : fileData.tokenCount;
+  }
+  
+  return total;
 };
 
 /**
@@ -86,9 +104,6 @@ export const calculateFileTreeTokens = (
   };
   
   if (!selectedFolder) return tokenCounts;
-  
-  // Create a Set for faster lookups
-  const selectedFilesSet = new Set(selectedFiles);
   
   // Normalize the root folder path
   const normalizedRootFolder = normalizePath(selectedFolder);
@@ -160,9 +175,11 @@ export const getFileTreeModeTokens = (
  * @returns {number} Total tokens for selected system prompts
  */
 export const calculateSystemPromptsTokens = (selectedSystemPrompts: SystemPrompt[]): number => {
-  return selectedSystemPrompts.reduce((total: number, prompt: SystemPrompt) => {
-    return total + estimateTokenCount(prompt.content);
-  }, 0);
+  let total = 0;
+  for (const prompt of selectedSystemPrompts) {
+    total += estimateTokenCount(prompt.content);
+  }
+  return total;
 };
 
 /**
@@ -171,7 +188,9 @@ export const calculateSystemPromptsTokens = (selectedSystemPrompts: SystemPrompt
  * @returns {number} Total tokens for selected role prompts
  */
 export const calculateRolePromptsTokens = (selectedRolePrompts: RolePrompt[]): number => {
-  return selectedRolePrompts.reduce((total: number, prompt: RolePrompt) => {
-    return total + estimateTokenCount(prompt.content);
-  }, 0);
+  let total = 0;
+  for (const prompt of selectedRolePrompts) {
+    total += estimateTokenCount(prompt.content);
+  }
+  return total;
 };

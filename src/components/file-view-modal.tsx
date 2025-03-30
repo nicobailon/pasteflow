@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { CheckSquare, Square, Trash, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { FileViewModalProps, LineRange, FileData } from '../types/file-types';
+
 import { useTheme } from '../context/theme-context';
-import { Trash, CheckSquare, Square, X } from 'lucide-react';
+import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
 
 // Map file extensions to language identifiers for syntax highlighting
 const getLanguageFromPath = (filePath: string): string => {
@@ -70,7 +71,6 @@ const FileViewModal = ({
   const [initialSelection, setInitialSelection] = useState<LineRange[]>([]);
   // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [selectionMode, setSelectionMode] = useState<'entire'|'specific'>('entire');
-  const [isSelectionActive, setIsSelectionActive] = useState(false);
   const [shiftKeyPressed, setShiftKeyPressed] = useState(false);
   // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [lastSelectedLine, setLastSelectedLine] = useState<number | null>(null);
@@ -85,6 +85,30 @@ const FileViewModal = ({
   const [dragStartLine, setDragStartLine] = useState<number | null>(null);
   // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [dragCurrentLine, setDragCurrentLine] = useState<number | null>(null);
+  
+  // Calculate token count from selected content - with memoization
+  const calculateTokenCount = useCallback((content: string): number => {
+    if (!content) return 0;
+    
+    // Fast path for short content
+    if (content.length < 100) {
+      return Math.ceil(content.length / 4);
+    }
+    
+    // More accurate token estimation for longer content
+    // Counting spaces gives a better approximation than fixed divisor
+    const wordCount = content.split(/\s+/).length;
+    const charCount = content.length;
+    
+    // Combine word and character metrics for a better estimation
+    // GPT models typically use ~1.3 tokens per word
+    // Adjust estimation based on special chars density
+    const specialChars = content.replace(/[\d\sA-Za-z]/g, '').length;
+    const specialCharRatio = specialChars / charCount;
+    
+    // Apply correction factor based on code characteristics
+    return Math.ceil(wordCount * 1.3 * (1 + specialCharRatio));
+  }, []);
   
   // Find the file in allFiles when filePath changes
   useEffect(() => {
@@ -102,7 +126,7 @@ const FileViewModal = ({
       setFile(null);
       setTotalTokenCount(0);
     }
-  }, [filePath, allFiles]);
+  }, [filePath, allFiles, calculateTokenCount]);
   
   // Initialize selected lines based on the selectedFile prop
   useEffect(() => {
@@ -112,26 +136,26 @@ const FileViewModal = ({
         setSelectedLines([...selectedFile.lines]);
         setInitialSelection([...selectedFile.lines]);
         setSelectionMode('specific');
-        setIsSelectionActive(true);
+        setIsDragging(false);
       } else if (selectedFile.isFullFile) {
         // If file was explicitly selected as entire file before, keep that mode
         setSelectedLines([]);
         setInitialSelection([]);
         setSelectionMode('entire');
-        setIsSelectionActive(false);
+        setIsDragging(false);
       } else {
         // Otherwise, default to specific lines mode
         setSelectedLines([]);
         setInitialSelection([]);
         setSelectionMode('specific');
-        setIsSelectionActive(true);
+        setIsDragging(false);
       }
     } else {
       // No file previously selected, default to specific lines mode
       setSelectedLines([]);
       setInitialSelection([]);
       setSelectionMode('specific');
-      setIsSelectionActive(true);
+      setIsDragging(false);
     }
   }, [selectedFile]);
   
@@ -205,7 +229,7 @@ const FileViewModal = ({
     
     // Sort by start line 
     // Create a new array to avoid mutating the input array
-    const sortedRanges = ranges.slice().sort((a, b) => a.start - b.start);
+    const sortedRanges = [...ranges].sort((a, b) => a.start - b.start);
     
     // Pre-allocate result array with reasonable capacity
     const mergedRanges: LineRange[] = [];
@@ -286,365 +310,533 @@ const FileViewModal = ({
     setDragCurrentLine(null);
   }, [isDragging, dragStartLine, dragCurrentLine, mergeLineRanges]);
   
-  // Set up mouse move and up listeners for drag selection - optimized
-  useEffect(() => {
-    if (!isDragging) return;
-
-    // Pre-calculate container bounds and line heights once
-    let containerBounds: DOMRect | null = null;
-    let avgLineHeight: number = 0;
-    let lineCount: number = 0;
-    let lineElements: NodeListOf<Element> | null = null;
+  // Get line number from element's data attribute
+  const getLineNumberFromEventElement = useCallback((element: Element): number | null => {
+    const lineAttr = element.dataset.lineNumber;
+    if (!lineAttr) return null;
     
-    if (containerRef.current) {
-      containerBounds = containerRef.current.getBoundingClientRect();
-      lineElements = containerRef.current.querySelectorAll('[data-line-number]');
-      
-      if (lineElements && lineElements.length > 0) {
-        avgLineHeight = containerRef.current.scrollHeight / lineElements.length;
+    const lineNumber = Number.parseInt(lineAttr, 10);
+    return Number.isNaN(lineNumber) ? null : lineNumber;
+  }, []);
+  
+  // Check if element has direct line number attribute
+  const getLineNumberFromElement = useCallback((node: Node): number | null => {
+    if (!(node instanceof Element)) return null;
+    
+    const lineAttr = node.dataset.lineNumber;
+    if (!lineAttr) return null;
+    
+    return Number.parseInt(lineAttr, 10);
+  }, []);
+  
+  // Find line number from ancestor elements
+  const getLineNumberFromAncestor = useCallback((node: Node): number | null => {
+    if (!containerRef.current) return null;
+    
+    let element = (node instanceof Element) ? node : node.parentElement;
+    if (!element) return null;
+    
+    const MAX_DEPTH = 3;
+    let depth = 0;
+    
+    while (element && element !== containerRef.current && depth < MAX_DEPTH) {
+      const lineAttr = element.dataset.lineNumber;
+      if (lineAttr) {
+        return Number.parseInt(lineAttr, 10);
       }
       
-      if (file && file.content) {
-        lineCount = file.content.split('\n').length;
-      }
+      if (!element.parentElement) break;
+      element = element.parentElement;
+      depth++;
     }
+    
+    return null;
+  }, [containerRef]);
+  
+  // Find line number from nearest syntax highlighter line
+  const getLineNumberFromNearestLine = useCallback((node: Node): number | null => {
+    if (!containerRef.current) return null;
+    
+    const element = (node instanceof Element) ? node : node.parentElement;
+    if (!element) return null;
+    
+    // Shortcut for react-syntax-highlighter's block elements
+    if (!(element instanceof HTMLElement) || 
+        !element.style || 
+        element.style.display !== 'block' || 
+        !element.parentElement) {
+      return null;
+    }
+    
+    const linesContainer = element.parentElement;
+    const lineWithNumber = linesContainer.querySelector('[data-line-number]');
+    if (!lineWithNumber) return null;
+    
+    // Find the index of this line element
+    const lineElements = [...linesContainer.children].filter(
+      el => el instanceof HTMLElement && el.style && el.style.display === 'block'
+    );
+    
+    const index = lineElements.indexOf(element);
+    if (index === -1) return null;
+    
+    return index + 1; // Convert to 1-based line numbers
+  }, [containerRef]);
+  
+  // Helper function to get line numbers from DOM nodes - optimized
+  const getLineNumberFromNode = useCallback((node: Node): number | null => {
+    if (!node || !containerRef.current) return null;
+    
+    // Try direct line number access
+    return (
+      getLineNumberFromElement(node) || 
+      getLineNumberFromAncestor(node) ||
+      getLineNumberFromNearestLine(node)
+    );
+  }, [containerRef, getLineNumberFromElement, getLineNumberFromAncestor, getLineNumberFromNearestLine]);
+  
+  // Check if mouse position is outside container bounds
+  const isOutsideBounds = useCallback((e: MouseEvent, bounds: DOMRect): boolean => {
+    return (
+      e.clientY < bounds.top || 
+      e.clientY > bounds.top + bounds.height || 
+      e.clientX < bounds.left || 
+      e.clientX > bounds.left + bounds.width
+    );
+  }, []);
+  
+  // Get line number from parent elements
+  const getLineNumberFromParents = useCallback((element: Element): number | null => {
+    if (!containerRef.current) return null;
+    
+    let current = element;
+    let traversalDepth = 0;
+    const MAX_DEPTH = 3;
+    
+    while (current && current !== containerRef.current && traversalDepth < MAX_DEPTH) {
+      traversalDepth++;
+      
+      const lineNumber = getLineNumberFromEventElement(current);
+      if (lineNumber) return lineNumber;
+      
+      const nextNode = current.parentElement || (current.parentNode instanceof Element ? current.parentNode : null);
+      if (!nextNode) break;
+      current = nextNode;
+    }
+    
+    return null;
+  }, [containerRef, getLineNumberFromEventElement]);
+  
+  // Find line number from mouse event
+  const findLineNumberFromEvent = useCallback((e: MouseEvent): number | null => {
+    // Try to get the element under the cursor
+    const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
+    if (elementUnderCursor === null) return null;
+    
+    // Try direct line number check
+    const lineNumber = getLineNumberFromEventElement(elementUnderCursor);
+    if (lineNumber) return lineNumber;
+    
+    // Try parent traversal
+    return getLineNumberFromParents(elementUnderCursor);
+  }, [getLineNumberFromEventElement, getLineNumberFromParents]);
+  
+  // Get container information for drag operations
+  const getContainerInfo = useCallback(() => {
+    const info = {
+      containerBounds: null as DOMRect | null,
+      avgLineHeight: 0,
+      lineCount: 0,
+      lineElements: null as NodeListOf<Element> | null
+    };
+    
+    if (!containerRef.current) return info;
+    
+    info.containerBounds = containerRef.current.getBoundingClientRect();
+    info.lineElements = containerRef.current.querySelectorAll('[data-line-number]');
+    
+    if (info.lineElements && info.lineElements.length > 0) {
+      info.avgLineHeight = containerRef.current.scrollHeight / info.lineElements.length;
+    }
+    
+    if (file && file.content) {
+      info.lineCount = file.content.split('\n').length;
+    }
+    
+    return info;
+  }, [containerRef, file]);
+  
+  // Handle mouse move during drag operation
+  const handleDragMouseMove = useCallback((
+    e: MouseEvent, 
+    info: {
+      containerBounds: DOMRect | null;
+      avgLineHeight: number;
+      lineCount: number;
+      lineElements: NodeListOf<Element> | null;
+    }
+  ) => {
+    const { containerBounds, avgLineHeight, lineCount } = info;
+    
+    if (!containerRef.current || !containerBounds) return;
+    
+    // Check if mouse is outside container bounds
+    if (isOutsideBounds(e, containerBounds)) return;
+    
+    // Try to find line by element
+    const lineNumber = findLineNumberFromEvent(e);
+    if (lineNumber) {
+      handleMouseMove(lineNumber);
+      return;
+    }
+    
+    // Use position-based estimation as fallback
+    if (avgLineHeight > 0 && lineCount > 0) {
+      const relativeY = e.clientY - containerBounds.top;
+      const lineIndex = Math.floor(relativeY / avgLineHeight);
+      const estimatedLineNumber = Math.max(1, Math.min(lineCount, lineIndex + 1));
+      handleMouseMove(estimatedLineNumber);
+    }
+  }, [containerRef, handleMouseMove, isOutsideBounds, findLineNumberFromEvent]);
+  
+  // Set up drag handlers with all the necessary logic
+  const setupDragHandlers = useCallback(() => {
+    // Pre-calculate container bounds and line heights once
+    const containerInfo = getContainerInfo();
     
     // Define the event handlers
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (!containerRef.current || !containerBounds) return;
-      
-      // Check if mouse is within the container bounds
-      if (e.clientY < containerBounds.top || e.clientY > containerBounds.top + containerBounds.height || 
-          e.clientX < containerBounds.left || e.clientX > containerBounds.left + containerBounds.width) {
-        return;
-      }
-      
-      // Use a memoization cache for elements-under-cursor to reduce DOM calls
-      // Try to get the element under the cursor using elementFromPoint (most efficient approach)
-      const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
-      if (elementUnderCursor) {
-        // Fast check for line number attribute
-        const lineAttr = elementUnderCursor.getAttribute('data-line-number');
-        if (lineAttr) {
-          const lineNumber = parseInt(lineAttr, 10);
-          if (!isNaN(lineNumber)) {
-            handleMouseMove(lineNumber);
-            return;
-          }
-        }
-        
-        // Quick parent traversal - limited to 3 levels for performance
-        let current = elementUnderCursor;
-        let traversalDepth = 0;
-        const MAX_DEPTH = 3;
-        
-        while (current && current !== containerRef.current && traversalDepth < MAX_DEPTH) {
-          traversalDepth++;
-          
-          const lineAttr = current instanceof Element ? current.getAttribute('data-line-number') : null;
-          if (lineAttr) {
-            const lineNumber = parseInt(lineAttr, 10);
-            if (!isNaN(lineNumber)) {
-              handleMouseMove(lineNumber);
-              return;
-            }
-          }
-          
-          const nextNode = current.parentElement || (current.parentNode instanceof Element ? current.parentNode : null);
-          if (!nextNode) break;
-          current = nextNode;
-        }
-      }
-      
-      // Fast position-based estimation as fallback
-      if (avgLineHeight > 0 && lineCount > 0) {
-        const relativeY = e.clientY - containerBounds.top;
-        const lineIndex = Math.floor(relativeY / avgLineHeight);
-        const lineNumber = Math.max(1, Math.min(lineCount, lineIndex + 1));
-        handleMouseMove(lineNumber);
-      }
+      handleDragMouseMove(e, containerInfo);
     };
     
     const handleGlobalMouseUp = () => {
       handleMouseUp();
     };
     
-    // Use passive event listeners for better scrolling performance
+    // Attach event listeners
     window.addEventListener('mousemove', handleGlobalMouseMove, { passive: true });
     window.addEventListener('mouseup', handleGlobalMouseUp);
     
-    return () => {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    // Return cleanup function
+    return {
+      cleanup: () => {
+        window.removeEventListener('mousemove', handleGlobalMouseMove);
+        window.removeEventListener('mouseup', handleGlobalMouseUp);
+      }
     };
-  }, [isDragging, handleMouseMove, handleMouseUp, file]);
+  }, [handleMouseUp, getContainerInfo, handleDragMouseMove]);
   
-  // Helper function to get line numbers from DOM nodes - optimized
-  const getLineNumberFromNode = useCallback((node: Node): number | null => {
-    // Try to find the nearest element with a data-line-number attribute
-    // This is a faster approach than the previous implementation
-    if (!node || !containerRef.current) return null;
+  // Set up mouse move and up listeners for drag selection - optimized
+  useEffect(() => {
+    if (!isDragging) return;
+
+    // Set up drag handlers
+    const { cleanup } = setupDragHandlers();
     
-    // If we have direct access to the line number attribute, use it
-    if (node instanceof Element) {
-      const lineAttr = node.getAttribute('data-line-number');
-      if (lineAttr) {
-        return parseInt(lineAttr, 10);
-      }
-    }
+    return cleanup;
+  }, [isDragging, setupDragHandlers]);
+  
+  // Find the start line in the code wrapper
+  const findStartLineInWrapper = useCallback((range: Range, codeWrapper: Element): number | null => {
+    // Get all line elements
+    const lineElements = [...codeWrapper.children];
+    const totalLines = lineElements.length;
     
-    // Find closest ancestor with line number
-    let element = (node instanceof Element) ? node : node.parentElement;
-    while (element && element !== containerRef.current) {
-      const lineAttr = element.getAttribute('data-line-number');
-      if (lineAttr) {
-        return parseInt(lineAttr, 10);
-      }
-      
-      if (element.parentElement) {
-        element = element.parentElement;
-      } else {
-        break;
-      }
-    }
+    // Get the bounding rectangle for the selection
+    const rangeRect = range.getBoundingClientRect();
     
-    // If we still don't have a result, use a more aggressive approach
-    // Find the nearest line by its style or class
-    element = (node instanceof Element) ? node : node.parentElement;
-    
-    // Shortcut for react-syntax-highlighter's block elements
-    if (element && 
-        element instanceof HTMLElement && 
-        element.style && 
-        element.style.display === 'block' && 
-        element.parentElement && 
-        element.parentElement.querySelector('[data-line-number]')) {
-      
-      // Find the index of this line element
-      const linesContainer = element.parentElement;
-      const lineElements = Array.from(linesContainer.children).filter(
-        el => el instanceof HTMLElement && el.style && el.style.display === 'block'
-      );
-      
-      const index = lineElements.indexOf(element);
-      if (index !== -1) {
-        return index + 1; // Convert to 1-based line numbers
+    // Find the closest line to the start of the selection
+    for (let i = 0; i < totalLines; i++) {
+      const lineElement = lineElements[i] as Element;
+      const lineRect = lineElement.getBoundingClientRect();
+      if (rangeRect.top <= (lineRect.bottom + 5)) { // Some tolerance
+        return i + 1; // 1-based line numbering
       }
     }
     
     return null;
-  }, [containerRef]);
+  }, []);
+  
+  // Find the end line in the code wrapper
+  const findEndLineInWrapper = useCallback((range: Range, codeWrapper: Element): number | null => {
+    // Get all line elements
+    const lineElements = [...codeWrapper.children];
+    const totalLines = lineElements.length;
+    
+    // Get the bounding rectangle for the selection
+    const rangeRect = range.getBoundingClientRect();
+    
+    // Find the closest line to the end of the selection
+    for (let i = totalLines - 1; i >= 0; i--) {
+      const lineElement = lineElements[i] as Element;
+      const lineRect = lineElement.getBoundingClientRect();
+      if (rangeRect.bottom >= (lineRect.top - 5)) { // Some tolerance
+        return i + 1; // 1-based line numbering
+      }
+    }
+    
+    return null;
+  }, []);
+  
+  // Helper for finding line numbers from code wrapper
+  const getLineNumbersFromCodeWrapper = useCallback((range: Range): {startLine: number | null; endLine: number | null} => {
+    if (!containerRef.current) return { startLine: null, endLine: null };
+    
+    const codeWrapper = containerRef.current.querySelector('.react-syntax-highlighter-line-numbers-rows');
+    if (!codeWrapper) return { startLine: null, endLine: null };
+    
+    return {
+      startLine: findStartLineInWrapper(range, codeWrapper),
+      endLine: findEndLineInWrapper(range, codeWrapper)
+    };
+  }, [containerRef, findStartLineInWrapper, findEndLineInWrapper]);
+  
+  // Calculate average line height
+  const calculateAverageLineHeight = useCallback((lineElements: NodeListOf<Element>, container: HTMLDivElement): number => {
+    return lineElements.length > 0 
+      ? (container.scrollHeight / lineElements.length) 
+      : 20; // Default approximation
+  }, []);
+  
+  // Helper for estimating line numbers from scroll position
+  const estimateLineNumbersFromScroll = useCallback((lineCount: number): {startLine: number | null; endLine: number | null} => {
+    if (!containerRef.current) return { startLine: null, endLine: null };
+    
+    const lineElements = containerRef.current.querySelectorAll('[data-line-number]');
+    const avgLineHeight = calculateAverageLineHeight(lineElements, containerRef.current);
+    
+    const scrollTop = containerRef.current.scrollTop;
+    const startLine = Math.max(1, Math.floor(scrollTop / avgLineHeight) + 1);
+    const endLine = startLine + lineCount - 1;
+    
+    return { startLine, endLine };
+  }, [containerRef, calculateAverageLineHeight]);
+  
+  // Helper for estimating line numbers from text content
+  const estimateLineNumbersFromText = useCallback((
+    range: Range, 
+    existingStartLine: number | null, 
+    existingEndLine: number | null
+  ): {startLine: number | null; endLine: number | null} => {
+    const selectedText = range.toString();
+    const lineCount = (selectedText.match(/\n/g) || []).length + 1;
+    
+    // Case 1: Only have start line
+    if (existingStartLine && !existingEndLine) {
+      return { 
+        startLine: existingStartLine, 
+        endLine: existingStartLine + lineCount - 1 
+      };
+    } 
+    
+    // Case 2: Only have end line
+    if (!existingStartLine && existingEndLine) {
+      return { 
+        startLine: Math.max(1, existingEndLine - lineCount + 1), 
+        endLine: existingEndLine 
+      };
+    }
+    
+    // Case 3: Use scroll position
+    if (containerRef.current) {
+      return estimateLineNumbersFromScroll(lineCount);
+    }
+    
+    // Case 4: Fallback
+    return { startLine: 1, endLine: lineCount };
+  }, [containerRef, estimateLineNumbersFromScroll]);
+  
+  // Helper function to get line numbers from a range
+  const getLineNumbersFromRange = useCallback((range: Range): {startLine: number | null; endLine: number | null} => {
+    // Step 1: Try DOM node approach
+    const startLine = getLineNumberFromNode(range.startContainer);
+    const endLine = getLineNumberFromNode(range.endContainer);
+    
+    // Check if we have both lines
+    if (startLine && endLine) {
+      return { startLine, endLine };
+    }
+    
+    // Step 2: Try code wrapper approach
+    const wrapperResult = getLineNumbersFromCodeWrapper(range);
+    if (wrapperResult.startLine && wrapperResult.endLine) {
+      return wrapperResult;
+    }
+    
+    // Step 3: Combine what we have or use text approach
+    const finalStartLine = startLine || wrapperResult.startLine;
+    const finalEndLine = endLine || wrapperResult.endLine;
+    
+    // If still missing one or both, estimate from text
+    if (!finalStartLine || !finalEndLine) {
+      return estimateLineNumbersFromText(range, finalStartLine, finalEndLine);
+    }
+    
+    return { startLine: finalStartLine, endLine: finalEndLine };
+  }, [getLineNumberFromNode, getLineNumbersFromCodeWrapper, estimateLineNumbersFromText]);
+  
+  // Helper to add a line range to the selection
+  const addLineRangeToSelection = useCallback((startLine: number, endLine: number) => {
+    setSelectedLines((prev: LineRange[]) => {
+      // Create a new range from the selection
+      const newRange = {
+        start: Math.min(startLine, endLine),
+        end: Math.max(startLine, endLine)
+      };
+      
+      // Merge with existing ranges efficiently
+      return mergeLineRanges([...prev, newRange]);
+    });
+  }, [mergeLineRanges]);
+
+  // Process valid line numbers from selection
+  const processValidLineNumbers = useCallback((lineNumbers: {startLine: number | null; endLine: number | null}) => {
+    if (!lineNumbers.startLine || !lineNumbers.endLine) return;
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Selection range:', lineNumbers);
+    }
+    
+    addLineRangeToSelection(lineNumbers.startLine, lineNumbers.endLine);
+  }, [addLineRangeToSelection]);
+  
+  // Get selection range safely
+  const getSelectionRange = useCallback((): Range | null => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+    
+    try {
+      return selection.getRangeAt(0);
+    } catch (error) {
+      console.error('Error getting selection range:', error);
+      return null;
+    }
+  }, []);
 
   // Optimized text selection handler
   const handleSelectionChange = useCallback(() => {
+    // Early exits for invalid conditions
     if (selectionMode === 'entire' || !containerRef.current) return;
     
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return;
+    const range = getSelectionRange();
+    if (!range) return;
     
     try {
-      // Get the range from the selection
-      const range = selection.getRangeAt(0);
+      // Get line numbers from the range
+      const lineNumbers = getLineNumbersFromRange(range);
       
-      // Try to get line numbers from DOM with optimized approach
-      let startLine = getLineNumberFromNode(range.startContainer);
-      let endLine = getLineNumberFromNode(range.endContainer);
-      
-      // Quick fallback if we couldn't get the lines via DOM
-      if (!startLine || !endLine) {
-        // Instead of the expensive newline counting approach, 
-        // let's use a more direct approach to identify line elements
-        const codeWrapper = containerRef.current.querySelector('.react-syntax-highlighter-line-numbers-rows');
-        
-        if (codeWrapper) {
-          // Get all line elements
-          const lineElements = Array.from(codeWrapper.children);
-          const totalLines = lineElements.length;
-          
-          // Get the bounding rectangles for the selection and each line element
-          const rangeRect = range.getBoundingClientRect();
-          
-          // Find the closest line to the start and end of the selection
-          if (!startLine) {
-            for (let i = 0; i < totalLines; i++) {
-              const lineElement = lineElements[i] as Element;
-              const lineRect = lineElement.getBoundingClientRect();
-              if (rangeRect.top <= (lineRect.bottom + 5)) { // Some tolerance
-                startLine = i + 1; // 1-based line numbering
-                break;
-              }
-            }
-          }
-          
-          if (!endLine) {
-            for (let i = totalLines - 1; i >= 0; i--) {
-              const lineElement = lineElements[i] as Element;
-              const lineRect = lineElement.getBoundingClientRect();
-              if (rangeRect.bottom >= (lineRect.top - 5)) { // Some tolerance
-                endLine = i + 1; // 1-based line numbering
-                break;
-              }
-            }
-          }
-        }
-        
-        // If we still don't have both line numbers, count the selected text's newlines
-        if (!startLine || !endLine) {
-          const selectedText = range.toString();
-          const lineCount = (selectedText.match(/\n/g) || []).length + 1;
-          
-          // If we have at least one line number, estimate the other
-          if (startLine && !endLine) {
-            endLine = startLine + lineCount - 1;
-          } else if (endLine && !startLine) {
-            startLine = Math.max(1, endLine - lineCount + 1);
-          } else {
-            // Last resort: estimate both based on the container's scroll position
-            if (containerRef.current) {
-              const lineElements = containerRef.current.querySelectorAll('[data-line-number]');
-              const avgLineHeight = lineElements.length > 0 
-                ? (containerRef.current.scrollHeight / lineElements.length) 
-                : 20; // Default approximation
-              
-              const scrollTop = containerRef.current.scrollTop;
-              startLine = Math.max(1, Math.floor(scrollTop / avgLineHeight) + 1);
-              endLine = startLine + lineCount - 1;
-            } else {
-              // Truly last resort
-              startLine = 1;
-              endLine = lineCount;
-            }
-          }
-        }
-      }
-      
-      // Make sure we have valid line numbers before updating state
-      if (startLine && endLine) {
-        // Don't log to console in production for performance
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('Selection range:', { startLine, endLine });
-        }
-        
-        setSelectedLines((prev: LineRange[]) => {
-          // Create a new range from the selection
-          const newRange = {
-            start: Math.min(startLine!, endLine!), // Non-null assertion since we checked above
-            end: Math.max(startLine!, endLine!)
-          };
-          
-          // Merge with existing ranges efficiently
-          return mergeLineRanges([...prev, newRange]);
-        });
-      }
-    } catch (e) {
-      console.error('Error handling text selection:', e);
+      // Process line numbers if valid
+      processValidLineNumbers(lineNumbers);
+    } catch (error) {
+      console.error('Error handling text selection:', error);
     }
-  }, [selectionMode, getLineNumberFromNode, mergeLineRanges]);
+  }, [selectionMode, containerRef, getSelectionRange, getLineNumbersFromRange, processValidLineNumbers]);
+  
+  // Check if a specific line is within any of the ranges
+  const isLineInRanges = useCallback((lineNumber: number, ranges: LineRange[]): boolean => {
+    return ranges.some(range => 
+      lineNumber >= range.start && lineNumber <= range.end
+    );
+  }, []);
+  
+  // Add a single line to the range collection
+  const addLineToRanges = useCallback((lineNumber: number, ranges: LineRange[]): LineRange[] => {
+    return mergeLineRanges([...ranges, { start: lineNumber, end: lineNumber }]);
+  }, [mergeLineRanges]);
+  
+  // Remove a line from all ranges, splitting ranges if needed
+  const removeLineFromRanges = useCallback((lineNumber: number, ranges: LineRange[]): LineRange[] => {
+    // First, filter out any ranges that are exactly this single line
+    const filteredRanges = ranges.filter(range => 
+      !(range.start === lineNumber && range.end === lineNumber)
+    );
+    
+    // Then, split any ranges that contain this line
+    return filteredRanges.flatMap(range => {
+      // If the range doesn't contain this line, keep it unchanged
+      if (lineNumber < range.start || lineNumber > range.end) {
+        return [range];
+      }
+      
+      // Create fragments that exclude the clicked line
+      const fragments: LineRange[] = [];
+      
+      // Add range before the clicked line if it exists
+      if (lineNumber > range.start) {
+        fragments.push({ start: range.start, end: lineNumber - 1 });
+      }
+      
+      // Add range after the clicked line if it exists
+      if (lineNumber < range.end) {
+        fragments.push({ start: lineNumber + 1, end: range.end });
+      }
+      
+      return fragments;
+    });
+  }, []);
+  
+  // Toggle a single line's selection state
+  const toggleLineSelection = useCallback((lineNumber: number) => {
+    setSelectedLines((prev: LineRange[]) => {
+      const isCurrentlySelected = isLineInRanges(lineNumber, prev);
+      
+      return isCurrentlySelected 
+        ? removeLineFromRanges(lineNumber, prev)
+        : addLineToRanges(lineNumber, prev);
+    });
+  }, [isLineInRanges, removeLineFromRanges, addLineToRanges]);
+  
+  // Handle shift+click selection
+  const handleShiftClick = useCallback((lineNumber: number) => {
+    if (lastSelectedLine === null) return;
+    
+    setSelectedLines((prev: LineRange[]) => {
+      const start = Math.min(lastSelectedLine, lineNumber);
+      const end = Math.max(lastSelectedLine, lineNumber);
+      
+      // Add new range and merge with existing selections
+      return mergeLineRanges([...prev, { start, end }]);
+    });
+  }, [lastSelectedLine, mergeLineRanges]);
 
   // Handle line click for selection - simplified for better performance
   const handleLineClick = useCallback((lineNumber: number) => {
-    if (selectionMode === 'entire') return;
+    if (selectionMode === 'entire' || isDragging) return;
     
-    // If we're dragging, this will be handled by the drag handlers
-    if (isDragging) return;
-    
-    setSelectedLines((prev: LineRange[]) => {
-      // If shift key is pressed and we have a last selected line, select a range
-      if (shiftKeyPressed && lastSelectedLine !== null) {
-        const start = Math.min(lastSelectedLine, lineNumber);
-        const end = Math.max(lastSelectedLine, lineNumber);
-        
-        // Add new range and merge with existing selections
-        return mergeLineRanges([...prev, { start, end }]);
-      } else {
-        // Check if the line is already selected
-        const isLineSelected = prev.some(range => 
-          lineNumber >= range.start && lineNumber <= range.end
-        );
-        
-        if (isLineSelected) {
-          // For a simple single-click toggle, we'll just remove this exact line from selection
-          // This is the simplest approach for single-click toggle
-          
-          // First, filter out any ranges that are exactly this single line
-          let newRanges = prev.filter(range => 
-            !(range.start === lineNumber && range.end === lineNumber)
-          );
-          
-          // Then, split any ranges that contain this line
-          newRanges = newRanges.flatMap(range => {
-            // If the range doesn't contain this line, keep it unchanged
-            if (lineNumber < range.start || lineNumber > range.end) {
-              return [range];
-            }
-            
-            // Create fragments that exclude the clicked line
-            const fragments: LineRange[] = [];
-            
-            // Add range before the clicked line if it exists
-            if (lineNumber > range.start) {
-              fragments.push({ start: range.start, end: lineNumber - 1 });
-            }
-            
-            // Add range after the clicked line if it exists
-            if (lineNumber < range.end) {
-              fragments.push({ start: lineNumber + 1, end: range.end });
-            }
-            
-            return fragments;
-          });
-          
-          return newRanges;
-        } else {
-          // Add the single line to selection
-          return mergeLineRanges([...prev, { start: lineNumber, end: lineNumber }]);
-        }
-      }
-    });
+    if (shiftKeyPressed && lastSelectedLine !== null) {
+      handleShiftClick(lineNumber);
+    } else {
+      toggleLineSelection(lineNumber);
+    }
     
     // Update last selected line for shift+click functionality
     setLastSelectedLine(lineNumber);
-  }, [selectionMode, shiftKeyPressed, lastSelectedLine, isDragging, mergeLineRanges]);
+  }, [selectionMode, shiftKeyPressed, lastSelectedLine, isDragging, handleShiftClick, toggleLineSelection]);
   
-  // Calculate selected content from line ranges - performance optimized
-  const getSelectedContent = useCallback((): string => {
-    if (!file || !file.content) return '';
-    
-    // Fast paths for common cases
-    if (selectionMode === 'entire' || selectedLines.length === 0) {
-      return file.content;
-    }
-    
-    // Memoize the split lines for better performance
-    const lines = file.content.split('\n');
+  // Get content for a single range
+  const getContentForSingleRange = useCallback((lines: string[], range: LineRange): string => {
     const lineCount = lines.length;
     
-    // For large selections, optimize the array operations
-    if (selectedLines.length === 1) {
-      // Fast path for the common case of a single range
-      const range = selectedLines[0];
-      // Ensure indices are within bounds
-      const start = Math.max(0, range.start - 1);
-      const end = Math.min(lineCount - 1, range.end - 1);
-      
-      if (start === 0 && end === lineCount - 1) {
-        // Entire file is selected
-        return file.content;
-      }
-      
-      // Use slice for better performance on a single range
-      return lines.slice(start, end + 1).join('\n');
+    // Ensure indices are within bounds
+    const start = Math.max(0, range.start - 1);
+    const end = Math.min(lineCount - 1, range.end - 1);
+    
+    if (start === 0 && end === lineCount - 1) {
+      // Entire file is selected - return original content
+      return file?.content || '';
     }
     
-    // For multiple ranges, build the selected content efficiently
-    // Pre-allocate array with approximate capacity
-    const totalSelectedLines = selectedLines.reduce(
-      (sum: number, range: LineRange) => sum + (range.end - range.start + 1), 0
-    );
-    const selectedContent: string[] = new Array(totalSelectedLines);
+    // Use slice for better performance on a single range
+    return lines.slice(start, end + 1).join('\n');
+  }, [file]);
+  
+  // Get content for multiple ranges
+  const getContentForMultipleRanges = useCallback((lines: string[], ranges: LineRange[]): string => {
+    const lineCount = lines.length;
+    const selectedContent: string[] = [];
     
     let contentIndex = 0;
-    for (const range of selectedLines) {
+    for (const range of ranges) {
       // Ensure indices are within bounds
       const start = Math.max(0, range.start - 1);
       const end = Math.min(lineCount - 1, range.end - 1);
@@ -656,50 +848,148 @@ const FileViewModal = ({
     
     // Truncate any unused array elements and join
     return selectedContent.slice(0, contentIndex).join('\n');
-  }, [file, selectedLines, selectionMode]);
-  
-  // Calculate token count from selected content - with memoization
-  const calculateTokenCount = useCallback((content: string): number => {
-    if (!content) return 0;
+  }, []);
+
+  // Calculate selected content from line ranges - performance optimized
+  const getSelectedContent = useCallback((): string => {
+    if (!file || !file.content) return '';
     
-    // Fast path for short content
-    if (content.length < 100) {
-      return Math.ceil(content.length / 4);
+    // Fast paths for common cases
+    if (selectionMode === 'entire' || selectedLines.length === 0) {
+      return file.content;
     }
     
-    // More accurate token estimation for longer content
-    // Counting spaces gives a better approximation than fixed divisor
-    const wordCount = content.split(/\s+/).length;
-    const charCount = content.length;
+    // Memoize the split lines for better performance
+    const lines = file.content.split('\n');
     
-    // Combine word and character metrics for a better estimation
-    // GPT models typically use ~1.3 tokens per word
-    // Adjust estimation based on special chars density
-    const specialChars = content.replace(/[a-zA-Z0-9\s]/g, '').length;
-    const specialCharRatio = specialChars / charCount;
+    // Determine which approach to use based on selection
+    if (selectedLines.length === 1) {
+      return getContentForSingleRange(lines, selectedLines[0]);
+    }
     
-    // Apply correction factor based on code characteristics
-    return Math.ceil(wordCount * 1.3 * (1 + specialCharRatio));
-  }, []);
+    return getContentForMultipleRanges(lines, selectedLines);
+  }, [file, selectedLines, selectionMode, getContentForSingleRange, getContentForMultipleRanges]);
   
-  // Handle apply selection button
-  const handleApplySelection = () => {
-    if (!file) return;
+  // Check if a line is part of the current drag selection
+  const isLineDragSelected = useCallback((lineNumber: number): boolean => {
+    if (!isDragging || dragStartLine === null || dragCurrentLine === null) {
+      return false;
+    }
     
-    const selectedContent = getSelectedContent();
-    const tokenCount = calculateTokenCount(selectedContent);
+    return lineNumber >= Math.min(dragStartLine, dragCurrentLine) && 
+           lineNumber <= Math.max(dragStartLine, dragCurrentLine);
+  }, [isDragging, dragStartLine, dragCurrentLine]);
+  
+  // Get the background color for selected lines
+  const getLineBackgroundColor = useCallback((isHighlighted: boolean): string | undefined => {
+    if (!isHighlighted) return undefined;
     
-    // Update selected file with line ranges
-    onUpdateSelectedFile({
-      path: file.path,
-      lines: selectionMode === 'specific' && selectedLines.length > 0 ? [...selectedLines] : undefined,
-      content: selectedContent,
-      tokenCount: tokenCount,
-      isFullFile: selectionMode === 'entire'
-    });
+    return currentTheme === 'dark' 
+      ? 'rgba(62, 68, 82, 0.5)' 
+      : 'rgba(230, 242, 255, 0.5)';
+  }, [currentTheme]);
+  
+  // Get the text color for line numbers
+  const getLineNumberColor = useCallback((isHighlighted: boolean): string => {
+    if (isHighlighted) {
+      return currentTheme === 'dark' ? '#61afef' : '#0366d6';
+    }
     
-    onClose();
-  };
+    return currentTheme === 'dark' ? '#636d83' : '#999';
+  }, [currentTheme]);
+  
+  // Handle clicks on line numbers
+  const handleLineNumberClick = useCallback((e: any, lineNumber: number) => {
+    // Handle line number clicks directly for better responsiveness
+    e.preventDefault();
+    e.stopPropagation();
+    if (selectionMode === 'specific') {
+      handleLineClick(lineNumber);
+    }
+  }, [selectionMode, handleLineClick]);
+  
+  // Handle mouse down on line numbers
+  const handleLineNumberMouseDown = useCallback((e: any, lineNumber: number) => {
+    // Only handle mouse down for drag operations
+    e.preventDefault(); // Prevent default to avoid text selection
+    e.stopPropagation(); // Stop propagation to prevent unintended interactions
+    if (selectionMode === 'specific') {
+      handleMouseDown(lineNumber, e);
+    }
+  }, [selectionMode, handleMouseDown]);
+
+  // Get props for each line in the syntax highlighter
+  const getLineProps = useCallback((lineNumber: number) => {
+    // Check if this line is selected
+    const isSelected = isLineSelected(lineNumber);
+    const isDragSelected = isLineDragSelected(lineNumber);
+    
+    return {
+      style: { 
+        display: 'block',
+        cursor: selectionMode === 'specific' ? 'pointer' : 'default',
+        backgroundColor: getLineBackgroundColor(isSelected || isDragSelected),
+      },
+      onClick: () => handleLineClick(lineNumber),
+      onMouseDown: (e: any) => {
+        if (selectionMode === 'specific') {
+          handleMouseDown(lineNumber, e);
+        }
+      },
+      onMouseMove: () => {
+        if (isDragging) {
+          handleMouseMove(lineNumber);
+        }
+      },
+      // Add data attribute to help identify line numbers
+      'data-line-number': lineNumber
+    };
+  }, [
+    selectionMode, 
+    isDragging, 
+    isLineSelected,
+    isLineDragSelected,
+    getLineBackgroundColor,
+    handleLineClick,
+    handleMouseDown,
+    handleMouseMove
+  ]);
+  
+  // Get the styles for each line number in the syntax highlighter
+  const getLineNumberStyle = useCallback((lineNumber: number) => {
+    // Check selection status
+    const isSelected = isLineSelected(lineNumber);
+    const isDragSelected = isLineDragSelected(lineNumber);
+    const isHighlighted = isSelected || isDragSelected;
+    
+    return {
+      minWidth: '3em',
+      paddingRight: '1em',
+      textAlign: 'right' as const,
+      userSelect: 'none' as const,
+      cursor: selectionMode === 'specific' ? 'pointer' : 'default',
+      color: getLineNumberColor(isHighlighted),
+      backgroundColor: getLineBackgroundColor(isHighlighted),
+      // Add handlers for line number selection
+      onClick: (e: any) => handleLineNumberClick(e, lineNumber),
+      onMouseDown: (e: any) => handleLineNumberMouseDown(e, lineNumber),
+      onMouseMove: () => {
+        if (isDragging) {
+          handleMouseMove(lineNumber);
+        }
+      },
+    };
+  }, [
+    selectionMode, 
+    isDragging, 
+    isLineSelected,
+    isLineDragSelected,
+    getLineNumberColor,
+    getLineBackgroundColor,
+    handleLineNumberClick,
+    handleLineNumberMouseDown,
+    handleMouseMove
+  ]);
   
   // Toggle selection mode
   const toggleSelectionMode = (mode: 'entire' | 'specific') => {
@@ -708,10 +998,9 @@ const FileViewModal = ({
     if (mode === 'entire') {
       // When switching to entire file mode, clear line selections and deactivate selection
       setSelectedLines([]);
-      setIsSelectionActive(false);
     } else if (mode === 'specific') {
       // When entering specific line mode, automatically activate selection mode
-      setIsSelectionActive(true);
+      setIsDragging(false);
       
       if (selectedFile && selectedFile.lines) {
         setSelectedLines([...selectedFile.lines]);
@@ -750,9 +1039,6 @@ const FileViewModal = ({
            selectedLines[0].start === 1 && 
            selectedLines[0].end === lineCount;
   };
-  
-  // We no longer need the renderLineNumber function as we're
-  // using the built-in line numbering from SyntaxHighlighter
   
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
@@ -860,6 +1146,8 @@ const FileViewModal = ({
                 handleSelectionChange();
               }
             }}
+            role="presentation"
+            aria-label="File content viewer"
           >
             {file ? (
               <div 
@@ -871,95 +1159,8 @@ const FileViewModal = ({
                   style={currentTheme === 'dark' ? oneDark : oneLight}
                   showLineNumbers={true}
                   wrapLines={true}
-                  lineProps={(lineNumber: number) => {
-                    // Check if this line is part of a drag selection
-                    const isDragSelected = isDragging && 
-                      dragStartLine !== null && 
-                      dragCurrentLine !== null && 
-                      lineNumber >= Math.min(dragStartLine, dragCurrentLine) && 
-                      lineNumber <= Math.max(dragStartLine, dragCurrentLine);
-                    
-                    // Check if line is selected (use memoized function)
-                    const isSelected = isLineSelected(lineNumber);
-                    
-                    // Background color based on selection state
-                    const bgColor = isSelected || isDragSelected
-                      ? (currentTheme === 'dark' ? 'rgba(62, 68, 82, 0.5)' : 'rgba(230, 242, 255, 0.5)')
-                      : undefined;
-                    
-                    return {
-                      style: { 
-                        display: 'block',
-                        cursor: selectionMode === 'specific' ? 'pointer' : 'default',
-                        backgroundColor: bgColor,
-                      },
-                      onClick: () => handleLineClick(lineNumber),
-                      onMouseDown: (e: any) => {
-                        if (selectionMode === 'specific') {
-                          handleMouseDown(lineNumber, e);
-                        }
-                      },
-                      onMouseMove: () => {
-                        if (isDragging) {
-                          handleMouseMove(lineNumber);
-                        }
-                      },
-                      // Add data attribute to help identify line numbers
-                      'data-line-number': lineNumber
-                    };
-                  }}
-                  lineNumberStyle={(lineNumber: number) => {
-                    // Check for selection and drag states (same as above)
-                    const isDragSelected = isDragging && 
-                      dragStartLine !== null && 
-                      dragCurrentLine !== null && 
-                      lineNumber >= Math.min(dragStartLine, dragCurrentLine) && 
-                      lineNumber <= Math.max(dragStartLine, dragCurrentLine);
-                      
-                    const isSelected = isLineSelected(lineNumber);
-                    
-                    // Color based on selection
-                    const textColor = isSelected || isDragSelected
-                      ? (currentTheme === 'dark' ? '#61afef' : '#0366d6') 
-                      : (currentTheme === 'dark' ? '#636d83' : '#999');
-                    
-                    // Background color based on selection
-                    const bgColor = isSelected || isDragSelected
-                      ? (currentTheme === 'dark' ? 'rgba(62, 68, 82, 0.8)' : 'rgba(230, 242, 255, 0.8)')
-                      : undefined;
-                    
-                    return {
-                      minWidth: '3em',
-                      paddingRight: '1em',
-                      textAlign: 'right',
-                      userSelect: 'none',
-                      cursor: selectionMode === 'specific' ? 'pointer' : 'default',
-                      color: textColor,
-                      backgroundColor: bgColor,
-                      // Add handlers for line number selection with improved event handling
-                      onClick: (e: any) => {
-                        // Handle line number clicks directly for better responsiveness
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (selectionMode === 'specific') {
-                          handleLineClick(lineNumber);
-                        }
-                      },
-                      onMouseDown: (e: any) => {
-                        // Only handle mouse down for drag operations
-                        e.preventDefault(); // Prevent default to avoid text selection
-                        e.stopPropagation(); // Stop propagation to prevent unintended interactions
-                        if (selectionMode === 'specific') {
-                          handleMouseDown(lineNumber, e);
-                        }
-                      },
-                      onMouseMove: () => {
-                        if (isDragging) {
-                          handleMouseMove(lineNumber);
-                        }
-                      },
-                    };
-                  }}
+                  lineProps={getLineProps}
+                  lineNumberStyle={getLineNumberStyle}
                   customStyle={{
                     margin: 0,
                     borderRadius: '4px',
@@ -995,7 +1196,23 @@ const FileViewModal = ({
               </Dialog.Close>
               <button 
                 className="file-view-modal-btn apply" 
-                onClick={handleApplySelection}
+                onClick={() => {
+                  if (!file) return;
+                  
+                  const selectedContent = getSelectedContent();
+                  const tokenCount = calculateTokenCount(selectedContent);
+                  
+                  // Update selected file with line ranges
+                  onUpdateSelectedFile({
+                    path: file.path,
+                    lines: selectionMode === 'specific' && selectedLines.length > 0 ? [...selectedLines] : undefined,
+                    content: selectedContent,
+                    tokenCount: tokenCount,
+                    isFullFile: selectionMode === 'entire'
+                  });
+                  
+                  onClose();
+                }}
                 title="Apply Selection"
               >
                 Apply

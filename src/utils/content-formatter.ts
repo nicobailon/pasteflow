@@ -1,5 +1,193 @@
-import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt, FileTreeMode } from "../types/file-types";
-import { generateAsciiFileTree, getAllDirectories, normalizePath, getRelativePath, extname } from "./path-utils";
+import { FileData, FileTreeMode, RolePrompt, SelectedFileWithLines, SystemPrompt } from "../types/file-types";
+
+import { extname, generateAsciiFileTree, getAllDirectories, getRelativePath, normalizePath } from "./path-utils";
+
+/**
+ * Helper function to sort files according to the current sort order
+ */
+const sortFilesByOrder = (files: FileData[], sortOrder: string): FileData[] => {
+  const [sortKey, sortDir] = sortOrder.split("-");
+  return [...files].sort((a: FileData, b: FileData) => {
+    let comparison = 0;
+
+    switch (sortKey) {
+      case "name": {
+        comparison = a.name.localeCompare(b.name);
+        break;
+      }
+      case "tokens": {
+        comparison = a.tokenCount - b.tokenCount;
+        break;
+      }
+      case "size": {
+        comparison = a.size - b.size;
+        break;
+      }
+      // No default
+    }
+
+    return sortDir === "asc" ? comparison : -comparison;
+  });
+};
+
+/**
+ * Generate file tree items based on the current mode
+ */
+const generateFileTreeItems = (
+  allFiles: FileData[],
+  sortedSelected: FileData[],
+  fileTreeMode: FileTreeMode,
+  normalizedRootFolder: string
+): { path: string; isFile?: boolean }[] => {
+  switch (fileTreeMode) {
+    case "selected": {
+      // Only include selected files
+      return sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }));
+    }
+    
+    case "selected-with-roots": {
+      // Include all directories and selected files to show the complete folder structure
+      // Filter out skipped files when getting directories
+      const filteredFiles = allFiles.filter((file: FileData) => !file.isSkipped);
+      const allDirs = getAllDirectories(filteredFiles, normalizedRootFolder);
+      return [
+        ...allDirs.map(dir => ({ path: dir, isFile: false })),
+        ...sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }))
+      ];
+    }
+    
+    case "complete": {
+      // Include all non-skipped files
+      return allFiles
+        .filter((file: FileData) => !file.isSkipped)
+        .map((file: FileData) => ({ path: file.path, isFile: true }));
+    }
+    
+    default: {
+      return [];
+    }
+  }
+};
+
+/**
+ * Map file extension to appropriate language identifier for code blocks
+ */
+const getLanguageIdentifier = (extension: string, filePath: string): string => {
+  // Web development languages
+  switch (extension) {
+    case 'js': { return 'javascript';
+    }
+    case 'ts': { return 'typescript';
+    }
+    case 'tsx': { return 'tsx';
+    }
+    case 'jsx': { return 'jsx';
+    }
+    case 'css': { return 'css';
+    }
+    case 'scss': 
+    case 'sass': { return 'scss';
+    }
+    case 'less': { return 'less';
+    }
+    case 'html': { return 'html';
+    }
+    case 'json': { return 'json';
+    }
+    case 'md': { return 'markdown';
+    }
+    case 'xml': { return 'xml';
+    }
+    case 'svg': { return 'svg';
+    }
+    case 'py': { return 'python';
+    }
+    case 'rb': { return 'ruby';
+    }
+    case 'php': { return 'php';
+    }
+    case 'java': { return 'java';
+    }
+    case 'cs': { return 'csharp';
+    }
+    case 'go': { return 'go';
+    }
+    case 'rs': { return 'rust';
+    }
+    case 'swift': { return 'swift';
+    }
+    case 'kt': 
+    case 'kts': { return 'kotlin';
+    }
+    case 'c': 
+    case 'h': { return 'c';
+    }
+    case 'cpp': 
+    case 'cc': 
+    case 'cxx': 
+    case 'hpp': { return 'cpp';
+    }
+    case 'sh': 
+    case 'bash': { return 'bash';
+    }
+    case 'ps1': { return 'powershell';
+    }
+    case 'bat': 
+    case 'cmd': { return 'batch';
+    }
+    case 'yaml': 
+    case 'yml': { return 'yaml';
+    }
+    case 'toml': { return 'toml';
+    }
+    case 'ini': { return 'ini';
+    }
+    default: { 
+      if (extension === 'dockerfile' || filePath.toLowerCase().endsWith('dockerfile')) return 'dockerfile';
+      // Database
+      else if (extension === 'sql') return 'sql';
+      // Fallback to plaintext if no matching language is found
+      else return extension || 'plaintext';
+    }
+  }
+};
+
+/**
+ * Process content for a file based on the selected lines
+ */
+const processFileContent = (
+  fileContent: string, 
+  selectedFileInfo: SelectedFileWithLines | undefined
+): { content: string, partial: boolean } => {
+  let content = fileContent;
+  let partial = false;
+  
+  // If we have line selections, only include those lines
+  if (selectedFileInfo?.lines && selectedFileInfo.lines.length > 0) {
+    partial = true;
+    
+    // If we have precomputed content, use it
+    if (selectedFileInfo.content) {
+      content = selectedFileInfo.content;
+    } else {
+      // Otherwise compute it from the ranges
+      const lines = content.split('\n');
+      const selectedContent: string[] = [];
+      
+      for (const range of selectedFileInfo.lines) {
+        for (let i = range.start - 1; i < range.end; i++) {
+          if (i >= 0 && i < lines.length) {
+            selectedContent.push(lines[i]);
+          }
+        }
+      }
+      
+      content = selectedContent.join('\n');
+    }
+  }
+  
+  return { content, partial };
+};
 
 /**
  * Generates a formatted string containing all selected files' contents without user instructions.
@@ -24,22 +212,8 @@ export const getSelectedFilesContentWithoutInstructions = (
   const selectedFilesMap = new Map(selectedFiles.map(file => [file.path, file]));
   
   // Sort selected files according to current sort order
-  const [sortKey, sortDir] = sortOrder.split("-");
-  const sortedSelected = allFiles
-    .filter((file: FileData) => selectedFilesMap.has(file.path))
-    .sort((a: FileData, b: FileData) => {
-      let comparison = 0;
-
-      if (sortKey === "name") {
-        comparison = a.name.localeCompare(b.name);
-      } else if (sortKey === "tokens") {
-        comparison = a.tokenCount - b.tokenCount;
-      } else if (sortKey === "size") {
-        comparison = a.size - b.size;
-      }
-
-      return sortDir === "asc" ? comparison : -comparison;
-    });
+  const filteredFiles = allFiles.filter((file: FileData) => selectedFilesMap.has(file.path));
+  const sortedSelected = sortFilesByOrder(filteredFiles, sortOrder);
 
   if (sortedSelected.length === 0) {
     return "No files selected.";
@@ -50,33 +224,16 @@ export const getSelectedFilesContentWithoutInstructions = (
   
   // Add ASCII file tree if enabled
   if (fileTreeMode !== "none" && selectedFolder) {
-    let fileTreeItems: { path: string; isFile?: boolean }[] = [];
     const normalizedRootFolder = normalizePath(selectedFolder);
-
-    if (fileTreeMode === "selected") {
-      // Only include selected files
-      fileTreeItems = sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }));
-    } else if (fileTreeMode === "selected-with-roots") {
-      // Include all directories and selected files to show the complete folder structure
-      // Filter out skipped files when getting directories
-      const filteredFiles = allFiles.filter((file: FileData) => !file.isSkipped);
-      const allDirs = getAllDirectories(filteredFiles, normalizedRootFolder);
-      fileTreeItems = [
-        ...allDirs.map(dir => ({ path: dir, isFile: false })),
-        ...sortedSelected.map((file: FileData) => ({ path: file.path, isFile: true }))
-      ];
-    } else if (fileTreeMode === "complete") {
-      // Include all non-skipped files
-      fileTreeItems = allFiles
-        .filter((file: FileData) => !file.isSkipped)
-        .map((file: FileData) => ({ path: file.path, isFile: true }));
+    const fileTreeItems = generateFileTreeItems(allFiles, sortedSelected, fileTreeMode, normalizedRootFolder);
+    
+    if (fileTreeItems.length > 0) {
+      const asciiTree = generateAsciiFileTree(fileTreeItems, normalizedRootFolder);
+      concatenatedString += `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
     }
-
-    const asciiTree = generateAsciiFileTree(fileTreeItems, normalizedRootFolder);
-    concatenatedString += `<file_map>\n${selectedFolder}\n${asciiTree}\n</file_map>\n\n`;
   }
   
-  sortedSelected.forEach((file: FileData) => {
+  for (const file of sortedSelected) {
     // Calculate the relative path from the selected folder
     let relativePath = file.path;
     
@@ -96,86 +253,21 @@ export const getSelectedFilesContentWithoutInstructions = (
     
     // Determine the file extension for the code block language
     const extension = extname(file.path).replace(/^\./, '').toLowerCase() || '';
-    
-    // Map file extensions to appropriate language identifiers for code blocks
-    let languageIdentifier = extension;
-    // Web development languages
-    if (extension === 'js') languageIdentifier = 'javascript';
-    else if (extension === 'ts') languageIdentifier = 'typescript';
-    else if (extension === 'tsx') languageIdentifier = 'tsx';
-    else if (extension === 'jsx') languageIdentifier = 'jsx';
-    else if (extension === 'css') languageIdentifier = 'css';
-    else if (extension === 'scss' || extension === 'sass') languageIdentifier = 'scss';
-    else if (extension === 'less') languageIdentifier = 'less';
-    else if (extension === 'html') languageIdentifier = 'html';
-    else if (extension === 'json') languageIdentifier = 'json';
-    else if (extension === 'md') languageIdentifier = 'markdown';
-    else if (extension === 'xml') languageIdentifier = 'xml';
-    else if (extension === 'svg') languageIdentifier = 'svg';
-    
-    // Backend languages
-    else if (extension === 'py') languageIdentifier = 'python';
-    else if (extension === 'rb') languageIdentifier = 'ruby';
-    else if (extension === 'php') languageIdentifier = 'php';
-    else if (extension === 'java') languageIdentifier = 'java';
-    else if (extension === 'cs') languageIdentifier = 'csharp';
-    else if (extension === 'go') languageIdentifier = 'go';
-    else if (extension === 'rs') languageIdentifier = 'rust';
-    else if (extension === 'swift') languageIdentifier = 'swift';
-    else if (extension === 'kt' || extension === 'kts') languageIdentifier = 'kotlin';
-    else if (extension === 'c' || extension === 'h') languageIdentifier = 'c';
-    else if (extension === 'cpp' || extension === 'cc' || extension === 'cxx' || extension === 'hpp') languageIdentifier = 'cpp';
-    
-    // Shell and configuration
-    else if (extension === 'sh' || extension === 'bash') languageIdentifier = 'bash';
-    else if (extension === 'ps1') languageIdentifier = 'powershell';
-    else if (extension === 'bat' || extension === 'cmd') languageIdentifier = 'batch';
-    else if (extension === 'yaml' || extension === 'yml') languageIdentifier = 'yaml';
-    else if (extension === 'toml') languageIdentifier = 'toml';
-    else if (extension === 'ini') languageIdentifier = 'ini';
-    else if (extension === 'dockerfile' || file.path.toLowerCase().endsWith('dockerfile')) languageIdentifier = 'dockerfile';
-    
-    // Database
-    else if (extension === 'sql') languageIdentifier = 'sql';
-    
-    // Fallback to plaintext if no matching language is found
-    else if (!languageIdentifier) languageIdentifier = 'plaintext';
+    const languageIdentifier = getLanguageIdentifier(extension, file.path);
     
     // Get the selected file info including any line selections
     const selectedFileInfo = selectedFilesMap.get(file.path);
-    let content = file.content;
+    const { content, partial } = processFileContent(file.content, selectedFileInfo);
     
     // Format the file header
     let fileHeader = `\nFile: ${relativePath}`;
-    
-    // If we have line selections, only include those lines
-    if (selectedFileInfo && selectedFileInfo.lines && selectedFileInfo.lines.length > 0) {
-      // Add a note about partial selection to the header
+    if (partial) {
       fileHeader += ` (Selected Lines)`;
-      
-      // If we have precomputed content, use it
-      if (selectedFileInfo.content) {
-        content = selectedFileInfo.content;
-      } else {
-        // Otherwise compute it from the ranges
-        const lines = content.split('\n');
-        const selectedContent: string[] = [];
-        
-        selectedFileInfo.lines.forEach(range => {
-          for (let i = range.start - 1; i < range.end; i++) {
-            if (i >= 0 && i < lines.length) {
-              selectedContent.push(lines[i]);
-            }
-          }
-        });
-        
-        content = selectedContent.join('\n');
-      }
     }
     
     // Add file content with file header and code block
     concatenatedString += `${fileHeader}\n\`\`\`${languageIdentifier}\n${content}\n\`\`\`\n`;
-  });
+  }
   
   // Close codebase tag
   concatenatedString += "</codebase>";
@@ -221,16 +313,16 @@ export const getSelectedFilesContent = (
   
   // Add role prompts if selected (before system prompts)
   if (selectedRolePrompts.length > 0) {
-    selectedRolePrompts.forEach((prompt: RolePrompt) => {
+    for (const prompt of selectedRolePrompts) {
       result += `\n\n<role>\n${prompt.content}\n</role>`;
-    });
+    }
   }
   
   // Add system prompts if selected
   if (selectedSystemPrompts.length > 0) {
-    selectedSystemPrompts.forEach((prompt: SystemPrompt) => {
+    for (const prompt of selectedSystemPrompts) {
       result += `\n\n<guidelines>\n${prompt.content}\n</guidelines>`;
-    });
+    }
   }
   
   // Append user instructions if they exist
@@ -280,16 +372,16 @@ export const getContentWithXmlPrompt = (
   
   // Add role prompts if selected
   if (selectedRolePrompts.length > 0) {
-    selectedRolePrompts.forEach((prompt: RolePrompt) => {
+    for (const prompt of selectedRolePrompts) {
       result += `\n\n<role>\n${prompt.content}\n</role>`;
-    });
+    }
   }
   
   // Add system prompts if selected
   if (selectedSystemPrompts.length > 0) {
-    selectedSystemPrompts.forEach((prompt: SystemPrompt) => {
+    for (const prompt of selectedSystemPrompts) {
       result += `\n\n<guidelines>\n${prompt.content}\n</guidelines>`;
-    });
+    }
   }
   
   // Add user instructions at the very end if they exist

@@ -1,8 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
 import { ApplyChangesModal } from '../components/ApplyChangesModal';
-import fs from 'fs';
+
+import fs from 'node:fs';
 
 // Mock the electron IPC renderer
 const mockSend = jest.fn();
@@ -458,7 +460,7 @@ describe('ApplyChangesModal', () => {
         // Simulate adding CDATA tags
         const xml = args[0];
         return Promise.resolve(xml.replace(
-          /<file_code>([\s\S]*?)<\/file_code>/g,
+          /<file_code>([\S\s]*?)<\/file_code>/g,
           (match: string, p1: string) => `<file_code><![CDATA[${p1}]]></file_code>`
         ));
       }
@@ -757,7 +759,7 @@ export default () => <div className="template-literal someValue">Content</div>;
     expect(screen.getByText('XML Formatter')).toBeInTheDocument();
     
     // Find and click the format button in the formatter component
-    const formatButton = screen.getByRole('button', { name: /Format/i });
+    const formatButton = screen.getByRole('button', { name: /format/i });
     await act(async () => {
       fireEvent.click(formatButton);
     });
@@ -870,7 +872,7 @@ export default () => <div className="template-literal someValue">Content</div>;
     
     // Extract the file path and content from the XML
     const filePathMatch = copyButtonXml.match(/<file_path>(.*?)<\/file_path>/s);
-    const fileCodeMatch = copyButtonXml.match(/<file_code>([\s\S]*?)<\/file_code>/s);
+    const fileCodeMatch = copyButtonXml.match(/<file_code>([\S\s]*?)<\/file_code>/s);
     
     const filePath = filePathMatch ? filePathMatch[1].trim() : '';
     const fileCode = fileCodeMatch ? fileCodeMatch[1].trim() : '';

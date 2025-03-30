@@ -1,6 +1,7 @@
 "use client";
-import { applyChangesAction } from "../../actions/apply-changes-actions";
 import React, { useEffect, useState } from "react";
+
+import { applyChangesAction } from "../../actions/apply-changes-actions";
 
 export function ApplyChangesForm() {
   const [xml, setXml] = useState<string>("");
@@ -76,8 +77,9 @@ export function ApplyChangesForm() {
       )}
       
       <div className="flex flex-col">
-        <label className="mb-2 font-bold">Project Directory:</label>
+        <label htmlFor="projectDirectory" className="mb-2 font-bold">Project Directory:</label>
         <input
+          id="projectDirectory"
           className="border bg-secondary text-secondary-foreground p-2 w-full rounded-md"
           type="text"
           value={projectDirectory}
@@ -91,8 +93,9 @@ export function ApplyChangesForm() {
       </div>
       
       <div className="flex flex-col">
-        <label className="mb-2 font-bold">Paste XML here:</label>
+        <label htmlFor="xmlInput" className="mb-2 font-bold">Paste XML here:</label>
         <textarea
+          id="xmlInput"
           className="border bg-secondary text-secondary-foreground p-2 h-64 w-full rounded-md font-mono text-sm"
           value={xml}
           onChange={(e) => setXml(e.target.value)}

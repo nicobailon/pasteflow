@@ -3,18 +3,19 @@
  */
 
 import { DOMParser } from '@xmldom/xmldom';
-import * as path from 'path';
+
+import * as path from 'node:path';
 
 // Mock fs/promises module first, before importing it
 jest.mock('fs/promises', () => ({
-  mkdir: jest.fn().mockResolvedValue(undefined),
-  writeFile: jest.fn().mockResolvedValue(undefined),
-  access: jest.fn().mockResolvedValue(undefined),
-  rm: jest.fn().mockResolvedValue(undefined)
+  mkdir: jest.fn().mockResolvedValue(),
+  writeFile: jest.fn().mockResolvedValue(),
+  access: jest.fn().mockResolvedValue(),
+  rm: jest.fn().mockResolvedValue()
 }));
 
 // Now import the mocked module
-import * as fsPromises from 'fs/promises';
+import * as fsPromises from 'node:fs/promises';
 
 // Import the actual functions from xmlUtils
 import {
@@ -689,7 +690,7 @@ const DeepNesting = () => (
     
     test('should provide a fallback chunk of XML when no specific issue is found', () => {
       const errorMsg = 'XML parsing failed';
-      const xml = `<file_code>\n${Array(50).fill('import something;').join('\n')}\n</file_code>`;
+      const xml = `<file_code>\n${Array.from({length: 50}).fill('import something;').join('\n')}\n</file_code>`;
       
       const result = findProblemArea(xml, errorMsg);
       expect(result).toBeTruthy();

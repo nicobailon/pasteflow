@@ -1,4 +1,4 @@
-import { WorkspaceState } from '../types/FileTypes';
+import { WorkspaceState } from '../types/file-types';
 
 export const serializeWorkspace = (state: WorkspaceState): string => {
   return JSON.stringify(state);

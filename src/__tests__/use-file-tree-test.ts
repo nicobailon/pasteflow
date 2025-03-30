@@ -1,6 +1,7 @@
-import { renderHook, act } from '@testing-library/react';
-import useFileTree from '../hooks/useFileTree';
-import { FileData, TreeNode } from '../types/FileTypes';
+import { act, renderHook } from '@testing-library/react';
+
+import useFileTree from '../hooks/use-file-tree';
+import { FileData, TreeNode } from '../types/file-types';
 
 // Use fake timers for testing
 jest.useFakeTimers();
@@ -18,7 +19,7 @@ const mockFiles: FileData[] = [
   },
   {
     name: 'App.tsx',
-    path: '/src/App.tsx',
+    path: '/src/app.tsx',
     content: 'import React...',
     tokenCount: 150,
     size: 500,
@@ -134,7 +135,7 @@ describe('useFileTree Hook', () => {
     expect(result.current.fileTree.length).toBeGreaterThan(0);
     
     // Ensure the src directory exists and has children
-    const srcNode = result.current.fileTree.find(node => 
+    const srcNode = result.current.fileTree.find((node: TreeNode) => 
       node.type === 'directory' && node.name === 'src'
     );
     expect(srcNode).toBeDefined();
@@ -157,7 +158,7 @@ describe('useFileTree Hook', () => {
     expect(result.current.fileTree.length).toBeGreaterThan(0);
     
     // Verify src directory exists
-    const srcNode = result.current.fileTree.find(node => 
+    const srcNode = result.current.fileTree.find((node: TreeNode) => 
       node.type === 'directory' && node.name === 'src'
     );
     expect(srcNode).toBeDefined();
@@ -165,15 +166,15 @@ describe('useFileTree Hook', () => {
     // Check if src has components
     if (srcNode && srcNode.children) {
       // Verify components directory exists under src
-      const componentsNode = srcNode.children.find(node => 
+      const componentsNode = srcNode.children.find((node: TreeNode) => 
         node.type === 'directory' && node.name === 'components'
       );
       expect(componentsNode).toBeDefined();
       
       // Check that footer and header files exist under components
       if (componentsNode && componentsNode.children) {
-        const footerFile = componentsNode.children.find(n => n.name === 'Footer.tsx');
-        const headerFile = componentsNode.children.find(n => n.name === 'Header.tsx');
+        const footerFile = componentsNode.children.find((n: TreeNode) => n.name === 'Footer.tsx');
+        const headerFile = componentsNode.children.find((n: TreeNode) => n.name === 'Header.tsx');
         
         expect(footerFile).toBeDefined();
         expect(headerFile).toBeDefined();
@@ -194,18 +195,18 @@ describe('useFileTree Hook', () => {
     waitForTreeBuildingToComplete(result);
 
     // Look for components folder to check child sorting
-    const srcNode = result.current.fileTree.find(node => 
+    const srcNode = result.current.fileTree.find((node: TreeNode) => 
       node.type === 'directory' && node.name === 'src'
     );
     
     if (srcNode && srcNode.children) {
-      const componentsNode = srcNode.children.find(node => 
+      const componentsNode = srcNode.children.find((node: TreeNode) => 
         node.type === 'directory' && node.name === 'components'
       );
       
       if (componentsNode && componentsNode.children && componentsNode.children.length >= 2) {
         // For reverse alphabetical ordering, Header should come before Footer
-        const nodeNames = componentsNode.children.map(n => n.name);
+        const nodeNames = componentsNode.children.map((n: TreeNode) => n.name);
         const footerIndex = nodeNames.indexOf('Footer.tsx');
         const headerIndex = nodeNames.indexOf('Header.tsx');
         
@@ -229,7 +230,7 @@ describe('useFileTree Hook', () => {
     waitForTreeBuildingToComplete(result);
     
     // Extract root-level files
-    const files = result.current.fileTree.filter(node => node.type === 'file');
+    const files = result.current.fileTree.filter((node: TreeNode) => node.type === 'file');
     
     // If we have multiple files, check they're sorted by token count
     if (files.length > 1) {
@@ -254,13 +255,13 @@ describe('useFileTree Hook', () => {
     waitForTreeBuildingToComplete(result);
     
     // Extract root-level files
-    const files = result.current.fileTree.filter(node => node.type === 'file');
+    const files = result.current.fileTree.filter((node: TreeNode) => node.type === 'file');
     
     // Verify we have files with token counts
     expect(files.length).toBeGreaterThan(0);
     
     // Check at least one file has token count
-    const hasTokenCount = files.some(node => (node.fileData?.tokenCount || 0) > 0);
+    const hasTokenCount = files.some((node: TreeNode) => (node.fileData?.tokenCount || 0) > 0);
     expect(hasTokenCount).toBe(true);
     
     // For tokens-desc sorting, we'll check a specific file we know has the most tokens
@@ -268,7 +269,7 @@ describe('useFileTree Hook', () => {
     const homePageFile = mockFiles.find(file => file.name === 'HomePage.tsx');
     if (homePageFile && files.length > 1) {
       // Find HomePage.tsx in our sorted files
-      const homePageIndex = files.findIndex(f => f.name === 'HomePage.tsx');
+      const homePageIndex = files.findIndex((f: TreeNode) => f.name === 'HomePage.tsx');
       
       // If we found HomePage.tsx in the results, it should be sorted high up (low index) 
       // since it has the most tokens
@@ -291,13 +292,13 @@ describe('useFileTree Hook', () => {
     waitForTreeBuildingToComplete(result);
 
     // Extract root-level files
-    const files = result.current.fileTree.filter(node => node.type === 'file');
+    const files = result.current.fileTree.filter((node: TreeNode) => node.type === 'file');
     
     // Verify we have files
     expect(files.length).toBeGreaterThan(0);
     
     // Get extensions in order they appear
-    const extensions = files.map(file => file.name.split('.').pop() || '');
+    const extensions = files.map((file: TreeNode) => file.name.split('.').pop() || '');
     
     // Create a sorted copy for comparison
     const sortedExtensions = [...extensions].sort();
@@ -319,13 +320,13 @@ describe('useFileTree Hook', () => {
     waitForTreeBuildingToComplete(result);
 
     // Extract root-level files
-    const files = result.current.fileTree.filter(node => node.type === 'file');
+    const files = result.current.fileTree.filter((node: TreeNode) => node.type === 'file');
     
     // Verify we have files
     expect(files.length).toBeGreaterThan(0);
     
     // Get the extensions of files that are actually in the tree
-    const fileExtensions = files.map(file => {
+    const fileExtensions = files.map((file: TreeNode) => {
       const parts = file.name.split('.');
       return parts.length > 1 ? parts[parts.length - 1] : '';
     });
@@ -336,13 +337,13 @@ describe('useFileTree Hook', () => {
     // Simply verify that the expected file types are present somewhere in the tree
     const expectedExtensions = ['html', 'json', 'tsx'];
     const foundExtensions = expectedExtensions.filter(ext => 
-      result.current.fileTree.some(node => 
+      result.current.fileTree.some((node: TreeNode) => 
         node.type === 'file' && node.name.endsWith(`.${ext}`)
       ) || 
       // Also check src directory for files
-      result.current.fileTree.some(srcNode => 
+      result.current.fileTree.some((srcNode: TreeNode) => 
         srcNode.type === 'directory' && srcNode.children && 
-        srcNode.children.some(child => 
+        srcNode.children.some((child: TreeNode) => 
           child.type === 'file' && child.name.endsWith(`.${ext}`)
         )
       )
@@ -365,7 +366,7 @@ describe('useFileTree Hook', () => {
     waitForTreeBuildingToComplete(result);
 
     // Identify src directory
-    const srcNode = result.current.fileTree.find(node => 
+    const srcNode = result.current.fileTree.find((node: TreeNode) => 
       node.type === 'directory' && node.name === 'src'
     );
     
@@ -392,7 +393,7 @@ describe('useFileTree Hook', () => {
     const visibleTree = result.current.visibleTree;
     
     // Check the visible tree for Header file or components directory
-    const hasHeaderFile = visibleTree.some(node => 
+    const hasHeaderFile = visibleTree.some((node: TreeNode) => 
       node.name === 'Header.tsx' || 
       (node.type === 'directory' && node.name === 'components')
     );
@@ -402,7 +403,7 @@ describe('useFileTree Hook', () => {
 
   it('should handle incremental tree building', async () => {
     // Create a moderate-sized mock file set to test batch processing
-    const largeFileSet = Array(100).fill(null).map((_, i) => ({
+    const largeFileSet = Array.from({length: 100}).fill(null).map((_, i) => ({
       name: `file-${i}.js`,
       path: `/folder-${Math.floor(i / 20)}/file-${i}.js`,
       content: `console.log('file ${i}');`,
@@ -428,11 +429,11 @@ describe('useFileTree Hook', () => {
     expect(result.current.fileTree.length).toBeGreaterThan(0);
     
     // The tree should have directories
-    const folders = result.current.fileTree.filter(node => node.type === 'directory');
+    const folders = result.current.fileTree.filter((node: TreeNode) => node.type === 'directory');
     expect(folders.length).toBeGreaterThan(0);
     
     // Verify at least one folder has children
-    const hasChildren = folders.some(folder => folder.children && folder.children.length > 0);
+    const hasChildren = folders.some((folder: TreeNode) => folder.children && folder.children.length > 0);
     expect(hasChildren).toBe(true);
   });
 
@@ -458,7 +459,7 @@ describe('useFileTree Hook', () => {
     waitForTreeBuildingToComplete(result);
 
     // The level1 directory should exist
-    const level1Dir = result.current.fileTree.find(node => 
+    const level1Dir = result.current.fileTree.find((node: TreeNode) => 
       node.type === 'directory' && node.name === 'level1'
     );
     
@@ -466,7 +467,7 @@ describe('useFileTree Hook', () => {
     expect(level1Dir?.isExpanded).toBe(true); // Level 1 should be expanded
     
     // Level2 directory should exist under level1
-    const level2Dir = level1Dir?.children?.find(node => 
+    const level2Dir = level1Dir?.children?.find((node: TreeNode) => 
       node.type === 'directory' && node.name === 'level2'
     );
     
@@ -474,7 +475,7 @@ describe('useFileTree Hook', () => {
     expect(level2Dir?.isExpanded).toBe(true); // Level 2 should be expanded
     
     // Level3 directory should exist under level2
-    const level3Dir = level2Dir?.children?.find(node => 
+    const level3Dir = level2Dir?.children?.find((node: TreeNode) => 
       node.type === 'directory' && node.name === 'level3'
     );
     
@@ -520,7 +521,7 @@ describe('useFileTree Hook', () => {
     expect(result.current.fileTree.length).toBe(initialTreeSize);
     
     // With the change to desc, check sorting order is different
-    const hasDirectoriesOrFiles = result.current.fileTree.some(node => 
+    const hasDirectoriesOrFiles = result.current.fileTree.some((node: TreeNode) => 
       node.type === 'directory' || node.type === 'file'
     );
     expect(hasDirectoriesOrFiles).toBe(true);

@@ -1,4 +1,5 @@
 import { renderHook } from '@testing-library/react';
+
 import useFileTree from '../hooks/useFileTree';
 import { TreeNode, FileData } from '../types/FileTypes';
 
@@ -108,9 +109,9 @@ describe('flattenTree function in useFileTree', () => {
     
     // Verify all dirs are collapsed
     const initialDirs = visibleTree.filter(node => node.type === 'directory');
-    initialDirs.forEach(dir => {
+    for (const dir of initialDirs) {
       expect(dir.isExpanded).toBe(false);
-    });
+    }
     
     // Verify no files are visible in the flattened tree
     expect(visibleTree.find(node => node.id.endsWith('.js'))).toBeUndefined();

@@ -8,13 +8,13 @@ let displayedFiles = []; // Files after filtering and sorting
 let currentSort = "name-asc"; // Default sort
 let currentFilter = ""; // Current filter text
 
-const openFolderButton = document.getElementById("open-folder-button");
-const selectAllButton = document.getElementById("select-all-button");
-const deselectAllButton = document.getElementById("deselect-all-button");
-const sortDropdown = document.getElementById("sort-dropdown");
-const filterInput = document.getElementById("filter-input");
-const copyButton = document.getElementById("copy-button");
-const copyStatus = document.getElementById("copy-status");
+const openFolderButton = document.querySelector("#open-folder-button");
+const selectAllButton = document.querySelector("#select-all-button");
+const deselectAllButton = document.querySelector("#deselect-all-button");
+const sortDropdown = document.querySelector("#sort-dropdown");
+const filterInput = document.querySelector("#filter-input");
+const copyButton = document.querySelector("#copy-button");
+const copyStatus = document.querySelector("#copy-status");
 
 openFolderButton.addEventListener("click", () => {
   // Use the exposed IPC method from preload.js
@@ -24,7 +24,7 @@ openFolderButton.addEventListener("click", () => {
 // Set up the IPC listeners using the exposed API
 window.electron.receive("folder-selected", (selectedPath) => {
   // Extract just the folder name from the path
-  const folderName = selectedPath.split(/[\/\\]/).pop();
+  const folderName = selectedPath.split(/[/\\]/).pop();
   
   // Update the document title to include the folder name
   document.title = `PasteFlow - ${folderName}`;
@@ -56,12 +56,23 @@ function sortFiles(files, sortValue) {
   return [...files].sort((a, b) => {
     let comparison = 0;
 
-    if (sortKey === "name") {
+    switch (sortKey) {
+    case "name": {
       comparison = a.name.localeCompare(b.name);
-    } else if (sortKey === "tokens") {
+    
+    break;
+    }
+    case "tokens": {
       comparison = a.tokenCount - b.tokenCount;
-    } else if (sortKey === "size") {
+    
+    break;
+    }
+    case "size": {
       comparison = a.size - b.size;
+    
+    break;
+    }
+    // No default
     }
 
     return sortDir === "asc" ? comparison : -comparison;
@@ -109,12 +120,12 @@ function applyFiltersAndSort() {
 function calculateTotalTokens() {
   let total = 0;
 
-  selectedFiles.forEach((selectedPath) => {
+  for (const selectedPath of selectedFiles) {
     const fileData = allFiles.find((f) => f.path === selectedPath);
     if (fileData) {
       total += fileData.tokenCount;
     }
-  });
+  }
 
   return total;
 }
@@ -122,8 +133,8 @@ function calculateTotalTokens() {
 // Update the total tokens display
 function updateTotalTokens() {
   const totalTokens = calculateTotalTokens();
-  document.getElementById(
-    "total-tokens",
+  document.querySelector(
+    "#total-tokens",
   ).textContent = `Total Tokens: ${totalTokens.toLocaleString()}`;
 }
 
@@ -148,19 +159,19 @@ selectAllButton.addEventListener("click", () => {
   );
 
   // Get the paths of all currently displayed files
-  const displayedPaths = displayedFiles.map((file) => file.path);
+  const displayedPaths = new Set(displayedFiles.map((file) => file.path));
 
   // Remove any previously selected files that are no longer displayed
-  selectedFiles = selectedFiles.filter((path) => displayedPaths.includes(path));
+  selectedFiles = selectedFiles.filter((path) => displayedPaths.has(path));
 
   // Add all currently displayed files
-  checkboxes.forEach((checkbox) => {
+  for (const checkbox of checkboxes) {
     checkbox.checked = true;
     const filePath = checkbox.value;
     if (!selectedFiles.includes(filePath)) {
       selectedFiles.push(filePath);
     }
-  });
+  }
 
   updateTotalTokens();
   console.log("Selected all displayed files:", selectedFiles.length);
@@ -173,17 +184,17 @@ deselectAllButton.addEventListener("click", () => {
   );
 
   // Get the paths of all currently displayed files
-  const displayedPaths = displayedFiles.map((file) => file.path);
+  const displayedPaths = new Set(displayedFiles.map((file) => file.path));
 
   // Remove currently displayed files from selection
   selectedFiles = selectedFiles.filter(
-    (path) => !displayedPaths.includes(path),
+    (path) => !displayedPaths.has(path),
   );
 
   // Uncheck all displayed checkboxes
-  checkboxes.forEach((checkbox) => {
+  for (const checkbox of checkboxes) {
     checkbox.checked = false;
-  });
+  }
 
   updateTotalTokens();
   console.log("Deselected all displayed files");
@@ -196,7 +207,7 @@ function formatFileSize(bytes) {
   const units = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
 
-  return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + " " + units[i];
+  return Number.parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + " " + units[i];
 }
 
 // Concatenate selected files
@@ -215,10 +226,10 @@ function concatenateSelectedFiles() {
 
   let concatenatedString = "";
 
-  sortedSelectedFiles.forEach((file) => {
+  for (const file of sortedSelectedFiles) {
     concatenatedString += `\n\n// ---- File: ${file.name} ----\n\n`;
     concatenatedString += file.content;
-  });
+  }
 
   return concatenatedString;
 }
@@ -239,19 +250,19 @@ copyButton.addEventListener("click", async () => {
     }, 2000);
 
     console.log("Content copied to clipboard");
-  } catch (err) {
-    console.error("Could not copy content: ", err);
+  } catch (error) {
+    console.error("Could not copy content:", error);
     alert("Failed to copy to clipboard");
   }
 });
 
 // Render the file list with the current data and sorting
 function renderFileList(files) {
-  const fileList = document.getElementById("file-list");
+  const fileList = document.querySelector("#file-list");
   // Clear existing list
   fileList.innerHTML = "";
 
-  files.forEach((file) => {
+  for (const file of files) {
     const li = document.createElement("li");
 
     // Create checkbox
@@ -285,11 +296,7 @@ function renderFileList(files) {
 
     // Create token count display
     const tokenCountSpan = document.createElement("span");
-    if (file.isBinary || file.isSkipped) {
-      tokenCountSpan.textContent = " (Tokens: N/A)";
-    } else {
-      tokenCountSpan.textContent = ` (Tokens: ${file.tokenCount.toLocaleString()})`;
-    }
+    tokenCountSpan.textContent = file.isBinary || file.isSkipped ? " (Tokens: N/A)" : ` (Tokens: ${file.tokenCount.toLocaleString()})`;
     tokenCountSpan.style.color = "#666";
     tokenCountSpan.style.marginLeft = "10px";
 
@@ -300,11 +307,11 @@ function renderFileList(files) {
     fileSizeSpan.style.marginLeft = "5px";
 
     // Add the checkbox and labels to the list item
-    li.appendChild(checkbox);
-    li.appendChild(label);
-    li.appendChild(tokenCountSpan);
-    li.appendChild(fileSizeSpan);
+    li.append(checkbox);
+    li.append(label);
+    li.append(tokenCountSpan);
+    li.append(fileSizeSpan);
 
-    fileList.appendChild(li);
-  });
+    fileList.append(li);
+  }
 }

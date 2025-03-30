@@ -30,7 +30,7 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val
       // For other types, attempt to parse the JSON
       try {
         return JSON.parse(item) as unknown as T;
-      } catch (error) {
+      } catch {
         // If JSON parsing fails, it might be a simple string value
         console.log(`Returning raw value for key "${key}" since JSON parsing failed`);
         return item as unknown as T;

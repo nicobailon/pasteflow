@@ -1,0 +1,13 @@
+# Build artifacts
+dist/
+build/
+coverage/
+
+# Node modules
+node_modules/
+
+# ESLint config
+.eslintrc.cjs
+
+# Test files with numerous warnings
+src/__tests__/**/* 

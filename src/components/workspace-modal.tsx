@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { useWorkspaceState } from '../hooks/use-workspace-state';
-import useAppState from '../hooks/use-app-state';
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { useEffect, useState } from 'react';
+
+import useAppState from '../hooks/use-app-state';
+import { useWorkspaceState } from '../hooks/use-workspace-state';
+import { WorkspaceState } from '../types/file-types';
 
 interface WorkspaceModalProps {
   isOpen: boolean;
@@ -24,14 +26,17 @@ const WorkspaceModal = ({ isOpen, onClose }: WorkspaceModalProps): JSX.Element =
 
   const handleSave = () => {
     // Create workspace object from current appState
-    const workspace = {
+    const workspace: WorkspaceState = {
       fileTreeState: appState.expandedNodes,
       selectedFiles: appState.selectedFiles,
       userInstructions: appState.userInstructions,
-      tokenCounts: appState.selectedFiles.reduce((acc, file) => {
-        acc[file.path] = file.tokenCount || 0;
+      tokenCounts: (() => {
+        const acc: { [filePath: string]: number } = {};
+        for (const file of appState.selectedFiles) {
+          acc[file.path] = file.tokenCount || 0;
+        }
         return acc;
-      }, {} as { [filePath: string]: number }),
+      })(),
       customPrompts: {
         systemPrompts: appState.selectedSystemPrompts,
         rolePrompts: appState.selectedRolePrompts
@@ -39,11 +44,9 @@ const WorkspaceModal = ({ isOpen, onClose }: WorkspaceModalProps): JSX.Element =
     };
     
     // Check if workspace already exists
-    if (workspaceNames.includes(name)) {
-      if (!window.confirm(`Workspace "${name}" exists. Overwrite?`)) {
+    if (workspaceNames.includes(name) && !window.confirm(`Workspace "${name}" exists. Overwrite?`)) {
         return; // User cancelled the overwrite
       }
-    }
     
     // Save workspace
     saveWorkspace(name, workspace);

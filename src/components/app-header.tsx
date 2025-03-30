@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { Archive, Folder, Save, ChevronDown } from 'lucide-react';
-import ThemeToggle from './theme-toggle';
-import FileTreeToggle from './file-tree-toggle';
-import WorkspaceModal from './workspace-modal';
+import { Archive, ChevronDown, Folder, Save } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+
+import { useWorkspaceState } from '../hooks/use-workspace-state';
 import { FileTreeMode } from '../types/file-types';
 import { getFolderNameFromPath } from '../utils/file-utils';
-import { useWorkspaceState } from '../hooks/use-workspace-state';
+
+import FileTreeToggle from './file-tree-toggle';
+import ThemeToggle from './theme-toggle';
+import WorkspaceModal from './workspace-modal';
 
 interface AppHeaderProps {
   selectedFolder: string | null;
@@ -58,6 +60,27 @@ const AppHeader = ({
     setIsDropdownOpen(false);
   };
   
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleDropdown();
+    }
+  };
+  
+  const handleWorkspaceItemKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, name: string) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleWorkspaceSelect(name);
+    }
+  };
+  
+  const handleManageWorkspacesKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleWorkspaceToggle();
+    }
+  };
+  
   return (
     <header className="header">
       <div className="header-actions">
@@ -67,11 +90,19 @@ const AppHeader = ({
               <span className="folder-name-container"> <Folder className="folder-icon-app-title" size={24} /> 
                 {currentWorkspace ? (
                   <div className="workspace-dropdown">
-                    <div className="dropdown-header" onClick={toggleDropdown}>
+                    <div 
+                      className="dropdown-header" 
+                      onClick={toggleDropdown}
+                      onKeyDown={handleKeyDown}
+                      role="button"
+                      tabIndex={0}
+                      aria-haspopup="true"
+                      aria-expanded={isDropdownOpen}
+                    >
                       {currentWorkspace} <ChevronDown size={16} />
                     </div>
                     {isDropdownOpen && (
-                      <div className="dropdown-menu">
+                      <div className="dropdown-menu" role="menu">
                         {workspaceNames.length > 0 && (
                           <>
                             {workspaceNames.map((name: string) => (
@@ -79,14 +110,23 @@ const AppHeader = ({
                                 key={name} 
                                 className={`dropdown-item ${name === currentWorkspace ? 'active' : ''}`}
                                 onClick={() => handleWorkspaceSelect(name)}
+                                onKeyDown={(e) => handleWorkspaceItemKeyDown(e, name)}
+                                role="menuitem"
+                                tabIndex={0}
                               >
                                 {name}
                               </div>
                             ))}
-                            <div className="dropdown-divider"></div>
+                            <div className="dropdown-divider" role="separator"></div>
                           </>
                         )}
-                        <div className="dropdown-item" onClick={handleWorkspaceToggle}>
+                        <div 
+                          className="dropdown-item" 
+                          onClick={handleWorkspaceToggle}
+                          onKeyDown={handleManageWorkspacesKeyDown}
+                          role="menuitem"
+                          tabIndex={0}
+                        >
                           Manage Workspaces
                         </div>
                       </div>

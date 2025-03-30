@@ -1,6 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { ipcMain } from 'electron';
-import fs from 'fs';
-import path from 'path';
 // Import the main process file that defines the IPC handlers
 // import '../main'; // This will properly register the IPC handlers
 
@@ -68,7 +69,7 @@ const mockFileProcessingHandlers = () => {
     });
 
     // Process mock files in batches (simplified version of the real implementation)
-    const mockDirEntries = Array(100).fill(null).map((_, i) => {
+    const mockDirEntries = Array.from({length: 100}).fill(null).map((_, i) => {
       if (i % 10 === 0) {
         return createMockDirent(`dir${i}`, true);
       }
@@ -96,9 +97,8 @@ const mockFileProcessingHandlers = () => {
         // Only populate with general files if not specific test mocks
         if (!event.sender.send.mock?.implementations || event.sender.send.mock.implementations.length === 0) {
           // Generate mock file data
-          mockDirEntries
-            .filter(dirent => !dirent.isDirectory())
-            .forEach((dirent, index) => {
+          for (const [index, dirent] of mockDirEntries
+            .filter(dirent => !dirent.isDirectory()).entries()) {
               mockFiles.push({
                 name: dirent.name,
                 path: `${folderPath}/${dirent.name}`,
@@ -108,7 +108,7 @@ const mockFileProcessingHandlers = () => {
                 isBinary: false,
                 isSkipped: false
               });
-            });
+            }
         }
         
         // Send file data
@@ -208,7 +208,7 @@ describe('File Processing Functionality', () => {
     }
     
     // Mock a directory with many files
-    const mockDirEntries = Array(100).fill(null).map((_, i) => {
+    const mockDirEntries = Array.from({length: 100}).fill(null).map((_, i) => {
       if (i % 10 === 0) {
         return createMockDirent(`dir${i}`, true);
       }
@@ -254,7 +254,7 @@ describe('File Processing Functionality', () => {
     }
     
     // Mock a large directory structure
-    const mockDirEntries = Array(50).fill(null).map((_, i) => {
+    const mockDirEntries = Array.from({length: 50}).fill(null).map((_, i) => {
       if (i % 10 === 0) {
         return createMockDirent(`dir${i}`, true);
       }
@@ -358,7 +358,7 @@ describe('File Processing Functionality', () => {
         return {
           isDirectory: () => false,
           isFile: () => true,
-          size: 1000000000 // 1GB file
+          size: 1_000_000_000 // 1GB file
         };
       }
       return {
@@ -388,7 +388,7 @@ describe('File Processing Functionality', () => {
       path: '/test/folder/large.txt',
       content: '',
       tokenCount: 0,
-      size: 1000000000,
+      size: 1_000_000_000,
       isBinary: false,
       isSkipped: true,
       error: 'File too large to process'

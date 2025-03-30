@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, screen, waitFor } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
 import FilterModal from '../components/FilterModal';
 
@@ -32,9 +33,9 @@ describe('FilterModal Component', () => {
     expect(textarea).toBeInTheDocument();
     
     // Verify all patterns are included in the textarea
-    mockExclusionPatterns.forEach(pattern => {
+    for (const pattern of mockExclusionPatterns) {
       expect(textarea.value).toContain(pattern);
-    });
+    }
     
     // Check for buttons
     expect(screen.getByText('Cancel')).toBeInTheDocument();

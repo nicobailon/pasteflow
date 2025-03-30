@@ -1,5 +1,5 @@
-import { promises as fs } from "fs";
-import { dirname, join } from "path";
+import { promises as fs } from "node:fs";
+import { dirname, join } from "node:path";
 
 interface FileChange {
   file_operation: string;
@@ -23,35 +23,39 @@ export async function applyFileChanges(change: FileChange, projectDirectory: str
   if (file_operation.toUpperCase() === "UPDATE" || file_operation.toUpperCase() === "DELETE") {
     try {
       await fs.access(fullPath);
-    } catch (error: any) {
+    } catch {
       throw new Error(`File not found: ${file_path}. Unable to ${file_operation.toLowerCase()}.`);
     }
   }
 
   switch (file_operation.toUpperCase()) {
-    case "CREATE":
+    case "CREATE": {
       if (!file_code) {
         throw new Error(`No file_code provided for CREATE operation on ${file_path}`);
       }
       await ensureDirectoryExists(dirname(fullPath));
-      await fs.writeFile(fullPath, file_code, "utf-8");
+      await fs.writeFile(fullPath, file_code, "utf8");
       break;
+    }
 
-    case "UPDATE":
+    case "UPDATE": {
       if (!file_code) {
         throw new Error(`No file_code provided for UPDATE operation on ${file_path}`);
       }
       await ensureDirectoryExists(dirname(fullPath));
-      await fs.writeFile(fullPath, file_code, "utf-8");
+      await fs.writeFile(fullPath, file_code, "utf8");
       break;
+    }
 
-    case "DELETE":
+    case "DELETE": {
       await fs.rm(fullPath, { force: true });
       break;
+    }
 
-    default:
+    default: {
       console.warn(`Unknown file_operation: ${file_operation} for file: ${file_path}`);
       break;
+    }
   }
 }
 
