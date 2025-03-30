@@ -86,10 +86,7 @@ const useAppState = () => {
   const [headerSaveState, setHeaderSaveState] = useState('idle' as 'idle' | 'saving' | 'success'); // State for header save button animation
   const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null); // Ref for header save timeout
   // Using destructuring for state variables
-  const [currentWorkspace, setCurrentWorkspace] = useState(() => {
-    console.log('[useAppState] Initializing currentWorkspace state from localStorage.');
-    return localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE) || null;
-  });
+  const [currentWorkspace, setCurrentWorkspace] = useState<string | null>(null);
 
   // Integration with specialized hooks
   const fileSelection = useFileSelectionState(allFiles[0]);
@@ -682,40 +679,11 @@ const useAppState = () => {
   useEffect(() => {
     // Check if app is ready and files are loaded (allFiles[0] is the state value)
     if (appInitialized && allFiles[0].length > 0) {
-        const initialWorkspaceName = localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-        const hasLoadedInitial = sessionStorage.getItem("hasLoadedInitialWorkspace");
-
-        if (initialWorkspaceName && !hasLoadedInitial) {
-            console.log(`[useAppState.initialLoadEffect] App initialized with files. Found initial workspace: ${initialWorkspaceName}. Preparing to load.`);
-            
-            // Load the data but don't apply it directly
-            const workspaceData = loadPersistedWorkspace(initialWorkspaceName);
-            
-            if (workspaceData) {
-                console.log(`[useAppState.initialLoadEffect] Data loaded for "${initialWorkspaceName}". Setting current workspace name and pending data.`);
-                // Set the current workspace name state immediately
-                setCurrentWorkspace(initialWorkspaceName);
-                
-                // Extract the data excluding the folder path
-                const { selectedFolder: _folder, ...restOfData } = workspaceData;
-                
-                // Set the rest of the data as pending, to be applied after file list is confirmed
-                setPendingWorkspaceData(restOfData);
-                
-                // Mark that we've initiated the initial workspace load for this session
-                sessionStorage.setItem("hasLoadedInitialWorkspace", "true");
-            } else {
-                console.warn(`[useAppState.initialLoadEffect] Failed to load data for initial workspace "${initialWorkspaceName}". Clearing session flag.`);
-                // Clear the flag if data loading failed, maybe try again later? Or just proceed without workspace.
-                sessionStorage.removeItem("hasLoadedInitialWorkspace"); 
-            }
-        } else if (!initialWorkspaceName && !hasLoadedInitial) {
-             console.log("[useAppState.initialLoadEffect] App initialized, no initial workspace set in localStorage. Marking session.");
-             sessionStorage.setItem("hasLoadedInitialWorkspace", "true");
-        }
+      // Mark that we've initiated workspace handling for this session
+      sessionStorage.setItem("hasLoadedInitialWorkspace", "true");
     }
-    // Dependencies: appInitialized, allFiles state value, loadPersistedWorkspace, setCurrentWorkspace, setPendingWorkspaceData
-  }, [appInitialized, allFiles[0], loadPersistedWorkspace, setCurrentWorkspace, setPendingWorkspaceData]);
+    // Dependencies: appInitialized, allFiles state value
+  }, [appInitialized, allFiles[0]]);
 
   // Define the event handler using useCallback outside the effect
   const handleWorkspaceLoadedEvent = useCallback((event: CustomEvent) => {

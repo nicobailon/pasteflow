@@ -90,7 +90,7 @@ const WorkspaceDropdown = ({
       options={getWorkspaceOptions()}
       value={currentWorkspace || ''} // Ensure value is always a string
       onChange={handleWorkspaceDropdownChange}
-      buttonLabel={currentWorkspace || 'Select Workspace'}
+      buttonLabel={currentWorkspace || 'Select or create workspace'}
       buttonIcon={<ChevronDown size={16} />}
       containerClassName={containerClassName}
       buttonClassName={buttonClassName}
