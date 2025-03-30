@@ -1,7 +1,13 @@
-import React from "react";
+import { FileText, X } from "lucide-react";
+
 import { Doc } from "../types/file-types";
-import { X, FileText } from "lucide-react";
+
 import CopyButton from "./copy-button";
+
+// Estimate token count for the doc (simple calculation)
+const estimateTokenCount = (text: string) => {
+  return Math.ceil(text.length / 4);
+};
 
 interface DocCardProps {
   doc: Doc;
@@ -13,11 +19,6 @@ const DocCard = ({
   toggleSelection
 }: DocCardProps) => {
   const { title, content } = doc;
-  
-  // Estimate token count for the doc (simple calculation)
-  const estimateTokenCount = (text: string) => {
-    return Math.ceil(text.length / 4);
-  };
   
   const tokenCount = estimateTokenCount(content);
 

@@ -1,6 +1,7 @@
+import { useCallback } from 'react';
+
 import { STORAGE_KEYS } from '../constants';
 import { WorkspaceState } from '../types/file-types';
-import { useCallback } from 'react';
 
 export const useWorkspaceState = () => {
   const saveWorkspace = useCallback((name: string, workspace: WorkspaceState) => {

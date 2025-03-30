@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { Check, Copy } from "lucide-react";
+import { useState } from "react";
 
 interface CopyButtonProps {
   text: string | (() => string);
@@ -26,7 +26,7 @@ const fallbackCopyTextToClipboard = (text: string): boolean => {
     textArea.style.position = "fixed";
     textArea.style.opacity = "0";
     
-    document.body.appendChild(textArea);
+    document.body.append(textArea);
     textArea.focus();
     textArea.select();
     
@@ -34,10 +34,10 @@ const fallbackCopyTextToClipboard = (text: string): boolean => {
     const successful = document.execCommand("copy");
     
     // Clean up
-    document.body.removeChild(textArea);
+    textArea.remove();
     return successful;
-  } catch (err) {
-    console.error("Fallback copy failed:", err);
+  } catch (error) {
+    console.error("Fallback copy failed:", error);
     return false;
   }
 };
@@ -72,8 +72,8 @@ const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
       setTimeout(() => {
         setCopied(false);
       }, 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
+    } catch (error) {
+      console.error("Failed to copy:", error);
     }
   };
 
@@ -88,7 +88,6 @@ const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
       aria-label={statusText}
       aria-pressed={copied}
       aria-live="polite"
-      role="button"
     >
       <span className="sr-only">{statusText}</span>
       {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}

@@ -1,7 +1,9 @@
 import React from 'react';
 import { render, fireEvent, screen, within } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
 import { SystemPrompt } from '../types/FileTypes';
+
 import { mockDateNow } from './testHelpers';
 
 // Mock the Radix Dialog components
@@ -150,7 +152,7 @@ describe('SystemPromptsModal Component', () => {
   
   it('adds a new prompt when add prompt button is clicked', () => {
     // Use the safer mock implementation with cleanup
-    const cleanupDateNow = mockDateNow(12345);
+    const cleanupDateNow = mockDateNow(12_345);
     
     render(
       <SystemPromptsModal
@@ -488,7 +490,7 @@ describe('SystemPromptsModal Component', () => {
     expect(addButton.closest('button')).not.toBeDisabled();
     
     // Mock Date.now with cleanup
-    const cleanupDateNow = mockDateNow(12345);
+    const cleanupDateNow = mockDateNow(12_345);
     
     // Add the prompt
     fireEvent.click(addButton);

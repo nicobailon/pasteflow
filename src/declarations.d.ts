@@ -29,6 +29,28 @@ declare module "*.jpg" {
   export default content;
 }
 
+// DOM Element extensions
+interface Element {
+  dataset: DOMStringMap;
+}
+
+// React TypeScript event types
+declare namespace React {
+  interface KeyboardEvent<T = Element> extends SyntheticEvent<T> {
+    altKey: boolean;
+    charCode: number;
+    ctrlKey: boolean;
+    key: string;
+    keyCode: number;
+    locale: string;
+    metaKey: boolean;
+    repeat: boolean;
+    shiftKey: boolean;
+    which: number;
+    getModifierState(key: string): boolean;
+  }
+}
+
 // Electron API declaration
 interface Window {
   electron: {

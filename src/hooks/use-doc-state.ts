@@ -1,7 +1,9 @@
-import { useState, useCallback } from 'react';
-import { Doc } from '../types/file-types';
-import useLocalStorage from './use-local-storage';
+import { useCallback, useState } from 'react';
+
 import { STORAGE_KEYS } from '../constants';
+import { Doc } from '../types/file-types';
+
+import useLocalStorage from './use-local-storage';
 
 /**
  * Custom hook to manage documentation state
@@ -42,13 +44,9 @@ const useDocState = () => {
     setSelectedDocs((prev: Doc[]) => {
       const isAlreadySelected = prev.some((d: Doc) => d.id === doc.id);
       
-      if (isAlreadySelected) {
-        // Remove doc if already selected
-        return prev.filter((d: Doc) => d.id !== doc.id);
-      } else {
-        // Add doc if not already selected
-        return [...prev, doc];
-      }
+      return isAlreadySelected
+        ? prev.filter((d: Doc) => d.id !== doc.id)
+        : [...prev, doc];
     });
   }, []);
 

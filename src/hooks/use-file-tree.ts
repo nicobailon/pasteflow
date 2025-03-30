@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { FileData, TreeNode } from '../types/file-types';
 import { normalizePath } from '../utils/path-utils';
 
@@ -37,8 +38,6 @@ function useFileTree({
   
   // Reference to track if we've already started processing
   const processingStartedRef = useRef(false);
-  // Add a reference for tracking the allFiles instance to detect real changes
-  const allFilesRef = useRef(allFiles);
   
   // Add a reference to track previous expanded nodes state
   const previousExpandedNodesRef = useRef({} as Record<string, boolean>);
@@ -46,6 +45,48 @@ function useFileTree({
   // We'll use this to store the file tree incrementally
   const [fileTree, setFileTree] = useState([] as TreeNode[]);
   
+  // Convert the nested object structure to the TreeNode array format
+  const convertToTreeNodes = useCallback((
+    node: Record<string, any>,
+    level = 0,
+  ): TreeNode[] => {
+    // Handle null or undefined values
+    if (!node) {
+      return [];
+    }
+    
+    return Object.keys(node).map((key) => {
+      const item = node[key];
+
+      if (item.isFile) {
+        // Ensure all file nodes have the 'type' and 'level' properties set
+        return {
+          ...item,
+          type: 'file',
+          level,
+          id: item.path || `file-${Math.random().toString(36).slice(2, 11)}`
+        } as TreeNode;
+      } else {
+        // Add null check for item.children too
+        const children = item.children ? convertToTreeNodes(item.children, level + 1) : [];
+        const isExpanded =
+          expandedNodes[item.path] === undefined
+            ? level < 2
+            : expandedNodes[item.path]; // Only auto-expand top 2 levels
+
+        // Ensure all directory nodes have the 'type' and 'level' properties set
+        return {
+          ...item,
+          type: 'directory',
+          level,
+          id: item.path || `dir-${Math.random().toString(36).slice(2, 11)}`,
+          children: sortTreeNodes(children, fileTreeSortOrder),
+          isExpanded,
+        } as TreeNode;
+      }
+    });
+  }, [expandedNodes, fileTreeSortOrder]);
+
   // Process files in batches for better performance
   useEffect(() => {
     // Reset the processing state when dependencies change
@@ -72,8 +113,8 @@ function useFileTree({
       const batch = allFiles.slice(processedCount, endIdx);
       
       // Process this batch
-      batch.forEach((file) => {
-        if (!file.path) return;
+      for (const file of batch) {
+        if (!file.path) continue;
 
         const normalizedFilePath = normalizePath(file.path);
         const normalizedRootPath = selectedFolder ? normalizePath(selectedFolder) : '';
@@ -81,7 +122,7 @@ function useFileTree({
         const relativePath = 
           selectedFolder && normalizedFilePath.startsWith(normalizedRootPath)
             ? normalizedFilePath
-                .substring(normalizedRootPath.length)
+                .slice(normalizedRootPath.length)
                 .replace(/^\/|^\\/, "")
             : normalizedFilePath;
 
@@ -127,7 +168,7 @@ function useFileTree({
             };
           }
         }
-      });
+      }
       
       processedCount = endIdx;
       
@@ -140,13 +181,13 @@ function useFileTree({
       } else {
         // Check if we're running in a Jest test environment with fake timers
         // In Jest test environment, process all files immediately to avoid timer issues
-        if (typeof jest !== 'undefined') {
-          // Continue processing immediately when in test environment
-          processBatch();
-        } else {
+        if (typeof jest === 'undefined') {
           // Schedule the next batch with a small delay to let UI update
           // Using a small non-zero timeout to prevent test issues
           setTimeout(processBatch, 1);
+        } else {
+          // Continue processing immediately when in test environment
+          processBatch();
         }
       }
     };
@@ -161,7 +202,7 @@ function useFileTree({
       processingStartedRef.current = false;
     };
   // Only include dependencies that should trigger a full tree rebuild
-  }, [allFiles, selectedFolder, fileTreeSortOrder]);
+  }, [allFiles, selectedFolder, fileTreeSortOrder, expandedNodes, convertToTreeNodes]);
 
   // Effect to handle cleanup on sort order change - keep separate from main effect
   useEffect(() => {
@@ -184,18 +225,18 @@ function useFileTree({
     const prevExpandedNodes = previousExpandedNodesRef.current;
     
     // Check if any new nodes were expanded or collapsed
-    Object.keys(expandedNodes).forEach(key => {
+    for (const key of Object.keys(expandedNodes)) {
       if (prevExpandedNodes[key] !== expandedNodes[key]) {
         hasChanged = true;
       }
-    });
+    }
     
     // Check if any previously expanded nodes were removed
-    Object.keys(prevExpandedNodes).forEach(key => {
+    for (const key of Object.keys(prevExpandedNodes)) {
       if (expandedNodes[key] === undefined && prevExpandedNodes[key] !== undefined) {
         hasChanged = true;
       }
-    });
+    }
     
     // Only update if there's an actual change
     if (!hasChanged) return;
@@ -214,7 +255,7 @@ function useFileTree({
           return {
             ...node,
             // Only update isExpanded if the node exists in expandedNodes
-            isExpanded: newExpandedState !== undefined ? newExpandedState : node.isExpanded,
+            isExpanded: newExpandedState === undefined ? node.isExpanded : newExpandedState,
             // Recursively update children if they exist
             ...(node.children ? { children: updateNodesExpandedState(node.children) } : {})
           };
@@ -259,11 +300,7 @@ function useFileTree({
           if (sortKey === 'extension') {
             const aExt = a.name.split('.').pop() || '';
             const bExt = b.name.split('.').pop() || '';
-            if (sortDir === 'asc') {
-              return aExt.localeCompare(bExt) || a.name.localeCompare(b.name);
-            } else {
-              return bExt.localeCompare(aExt) || b.name.localeCompare(a.name);
-            }
+            return sortDir === 'asc' ? aExt.localeCompare(bExt) || a.name.localeCompare(b.name) : bExt.localeCompare(aExt) || b.name.localeCompare(a.name);
           }
           
           if (sortKey === 'date') {
@@ -301,21 +338,47 @@ function useFileTree({
           let priority: number;
           
           // 1. Core source and functionality directories
-          if (name === 'src') priority = 1;
-          else if (name === 'scripts') priority = 2;
-          else if (name === 'public') priority = 3;
-          else if (name === 'lib') priority = 4;
-          else if (name === 'docs') priority = 5;
-          else if (name === 'app' || name === 'app_components') priority = 6;
-          else if (name === 'actions') priority = 7;
-          // 2. Special directories
-          else if (name === '.github') priority = 20;
-          // 3. Testing directories
-          else if (name === '__mocks__' || name.startsWith('__') || name.endsWith('__')) priority = 30;
+          switch (name) {
+          case 'src': {
+          priority = 1;
+          break;
+          }
+          case 'scripts': {
+          priority = 2;
+          break;
+          }
+          case 'public': {
+          priority = 3;
+          break;
+          }
+          case 'lib': {
+          priority = 4;
+          break;
+          }
+          case 'docs': {
+          priority = 5;
+          break;
+          }
+          case 'app': 
+          case 'app_components': {
+          priority = 6;
+          break;
+          }
+          case 'actions': {
+          priority = 7;
+          break;
+          }
+          case '.github': {
+          priority = 20;
+          break;
+          }
+          default: { if (name === '__mocks__' || name.startsWith('__') || name.endsWith('__')) priority = 30;
           // Hidden directories (with leading dot)
           else if (name.startsWith('.')) priority = 40;
           // All other directories
           else priority = 50;
+          }
+          }
           
           // Cache the result
           nodePriorityCache.set(cacheKey, priority);
@@ -426,61 +489,19 @@ function useFileTree({
     });
   };
 
-  // Convert the nested object structure to the TreeNode array format
-  const convertToTreeNodes = (
-    node: Record<string, any>,
-    level = 0,
-  ): TreeNode[] => {
-    // Handle null or undefined values
-    if (!node) {
-      return [];
-    }
-    
-    return Object.keys(node).map((key) => {
-      const item = node[key];
-
-      if (item.isFile) {
-        // Ensure all file nodes have the 'type' and 'level' properties set
-        return {
-          ...item,
-          type: 'file',
-          level,
-          id: item.path || `file-${Math.random().toString(36).substr(2, 9)}`
-        } as TreeNode;
-      } else {
-        // Add null check for item.children too
-        const children = item.children ? convertToTreeNodes(item.children, level + 1) : [];
-        const isExpanded =
-          expandedNodes[item.path] !== undefined
-            ? expandedNodes[item.path]
-            : level < 2; // Only auto-expand top 2 levels
-
-        // Ensure all directory nodes have the 'type' and 'level' properties set
-        return {
-          ...item,
-          type: 'directory',
-          level,
-          id: item.path || `dir-${Math.random().toString(36).substr(2, 9)}`,
-          children: sortTreeNodes(children, fileTreeSortOrder),
-          isExpanded,
-        } as TreeNode;
-      }
-    });
-  };
-
   // Flatten the tree for rendering with proper indentation
   const flattenTree = useCallback((nodes: TreeNode[]): TreeNode[] => {
     // Define recursive flatten function inside to avoid dependency issue
     const flattenNodesRecursively = (nodesToFlatten: TreeNode[], baseLevel = 0): TreeNode[] => {
       let result: TreeNode[] = [];
 
-      nodesToFlatten.forEach((node) => {
+      for (const node of nodesToFlatten) {
         // Clone the node and update its isExpanded property based on expandedNodes
         const nodeWithUpdatedExpanded = {
           ...node,
           level: baseLevel + (node.level || 0),
           isExpanded: node.type === "directory" 
-            ? (expandedNodes[node.id] !== undefined ? expandedNodes[node.id] : node.isExpanded)
+            ? (expandedNodes[node.id] === undefined ? node.isExpanded : expandedNodes[node.id])
             : undefined
         };
         
@@ -491,7 +512,7 @@ function useFileTree({
         if (nodeWithUpdatedExpanded.type === "directory" && nodeWithUpdatedExpanded.isExpanded && nodeWithUpdatedExpanded.children) {
           result = [...result, ...flattenNodesRecursively(nodeWithUpdatedExpanded.children, baseLevel + 1)];
         }
-      });
+      }
 
       return result;
     };
@@ -515,7 +536,7 @@ function useFileTree({
 
       // For directories, check if any children match
       if (node.children) {
-        return node.children.some(nodeMatches);
+        return node.children.some(child => nodeMatches(child));
       }
 
       return false;
@@ -523,7 +544,7 @@ function useFileTree({
 
     // Define recursive filter function inside to avoid dependency issue
     const filterNodesRecursively = (nodesToFilter: TreeNode[], currentLevel = 0): TreeNode[] => {
-      return nodesToFilter.filter(nodeMatches).map((node) => {
+      return nodesToFilter.filter(node => nodeMatches(node)).map((node) => {
         // If it's a directory, also filter its children
         if (node.type === "directory" && node.children) {
           return {
@@ -548,7 +569,7 @@ function useFileTree({
   // The final tree to render, filtered and flattened
   const visibleTree = useMemo(() => {
     return flattenTree(filterTree(fileTree, searchTerm));
-  }, [fileTree, searchTerm, filterTree, flattenTree, expandedNodes]);
+  }, [fileTree, searchTerm, filterTree, flattenTree]);
 
   return {
     fileTree,

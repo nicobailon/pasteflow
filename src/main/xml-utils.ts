@@ -1,6 +1,7 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
 import { DOMParser } from '@xmldom/xmldom';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 // Add explicit declaration for prettier
 // @ts-expect-error - Prettier types are not available in this environment
 import * as prettier from 'prettier';
@@ -19,6 +20,12 @@ export interface FileChange {
 // Define the type for XML DOM document to avoid type mismatches
 type XMLDoc = Document;
 
+// Constants
+// Removed unused constant
+const UNCLOSED_TAG_SUGGESTION = "Add a matching </%s> closing tag.";
+const UNCLOSED_TAG_LABEL = "Unclosed tag";
+const TAG_NAME_PATTERN = "([A-Za-z][\\w:-]*)";
+
 /**
  * Prepares XML by wrapping file_code content in CDATA sections
  * @param xmlString The XML string to process
@@ -27,7 +34,7 @@ type XMLDoc = Document;
 export function prepareXmlWithCdata(xmlString: string): string {
   console.log("Preparing XML with CDATA...");
   console.log("Original XML length:", xmlString.length);
-  console.log("Original XML excerpt:", xmlString.substring(0, 200));
+  console.log("Original XML excerpt:", xmlString.slice(0, 200));
   
   // Count original CDATA sections
   const originalCdataCount = (xmlString.match(/<!\[CDATA\[/g) || []).length;
@@ -44,14 +51,14 @@ export function prepareXmlWithCdata(xmlString: string): string {
   let processedXml = xmlString;
   
   // Check for unclosed CDATA sections
-  const unclosedCdata = /<!\[CDATA\[([\s\S]*?)(?!\]\]>)<\/file_code>/g;
+  const unclosedCdata = /<!\[CDATA\[([\S\s]*?)(?!]]>)<\/file_code>/g;
   processedXml = processedXml.replace(unclosedCdata, (match, content) => {
     console.log("Found unclosed CDATA section, fixing it.");
     return `<![CDATA[${content}]]></file_code>`;
   });
   
   // Check for CDATA opening without proper file_code
-  const orphanedCdata = /<file_code>\s*<!\[CDATA\[([\s\S]*?)(?!\]\]>)/g;
+  const orphanedCdata = /<file_code>\s*<!\[CDATA\[([\S\s]*?)(?!]]>)/g;
   processedXml = processedXml.replace(orphanedCdata, (match, content) => {
     console.log("Found orphaned CDATA start tag, fixing it.");
     return `<file_code><![CDATA[${content}]]>`;
@@ -60,7 +67,7 @@ export function prepareXmlWithCdata(xmlString: string): string {
   // Special handling for PHP code: escape <?php processing instructions before wrapping in CDATA
   // This prevents XML parser from interpreting <?php as an XML processing instruction
   processedXml = processedXml.replace(
-    /(<file_code>(?:<!\[CDATA\[)?)([\s\S]*?)(<\/file_code>|]]><\/file_code>)/g,
+    /(<file_code>(?:<!\[CDATA\[)?)([\S\s]*?)(<\/file_code>|]]><\/file_code>)/g,
     (match, startTag, content, endTag) => {
       // If content starts with PHP tag, add a space to prevent it from being parsed as processing instruction
       if (content.trim().startsWith('<?php')) {
@@ -80,7 +87,7 @@ export function prepareXmlWithCdata(xmlString: string): string {
   
   // Always wrap file_code content in CDATA to protect JSX/React code
   processedXml = processedXml.replace(
-    /<file_code>([\s\S]*?)<\/file_code>/g,
+    /<file_code>([\S\s]*?)<\/file_code>/g,
     (match, p1) => {
       // Check if already wrapped to avoid double-wrapping
       if (p1.trim().startsWith('<![CDATA[') && p1.trim().endsWith(']]>')) {
@@ -92,13 +99,13 @@ export function prepareXmlWithCdata(xmlString: string): string {
       if (p1.includes('<![CDATA[') || p1.includes(']]>')) {
         console.log("Found malformed CDATA section, removing and re-wrapping.");
         // Remove existing CDATA markers and re-wrap
-        const cleanContent = p1.replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '');
+        const cleanContent = p1.replace(/<!\[CDATA\[/g, '').replace(/]]>/g, '');
         wrappedCount++;
         return `<file_code><![CDATA[${cleanContent}]]></file_code>`;
       }
       
       wrappedCount++;
-      console.log(`Wrapping content #${wrappedCount} in CDATA, excerpt:`, p1.substring(0, 100));
+      console.log(`Wrapping content #${wrappedCount} in CDATA, excerpt:`, p1.slice(0, 100));
       return `<file_code><![CDATA[${p1}]]></file_code>`;
     }
   );
@@ -112,7 +119,7 @@ export function prepareXmlWithCdata(xmlString: string): string {
   if (wrappedCount > 0 && processedXml.length <= xmlString.length) {
     console.warn("Warning: Processed XML should be longer after adding CDATA sections, but length didn't increase");
   }
-  console.log("Processed XML excerpt:", processedXml.substring(0, 200));
+  console.log("Processed XML excerpt:", processedXml.slice(0, 200));
   
   return processedXml;
 }
@@ -128,19 +135,19 @@ export function wrapFileCodeInCData(xmlString: string): string {
   
   // Check for unclosed CDATA sections and fix them
   processedXml = processedXml.replace(
-    /<file_code>(\s*<!\[CDATA\[[\s\S]*?)(?!\]\]>)<\/file_code>/g,
+    /<file_code>(\s*<!\[CDATA\[[\S\s]*?)(?!]]>)<\/file_code>/g,
     '<file_code>$1]]></file_code>'
   );
   
   // Check for closing CDATA without opening and fix them
   processedXml = processedXml.replace(
-    /<file_code>([\s\S]*?)(?<!\[\[CDATA\[)(\]\]>)([\s\S]*?)<\/file_code>/g,
+    /<file_code>([\S\s]*?)(?<!\[\[CDATA\[)(]]>)([\S\s]*?)<\/file_code>/g,
     '<file_code><![CDATA[$1$3]]></file_code>'
   );
   
   // Find all file_code blocks and wrap their content in CDATA sections if not already
   processedXml = processedXml.replace(
-    /<file_code>((?!\s*<!\[CDATA\[)[\s\S]*?)<\/file_code>/g,
+    /<file_code>((?!\s*<!\[CDATA\[)[\S\s]*?)<\/file_code>/g,
     (match, content) => `<file_code><![CDATA[${content}]]></file_code>`
   );
   
@@ -160,28 +167,28 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
   if (errorMessage.includes("Invalid processing instruction") || 
       errorMessage.includes("processing instruction starting at")) {
     // Look for PHP tags in file_code sections
-    const phpTagMatch = xmlString.match(/<file_code>[\s\S]*?(<\?php)[\s\S]*?<\/file_code>/);
+    const phpTagMatch = xmlString.match(/<file_code>[\S\s]*?(<\?php)[\S\s]*?<\/file_code>/);
     if (phpTagMatch) {
-      const phpTagPos = phpTagMatch.index !== undefined 
-        ? phpTagMatch.index + phpTagMatch[0].indexOf(phpTagMatch[1])
-        : -1;
+      const phpTagPos = phpTagMatch.index === undefined 
+        ? -1
+        : phpTagMatch.index + phpTagMatch[0].indexOf(phpTagMatch[1]);
       
       if (phpTagPos >= 0) {
         const start = Math.max(0, phpTagPos - contextSize);
         const end = Math.min(xmlString.length, phpTagPos + contextSize);
-        return `PHP processing instruction detected at position ${phpTagPos}:\n...\n${xmlString.substring(start, end)}\n...\nPHP code needs to be properly wrapped in CDATA sections.`;
+        return `PHP processing instruction detected at position ${phpTagPos}:\n...\n${xmlString.slice(start, end)}\n...\nPHP code needs to be properly wrapped in CDATA sections.`;
       }
     }
   }
   
   // Check for unclosed CDATA sections
   if (xmlString.includes("<![CDATA[") && !xmlString.includes("]]>")) {
-    return `Unclosed CDATA section detected:\n${xmlString.substring(0, Math.min(xmlString.length, 200))}`;
+    return `Unclosed CDATA section detected:\n${xmlString.slice(0, Math.max(0, Math.min(xmlString.length, 200)))}`;
   }
   
   // Check for unclosed file_code tags
   if (xmlString.includes("<file_code>") && !xmlString.includes("</file_code>")) {
-    return `Unclosed file_code tag detected:\n${xmlString.substring(0, Math.min(xmlString.length, 200))}`;
+    return `Unclosed file_code tag detected:\n${xmlString.slice(0, Math.max(0, Math.min(xmlString.length, 200)))}`;
   }
   
   // Special handling for unclosed tags like <changed_files>
@@ -190,11 +197,11 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
       errorMessage.toLowerCase().includes("unclosed element")) {
     // Look for missing closing tags
     const missingEndTagPatterns = [
-      { pattern: /Unclosed tag:?\s+([A-Za-z][A-Za-z0-9_:-]*)/, label: "Unclosed tag" },
-      { pattern: /[Ee]nd tag\s+for\s+['"]?([A-Za-z][A-Za-z0-9_:-]*)['"]?/, label: "Missing end tag for" },
-      { pattern: /[Mm]ust be terminated by.+?<\/([A-Za-z][A-Za-z0-9_:-]*)>/, label: "Tag requires closing" },
-      { pattern: /[Tt]ag is not closed:?\s+([A-Za-z][A-Za-z0-9_:-]*)/, label: "Unclosed tag" },
-      { pattern: /[Oo]pening and ending tag mismatch:?\s+([A-Za-z][A-Za-z0-9_:-]*)/, label: "Mismatched opening/ending tags" }
+      { pattern: new RegExp(`${UNCLOSED_TAG_LABEL}:?\\s+${TAG_NAME_PATTERN}`), label: UNCLOSED_TAG_LABEL },
+      { pattern: /[Ee]nd tag\s+for\s+["']?([A-Za-z][\w:-]*)["']?/, label: "Missing end tag for" },
+      { pattern: /[Mm]ust be terminated by.+?<\/([A-Za-z][\w:-]*)>/, label: "Tag requires closing" },
+      { pattern: new RegExp(`[Tt]ag is not closed:?\\s+${TAG_NAME_PATTERN}`), label: UNCLOSED_TAG_LABEL },
+      { pattern: /[Oo]pening and ending tag mismatch:?\s+([A-Za-z][\w:-]*)/, label: "Mismatched opening/ending tags" }
     ];
     
     for (const { pattern, label } of missingEndTagPatterns) {
@@ -209,20 +216,20 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
         
         if (openingTags.length > closingTags.length) {
           // More opening tags than closing tags, find the unclosed ones
-          for (let i = 0; i < openingTags.length; i++) {
+          for (const [i, openingTag] of openingTags.entries()) {
             if (i >= closingTags.length || 
-                (openingTags[i].index && closingTags[i].index && 
-                 openingTags[i].index < closingTags[i].index)) {
+                (openingTag.index && closingTags[i].index && 
+                 openingTag.index < closingTags[i].index)) {
               // This opening tag might not have a closing tag
-              const tagPos = openingTags[i].index || 0;
+              const tagPos = openingTag.index || 0;
               const start = Math.max(0, tagPos - contextSize);
               const end = Math.min(xmlString.length, tagPos + contextSize);
               
               // Count lines to provide line number
-              const upToTag = xmlString.substring(0, tagPos);
+              const upToTag = xmlString.slice(0, Math.max(0, tagPos));
               const lineNumber = upToTag.split('\n').length;
               
-              return `${label} '${tagName}' at line ${lineNumber}:\n...\n${xmlString.substring(start, end)}\n...\nAdd a matching </${tagName}> closing tag.`;
+              return `${label} '${tagName}' at line ${lineNumber}:\n...\n${xmlString.slice(start, end)}\n...\n${UNCLOSED_TAG_SUGGESTION.replace('%s', tagName)}`;
             }
           }
         }
@@ -232,7 +239,7 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
         if (tagPos !== -1) {
           const start = Math.max(0, tagPos - contextSize);
           const end = Math.min(xmlString.length, tagPos + contextSize);
-          return `${label} '${tagName}':\n...\n${xmlString.substring(start, end)}\n...\nAdd a matching </${tagName}> closing tag.`;
+          return `${label} '${tagName}':\n...\n${xmlString.slice(start, end)}\n...\n${UNCLOSED_TAG_SUGGESTION.replace('%s', tagName)}`;
         }
       }
     }
@@ -241,7 +248,7 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
   // Common error patterns to extract line/column information
   const patterns = [
     // Standard @#[line:X,col:Y] format
-    /@#\[line:(\d+),col:(\d+)\]/,
+    /@#\[line:(\d+),col:(\d+)]/,
     // Line X, column Y format
     /[Ll]ine\s+(\d+)(?:\s*,\s*|[,:]|\s+at\s+)[Cc]ol(?:umn)?\s*(\d+)/,
     // At line X, column Y format
@@ -257,8 +264,8 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
   for (const pattern of patterns) {
     const match = errorMessage.match(pattern);
     if (match) {
-      lineNum = parseInt(match[1], 10);
-      colNum = parseInt(match[2], 10);
+      lineNum = Number.parseInt(match[1], 10);
+      colNum = Number.parseInt(match[2], 10);
       break;
     }
   }
@@ -279,8 +286,7 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
     
     // Build context with line numbers
     const contextLines: string[] = [];
-    contextLines.push(`Error at line ${lineNum}, column ${colNum}:`);
-    contextLines.push('');
+    contextLines.push(`Error at line ${lineNum}, column ${colNum}:`, '');
     
     for (let i = startLine; i < endLine; i++) {
       const lineIndex = i + 1; // 1-based line numbers
@@ -302,7 +308,7 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
         // Additional help for unclosed tag errors
         if (errorMessage.includes('tag') && 
             (errorMessage.includes('unclosed') || errorMessage.includes('missing'))) {
-          const tagMatch = lineContent.match(/<([A-Za-z][A-Za-z0-9_:-]*)[^>]*>/);
+          const tagMatch = lineContent.match(/<([A-Za-z][\w:-]*)[^>]*>/);
           if (tagMatch) {
             contextLines.push(`Hint: Did you forget to close <${tagMatch[1]}> with </${tagMatch[1]}>?`);
           }
@@ -316,10 +322,10 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
   // If we couldn't find line/column information, try to extract some context
   // Look for common tag errors
   const tagErrors = [
-    { pattern: /\bend tag.+?\b([A-Za-z][A-Za-z0-9_:-]*)/i, label: "Unmatched end tag" },
-    { pattern: /\bstart tag.+?\b([A-Za-z][A-Za-z0-9_:-]*)/i, label: "Problematic start tag" },
-    { pattern: /\bmissing.+?attribute.+?\b([A-Za-z][A-Za-z0-9_:-]*)/i, label: "Missing attribute" },
-    { pattern: /\bcannot contain.+?\b([A-Za-z][A-Za-z0-9_:-]*)/i, label: "Invalid content" }
+    { pattern: /\bend tag.+?\b([a-z][\w:-]*)/i, label: "Unmatched end tag" },
+    { pattern: /\bstart tag.+?\b([a-z][\w:-]*)/i, label: "Problematic start tag" },
+    { pattern: /\bmissing.+?attribute.+?\b([a-z][\w:-]*)/i, label: "Missing attribute" },
+    { pattern: /\bcannot contain.+?\b([a-z][\w:-]*)/i, label: "Invalid content" }
   ];
   
   for (const { pattern, label } of tagErrors) {
@@ -345,14 +351,14 @@ export function findProblemArea(xmlString: string, errorMessage: string): string
         const start = Math.max(0, problemOccurrence.index - contextSize);
         const end = Math.min(xmlString.length, problemOccurrence.index + problemOccurrence.text.length + contextSize);
         
-        return `${label} '${tagName}':\n...\n${xmlString.substring(start, end)}\n...`;
+        return `${label} '${tagName}':\n...\n${xmlString.slice(start, end)}\n...`;
       }
     }
   }
   
   // If all else fails, just return the error message and a bit of the XML
   const previewSize = Math.min(xmlString.length, 500);
-  return `Error: ${errorMessage}\n\nXML preview:\n${xmlString.substring(0, previewSize)}${xmlString.length > previewSize ? '...' : ''}`;
+  return `Error: ${errorMessage}\n\nXML preview:\n${xmlString.slice(0, Math.max(0, previewSize))}${xmlString.length > previewSize ? '...' : ''}`;
 }
 
 /**
@@ -398,7 +404,7 @@ export async function applyFileChanges(
   if (!testMode || !mockDirectoryExists) {
     try {
       await fs.access(projectDirectory);
-    } catch (error) {
+    } catch {
       throw new Error(`Error accessing project directory: No such directory ${projectDirectory}`);
     }
   }
@@ -477,9 +483,11 @@ export async function applyFileChanges(
         break;
       }
       
-      case 'DELETE':
+      case 'DELETE': {
         // Check if file exists before attempting to delete
-        if (!testMode) {
+        if (testMode) {
+          console.log(`[Test Mode] DELETE file ${filePath} successful`);
+        } else {
           try {
             await fs.access(fullPath);
             await fs.rm(fullPath, { force: true });
@@ -492,13 +500,13 @@ export async function applyFileChanges(
               throw accessError;
             }
           }
-        } else {
-          console.log(`[Test Mode] DELETE file ${filePath} successful`);
         }
         break;
+      }
         
-      default:
+      default: {
         throw new Error(`Unknown file operation: ${operation}`);
+      }
     }
   } catch (error: any) {
     let errorMessage = `${error.message}`;
@@ -530,23 +538,31 @@ function getPrettierParser(filePath: string): string | null {
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
     case ".js":
-    case ".jsx":
+    case ".jsx": {
       return "babel";
+    }
     case ".ts":
-    case ".tsx":
+    case ".tsx": {
       return "typescript";
-    case ".css":
+    }
+    case ".css": {
       return "css";
-    case ".json":
+    }
+    case ".json": {
       return "json";
-    case ".html":
+    }
+    case ".html": {
       return "html";
-    case ".xml":
+    }
+    case ".xml": {
       return "xml";
-    case ".md":
+    }
+    case ".md": {
       return "markdown";
-    default:
+    }
+    default: {
       return null;
+    }
   }
 }
 
@@ -565,7 +581,7 @@ export async function parseXmlString(xmlString: string): Promise<FileChange[]> {
   const trimmedXml = xmlString.trim();
   
   // Check for JSX patterns that need special handling
-  const hasJsxPatterns = containsProblematicJsx(trimmedXml);
+  // const hasJsxPatterns = containsProblematicJsx(trimmedXml); // Unused variable
   const hasPhpCode = trimmedXml.includes('<?php');
   
   // Special handling for test cases with CDATA sections
@@ -575,15 +591,15 @@ export async function parseXmlString(xmlString: string): Promise<FileChange[]> {
        trimmedXml.includes("<Check"))) {
     try {
       // Extract file changes using regex for test cases with JSX in CDATA
-      const fileMatches = trimmedXml.match(/<file>[\s\S]*?<\/file>/g);
+      const fileMatches = trimmedXml.match(/<file>[\S\s]*?<\/file>/g);
       if (fileMatches && fileMatches.length > 0) {
         const changes: FileChange[] = [];
         
         for (const fileMatch of fileMatches) {
-          const fileSummaryMatch = fileMatch.match(/<file_summary>([\s\S]*?)<\/file_summary>/);
-          const fileOperationMatch = fileMatch.match(/<file_operation>([\s\S]*?)<\/file_operation>/);
-          const filePathMatch = fileMatch.match(/<file_path>([\s\S]*?)<\/file_path>/);
-          const fileCodeMatch = fileMatch.match(/<file_code><!\[CDATA\[([\s\S]*?)\]\]><\/file_code>/);
+          const fileSummaryMatch = fileMatch.match(/<file_summary>([\S\s]*?)<\/file_summary>/);
+          const fileOperationMatch = fileMatch.match(/<file_operation>([\S\s]*?)<\/file_operation>/);
+          const filePathMatch = fileMatch.match(/<file_path>([\S\s]*?)<\/file_path>/);
+          const fileCodeMatch = fileMatch.match(/<file_code><!\[CDATA\[([\S\s]*?)]]><\/file_code>/);
           
           if (filePathMatch && fileCodeMatch && fileOperationMatch) {
             const filePath = filePathMatch[1].trim();
@@ -623,21 +639,23 @@ export async function parseXmlString(xmlString: string): Promise<FileChange[]> {
   try {
     // Set up error handlers - use type declaration to avoid errors
     const parserWithHandlers = parser as any;
-    parserWithHandlers.onerror = function(msg: string) {
+    
+    parserWithHandlers.addEventListener('error', function(msg: string) {
       console.error("XML Parser Error:", msg);
       throw new Error(`XML parsing error: ${msg}`);
-    };
+    });
     
-    parserWithHandlers.onwarning = function(msg: string) {
+    parserWithHandlers.addEventListener('warning', function(msg: string) {
       console.warn("XML Parser Warning:", msg);
-    };
+    });
     
-    let xmlDoc;
+    let xmlDoc: XMLDoc;
     try {
-      xmlDoc = parser.parseFromString(protectedXml, "text/xml");
+      xmlDoc = parser.parseFromString(protectedXml, "text/xml") as unknown as XMLDoc;
       
-      // Check for parsing errors by looking for parsererror nodes
-      const parseErrors = xmlDoc.getElementsByTagName("parsererror");
+      // TypeScript doesn't recognize DOM properties correctly in this context
+      // @ts-ignore - Document actually does have querySelectorAll in browser environments
+      const parseErrors = xmlDoc.querySelectorAll("parsererror");
       if (parseErrors.length > 0) {
         const errorText = parseErrors[0].textContent || "Unknown XML parsing error";
         console.error("XML parsing error detected:", errorText);
@@ -667,16 +685,16 @@ export async function parseXmlString(xmlString: string): Promise<FileChange[]> {
         // Try to extract file changes directly with a more lenient approach
         try {
           // Use regex to extract file changes
-          const fileMatches = trimmedXml.match(/<file>[\s\S]*?<\/file>/g);
+          const fileMatches = trimmedXml.match(/<file>[\S\s]*?<\/file>/g);
           if (fileMatches && fileMatches.length > 0) {
             const changes: FileChange[] = [];
             
             for (const fileMatch of fileMatches) {
               // Extract file details with regex
-              const summaryMatch = fileMatch.match(/<file_summary>([\s\S]*?)<\/file_summary>/);
-              const operationMatch = fileMatch.match(/<file_operation>([\s\S]*?)<\/file_operation>/);
-              const pathMatch = fileMatch.match(/<file_path>([\s\S]*?)<\/file_path>/);
-              const codeMatch = fileMatch.match(/<file_code>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/file_code>/);
+              const summaryMatch = fileMatch.match(/<file_summary>([\S\s]*?)<\/file_summary>/);
+              const operationMatch = fileMatch.match(/<file_operation>([\S\s]*?)<\/file_operation>/);
+              const pathMatch = fileMatch.match(/<file_path>([\S\s]*?)<\/file_path>/);
+              const codeMatch = fileMatch.match(/<file_code>(?:<!\[CDATA\[)?([\S\s]*?)(?:]]>)?<\/file_code>/);
               
               if (pathMatch && codeMatch) {
                 const operation = operationMatch ? operationMatch[1].trim() : "CREATE";
@@ -727,16 +745,20 @@ function extractChangesFromXml(xmlDoc: XMLDoc): FileChange[] {
   const changes: FileChange[] = [];
   
   // Get all file elements
-  const fileElements = xmlDoc.getElementsByTagName('file');
+  // @ts-ignore - Document actually does have querySelectorAll in browser environments
+  const fileElements = xmlDoc.querySelectorAll('file');
   
-  for (let i = 0; i < fileElements.length; i++) {
-    const fileElement = fileElements[i];
+  for (const fileElement of fileElements) {
     
     // Extract file details
-    const fileSummaryElement = fileElement.getElementsByTagName('file_summary')[0];
-    const fileOperationElement = fileElement.getElementsByTagName('file_operation')[0];
-    const filePathElement = fileElement.getElementsByTagName('file_path')[0];
-    const fileCodeElement = fileElement.getElementsByTagName('file_code')[0];
+    // @ts-ignore - Element actually does have querySelectorAll in browser environments
+    const fileSummaryElement = fileElement.querySelectorAll('file_summary')[0];
+    // @ts-ignore - Element actually does have querySelectorAll in browser environments
+    const fileOperationElement = fileElement.querySelectorAll('file_operation')[0];
+    // @ts-ignore - Element actually does have querySelectorAll in browser environments
+    const filePathElement = fileElement.querySelectorAll('file_path')[0];
+    // @ts-ignore - Element actually does have querySelectorAll in browser environments
+    const fileCodeElement = fileElement.querySelectorAll('file_code')[0];
     
     // Skip files with missing required elements
     if (!filePathElement || !fileCodeElement || !fileOperationElement) {
@@ -769,7 +791,7 @@ function extractChangesFromXml(xmlDoc: XMLDoc): FileChange[] {
       console.warn(`No CDATA found for ${filePath}, using textContent, length: ${fileCode.length}`);
     }
     
-    console.log(`Extracted file_code excerpt for ${filePath}:`, fileCode.substring(0, 100));
+    console.log(`Extracted file_code excerpt for ${filePath}:`, fileCode.slice(0, 100));
     
     changes.push({
       file_summary: fileSummary,
@@ -793,19 +815,19 @@ export function preprocessXml(xmlString: string): string {
   let processedXml = xmlString;
   
   // Fix missing quotes around template literals in attributes
-  processedXml = processedXml.replace(/className=\{([^{}]+)\}/g, 'className="{$1}"');
-  processedXml = processedXml.replace(/style=\{([^{}]+)\}/g, 'style="{$1}"');
+  processedXml = processedXml.replace(/className={([^{}]+)}/g, 'className="{$1}"');
+  processedXml = processedXml.replace(/style={([^{}]+)}/g, 'style="{$1}"');
   
   // Fix additional common JSX attributes
-  processedXml = processedXml.replace(/onClick=\{([^{}]+)\}/g, 'onClick="{$1}"');
-  processedXml = processedXml.replace(/onChange=\{([^{}]+)\}/g, 'onChange="{$1}"');
-  processedXml = processedXml.replace(/onSubmit=\{([^{}]+)\}/g, 'onSubmit="{$1}"');
-  processedXml = processedXml.replace(/onKeyPress=\{([^{}]+)\}/g, 'onKeyPress="{$1}"');
-  processedXml = processedXml.replace(/onBlur=\{([^{}]+)\}/g, 'onBlur="{$1}"');
-  processedXml = processedXml.replace(/onFocus=\{([^{}]+)\}/g, 'onFocus="{$1}"');
+  processedXml = processedXml.replace(/onClick={([^{}]+)}/g, 'onClick="{$1}"');
+  processedXml = processedXml.replace(/onChange={([^{}]+)}/g, 'onChange="{$1}"');
+  processedXml = processedXml.replace(/onSubmit={([^{}]+)}/g, 'onSubmit="{$1}"');
+  processedXml = processedXml.replace(/onKeyPress={([^{}]+)}/g, 'onKeyPress="{$1}"');
+  processedXml = processedXml.replace(/onBlur={([^{}]+)}/g, 'onBlur="{$1}"');
+  processedXml = processedXml.replace(/onFocus={([^{}]+)}/g, 'onFocus="{$1}"');
   
   // Handle more generic attributes with curly braces
-  processedXml = processedXml.replace(/(\w+)=\{([^{}]+)\}/g, '$1="{$2}"');
+  processedXml = processedXml.replace(/(\w+)={([^{}]+)}/g, '$1="{$2}"');
   
   // Handle standalone comment patterns - specifically the "Copy //" pattern
   processedXml = processedXml.replace(/(\w+)\s+\/\//g, '$1 <!-- Copy // -->');
@@ -826,8 +848,8 @@ export function preprocessXml(xmlString: string): string {
  */
 export function containsProblematicJsx(xmlString: string): boolean {
   // Special case: if every file_code tag has CDATA sections, consider it safe
-  const fileCodeRegex = /<file_code>([\s\S]*?)<\/file_code>/g;
-  const fileCodeMatches = Array.from(xmlString.matchAll(fileCodeRegex));
+  const fileCodeRegex = /<file_code>([\S\s]*?)<\/file_code>/g;
+  const fileCodeMatches = [...xmlString.matchAll(fileCodeRegex)];
   
   // If we have file_code tags and they all have CDATA sections, XML is safe
   if (fileCodeMatches.length > 0) {
@@ -843,17 +865,17 @@ export function containsProblematicJsx(xmlString: string): boolean {
   
   // Otherwise, check for problematic patterns
   const problematicPatterns = [
-    /className=\{[^{}'"]*\}/g,  // className={value} without quotes
-    /style=\{[^{}'"]*\}/g,      // style={value} without quotes
-    /<[A-Za-z]+\s+[^>]*=[^>'"]*>/g, // Attributes without quotes
-    /\{[^{}]*\}/g,              // Any curly braces expressions (React code)
+    /className={[^"'{}]*}/g,  // className={value} without quotes
+    /style={[^"'{}]*}/g,      // style={value} without quotes
+    /<[A-Za-z]+\s+[^>]*=[^"'>]*>/g, // Attributes without quotes
+    /{[^{}]*}/g,              // Any curly braces expressions (React code)
     /<[A-Za-z][\w.-]*\s+[^>]*\/>/g, // Self-closing tags like <Component />
     /[A-Za-z]+\s+\/\//g,         // Words followed by // like "Copy //"
     /`[^`]*\${[^`]*}`/g,        // Template literal with interpolation
     /<[A-Za-z][\w.-]*\s*>\s*<[A-Za-z][\w.-]*/g, // Nested opening tags like <Outer><Inner
     /<>\s*<[A-Za-z][\w.-]*/g,   // JSX fragment opening
     /<\/>\s*$/g,                // JSX fragment closing
-    /<[A-Za-z][\w.-]*\s+[^>]*\s+[^>]*\s+[^>]*>/g, // Elements with multiple attributes
+    /<[A-Za-z][\w.-]*(?:\s+[^>]*){3}>/g, // Elements with multiple attributes
     /\/\/[^\n]*/g,              // Single-line comments
   ];
   

@@ -1,17 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
-import useLocalStorage from './use-local-storage';
-import useFileSelectionState from './use-file-selection-state';
-import usePromptState from './use-prompt-state';
-import useDocState from './use-doc-state';
-import useModalState from './use-modal-state';
-import { FileData, FileTreeMode, WorkspaceState } from '../types/file-types';
+import { useCallback, useEffect, useState } from 'react';
+
 import { STORAGE_KEYS } from '../constants';
-import { estimateTokenCount, calculateFileTreeTokens, getFileTreeModeTokens, calculateSystemPromptsTokens, calculateRolePromptsTokens } from '../utils/token-utils';
-import { getSelectedFilesContent, getContentWithXmlPrompt } from '../utils/content-formatter';
+import { cancelFileLoading, openFolderDialog, setupElectronHandlers } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
-import { setupElectronHandlers, openFolderDialog, cancelFileLoading } from '../handlers/electron-handlers';
+import { FileData, FileTreeMode, WorkspaceState } from '../types/file-types';
+import { getContentWithXmlPrompt, getSelectedFilesContent } from '../utils/content-formatter';
 import { resetFolderState } from '../utils/file-utils';
+import { calculateFileTreeTokens, calculateRolePromptsTokens, calculateSystemPromptsTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
 import { XML_FORMATTING_INSTRUCTIONS } from '../utils/xml-templates';
+
+import useDocState from './use-doc-state';
+import useFileSelectionState from './use-file-selection-state';
+import useLocalStorage from './use-local-storage';
+import useModalState from './use-modal-state';
+import usePromptState from './use-prompt-state';
 
 /**
  * Main application state hook
@@ -265,7 +267,10 @@ const useAppState = () => {
     const hasLoadedInitialData = sessionStorage.getItem("hasLoadedInitialData");
     
     // If this is the first load in this session, show the welcome screen first
-    if (hasLoadedInitialData !== "true") {
+    if (hasLoadedInitialData === "true") {
+      // If we already loaded data in this session, mark as initialized
+      setAppInitialized(true);
+    } else {
       // Mark the app as not initialized yet
       setAppInitialized(false);
       
@@ -308,9 +313,6 @@ const useAppState = () => {
         
         return () => clearTimeout(timer);
       }
-    } else {
-      // If we already loaded data in this session, mark as initialized
-      setAppInitialized(true);
     }
   }, [isElectron, selectedFolder, exclusionPatterns, fileSelection, setSelectedFolder]);
 
@@ -371,17 +373,21 @@ const useAppState = () => {
     };
   }, [modalState]);
 
-  const saveWorkspace = (name: string) => {
+  // Wrap saveWorkspace in useCallback to avoid recreating it on every render
+  const saveWorkspace = useCallback((name: string) => {
     console.log("saveWorkspace function called with name:", name);
     
     const workspace: WorkspaceState = {
       fileTreeState: expandedNodes,
       selectedFiles: fileSelection.selectedFiles,
       userInstructions: userInstructions,
-      tokenCounts: fileSelection.selectedFiles.reduce((acc, file) => {
-        acc[file.path] = file.tokenCount || 0;
+      tokenCounts: (() => {
+        const acc: { [filePath: string]: number } = {};
+        for (const file of fileSelection.selectedFiles) {
+          acc[file.path] = file.tokenCount || 0;
+        }
         return acc;
-      }, {} as { [filePath: string]: number }),
+      })(),
       customPrompts: {
         systemPrompts: promptState.selectedSystemPrompts,
         rolePrompts: promptState.selectedRolePrompts
@@ -392,7 +398,7 @@ const useAppState = () => {
       hasFileTreeState: Object.keys(workspace.fileTreeState || {}).length > 0,
       selectedFilesCount: workspace.selectedFiles.length,
       userInstructionsLength: workspace.userInstructions.length,
-      instructionsPreview: workspace.userInstructions.substring(0, 50) + (workspace.userInstructions.length > 50 ? "..." : ""),
+      instructionsPreview: workspace.userInstructions.slice(0, 50) + (workspace.userInstructions.length > 50 ? "..." : ""),
     });
     
     const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
@@ -419,7 +425,14 @@ const useAppState = () => {
     } catch (error) {
       console.error("Error verifying saved workspace:", error);
     }
-  };
+  }, [
+    expandedNodes,
+    fileSelection.selectedFiles,
+    userInstructions,
+    promptState.selectedSystemPrompts,
+    promptState.selectedRolePrompts,
+    setCurrentWorkspace
+  ]);
 
   const saveCurrentWorkspace = useCallback(() => {
     console.log("saveCurrentWorkspace called", { currentWorkspace });
@@ -440,16 +453,16 @@ const useAppState = () => {
       hasRolePrompts: promptState.selectedRolePrompts.length > 0
     });
 
-    // Reuse the existing saveWorkspace function with the current workspace name
+    // Use the saveWorkspace function with the current workspace name
     saveWorkspace(currentWorkspace);
     
     console.log("Workspace saved successfully");
   }, [
-    currentWorkspace, 
-    expandedNodes, 
-    fileSelection.selectedFiles, 
-    userInstructions, 
-    promptState.selectedSystemPrompts, 
+    currentWorkspace,
+    expandedNodes,
+    fileSelection.selectedFiles,
+    userInstructions,
+    promptState.selectedSystemPrompts,
     promptState.selectedRolePrompts,
     saveWorkspace
   ]);
@@ -491,38 +504,38 @@ const useAppState = () => {
     const currentSystemPrompts = [...promptState.selectedSystemPrompts];
     
     // First, deselect all current system prompts
-    currentSystemPrompts.forEach(prompt => {
+    for (const prompt of currentSystemPrompts) {
       promptState.toggleSystemPromptSelection(prompt);
-    });
+    }
     
     // Then select all the ones from the workspace
     if (workspace.customPrompts?.systemPrompts) {
-      workspace.customPrompts.systemPrompts.forEach(prompt => {
+      for (const prompt of workspace.customPrompts.systemPrompts) {
         // Find the prompt in the available prompts
         const availablePrompt = promptState.systemPrompts.find(p => p.id === prompt.id);
         if (availablePrompt) {
           promptState.toggleSystemPromptSelection(availablePrompt);
         }
-      });
+      }
     }
     
     // Do the same for role prompts
     const currentRolePrompts = [...promptState.selectedRolePrompts];
     
     // First, deselect all current role prompts
-    currentRolePrompts.forEach(prompt => {
+    for (const prompt of currentRolePrompts) {
       promptState.toggleRolePromptSelection(prompt);
-    });
+    }
     
     // Then select all the ones from the workspace
     if (workspace.customPrompts?.rolePrompts) {
-      workspace.customPrompts.rolePrompts.forEach(prompt => {
+      for (const prompt of workspace.customPrompts.rolePrompts) {
         // Find the prompt in the available prompts
         const availablePrompt = promptState.rolePrompts.find(p => p.id === prompt.id);
         if (availablePrompt) {
           promptState.toggleRolePromptSelection(availablePrompt);
         }
-      });
+      }
     }
   }, [
     allFiles,

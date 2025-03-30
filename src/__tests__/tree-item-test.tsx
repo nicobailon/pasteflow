@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
 import TreeItem from '../components/TreeItem';
 import { TreeNode, SelectedFileWithLines } from '../types/FileTypes';
@@ -270,7 +271,7 @@ describe('TreeItem Component', () => {
       const mockEvent = { stopPropagation: mockStopPropagation };
       
       // Simulate the click while providing the mocked event
-      checkbox.onclick = jest.fn().mockImplementation(e => mockStopPropagation());
+      checkbox.addEventListener('click', jest.fn().mockImplementation(e => mockStopPropagation()));
       fireEvent.click(checkbox, mockEvent);
       
       // Verify stopPropagation was called

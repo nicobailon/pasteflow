@@ -1,6 +1,7 @@
+const fs = require("node:fs");
+const path = require("node:path");
+
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
-const fs = require("fs");
-const path = require("path");
 
 // Import XML utilities
 const { parseXmlString, applyFileChanges, prepareXmlWithCdata } = require("./src/main/xml-utils");
@@ -11,8 +12,8 @@ let ignore;
 try {
   ignore = require("ignore");
   console.log("Successfully loaded ignore module");
-} catch (err) {
-  console.error("Failed to load ignore module:", err);
+} catch (error) {
+  console.error("Failed to load ignore module:", error);
   // Simple fallback implementation for when the ignore module fails to load
   ignore = {
     // Simple implementation that just matches exact paths
@@ -28,8 +29,8 @@ let tiktoken;
 try {
   tiktoken = require("tiktoken");
   console.log("Successfully loaded tiktoken module");
-} catch (err) {
-  console.error("Failed to load tiktoken module:", err);
+} catch (error) {
+  console.error("Failed to load tiktoken module:", error);
   tiktoken = null;
 }
 
@@ -45,15 +46,15 @@ try {
   } else {
     throw new Error("Tiktoken module not available");
   }
-} catch (err) {
-  console.error("Failed to initialize tiktoken encoder:", err);
+} catch (error) {
+  console.error("Failed to initialize tiktoken encoder:", error);
   // Fallback to a simpler method if tiktoken fails
   console.log("Using fallback token counter");
   encoder = null;
 }
 
 // Binary file extensions that should be excluded from token counting
-const BINARY_EXTENSIONS = [
+const BINARY_EXTENSIONS = new Set([
   // Images
   ".jpg",
   ".jpeg",
@@ -101,17 +102,17 @@ const BINARY_EXTENSIONS = [
   // Others
   ".bin",
   ".dat",
-].concat(binaryExtensions || []); // Add any additional binary extensions from excluded-files.js
+].concat(binaryExtensions || [])); // Add any additional binary extensions from excluded-files.js
 
 // Max file size to read (5MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 // Regex pattern to detect potential binary content
-const BINARY_CONTENT_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]{50,}/;
+const BINARY_CONTENT_REGEX = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u00FF]{50,}/;
 const SPECIAL_TOKEN_REGEX = /<\|endoftext\|>/;
 
 // Special file extensions to skip (not even try to read)
-const SPECIAL_FILE_EXTENSIONS = ['.asar', '.bin', '.dll', '.exe', '.so', '.dylib'];
+const SPECIAL_FILE_EXTENSIONS = new Set(['.asar', '.bin', '.dll', '.exe', '.so', '.dylib']);
 
 // Function to check if file content is likely binary
 function isLikelyBinaryContent(content, filePath) {
@@ -126,7 +127,7 @@ function isLikelyBinaryContent(content, filePath) {
 // Function to check if file has special extension that should be skipped
 function isSpecialFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  return SPECIAL_FILE_EXTENSIONS.includes(ext);
+  return SPECIAL_FILE_EXTENSIONS.has(ext);
 }
 
 function createWindow() {
@@ -226,8 +227,8 @@ ipcMain.on("open-folder", async (event) => {
       const pathString = String(selectedPath);
       console.log("Sending folder-selected event with path:", pathString);
       event.sender.send("folder-selected", pathString);
-    } catch (err) {
-      console.error("Error sending folder-selected event:", err);
+    } catch (error) {
+      console.error("Error sending folder-selected event:", error);
       // Try a more direct approach as a fallback
       event.sender.send("folder-selected", String(selectedPath));
     }
@@ -256,7 +257,7 @@ function loadGitignore(rootDir) {
 // Check if file is binary based on extension
 function isBinaryFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  return BINARY_EXTENSIONS.includes(ext) || isSpecialFile(filePath);
+  return BINARY_EXTENSIONS.has(ext) || isSpecialFile(filePath);
 }
 
 // Count tokens using tiktoken with o200k_base encoding
@@ -272,7 +273,7 @@ function countTokens(text) {
     // This handles the <|endoftext|> token and other potential special tokens
     const sanitizedText = text
       .replace(/<\|endoftext\|>/g, "") // Remove the problematic token
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ""); // Remove control characters
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ""); // Remove control characters
     
     // If the sanitization removed a significant portion of the text, fall back to estimation
     if (sanitizedText.length < text.length * 0.9) {
@@ -282,8 +283,8 @@ function countTokens(text) {
     
     const tokens = encoder.encode(sanitizedText);
     return tokens.length;
-  } catch (err) {
-    console.error("Error counting tokens:", err);
+  } catch (error) {
+    console.error("Error counting tokens:", error);
     // Fallback to character-based estimation on error
     return Math.ceil(text.length / 4);
   }
@@ -415,7 +416,7 @@ ipcMain.on("request-file-list", (event, folderPath) => {
                     content: "",
                     isBinary: true,
                     isSkipped: true,
-                    fileType: path.extname(fullPath).substring(1).toUpperCase(),
+                    fileType: path.extname(fullPath).slice(1).toUpperCase(),
                     error: "Special file type skipped",
                   });
                   continue;
@@ -434,7 +435,7 @@ ipcMain.on("request-file-list", (event, folderPath) => {
                     content: "",
                     isBinary: true,
                     isSkipped: false,
-                    fileType: path.extname(fullPath).substring(1).toUpperCase(),
+                    fileType: path.extname(fullPath).slice(1).toUpperCase(),
                   });
                 } else {
                   // Read file content with error handling
@@ -467,12 +468,12 @@ ipcMain.on("request-file-list", (event, folderPath) => {
                         isSkipped: false,
                       });
                     }
-                  } catch (readErr) {
+                  } catch (error) {
                     // Improve error logging to be more concise
-                    if (readErr.code === 'ENOENT') {
+                    if (error.code === 'ENOENT') {
                       console.log(`File not found: ${fullPath}`);
                     } else {
-                      console.error(`Error reading file ${fullPath}: ${readErr.code || readErr.message}`);
+                      console.error(`Error reading file ${fullPath}: ${error.code || error.message}`);
                     }
                     
                     allFiles.push({
@@ -483,7 +484,7 @@ ipcMain.on("request-file-list", (event, folderPath) => {
                       content: "",
                       isBinary: false,
                       isSkipped: true,
-                      error: readErr.code === 'ENOENT' ? "File not found" : "Could not read file",
+                      error: error.code === 'ENOENT' ? "File not found" : "Could not read file",
                     });
                   }
                 }
@@ -494,8 +495,8 @@ ipcMain.on("request-file-list", (event, folderPath) => {
                 if (filesInBatch >= BATCH_SIZE) {
                   break;
                 }
-              } catch (fileErr) {
-                console.error(`Error processing file ${fullPath}:`, fileErr);
+              } catch (error) {
+                console.error(`Error processing file ${fullPath}:`, error);
               }
             }
           }
@@ -504,8 +505,8 @@ ipcMain.on("request-file-list", (event, folderPath) => {
           if (filesInBatch >= BATCH_SIZE) {
             break;
           }
-        } catch (dirErr) {
-          console.error(`Error reading directory ${dirPath}:`, dirErr);
+        } catch (error) {
+          console.error(`Error reading directory ${dirPath}:`, error);
         }
       }
       
@@ -552,9 +553,9 @@ ipcMain.on("request-file-list", (event, folderPath) => {
           size: typeof file.size === "number" ? file.size : 0,
           content: file.isBinary
             ? ""
-            : typeof file.content === "string"
+            : (typeof file.content === "string"
             ? file.content
-            : "",
+            : ""),
           isBinary: Boolean(file.isBinary),
           isSkipped: Boolean(file.isSkipped),
           error: file.error ? String(file.error) : null,
@@ -566,8 +567,8 @@ ipcMain.on("request-file-list", (event, folderPath) => {
       try {
         console.log(`Sending ${serializableFiles.length} files to renderer`);
         event.sender.send("file-list-data", serializableFiles);
-      } catch (sendErr) {
-        console.error("Error sending file data:", sendErr);
+      } catch (error) {
+        console.error("Error sending file data:", error);
         
         // If sending fails, try again with minimal data
         const minimalFiles = serializableFiles.map((file) => ({
@@ -586,11 +587,11 @@ ipcMain.on("request-file-list", (event, folderPath) => {
     
     // Start processing the first batch
     processNextBatch();
-  } catch (err) {
-    console.error("Error reading directory:", err);
+  } catch (error) {
+    console.error("Error reading directory:", error);
     event.sender.send("file-processing-status", {
       status: "error",
-      message: "Error reading directory: " + err.message,
+      message: "Error reading directory: " + error.message,
     });
   }
 });
@@ -669,9 +670,9 @@ ipcMain.on("apply-changes", async (event, { xml, projectDirectory }) => {
     
     if (failedFiles.length > 0) {
       console.log("Failed files:");
-      failedFiles.forEach(failure => {
+      for (const failure of failedFiles) {
         console.log(`- ${failure.path}: ${failure.reason}`);
-      });
+      }
     }
     
     // Check file system to verify updates

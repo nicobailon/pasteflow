@@ -1,7 +1,13 @@
-import React from "react";
+import { MessageSquareCode, X } from "lucide-react";
+
 import { SystemPrompt } from "../types/file-types";
-import { X, Settings, MessageSquareCode } from "lucide-react";
+
 import CopyButton from "./copy-button";
+
+// Estimate token count for the prompt (simple calculation)
+const estimateTokenCount = (text: string) => {
+  return Math.ceil(text.length / 4);
+};
 
 interface SystemPromptCardProps {
   prompt: SystemPrompt;
@@ -13,11 +19,6 @@ const SystemPromptCard = ({
   toggleSelection
 }: SystemPromptCardProps) => {
   const { title, content } = prompt;
-  
-  // Estimate token count for the prompt (simple calculation)
-  const estimateTokenCount = (text: string) => {
-    return Math.ceil(text.length / 4);
-  };
   
   const tokenCount = estimateTokenCount(content);
 

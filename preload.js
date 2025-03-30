@@ -72,8 +72,8 @@ contextBridge.exposeInMainWorld("electron", {
           // Don't pass the event object to the callback, only pass the serialized args
           const serializedArgs = args.map(ensureSerializable);
           func(...serializedArgs); // Only pass the serialized args, not the event
-        } catch (err) {
-          console.error(`Error in IPC handler for channel ${channel}:`, err);
+        } catch (error) {
+          console.error(`Error in IPC handler for channel ${channel}:`, error);
         }
       };
       ipcRenderer.on(channel, wrapper);
@@ -83,8 +83,8 @@ contextBridge.exposeInMainWorld("electron", {
     removeListener: (channel, func) => {
       try {
         ipcRenderer.removeListener(channel, func);
-      } catch (err) {
-        console.error(`Error removing listener for channel ${channel}:`, err);
+      } catch (error) {
+        console.error(`Error removing listener for channel ${channel}:`, error);
       }
     },
     // Add invoke method for promise-based IPC
@@ -93,9 +93,9 @@ contextBridge.exposeInMainWorld("electron", {
         const serializedData = ensureSerializable(data);
         const result = await ipcRenderer.invoke(channel, serializedData);
         return ensureSerializable(result);
-      } catch (err) {
-        console.error(`Error invoking IPC channel ${channel}:`, err);
-        throw err;
+      } catch (error) {
+        console.error(`Error invoking IPC channel ${channel}:`, error);
+        throw error;
       }
     }
   },

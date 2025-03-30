@@ -1,6 +1,6 @@
-import { X } from "lucide-react";
-import React, { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 /**
  * Props for the FilterModal component
@@ -15,6 +15,54 @@ interface FilterModalProps {
   /** Whether the modal is open */
   isOpen?: boolean;
 }
+
+/**
+ * Validate a single pattern
+ * @param pattern - The pattern to validate
+ * @returns Error message or null if valid
+ */
+const validatePattern = (pattern: string): string | null => {
+  // Skip empty lines and comments
+  if (pattern === "" || pattern.startsWith("#")) {
+    return null;
+  }
+
+  // Check for invalid characters
+  if (pattern.includes('\\') && !pattern.includes('\\\\')) {
+    return `Invalid escape character in "${pattern}". Use forward slashes or double backslashes.`;
+  }
+
+  // Check for unbalanced brackets
+  const openBrackets = (pattern.match(/\[/g) || []).length;
+  const closeBrackets = (pattern.match(/]/g) || []).length;
+  if (openBrackets !== closeBrackets) {
+    return `Unbalanced brackets in "${pattern}".`;
+  }
+
+  // Check for unbalanced braces
+  const openBraces = (pattern.match(/{/g) || []).length;
+  const closeBraces = (pattern.match(/}/g) || []).length;
+  if (openBraces !== closeBraces) {
+    return `Unbalanced braces in "${pattern}".`;
+  }
+  
+  // Check for potentially slow patterns
+  if (/\*\*\*+/.test(pattern)) {
+    return `Pattern "${pattern}" has too many consecutive asterisks which may cause performance issues.`;
+  }
+  
+  // Check for potentially greedy patterns
+  if ((pattern.match(/\*/g) || []).length > 5) {
+    return `Pattern "${pattern}" has too many wildcards which may cause performance issues.`;
+  }
+  
+  // Check for complex alternation patterns
+  if ((pattern.match(/{[^}]*,[^}]*,/g) || []).length > 0 && pattern.includes('**')) {
+    return `Pattern "${pattern}" combines complex alternation with globstar which may cause performance issues.`;
+  }
+
+  return null;
+};
 
 /**
  * FilterModal component - Provides a modal dialog for editing file exclusion patterns
@@ -49,50 +97,6 @@ const FilterModal = ({
     setPatternsText(formattedPatterns);
   }, [exclusionPatterns]);
 
-  // Validate a single pattern
-  const validatePattern = (pattern: string): string | null => {
-    // Skip empty lines and comments
-    if (pattern === "" || pattern.startsWith("#")) {
-      return null;
-    }
-
-    // Check for invalid characters
-    if (pattern.includes('\\') && !pattern.includes('\\\\')) {
-      return `Invalid escape character in "${pattern}". Use forward slashes or double backslashes.`;
-    }
-
-    // Check for unbalanced brackets
-    const openBrackets = (pattern.match(/\[/g) || []).length;
-    const closeBrackets = (pattern.match(/\]/g) || []).length;
-    if (openBrackets !== closeBrackets) {
-      return `Unbalanced brackets in "${pattern}".`;
-    }
-
-    // Check for unbalanced braces
-    const openBraces = (pattern.match(/\{/g) || []).length;
-    const closeBraces = (pattern.match(/\}/g) || []).length;
-    if (openBraces !== closeBraces) {
-      return `Unbalanced braces in "${pattern}".`;
-    }
-    
-    // Check for potentially slow patterns
-    if (pattern.match(/\*\*\*+/)) {
-      return `Pattern "${pattern}" has too many consecutive asterisks which may cause performance issues.`;
-    }
-    
-    // Check for potentially greedy patterns
-    if ((pattern.match(/\*/g) || []).length > 5) {
-      return `Pattern "${pattern}" has too many wildcards which may cause performance issues.`;
-    }
-    
-    // Check for complex alternation patterns
-    if ((pattern.match(/\{[^}]*,[^}]*,/g) || []).length > 0 && pattern.includes('**')) {
-      return `Pattern "${pattern}" combines complex alternation with globstar which may cause performance issues.`;
-    }
-
-    return null;
-  };
-
   // Handle save button click
   const onSaveClick = () => {
     // Parse the text to get an array of patterns
@@ -103,12 +107,12 @@ const FilterModal = ({
     
     // Validate patterns
     const errors: string[] = [];
-    patterns.forEach((pattern: string) => {
+    for (const pattern of patterns) {
       const error = validatePattern(pattern);
       if (error) {
         errors.push(error);
       }
-    });
+    }
     
     // If there are errors, show them instead of saving
     if (errors.length > 0) {

@@ -1,7 +1,13 @@
-import React from "react";
+import { User, X } from "lucide-react";
+
 import { RolePrompt } from "../types/file-types";
-import { X, User } from "lucide-react";
+
 import CopyButton from "./copy-button";
+
+// Estimate token count for the prompt (simple calculation)
+const estimateTokenCount = (text: string) => {
+  return Math.ceil(text.length / 4);
+};
 
 interface RolePromptCardProps {
   prompt: RolePrompt;
@@ -13,11 +19,6 @@ const RolePromptCard = ({
   toggleSelection
 }: RolePromptCardProps) => {
   const { title, content } = prompt;
-  
-  // Estimate token count for the prompt (simple calculation)
-  const estimateTokenCount = (text: string) => {
-    return Math.ceil(text.length / 4);
-  };
   
   const tokenCount = estimateTokenCount(content);
 

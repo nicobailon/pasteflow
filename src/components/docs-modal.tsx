@@ -1,7 +1,8 @@
-import React, { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { Check, CirclePlus, Plus, Trash, X } from "lucide-react";
+import { useState } from "react";
+
 import { Doc, DocsModalProps } from "../types/file-types";
-import { Plus, Trash, CirclePlus, Check, X } from "lucide-react";
 
 /**
  * DocsModal component - Provides a modal dialog for managing documentation
@@ -14,7 +15,6 @@ const DocsModal = ({
   onAddDoc,
   onDeleteDoc,
   onUpdateDoc,
-  onSelectDoc,
   selectedDocs = [],
   toggleDocSelection,
 }: DocsModalProps): JSX.Element => {
@@ -86,12 +86,21 @@ const DocsModal = ({
                       e.stopPropagation();
                       startEdit(doc);
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startEdit(doc);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="prompt-details">
                       <div className="prompt-title">{doc.title}</div>
                       <div className="prompt-preview">
                         {doc.content.length > 60 
-                          ? doc.content.substring(0, 60) + "..." 
+                          ? doc.content.slice(0, 60) + "..." 
                           : doc.content}
                       </div>
                     </div>

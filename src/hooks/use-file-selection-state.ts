@@ -1,7 +1,9 @@
 import { useCallback } from 'react';
-import { FileData, SelectedFileWithLines, LineRange } from '../types/file-types';
-import useLocalStorage from './use-local-storage';
+
 import { STORAGE_KEYS } from '../constants';
+import { FileData, LineRange, SelectedFileWithLines } from '../types/file-types';
+
+import useLocalStorage from './use-local-storage';
 
 /**
  * Custom hook to manage file selection state
@@ -115,7 +117,7 @@ const useFileSelectionState = (allFiles: FileData[]) => {
         const prevMap = new Map(prev.map(f => [f.path, f]));
         
         // Add all files from folder that aren't already selected
-        filesInFolder.forEach((file: FileData) => {
+        for (const file of filesInFolder) {
           if (!prevMap.has(file.path)) {
             prevMap.set(file.path, {
               path: file.path,
@@ -124,10 +126,10 @@ const useFileSelectionState = (allFiles: FileData[]) => {
               isFullFile: true
             });
           }
-        });
+        }
         
         // Convert back to array
-        return Array.from(prevMap.values());
+        return [...prevMap.values()];
       });
     } else {
       // Remove all files from this folder
@@ -157,14 +159,14 @@ const useFileSelectionState = (allFiles: FileData[]) => {
       const prevMap = new Map(prev.map(f => [f.path, f]));
       
       // Add each new file if not already in selection
-      selectablePaths.forEach((file: SelectedFileWithLines) => {
+      for (const file of selectablePaths) {
         if (!prevMap.has(file.path)) {
           prevMap.set(file.path, file);
         }
-      });
+      }
       
       // Convert back to array
-      return Array.from(prevMap.values());
+      return [...prevMap.values()];
     });
   }, [setSelectedFiles]);
 

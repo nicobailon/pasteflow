@@ -196,7 +196,6 @@ export interface DocsModalProps {
   onAddDoc: (doc: Doc) => void;
   onDeleteDoc: (id: string) => void;
   onUpdateDoc: (doc: Doc) => void;
-  onSelectDoc: (doc: Doc) => void;
   selectedDocs: Doc[];
   toggleDocSelection: (doc: Doc) => void;
 }

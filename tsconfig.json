@@ -26,8 +26,12 @@
     /* Additional Options */
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    
+    /* DOM Type Handling */
+    "jsxImportSource": "react",
+    "checkJs": false
   },
-  "include": ["src", "src/declarations.d.ts"],
+  "include": ["src", "src/declarations.d.ts", "src/types"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

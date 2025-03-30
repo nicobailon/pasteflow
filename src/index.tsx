@@ -1,24 +1,25 @@
-import React from "react";
-import { ThemeProvider } from "./context/theme-context";
-import Sidebar from "./components/sidebar";
+import { useState } from "react";
+
 import AppHeader from "./components/app-header";
-import ContentArea from "./components/content-area";
-import WelcomeScreen from "./components/welcome-screen";
-import ProcessingIndicator from "./components/processing-indicator";
 import { ApplyChangesModal } from "./components/apply-changes-modal";
-import FilterModal from "./components/filter-modal";
-import SystemPromptsModal from "./components/system-prompts-modal";
-import RolePromptsModal from "./components/role-prompts-modal";
-import FileViewModal from "./components/file-view-modal";
+import ContentArea from "./components/content-area";
 import DocsModal from "./components/docs-modal";
+import FileViewModal from "./components/file-view-modal";
+import FilterModal from "./components/filter-modal";
+import ProcessingIndicator from "./components/processing-indicator";
+import RolePromptsModal from "./components/role-prompts-modal";
+import Sidebar from "./components/sidebar";
+import SystemPromptsModal from "./components/system-prompts-modal";
+import WelcomeScreen from "./components/welcome-screen";
 import WorkspaceModal from "./components/workspace-modal";
-import useAppState from "./hooks/use-app-state";
 import { SORT_OPTIONS } from "./constants";
+import { ThemeProvider } from "./context/theme-context";
+import useAppState from "./hooks/use-app-state";
 
 const App = () => {
   // Use our main app state hook
   const appState = useAppState();
-  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = React.useState(false);
+  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
 
   // Process error state
   if (appState.processingStatus.status === "error") {
@@ -183,7 +184,6 @@ const App = () => {
           onAddDoc={appState.handleAddDoc}
           onDeleteDoc={appState.handleDeleteDoc}
           onUpdateDoc={appState.handleUpdateDoc}
-          onSelectDoc={appState.toggleDocSelection}
           selectedDocs={appState.selectedDocs}
           toggleDocSelection={appState.toggleDocSelection}
         />

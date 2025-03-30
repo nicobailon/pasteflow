@@ -4,14 +4,14 @@ try {
   require("ignore");
   require("tiktoken");
   require("gpt-3-encoder");
-} catch (err) {
-  console.error(`\n❌ Missing dependency: ${err.message}`);
+} catch (error) {
+  console.error(`\n❌ Missing dependency: ${error.message}`);
   console.error("Please run: npm install\n");
   process.exit(1);
 }
 
-const { spawn } = require("child_process");
-const { platform } = require("os");
+const { spawn } = require("node:child_process");
+const { platform } = require("node:os");
 
 console.log("🚀 Starting development environment...");
 
@@ -39,7 +39,7 @@ viteProcess.stdout?.on("data", (data) => {
   // Extract port from the output (e.g., "Local: http://localhost:3001/")
   const portMatch = output.match(/Local:\s+http:\/\/localhost:(\d+)/);
   if (portMatch && portMatch[1]) {
-    vitePort = parseInt(portMatch[1], 10);
+    vitePort = Number.parseInt(portMatch[1], 10);
     console.log(`🔍 Detected Vite server running on port ${vitePort}`);
   }
 

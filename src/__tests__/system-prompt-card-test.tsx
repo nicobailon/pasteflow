@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
 import { SystemPrompt } from '../types/FileTypes';
 
@@ -125,7 +126,7 @@ describe('SystemPromptCard Component', () => {
     
     // Should display a small token count
     const smallTokenText = screen.getByText(/~\d+ tokens/).textContent;
-    const smallTokenCount = parseInt(smallTokenText!.match(/\d+/)![0]);
+    const smallTokenCount = Number.parseInt(smallTokenText!.match(/\d+/)![0]);
     
     // Test with larger content
     unmount();
@@ -145,7 +146,7 @@ describe('SystemPromptCard Component', () => {
     // Should display a larger token count - using getByText will fail if multiple elements match
     const tokenElements = screen.getAllByText(/~\d+,?\d* tokens/);
     const largeTokenText = tokenElements[0].textContent;
-    const largeTokenCount = parseInt(largeTokenText!.replace(',', '').match(/\d+/)![0]);
+    const largeTokenCount = Number.parseInt(largeTokenText!.replace(',', '').match(/\d+/)![0]);
     
     // Verify that larger content produces at least the same token count
     // without coupling to specific calculation formula

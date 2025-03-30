@@ -1,8 +1,9 @@
-import React from 'react';
-import { Check, ChevronDown, Settings, User, FileText } from 'lucide-react';
-import FileList from './file-list';
+import { Check, ChevronDown, FileText, Settings, User } from 'lucide-react';
+
+import { FileData, RolePrompt, SelectedFileWithLines, SystemPrompt } from '../types/file-types';
+
 import CopyButton from './copy-button';
-import { FileData, SelectedFileWithLines, SystemPrompt, RolePrompt } from '../types/file-types';
+import FileList from './file-list';
 
 interface ContentAreaProps {
   selectedFiles: SelectedFileWithLines[];
@@ -91,6 +92,14 @@ const ContentArea = ({
                         sortOrder === option.value ? "active" : ""
                       }`}
                       onClick={() => handleSortChange(option.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleSortChange(option.value);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
                     >
                       {option.label}
                       {sortOrder === option.value && <span className="checkmark">✓</span>}

@@ -1,7 +1,9 @@
-import { useState, useCallback } from 'react';
-import { SystemPrompt, RolePrompt } from '../types/file-types';
-import useLocalStorage from './use-local-storage';
+import { useCallback, useState } from 'react';
+
 import { STORAGE_KEYS } from '../constants';
+import { RolePrompt, SystemPrompt } from '../types/file-types';
+
+import useLocalStorage from './use-local-storage';
 
 /**
  * Custom hook to manage system and role prompts
@@ -49,13 +51,9 @@ const usePromptState = () => {
     setSelectedSystemPrompts((prev: SystemPrompt[]) => {
       const isAlreadySelected = prev.some((p: SystemPrompt) => p.id === prompt.id);
       
-      if (isAlreadySelected) {
-        // Remove prompt if already selected
-        return prev.filter((p: SystemPrompt) => p.id !== prompt.id);
-      } else {
-        // Add prompt if not already selected
-        return [...prev, prompt];
-      }
+      return isAlreadySelected
+        ? prev.filter((p: SystemPrompt) => p.id !== prompt.id)
+        : [...prev, prompt];
     });
   }, []);
   
@@ -85,13 +83,9 @@ const usePromptState = () => {
     setSelectedRolePrompts((prev: RolePrompt[]) => {
       const isAlreadySelected = prev.some((p: RolePrompt) => p.id === prompt.id);
       
-      if (isAlreadySelected) {
-        // Remove prompt if already selected
-        return prev.filter((p: RolePrompt) => p.id !== prompt.id);
-      } else {
-        // Add prompt if not already selected
-        return [...prev, prompt];
-      }
+      return isAlreadySelected
+        ? prev.filter((p: RolePrompt) => p.id !== prompt.id)
+        : [...prev, prompt];
     });
   }, []);
 

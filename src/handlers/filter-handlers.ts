@@ -1,4 +1,5 @@
 import { FileData } from '../types/file-types';
+
 import { requestFileList } from './electron-handlers';
 
 /**
@@ -30,21 +31,26 @@ export const applyFiltersAndSort = (
 
   // Apply sort
   switch (sort) {
-    case "name-asc":
+    case "name-asc": {
       filtered.sort((a, b) => a.name.localeCompare(b.name));
       break;
-    case "name-desc":
+    }
+    case "name-desc": {
       filtered.sort((a, b) => b.name.localeCompare(a.name));
       break;
-    case "tokens-asc":
+    }
+    case "tokens-asc": {
       filtered.sort((a, b) => (a.tokenCount || 0) - (b.tokenCount || 0));
       break;
-    case "tokens-desc":
+    }
+    case "tokens-desc": {
       filtered.sort((a, b) => (b.tokenCount || 0) - (a.tokenCount || 0));
       break;
-    default:
+    }
+    default: {
       // No sorting
       break;
+    }
   }
 
   // Update displayed files

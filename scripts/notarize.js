@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
+const fs = require("node:fs");
+const path = require("node:path");
+
 const { notarize } = require("@electron/notarize");
-const fs = require("fs");
-const path = require("path");
 
 // This script is called by electron-builder after signing the app
 // It's used for notarizing macOS applications

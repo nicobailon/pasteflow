@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+After fixing a lint error or lint warning, are you sure that `.eslintrc.cjs` and `settings.json` have been updated properly to ensure that those same linter issues will auto fix in the future?

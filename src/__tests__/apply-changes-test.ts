@@ -1,6 +1,7 @@
-import { promises as fs } from 'fs';
-import { join } from 'path';
-import os from 'os';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import { join } from 'node:path';
+
 import { applyFileChanges } from '../../lib/apply-changes';
 
 describe('applyFileChanges', () => {
@@ -9,7 +10,7 @@ describe('applyFileChanges', () => {
   
   beforeEach(async () => {
     // Create a unique temporary directory for each test
-    tempDir = join(os.tmpdir(), `apply-changes-test-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`);
+    tempDir = join(os.tmpdir(), `apply-changes-test-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
     await fs.mkdir(tempDir, { recursive: true });
   });
   
@@ -40,7 +41,7 @@ describe('applyFileChanges', () => {
     const exists = await fileExists(fullPath);
     expect(exists).toBe(true);
     
-    const content = await fs.readFile(fullPath, 'utf-8');
+    const content = await fs.readFile(fullPath, 'utf8');
     expect(content).toBe(testContent);
   });
   
@@ -62,7 +63,7 @@ describe('applyFileChanges', () => {
     const exists = await fileExists(fullPath);
     expect(exists).toBe(true);
     
-    const content = await fs.readFile(fullPath, 'utf-8');
+    const content = await fs.readFile(fullPath, 'utf8');
     expect(content).toBe(testContent);
   });
   
@@ -74,7 +75,7 @@ describe('applyFileChanges', () => {
     const fullPath = join(tempDir, testFilePath);
     
     // Create the file first
-    await fs.writeFile(fullPath, initialContent, 'utf-8');
+    await fs.writeFile(fullPath, initialContent, 'utf8');
     
     const fileChange = {
       file_operation: 'UPDATE',
@@ -89,7 +90,7 @@ describe('applyFileChanges', () => {
     const exists = await fileExists(fullPath);
     expect(exists).toBe(true);
     
-    const content = await fs.readFile(fullPath, 'utf-8');
+    const content = await fs.readFile(fullPath, 'utf8');
     expect(content).toBe(updatedContent);
   });
   
@@ -99,7 +100,7 @@ describe('applyFileChanges', () => {
     const fullPath = join(tempDir, testFilePath);
     
     // Create the file first
-    await fs.writeFile(fullPath, 'File to be deleted', 'utf-8');
+    await fs.writeFile(fullPath, 'File to be deleted', 'utf8');
     
     const fileChange = {
       file_operation: 'DELETE',
@@ -164,7 +165,7 @@ describe('applyFileChanges', () => {
     const fullPath = join(tempDir, testFilePath);
     
     // Create the file first
-    await fs.writeFile(fullPath, 'Initial content', 'utf-8');
+    await fs.writeFile(fullPath, 'Initial content', 'utf8');
     
     const fileChange = {
       file_operation: 'UPDATE',

@@ -1,8 +1,8 @@
-import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+
 import '@testing-library/jest-dom';
-import Sidebar from '../components/Sidebar';
-import { TreeNode, FileData, SelectedFileWithLines } from '../types/FileTypes';
+import Sidebar from '../components/sidebar';
+import { FileData, SelectedFileWithLines, TreeNode } from '../types/file-types';
 
 // Mock the Lucide React icons
 jest.mock('lucide-react', () => ({
@@ -101,12 +101,12 @@ jest.mock('../hooks/useFileTree', () => ({
     const flattenTree = (nodes: TreeNode[]): TreeNode[] => {
       let result: TreeNode[] = [];
       
-      nodes.forEach(node => {
+      for (const node of nodes) {
         // Clone node and update isExpanded based on expandedNodes
         const nodeWithUpdatedExpanded = {
           ...node,
           isExpanded: node.type === 'directory' 
-            ? (expandedNodes[node.id] !== undefined ? expandedNodes[node.id] : node.isExpanded)
+            ? (expandedNodes[node.id] === undefined ? node.isExpanded : expandedNodes[node.id])
             : undefined
         };
         
@@ -117,7 +117,7 @@ jest.mock('../hooks/useFileTree', () => ({
             nodeWithUpdatedExpanded.children) {
           result = [...result, ...flattenTree(nodeWithUpdatedExpanded.children)];
         }
-      });
+      }
       
       return result;
     };

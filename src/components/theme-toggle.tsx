@@ -1,6 +1,7 @@
 import React from "react";
-import { useTheme } from "../context/theme-context";
 import { Sun, Moon } from "lucide-react";
+
+import { useTheme } from "../context/theme-context";
 
 const ThemeToggle = (): JSX.Element => {
   const { theme, setTheme } = useTheme();

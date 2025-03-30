@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { SidebarProps, TreeNode } from "../types/file-types";
+import { ChevronDown, ChevronUp, Filter, Folder, FolderOpen, RefreshCw, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import useFileTree from "../hooks/use-file-tree";
+import { SidebarProps, TreeNode } from "../types/file-types";
+
 import SearchBar from "./search-bar";
 import TreeItem from "./tree-item";
-import { Folder, ChevronDown, ChevronUp, X, FolderOpen, Filter, RefreshCw } from "lucide-react";
 
 // Custom type for resize events
 type ResizeMouseEvent = {
@@ -59,6 +61,10 @@ const Sidebar = ({
   
   // Consolidated loading state that takes into account both processing status and tree building
   const showLoadingIndicator = isTreeLoading || !isTreeBuildingComplete;
+  
+  // Component constants
+  const ACTIVE_SORT_OPTION = 'active sort-option';
+  const SORT_OPTION = 'sort-option';
   
   /**
    * Initiates the sidebar resizing operation.
@@ -161,14 +167,14 @@ const Sidebar = ({
     const getAllDirectoryNodes = (nodes: TreeNode[]): string[] => {
       let result: string[] = [];
       
-      nodes.forEach(node => {
+      for (const node of nodes) {
         if (node.type === "directory") {
           result.push(node.id);
           if (node.children) {
             result = [...result, ...getAllDirectoryNodes(node.children)];
           }
         }
-      });
+      }
       
       return result;
     };
@@ -176,13 +182,13 @@ const Sidebar = ({
     // Collapse all directory nodes
     const allDirectories = getAllDirectoryNodes(fileTree);
     
-    allDirectories.forEach(nodeId => {
+    for (const nodeId of allDirectories) {
       // Only toggle expanded nodes - since toggleExpanded toggles the state
       // we only want to call it for nodes that are currently expanded
       if (expandedNodes[nodeId] === true) {
         toggleExpanded(nodeId);
       }
-    });
+    }
   }, [fileTree, expandedNodes, toggleExpanded]);
 
   // Function to expand all folders
@@ -191,7 +197,7 @@ const Sidebar = ({
     const getCollapsedDirectoryNodes = (nodes: TreeNode[]): string[] => {
       let result: string[] = [];
       
-      nodes.forEach(node => {
+      for (const node of nodes) {
         if (node.type === "directory") {
           if (!expandedNodes[node.id]) {
             result.push(node.id);
@@ -200,7 +206,7 @@ const Sidebar = ({
             result = [...result, ...getCollapsedDirectoryNodes(node.children)];
           }
         }
-      });
+      }
       
       return result;
     };
@@ -208,19 +214,19 @@ const Sidebar = ({
     // Expand all collapsed directory nodes
     const collapsedDirectories = getCollapsedDirectoryNodes(fileTree);
     
-    collapsedDirectories.forEach(nodeId => {
+    for (const nodeId of collapsedDirectories) {
       // Only toggle collapsed nodes - since toggleExpanded toggles the state
       // we only want to call it for nodes that are currently collapsed
       // This means nodes where expandedNodes[nodeId] is either false or undefined
       if (expandedNodes[nodeId] !== true) {
         toggleExpanded(nodeId);
       }
-    });
+    }
   }, [fileTree, expandedNodes, toggleExpanded]);
 
   // Check if there are any expanded folders
   const hasExpandedFolders = useCallback(() => {
-    return Object.values(expandedNodes).some(isExpanded => isExpanded);
+    return Object.values(expandedNodes).some(Boolean);
   }, [expandedNodes]);
 
   // Check if all folders are expanded
@@ -229,14 +235,14 @@ const Sidebar = ({
     const getAllDirectoryIds = (nodes: TreeNode[]): string[] => {
       let result: string[] = [];
       
-      nodes.forEach(node => {
+      for (const node of nodes) {
         if (node.type === "directory") {
           result.push(node.id);
           if (node.children) {
             result = [...result, ...getAllDirectoryIds(node.children)];
           }
         }
-      });
+      }
       
       return result;
     };
@@ -301,6 +307,10 @@ const Sidebar = ({
     onFileTreeSortChange('default');
   }, [refreshFileTree, deselectAllFiles, onFileTreeSortChange]);
 
+  // Button element rendering helper
+  const getSortButtonClassName = (sortOption: string) => 
+    currentSortOption === sortOption ? ACTIVE_SORT_OPTION : SORT_OPTION;
+
   return (
     <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
       <div className="sidebar-buttons">
@@ -313,49 +323,49 @@ const Sidebar = ({
             <div className="sort-dropdown sort-dropdown-file-tree">
               <button 
                 onClick={() => handleFileTreeSortChange('default')}
-                className={currentSortOption === 'default' ? 'active sort-option' : 'sort-option'}
+                className={getSortButtonClassName('default')}
               >
                 <span>↕</span> Developer-Focused
                 {currentSortOption === 'default' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('name-asc')}
-                className={currentSortOption === 'name-asc' ? 'active sort-option' : 'sort-option'}
+                className={getSortButtonClassName('name-asc')}
               >
                 <span>↑</span> Name (A–Z)
                 {currentSortOption === 'name-asc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('name-desc')}
-                className={currentSortOption === 'name-desc' ? 'active sort-option' : 'sort-option'}
+                className={getSortButtonClassName('name-desc')}
               >
                 <span>↓</span> Name (Z–A)
                 {currentSortOption === 'name-desc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('extension-asc')}
-                className={currentSortOption === 'extension-asc' ? 'active sort-option' : 'sort-option'}
+                className={getSortButtonClassName('extension-asc')}
               >
                 <span>↑</span> Extension (A–Z)
                 {currentSortOption === 'extension-asc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('extension-desc')}
-                className={currentSortOption === 'extension-desc' ? 'active sort-option' : 'sort-option'}
+                className={getSortButtonClassName('extension-desc')}
               >
                 <span>↓</span> Extension (Z–A)
                 {currentSortOption === 'extension-desc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('date-desc')}
-                className={currentSortOption === 'date-desc' ? 'active sort-option' : 'sort-option'}
+                className={getSortButtonClassName('date-desc')}
               >
                 <span>↓</span> Date Modified (Newest)
                 {currentSortOption === 'date-desc' && <span className="checkmark">✓</span>}
               </button>
               <button 
                 onClick={() => handleFileTreeSortChange('date-asc')}
-                className={currentSortOption === 'date-asc' ? 'active sort-option' : 'sort-option'}
+                className={getSortButtonClassName('date-asc')}
               >
                 <span>↑</span> Date Modified (Oldest)
                 {currentSortOption === 'date-asc' && <span className="checkmark">✓</span>}
@@ -464,11 +474,12 @@ const Sidebar = ({
         <div className="tree-empty">No files found in this folder.</div>
       )}
 
-      <div
+      <button
         className="sidebar-resize-handle"
         onMouseDown={handleResizeStart}
+        aria-label="Resize sidebar"
         title="Drag to resize sidebar"
-      ></div>
+      ></button>
     </div>
   );
 };
