@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react';
 
-import useFileTree from '../hooks/useFileTree';
-import { TreeNode, FileData } from '../types/FileTypes';
+import useFileTree from '../hooks/use-file-tree';
+import { TreeNode, FileData } from '../types/file-types';
 
 // Mock the files and folder structure for testing
 const createMockFiles = (): FileData[] => [
@@ -67,9 +67,9 @@ describe('flattenTree function in useFileTree', () => {
 
     // Check the structure of the flattened tree
     // Confirm root level directories exist
-    const dir1 = visibleTree.find(node => node.id === '/root/dir1');
-    const dir2 = visibleTree.find(node => node.id === '/root/dir2');
-    const dir3 = visibleTree.find(node => node.id === '/root/dir3');
+    const dir1 = visibleTree.find((node: TreeNode) => node.id === '/root/dir1');
+    const dir2 = visibleTree.find((node: TreeNode) => node.id === '/root/dir2');
+    const dir3 = visibleTree.find((node: TreeNode) => node.id === '/root/dir3');
     
     // Verify expanded state is properly reflected
     expect(dir1?.isExpanded).toBe(true);
@@ -77,9 +77,9 @@ describe('flattenTree function in useFileTree', () => {
     expect(dir3?.isExpanded).toBe(true);
     
     // Check if children of expanded directories are visible in the flattened tree
-    const file1 = visibleTree.find(node => node.id === '/root/dir1/file1.js');
-    const file2 = visibleTree.find(node => node.id === '/root/dir2/file2.js');
-    const file3 = visibleTree.find(node => node.id === '/root/dir3/file3.js');
+    const file1 = visibleTree.find((node: TreeNode) => node.id === '/root/dir1/file1.js');
+    const file2 = visibleTree.find((node: TreeNode) => node.id === '/root/dir2/file2.js');
+    const file3 = visibleTree.find((node: TreeNode) => node.id === '/root/dir3/file3.js');
     
     // Children of expanded directories should be in the flattened tree
     expect(file1).toBeDefined();
@@ -132,17 +132,17 @@ describe('flattenTree function in useFileTree', () => {
     visibleTree = result.current.visibleTree;
     
     // Verify dir1 and dir2 are now expanded
-    const dir1 = visibleTree.find(node => node.id === '/root/dir1');
-    const dir2 = visibleTree.find(node => node.id === '/root/dir2');
-    const dir3 = visibleTree.find(node => node.id === '/root/dir3');
+    const dir1 = visibleTree.find((node: TreeNode) => node.id === '/root/dir1');
+    const dir2 = visibleTree.find((node: TreeNode) => node.id === '/root/dir2');
+    const dir3 = visibleTree.find((node: TreeNode) => node.id === '/root/dir3');
     
     expect(dir1?.isExpanded).toBe(true);
     expect(dir2?.isExpanded).toBe(true);
     expect(dir3?.isExpanded).toBe(false);
     
     // Children of newly expanded directories should now be visible
-    const file1 = visibleTree.find(node => node.id === '/root/dir1/file1.js');
-    const file2 = visibleTree.find(node => node.id === '/root/dir2/file2.js');
+    const file1 = visibleTree.find((node: TreeNode) => node.id === '/root/dir1/file1.js');
+    const file2 = visibleTree.find((node: TreeNode) => node.id === '/root/dir2/file2.js');
     
     expect(file1).toBeDefined();
     expect(file2).toBeDefined();
@@ -170,16 +170,16 @@ describe('flattenTree function in useFileTree', () => {
     const { visibleTree } = result.current;
     
     // Check that dir3 is expanded
-    const dir3 = visibleTree.find(node => node.id === '/root/dir3');
+    const dir3 = visibleTree.find((node: TreeNode) => node.id === '/root/dir3');
     expect(dir3?.isExpanded).toBe(true);
     
     // Check that nested directory is expanded
-    const nestedDir = visibleTree.find(node => node.id === '/root/dir3/nested');
+    const nestedDir = visibleTree.find((node: TreeNode) => node.id === '/root/dir3/nested');
     expect(nestedDir?.isExpanded).toBe(true);
     
     // Check that files in both dir3 and nested dir are visible
-    const file3 = visibleTree.find(node => node.id === '/root/dir3/file3.js');
-    const nestedFile = visibleTree.find(node => node.id === '/root/dir3/nested/nestedFile.js');
+    const file3 = visibleTree.find((node: TreeNode) => node.id === '/root/dir3/file3.js');
+    const nestedFile = visibleTree.find((node: TreeNode) => node.id === '/root/dir3/nested/nestedFile.js');
     
     expect(file3).toBeDefined();
     expect(nestedFile).toBeDefined();
@@ -205,8 +205,8 @@ describe('flattenTree function in useFileTree', () => {
     
     // Verify everything is initially expanded and visible
     let visibleTree = result.current.visibleTree;
-    expect(visibleTree.find(node => node.id === '/root/dir3/file3.js')).toBeDefined();
-    expect(visibleTree.find(node => node.id === '/root/dir3/nested/nestedFile.js')).toBeDefined();
+    expect(visibleTree.find((node: TreeNode) => node.id === '/root/dir3/file3.js')).toBeDefined();
+    expect(visibleTree.find((node: TreeNode) => node.id === '/root/dir3/nested/nestedFile.js')).toBeDefined();
     
     // Now collapse the parent directory
     rerender({
@@ -225,13 +225,13 @@ describe('flattenTree function in useFileTree', () => {
     visibleTree = result.current.visibleTree;
     
     // dir3 should be collapsed
-    const dir3 = visibleTree.find(node => node.id === '/root/dir3');
+    const dir3 = visibleTree.find((node: TreeNode) => node.id === '/root/dir3');
     expect(dir3?.isExpanded).toBe(false);
     
     // Neither file3 nor nestedFile should be visible, regardless of nested's expanded state
-    expect(visibleTree.find(node => node.id === '/root/dir3/file3.js')).toBeUndefined();
-    expect(visibleTree.find(node => node.id === '/root/dir3/nested')).toBeUndefined();
-    expect(visibleTree.find(node => node.id === '/root/dir3/nested/nestedFile.js')).toBeUndefined();
+    expect(visibleTree.find((node: TreeNode) => node.id === '/root/dir3/file3.js')).toBeUndefined();
+    expect(visibleTree.find((node: TreeNode) => node.id === '/root/dir3/nested')).toBeUndefined();
+    expect(visibleTree.find((node: TreeNode) => node.id === '/root/dir3/nested/nestedFile.js')).toBeUndefined();
   });
   
   it('maintains expanded state of directories when search filter is applied', () => {
@@ -273,21 +273,21 @@ describe('flattenTree function in useFileTree', () => {
     // And the expanded state should be preserved
     
     // Check if dir3 is still in the tree and expanded
-    const dir3 = visibleTree.find(node => node.id === '/root/dir3');
+    const dir3 = visibleTree.find((node: TreeNode) => node.id === '/root/dir3');
     expect(dir3).toBeDefined();
     expect(dir3?.isExpanded).toBe(true);
     
     // Check if nested directory is in the tree and expanded
-    const nestedDir = visibleTree.find(node => node.id === '/root/dir3/nested');
+    const nestedDir = visibleTree.find((node: TreeNode) => node.id === '/root/dir3/nested');
     expect(nestedDir).toBeDefined();
     expect(nestedDir?.isExpanded).toBe(true);
     
     // Check if nestedFile is in the tree
-    const nestedFile = visibleTree.find(node => node.id === '/root/dir3/nested/nestedFile.js');
+    const nestedFile = visibleTree.find((node: TreeNode) => node.id === '/root/dir3/nested/nestedFile.js');
     expect(nestedFile).toBeDefined();
     
     // Other directories and files should not be in the filtered tree
-    expect(visibleTree.find(node => node.id === '/root/dir1')).toBeUndefined();
-    expect(visibleTree.find(node => node.id === '/root/dir2')).toBeUndefined();
+    expect(visibleTree.find((node: TreeNode) => node.id === '/root/dir1')).toBeUndefined();
+    expect(visibleTree.find((node: TreeNode) => node.id === '/root/dir2')).toBeUndefined();
   });
 }); 

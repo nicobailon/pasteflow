@@ -2,8 +2,8 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
-import TreeItem from '../components/TreeItem';
-import { TreeNode, SelectedFileWithLines } from '../types/FileTypes';
+import TreeItem from '../components/tree-item';
+import { TreeNode, SelectedFileWithLines } from '../types/file-types';
 
 // Mock icons
 jest.mock('lucide-react', () => ({

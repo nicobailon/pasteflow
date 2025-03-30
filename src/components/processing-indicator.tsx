@@ -10,7 +10,7 @@ interface ProcessingIndicatorProps {
   onCancel: () => void;
 }
 
-const ProcessingIndicator: React.FC<ProcessingIndicatorProps> = ({
+const ProcessingIndicator = ({
   status,
   message,
   processed,
@@ -18,7 +18,7 @@ const ProcessingIndicator: React.FC<ProcessingIndicatorProps> = ({
   total,
   isLoadingCancellable,
   onCancel
-}) => {
+}: ProcessingIndicatorProps): JSX.Element | null => {
   if (status !== "processing") return null;
 
   return (

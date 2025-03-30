@@ -201,6 +201,7 @@ export interface DocsModalProps {
 }
 
 export interface WorkspaceState {
+  selectedFolder: string | null;
   fileTreeState: Record<string, boolean>;
   selectedFiles: SelectedFileWithLines[];
   userInstructions: string;
@@ -209,4 +210,5 @@ export interface WorkspaceState {
     systemPrompts: SystemPrompt[];
     rolePrompts: RolePrompt[];
   };
+  savedAt?: number; // Added timestamp for sorting
 }

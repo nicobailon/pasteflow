@@ -2,9 +2,9 @@ import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
-import { FileData, SelectedFileWithLines, LineRange } from '../types/FileTypes';
+import { FileData, SelectedFileWithLines, LineRange } from '../types/file-types';
 
-import { setupMockLocalStorage } from './testHelpers';
+import { setupMockLocalStorage } from './test-helpers';
 
 // Custom FileList component for testing
 function TestFileList({ initialFiles = [] as SelectedFileWithLines[] }: { initialFiles?: SelectedFileWithLines[] }) {

@@ -17,28 +17,31 @@ export function parseXmlChanges(xmlContent: string): FileChange[] {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
     
-    const fileNodes = xmlDoc.querySelectorAll('file');
+    // Use getElementsByTagName which works with DOM interfaces
+    const fileNodes = xmlDoc.getElementsByTagName('file');
     const changes: FileChange[] = [];
     
-    for (const fileNode of fileNodes) {
+    for (let i = 0; i < fileNodes.length; i++) {
+      const fileNode = fileNodes[i];
       
       // Get file summary
-      const summaryNode = fileNode.querySelectorAll('file_summary')[0];
-      const summary = summaryNode?.textContent || '';
+      const summaryNodes = fileNode.getElementsByTagName('file_summary');
+      const summary = summaryNodes.length > 0 ? summaryNodes[0].textContent || '' : '';
       
       // Get file operation
-      const operationNode = fileNode.querySelectorAll('file_operation')[0];
-      const operation = operationNode?.textContent as 'CREATE' | 'UPDATE' | 'DELETE';
+      const operationNodes = fileNode.getElementsByTagName('file_operation');
+      const operation = operationNodes.length > 0 ? 
+        operationNodes[0].textContent as 'CREATE' | 'UPDATE' | 'DELETE' : 'UPDATE';
       
       // Get file path
-      const pathNode = fileNode.querySelectorAll('file_path')[0];
-      const path = pathNode?.textContent || '';
+      const pathNodes = fileNode.getElementsByTagName('file_path');
+      const path = pathNodes.length > 0 ? pathNodes[0].textContent || '' : '';
       
       // Get file code (if not DELETE operation)
       let code: string | undefined;
       if (operation !== 'DELETE') {
-        const codeNode = fileNode.querySelectorAll('file_code')[0];
-        code = codeNode?.textContent || '';
+        const codeNodes = fileNode.getElementsByTagName('file_code');
+        code = codeNodes.length > 0 ? codeNodes[0].textContent || '' : '';
       }
       
       // Add to changes array

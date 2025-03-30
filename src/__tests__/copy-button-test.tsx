@@ -2,7 +2,7 @@ import React from 'react';
 import { render, fireEvent, screen, waitFor, act } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
-import CopyButton from '../components/CopyButton';
+import CopyButton from '../components/copy-button';
 
 // Mock the clipboard API
 Object.assign(navigator, {

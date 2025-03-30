@@ -1,4 +1,4 @@
-import { parseXmlChanges, validateXmlChanges, generateChangesSummary } from '../utils/xmlParser';
+import { parseXmlChanges, validateXmlChanges, generateChangesSummary } from '../utils/xml-parser';
 
 // Mock XML content for testing
 const testXml = `
