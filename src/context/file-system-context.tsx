@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useEffect, useMemo } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { openFolderDialog, cancelFileLoading } from '../handlers/electron-handlers';
@@ -40,7 +40,37 @@ export interface FileSystemContextType extends FileSystemState {
   handleResetFolderState: () => void;
 }
 
-export const FileSystemContext = createContext<FileSystemContextType | undefined>(undefined);
+// Define a default state that matches the context type
+const defaultProcessingStatus: FileSystemState['processingStatus'] = {
+  status: 'idle',
+  message: '',
+  processed: 0,
+  directories: 0,
+  total: 0,
+};
+
+const defaultContextValue: FileSystemContextType = {
+  selectedFolder: null,
+  allFiles: [],
+  displayedFiles: [],
+  processingStatus: defaultProcessingStatus,
+  exclusionPatterns: [],
+  isLoadingCancellable: false,
+  appInitialized: false,
+  setSelectedFolder: noopFunc,
+  setAllFiles: noopFunc,
+  setDisplayedFiles: noopFunc,
+  setProcessingStatus: noopFunc,
+  setExclusionPatterns: noopFunc,
+  setIsLoadingCancellable: noopFunc,
+  setAppInitialized: noopFunc,
+  openFolder: noopFunc,
+  handleCancelLoading: noopFunc,
+  handleRefreshFileTree: noopFunc,
+  handleResetFolderState: noopFunc,
+};
+
+export const FileSystemContext = createContext(defaultContextValue);
 
 interface FileSystemProviderProps {
   children: React.ReactNode;
@@ -59,22 +89,22 @@ interface FileSystemProviderProps {
   clearSelectedFiles?: () => void;
 }
 
-export const FileSystemProvider: React.FC<FileSystemProviderProps> = ({
+export const FileSystemProvider = ({
   children,
   allFiles = [],
   displayedFiles = [],
-  processingStatus = { status: 'idle', message: '' },
+  processingStatus = defaultProcessingStatus,
   exclusionPatterns = [],
   isLoadingCancellable = false,
   appInitialized = false,
-  setAllFiles: setAllFilesProp,
-  setDisplayedFiles: setDisplayedFilesProp,
-  setProcessingStatus: setProcessingStatusProp,
-  setExclusionPatterns: setExclusionPatternsProp,
-  setIsLoadingCancellable: setIsLoadingCancellableProp,
-  setAppInitialized: setAppInitializedProp,
-  clearSelectedFiles: clearSelectedFilesProp,
-}) => {
+  setAllFiles: setAllFilesProp, // Type will be inferred if not explicitly set, but let's add for clarity if needed
+  setDisplayedFiles: setDisplayedFilesProp, // Type inferred
+  setProcessingStatus: setProcessingStatusProp, // Type inferred
+  setExclusionPatterns: setExclusionPatternsProp, // Type inferred
+  setIsLoadingCancellable: setIsLoadingCancellableProp, // Type inferred
+  setAppInitialized: setAppInitializedProp, // Type inferred
+  clearSelectedFiles: clearSelectedFilesProp, // Type inferred
+}: FileSystemProviderProps) => { // Add explicit type annotation here
   // State management for selectedFolder
   const [selectedFolder, setSelectedFolder] = useLocalStorage<string | null>(
     STORAGE_KEYS.SELECTED_FOLDER,

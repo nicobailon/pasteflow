@@ -1,9 +1,5 @@
 import { FileData, WorkspaceState } from '../types/file-types';
 
-// Define locally to avoid circular dependency with useAppState
-type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
-
-// Type for processing status
 export interface ProcessingStatus {
   status: "idle" | "processing" | "complete" | "error";
   message: string;
@@ -12,14 +8,6 @@ export interface ProcessingStatus {
   total?: number;
 }
 
-/**
- * Sets up event listeners for Electron IPC
- * ... (other params) ...
- * @param {string | null} currentWorkspace - The currently active workspace name
- * @param {Function} setCurrentWorkspace - Setter for the current workspace name
- * @param {Function} persistWorkspace - Function to save workspace state
- * @returns {Function} Cleanup function to remove event listeners
- */
 export const setupElectronHandlers = (
   isElectron: boolean,
   setSelectedFolder: (folder: string | null) => void,
@@ -33,10 +21,7 @@ export const setupElectronHandlers = (
   setAppInitialized: (initialized: boolean) => void,
   currentWorkspace: string | null,
   setCurrentWorkspace: (name: string | null) => void,
-  persistWorkspace: (name: string, state: WorkspaceState) => void,
-  pendingWorkspaceData: PendingWorkspaceData | null,
-  applyWorkspaceData: (name: string | null, data: WorkspaceState | null, applyImmediately?: boolean) => void,
-  selectedFolder: string | null
+  persistWorkspace: (name: string, state: WorkspaceState) => void
 ): (() => void) => {
   if (!isElectron) return () => {};
 
@@ -120,14 +105,22 @@ export const setupElectronHandlers = (
       setAppInitialized(true);
       sessionStorage.setItem("hasLoadedInitialData", "true");
 
-      if (pendingWorkspaceData) {
-        console.log("Applying pending workspace data after file list update");
-        const fullWorkspaceData: WorkspaceState = {
-          selectedFolder: selectedFolder,
-          ...pendingWorkspaceData
-        };
-        applyWorkspaceData(currentWorkspace, fullWorkspaceData, true);
-      }
+      // REMOVED: Direct call to applyWorkspaceData. This will now be handled
+      // by a useEffect in useAppState that watches for changes in allFiles
+      // and the presence of pendingWorkspaceData.
+      // if (pendingWorkspaceData) {
+      //   console.log("[handleFileListData] Applying pending workspace data after file list update");
+      //   const fullWorkspaceData: WorkspaceState = {
+      //     selectedFolder: selectedFolder, // Use the current selectedFolder state
+      //     ...pendingWorkspaceData
+      //   };
+      //   // Ensure currentWorkspace is not null before applying
+      //   if (currentWorkspace) {
+      //      applyWorkspaceData(currentWorkspace, fullWorkspaceData, true);
+      //   } else {
+      //      console.error("[handleFileListData] Cannot apply pending data: currentWorkspace is null.");
+      //   }
+      // }
 
     } catch (error) {
       console.error("Error handling file list data:", error);

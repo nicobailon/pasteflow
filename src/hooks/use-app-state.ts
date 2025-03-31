@@ -16,14 +16,9 @@ import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
 
-// Define a type for the pending data, excluding the folder which is handled separately
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
-/**
- * Main application state hook
- */
 const useAppState = () => {
-  // Check if we're running in Electron or browser environment
   const isElectron = window.electron !== undefined;
 
   // Core state from localStorage
@@ -68,40 +63,48 @@ const useAppState = () => {
     ]
   );
 
-  // Non-persistent state - using type assertions instead of generics
-  const allFiles = useState([]) as [FileData[], React.Dispatch<React.SetStateAction<FileData[]>>];
-  const displayedFiles = useState([]) as [FileData[], React.Dispatch<React.SetStateAction<FileData[]>>];
-  const expandedNodes = useState({}) as [Record<string, boolean>, React.Dispatch<React.SetStateAction<Record<string, boolean>>>];
+  // Non-persistent state
+  const [allFiles, setAllFiles] = useState([] as FileData[]);
+  const [displayedFiles, setDisplayedFiles] = useState([] as FileData[]);
+  const [expandedNodes, setExpandedNodes] = useState({} as Record<string, boolean>);
   const [appInitialized, setAppInitialized] = useState(false);
+
+  type ProcessingStatusType = {
+    status: "idle" | "processing" | "complete" | "error";
+    message: string;
+    processed?: number;
+    directories?: number;
+    total?: number;
+  };
   const [processingStatus, setProcessingStatus] = useState({
-    status: "idle" as "idle" | "processing" | "complete" | "error",
+    status: "idle" as const,
     message: "",
     processed: 0,
     directories: 0,
     total: 0
-  });
+  } as ProcessingStatusType);
   const [isLoadingCancellable, setIsLoadingCancellable] = useState(false);
-  const [pendingWorkspaceData, setPendingWorkspaceData] = useState(null as PendingWorkspaceData | null); // State to hold deferred workspace data
-  const [headerSaveState, setHeaderSaveState] = useState('idle' as 'idle' | 'saving' | 'success'); // State for header save button animation
-  const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null); // Ref for header save timeout
-  // Using destructuring for state variables
-  const [currentWorkspace, setCurrentWorkspace] = useState<string | null>(null);
+  const [pendingWorkspaceData, setPendingWorkspaceData] = useState(null as PendingWorkspaceData | null);
+  const [headerSaveState, setHeaderSaveState] = useState('idle' as 'idle' | 'saving' | 'success');
+  const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null);
+  const [currentWorkspace, setCurrentWorkspace] = useState(null as string | null);
 
   // Integration with specialized hooks
-  const fileSelection = useFileSelectionState(allFiles[0]);
+  const fileSelection = useFileSelectionState(allFiles);
   const promptState = usePromptState();
   const modalState = useModalState();
   const docState = useDocState();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
 
   // Refs for state values needed in callbacks to avoid unstable dependencies
-  const allFilesRef = useRef(allFiles[0]);
+  const allFilesRef = useRef(allFiles);
   const selectedFolderRef = useRef(selectedFolder);
   const processingStatusRef = useRef(processingStatus);
   const promptStateRef = useRef(promptState); // Ref for the whole prompt state object
 
   // Update refs whenever state changes
-  useEffect(() => { allFilesRef.current = allFiles[0]; }, [allFiles[0]]);
+  const currentAllFiles = allFiles; // Extract complex expression
+  useEffect(() => { allFilesRef.current = currentAllFiles; }, [allFiles, currentAllFiles]); // Add allFiles dependency
   useEffect(() => { selectedFolderRef.current = selectedFolder; }, [selectedFolder]);
   useEffect(() => { processingStatusRef.current = processingStatus; }, [processingStatus]);
   useEffect(() => { promptStateRef.current = promptState; }, [promptState]);
@@ -110,17 +113,15 @@ const useAppState = () => {
   const [userInstructions, setUserInstructions] = useState('');
   const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
 
-  // Move these functions up so they're defined before they're used
-  // Reset folder state - moved up before it's used
   const handleResetFolderState = useCallback(() => {
     resetFolderState(
       setSelectedFolder,
-      allFiles[1],
+      setAllFiles, // Use extracted variable
       fileSelection.setSelectedFiles,
       setProcessingStatus,
       setAppInitialized
     );
-  }, [setSelectedFolder, allFiles[1], fileSelection.setSelectedFiles, setProcessingStatus, setAppInitialized]); // Depend only on stable setters
+  }, [setSelectedFolder, setAllFiles, fileSelection.setSelectedFiles, setProcessingStatus, setAppInitialized]);
 
   // Ref for stable callback
   const handleResetFolderStateRef = useRef(handleResetFolderState);
@@ -139,18 +140,14 @@ const useAppState = () => {
   // Apply filters and sorting to files
   const handleFiltersAndSort = useCallback(
     (files: FileData[], sort: string, filter: string) => {
-      return applyFiltersAndSort(files, sort, filter, displayedFiles[1]);
+      return applyFiltersAndSort(files, sort, filter, setDisplayedFiles);
     },
-    [displayedFiles]
+    [setDisplayedFiles]
   );
 
   useEffect(() => {
     setInstructionsTokenCount(estimateTokenCount(userInstructions));
   }, [userInstructions]);
-
-  // Removed the 'storage' event listener useEffect block as it might conflict 
-  // with direct state updates in applyWorkspaceData. Initial state is read
-  // directly in useState, and updates on load/delete are handled elsewhere.
 
   useEffect(() => {
     const handleWorkspacesChanged = (event: CustomEvent) => {
@@ -164,25 +161,23 @@ const useAppState = () => {
     };
 
     window.addEventListener('workspacesChanged', handleWorkspacesChanged as EventListener);
-    console.log('[useAppState] Added workspacesChanged event listener.');
 
     return () => {
       window.removeEventListener('workspacesChanged', handleWorkspacesChanged as EventListener);
-      console.log('[useAppState] Removed workspacesChanged event listener.');
     };
   }, [currentWorkspace, setCurrentWorkspace, handleResetFolderState]);
 
   // Handle sort change
   const handleSortChange = useCallback((newSort: string) => {
     setSortOrder(newSort);
-    handleFiltersAndSort(allFiles[0], newSort, searchTerm);
+    handleFiltersAndSort(allFiles, newSort, searchTerm);
     setSortDropdownOpen(false); // Close dropdown after selection
   }, [allFiles, searchTerm, setSortOrder, handleFiltersAndSort]);
 
   // Handle search change
   const handleSearchChange = useCallback((newSearch: string) => {
     setSearchTerm(newSearch);
-    handleFiltersAndSort(allFiles[0], sortOrder, newSearch);
+    handleFiltersAndSort(allFiles, sortOrder, newSearch);
   }, [allFiles, sortOrder, setSearchTerm, handleFiltersAndSort]);
 
   // State for sort dropdown
@@ -195,12 +190,12 @@ const useAppState = () => {
 
   // Calculate token counts for file tree modes
   const fileTreeTokenCounts = useCallback(() => {
-    return calculateFileTreeTokens(allFiles[0], fileSelection.selectedFiles, selectedFolder);
+    return calculateFileTreeTokens(allFiles, fileSelection.selectedFiles, selectedFolder);
   }, [allFiles, fileSelection.selectedFiles, selectedFolder]);
 
   // Get the token count for the current file tree mode
   const getCurrentFileTreeTokens = useCallback(() => {
-    return getFileTreeModeTokens(allFiles[0], fileSelection.selectedFiles, selectedFolder, fileTreeMode);
+    return getFileTreeModeTokens(allFiles, fileSelection.selectedFiles, selectedFolder, fileTreeMode);
   }, [allFiles, fileSelection.selectedFiles, selectedFolder, fileTreeMode]);
 
   // Handle token calculations
@@ -236,7 +231,7 @@ const useAppState = () => {
 
   // Toggle expand/collapse state changes
   const toggleExpanded = useCallback((nodeId: string) => {
-    expandedNodes[1]((prev: Record<string, boolean>) => {
+    setExpandedNodes((prev: Record<string, boolean>) => {
       const currentState = prev[nodeId];
       const newValue = currentState === undefined ? false : !currentState;
       
@@ -253,12 +248,12 @@ const useAppState = () => {
 
       return newState;
     });
-  }, [expandedNodes]);
+  }, []);
 
   // Format content for copying
   const getFormattedContent = useCallback(() => {
     return getSelectedFilesContent(
-      allFiles[0],
+      allFiles,
       fileSelection.selectedFiles,
       sortOrder,
       fileTreeMode,
@@ -281,7 +276,7 @@ const useAppState = () => {
   // Get content with XML prompt
   const getFormattedContentWithXml = useCallback(() => {
     return getContentWithXmlPrompt(
-      allFiles[0],
+      allFiles,
       fileSelection.selectedFiles,
       sortOrder,
       fileTreeMode,
@@ -309,12 +304,12 @@ const useAppState = () => {
     );
     if (savedExpandedNodes) {
       try {
-        expandedNodes[1](JSON.parse(savedExpandedNodes));
+        setExpandedNodes(JSON.parse(savedExpandedNodes)); // Use extracted setter
       } catch (error) {
         console.error("Error parsing saved expanded nodes:", error);
       }
     }
-  }, [expandedNodes[1]]); // Depend only on the stable setter function
+  }, [setExpandedNodes]); // Depend on the stable setter function
 
   // Load initial data from saved folder
   useEffect(() => {
@@ -323,52 +318,43 @@ const useAppState = () => {
     // Use a flag in sessionStorage to ensure we only load data once per session
     const hasLoadedInitialData = sessionStorage.getItem("hasLoadedInitialData");
     
-    // If this is the first load in this session, show the welcome screen first
     if (hasLoadedInitialData === "true") {
-      // If we already loaded data in this session, mark as initialized
       setAppInitialized(true);
     } else {
-      // Mark the app as not initialized yet
       setAppInitialized(false);
       
-      // If we have a selected folder from previous session
       if (selectedFolder) {
-        // Give a small delay to allow the welcome screen to appear first
-        const timer = setTimeout(() => {
-          try {
-            console.log("Loading saved folder on startup:", selectedFolder);
-            setProcessingStatus({
-              status: "processing",
-              message: "Loading files from previously selected folder...",
-              processed: 0,
-              directories: 0,
-              total: 0
-            });
-            
-            // Clear any previously selected files when loading initial data
-            fileSelection.clearSelectedFiles();
-            
-            // Pass exclusion patterns to the main process
-            if (window.electron?.ipcRenderer) {
-              window.electron.ipcRenderer.send("request-file-list", selectedFolder, exclusionPatterns || []);
-            }
-            
-            // Mark that we've loaded the initial data
-            sessionStorage.setItem("hasLoadedInitialData", "true");
-            setAppInitialized(true);
-          } catch (error) {
-            console.error("Error loading saved folder:", error);
-            setProcessingStatus({
-              status: "error",
-              message: `Error loading saved folder: ${error instanceof Error ? error.message : "Unknown error"}`,
-              processed: 0,
-              directories: 0,
-              total: 0
-            });
+        try {
+          console.log("Loading saved folder on startup:", selectedFolder);
+          setProcessingStatus({
+            status: "processing",
+            message: "Loading files from previously selected folder...",
+            processed: 0,
+            directories: 0,
+            total: 0
+          });
+          
+          // Clear any previously selected files when loading initial data
+          fileSelection.clearSelectedFiles();
+          
+          // Pass exclusion patterns to the main process
+          if (window.electron?.ipcRenderer) {
+            window.electron.ipcRenderer.send("request-file-list", selectedFolder, exclusionPatterns || []);
           }
-        }, 1000); // 1-second delay
-        
-        return () => clearTimeout(timer);
+          
+          // Mark that we've loaded the initial data
+          sessionStorage.setItem("hasLoadedInitialData", "true");
+          setAppInitialized(true);
+        } catch (error) {
+          console.error("Error loading saved folder:", error);
+          setProcessingStatus({
+            status: "error",
+            message: `Error loading saved folder: ${error instanceof Error ? error.message : "Unknown error"}`,
+            processed: 0,
+            directories: 0,
+            total: 0
+          });
+        }
       }
     }
   }, [isElectron, selectedFolder, exclusionPatterns, fileSelection, setSelectedFolder]);
@@ -392,17 +378,9 @@ const useAppState = () => {
 
   // Wrap saveWorkspace in useCallback to avoid recreating it on every render
   const saveWorkspace = useCallback((name: string) => {
-    console.log('[useAppState.saveWorkspace] Preparing to save workspace:', name);
-
-    console.log('  - Capturing expandedNodes:', expandedNodes[0]);
-    console.log('  - Capturing selectedFiles count:', fileSelection.selectedFiles.length);
-    console.log('  - Capturing userInstructions length:', userInstructions.length);
-    console.log('  - Capturing selectedSystemPrompts count:', promptState.selectedSystemPrompts.length);
-    console.log('  - Capturing selectedRolePrompts count:', promptState.selectedRolePrompts.length);
-
     const workspace: WorkspaceState = {
       selectedFolder: selectedFolder,
-      fileTreeState: expandedNodes[0],
+      fileTreeState: expandedNodes,
       selectedFiles: fileSelection.selectedFiles,
       userInstructions: userInstructions,
       tokenCounts: (() => {
@@ -417,14 +395,6 @@ const useAppState = () => {
         rolePrompts: promptState.selectedRolePrompts
       }
     };
-
-    console.log('[useAppState.saveWorkspace] Workspace object constructed:', {
-      hasFileTreeState: !!workspace.fileTreeState && Object.keys(workspace.fileTreeState).length > 0,
-      selectedFilesCount: workspace.selectedFiles.length,
-      userInstructionsLength: workspace.userInstructions?.length || 0,
-      systemPromptsCount: workspace.customPrompts?.systemPrompts?.length || 0,
-      rolePromptsCount: workspace.customPrompts?.rolePrompts?.length || 0
-    });
 
     persistWorkspace(name, workspace);
 
@@ -445,7 +415,6 @@ const useAppState = () => {
       setPendingWorkspaceData(null); // Clear any pending data if null is passed
       return;
     }
-    console.log(`[useAppState.applyWorkspaceData] Applying workspace "${workspaceName}" data (applyImmediately=${applyImmediately})...`);
 
     // Access state via refs for consistency
     const currentAllFiles = allFilesRef.current;
@@ -458,21 +427,15 @@ const useAppState = () => {
     const folderChanged = currentSelectedFolder !== workspaceFolder;
     const isProcessing = currentProcessingStatus.status === 'processing';
 
-    console.log(`  - Workspace folder: "${workspaceFolder}", Current folder: "${currentSelectedFolder}", Folder changed: ${folderChanged}, Is processing: ${isProcessing}`);
-
     // Always clear selected files first to avoid stale selections
-    console.log("  - Clearing existing file selections to prevent stale selections");
     fileSelection.clearSelectedFiles();
 
     if (folderChanged && !isProcessing) {
-      console.log(`  - Folder changed and not processing. Setting selectedFolder to "${workspaceFolder}".`);
-      
       // Set the current workspace name immediately before folder change
-      console.log(`  - Setting current workspace name state to: "${workspaceName}"`);
       setCurrentWorkspace(workspaceName);
       
       if (workspaceFolder === null) {
-        console.log("  - Workspace folder is null, resetting folder state immediately.");
+        // Workspace folder is null, resetting folder state immediately
         currentHandleResetFolderState();
         setPendingWorkspaceData(null); // No pending data needed if resetting
       } else {
@@ -480,7 +443,6 @@ const useAppState = () => {
         // Using destructuring but ignoring the selectedFolder property since we handle it separately
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { selectedFolder: _, ...restOfData } = workspaceData;
-        console.log("  - Deferring application of remaining workspace data:", Object.keys(restOfData));
         setPendingWorkspaceData(restOfData);
       }
       
@@ -492,27 +454,22 @@ const useAppState = () => {
       return;
     }
 
-    console.log("  - Applying workspace data (folder didn't change or applyImmediately=true).");
-    
-    console.log(`  - Setting current workspace name state to: "${workspaceName}"`);
     setCurrentWorkspace(workspaceName); 
     
     setPendingWorkspaceData(null); // Clear pending data as we are applying it now
 
     // Apply expanded nodes
     const fileTreeState = applyImmediately ? pendingWorkspaceData?.fileTreeState : workspaceData.fileTreeState;
-    expandedNodes[1](fileTreeState || {});
+    setExpandedNodes(fileTreeState || {});
     localStorage.setItem(STORAGE_KEYS.EXPANDED_NODES, JSON.stringify(fileTreeState || {}));
 
     // Apply selected files (filter against current file list)
     const selectedFilesToApply = applyImmediately ? pendingWorkspaceData?.selectedFiles : workspaceData.selectedFiles;
     
     // Filter for valid files that exist in the current file list
-    const validFiles = (selectedFilesToApply || []).filter((file: FileData) => 
+    const validFiles = (selectedFilesToApply || []).filter((file: FileData) =>
       currentAllFiles.some((f: FileData) => f.path === file.path)
     );
-    
-    console.log(`  - Found ${validFiles.length} valid files out of ${selectedFilesToApply?.length || 0} in workspace data`);
     
     // Apply the valid files to the selection
     if (validFiles.length > 0) {
@@ -532,7 +489,6 @@ const useAppState = () => {
     console.log("  - Deselected current prompts.");
 
     if (promptsToApply?.systemPrompts) {
-      console.log(`  - Restoring ${promptsToApply.systemPrompts.length} system prompts.`);
       for (const savedPrompt of promptsToApply.systemPrompts) {
         const availablePrompt = currentPromptState.systemPrompts.find((p: SystemPrompt) => p.id === savedPrompt.id);
         if (availablePrompt && !currentPromptState.selectedSystemPrompts.some((p: SystemPrompt) => p.id === availablePrompt.id)) {
@@ -546,7 +502,6 @@ const useAppState = () => {
     }
 
     if (promptsToApply?.rolePrompts) {
-      console.log(`  - Restoring ${promptsToApply.rolePrompts.length} role prompts.`);
       for (const savedPrompt of promptsToApply.rolePrompts) {
         const availablePrompt = currentPromptState.rolePrompts.find((p: RolePrompt) => p.id === savedPrompt.id);
         if (availablePrompt && !currentPromptState.selectedRolePrompts.some((p: RolePrompt) => p.id === availablePrompt.id)) {
@@ -555,25 +510,20 @@ const useAppState = () => {
           console.warn(`  - Saved role prompt ID ${savedPrompt.id} not found.`);
         }
       }
-    } else {
-      console.log('  - No role prompts in workspace data to apply.');
     }
-
-    console.log("[useAppState.applyWorkspaceData] Finished applying workspace data.");
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-      expandedNodes[1],
-      fileSelection.clearSelectedFiles,
-      fileSelection.setSelectedFiles,
       setUserInstructions,
       setSelectedFolder,
-      setPendingWorkspaceData, 
+      setPendingWorkspaceData,
       setCurrentWorkspace,
-      promptState.toggleSystemPromptSelection,
-      promptState.toggleRolePromptSelection
+      pendingWorkspaceData,
+      fileSelection,
+      promptState,
+      allFiles,
+      expandedNodes
   ]);
   
-  // Set up Electron event handlers (Moved after applyWorkspaceData definition)
   useEffect(() => {
     if (!isElectron) return;
 
@@ -582,7 +532,7 @@ const useAppState = () => {
       cleanup = setupElectronHandlers(
         isElectron,
         setSelectedFolder,
-        allFiles[1],
+        setAllFiles,
         setProcessingStatus,
         fileSelection.clearSelectedFiles,
         handleFiltersAndSort,
@@ -590,52 +540,48 @@ const useAppState = () => {
         searchTerm,
         setIsLoadingCancellable,
         setAppInitialized,
-        // --- WORKSPACE ARGS ---
         currentWorkspace,
         setCurrentWorkspace,
-        persistWorkspace,
-        // --- MORE WORKSPACE ARGS ---
-        pendingWorkspaceData,
-        applyWorkspaceData, // Pass the updated function
-        selectedFolder
-        // --- END WORKSPACE ARGS ---
+        persistWorkspace
       );
     } catch (error) {
       console.error("Error setting up Electron handlers:", error);
       setProcessingStatus({
         status: "error",
-        message: `Error initializing app: ${error instanceof Error ? error.message : "Unknown error"}`
+        message: `Error initializing app: ${error instanceof Error ? error.message : "Unknown error"}`,
+        processed: 0,
+        directories: 0,
+        total: 0
       });
     }
     
     return cleanup;
     }, [
       isElectron,
-      // Only include stable dependencies: setters and functions from hooks
       setSelectedFolder,
-      allFiles[1], // The setter function is stable
+      setAllFiles,
       setProcessingStatus,
-      fileSelection.clearSelectedFiles, // Assumed stable from useFileSelectionState
+      fileSelection.clearSelectedFiles,
       setIsLoadingCancellable,
       setAppInitialized,
       setCurrentWorkspace,
-      persistWorkspace, // Assumed stable from useWorkspaceState
-      // Added new stable dependencies
+      persistWorkspace,
       pendingWorkspaceData,
-      applyWorkspaceData, // Add applyWorkspaceData dependency
-      selectedFolder
-      // Removed unstable dependencies: sortOrder, searchTerm, handleFiltersAndSort, allFiles[0], currentWorkspace
+      applyWorkspaceData,
+      selectedFolder,
+      allFiles,
+      currentWorkspace,
+      handleFiltersAndSort,
+      searchTerm,
+      sortOrder
     ]);
 
-  // Define saveCurrentWorkspace after applyWorkspaceData
   const saveCurrentWorkspace = useCallback(() => {
     console.log('[useAppState.saveCurrentWorkspace] Attempting to save current workspace:', currentWorkspace);
     if (!currentWorkspace) {
       console.warn("[useAppState.saveCurrentWorkspace] No current workspace selected, cannot save.");
       return;
     }
-    console.log('[useAppState.saveCurrentWorkspace] Calling internal saveWorkspace function for:', currentWorkspace);
-    
     // Clear any existing timeout
     if (headerSaveTimeoutRef.current) {
       clearTimeout(headerSaveTimeoutRef.current);
@@ -644,9 +590,8 @@ const useAppState = () => {
     setHeaderSaveState('saving'); // Set state to saving
 
     try {
-      saveWorkspace(currentWorkspace); // Call the actual save logic
-      console.log('[useAppState.saveCurrentWorkspace] Save successful for:', currentWorkspace);
-      setHeaderSaveState('success'); // Set state to success
+      saveWorkspace(currentWorkspace);
+      setHeaderSaveState('success');
 
       // Set timeout to revert state
       headerSaveTimeoutRef.current = setTimeout(() => {
@@ -656,18 +601,15 @@ const useAppState = () => {
 
     } catch (error) {
       console.error(`[useAppState.saveCurrentWorkspace] Error saving workspace "${currentWorkspace}":`, error);
-      setHeaderSaveState('idle'); // Revert to idle on error
-      // Optionally show an alert or other feedback
-      alert(`Failed to save workspace "${currentWorkspace}". Check console for details.`);
+      setHeaderSaveState('idle');
+      console.error(`Failed to save workspace "${currentWorkspace}".`);
     }
-  }, [currentWorkspace, saveWorkspace]); // Dependencies: currentWorkspace name and the saveWorkspace function
+  }, [currentWorkspace, saveWorkspace]);
 
-  // Define loadWorkspace after applyWorkspaceData
   const loadWorkspace = useCallback((name: string) => {
     const workspaceData = loadPersistedWorkspace(name);
     
     if (workspaceData) {
-        // File selection clearing is now handled within applyWorkspaceData
         applyWorkspaceData(name, workspaceData);
     } else {
         console.error(`Failed to load workspace data for "${name}"`);
@@ -676,13 +618,12 @@ const useAppState = () => {
 
   // Initial workspace loading effect
   useEffect(() => {
-    // Check if app is ready and files are loaded (allFiles[0] is the state value)
-    if (appInitialized && allFiles[0].length > 0) {
+    // Check if app is ready and files are loaded (currentAllFiles is the state value)
+    if (appInitialized && currentAllFiles.length > 0) {
       // Mark that we've initiated workspace handling for this session
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true");
     }
-    // Dependencies: appInitialized, allFiles state value
-  }, [appInitialized, allFiles[0]]);
+  }, [appInitialized, allFiles, currentAllFiles]);
 
   // Define the event handler using useCallback outside the effect
   const handleWorkspaceLoadedEvent = useCallback((event: CustomEvent) => {
@@ -694,9 +635,8 @@ const useAppState = () => {
     } else {
       console.warn("[useAppState.workspaceLoadedListener] Received 'workspaceLoaded' event with missing/invalid detail.", event.detail);
     }
-  }, [applyWorkspaceData]); // Only depend on applyWorkspaceData
+  }, [applyWorkspaceData]);
 
-  // Workspace loaded event listener effect
   useEffect(() => {
     window.addEventListener('workspaceLoaded', handleWorkspaceLoadedEvent as EventListener);
     console.log("[useAppState] Added workspaceLoaded event listener.");
@@ -704,9 +644,20 @@ const useAppState = () => {
       window.removeEventListener('workspaceLoaded', handleWorkspaceLoadedEvent as EventListener);
       console.log("[useAppState] Removed workspaceLoaded event listener.");
     };
-  }, [handleWorkspaceLoadedEvent]); // Depend on the stable handler callback
+  }, [handleWorkspaceLoadedEvent]);
 
-  // Create new workspace event listener effect
+  // Effect to apply pending workspace data after allFiles has updated
+  useEffect(() => {
+    if (pendingWorkspaceData && currentWorkspace && allFiles.length > 0) {
+      console.log('[useAppState.applyPendingEffect] Applying pending workspace data now that allFiles is updated.');
+      const fullWorkspaceData: WorkspaceState = {
+        selectedFolder: selectedFolder,
+        ...pendingWorkspaceData
+      };
+      applyWorkspaceData(currentWorkspace, fullWorkspaceData, true);
+    }
+  }, [allFiles, pendingWorkspaceData, currentWorkspace, selectedFolder, applyWorkspaceData]);
+
   useEffect(() => {
     const handleCreateNewWorkspaceEvent = () => {
       console.log("[useAppState] Received 'createNewWorkspace' event. Clearing current workspace.");
@@ -721,19 +672,18 @@ const useAppState = () => {
       window.removeEventListener('createNewWorkspace', handleCreateNewWorkspaceEvent as EventListener);
       console.log("[useAppState] Removed createNewWorkspace event listener.");
     };
-  }, []); // No dependencies needed since we use the ref for handleResetFolderState
+  }, []);
 
   return {
-    // Core state
     isElectron,
     selectedFolder,
-    allFiles: allFiles[0],
-    displayedFiles: displayedFiles[0],
+    allFiles,
+    displayedFiles,
     sortOrder,
     searchTerm,
     fileTreeMode,
     setFileTreeMode,
-    expandedNodes: expandedNodes[0],
+    expandedNodes,
     processingStatus,
     appInitialized,
     exclusionPatterns,
@@ -784,7 +734,7 @@ const useAppState = () => {
     saveWorkspace,
     loadWorkspace,
     saveCurrentWorkspace,
-    headerSaveState // Pass down the header save state
+    headerSaveState
   };
 };
 
