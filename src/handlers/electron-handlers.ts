@@ -82,52 +82,117 @@ export const setupElectronHandlers = (
       console.error("Error handling folder selection:", error);
       setProcessingStatus({
         status: "error",
-        message: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        message: `Error selecting folder: ${error instanceof Error ? error.message : "Unknown error"}`,
       });
     }
   };
 
-  const handleFileListData = (files: FileData[]) => {
+  const handleFileListData = (data: { 
+    files?: FileData[], 
+    isComplete?: boolean,
+    processed?: number,
+    directories?: number,
+    total?: number
+  } | FileData[]) => {
     try {
-      console.log("Received file list data:", files.length, "files");
-      setAllFiles(files);
-      setProcessingStatus({
-        status: "complete",
-        message: `Loaded ${files.length} files`,
-        processed: files.length,
-        total: files.length
-      });
-
-      // Apply filters and sort to the new files
-      applyFiltersAndSort(files, sortOrder, searchTerm);
-
-      // Ensure the app is marked as initialized when files are loaded
-      setAppInitialized(true);
-      sessionStorage.setItem("hasLoadedInitialData", "true");
-
-      // REMOVED: Direct call to applyWorkspaceData. This will now be handled
-      // by a useEffect in useAppState that watches for changes in allFiles
-      // and the presence of pendingWorkspaceData.
-      // if (pendingWorkspaceData) {
-      //   console.log("[handleFileListData] Applying pending workspace data after file list update");
-      //   const fullWorkspaceData: WorkspaceState = {
-      //     selectedFolder: selectedFolder, // Use the current selectedFolder state
-      //     ...pendingWorkspaceData
-      //   };
-      //   // Ensure currentWorkspace is not null before applying
-      //   if (currentWorkspace) {
-      //      applyWorkspaceData(currentWorkspace, fullWorkspaceData, true);
-      //   } else {
-      //      console.error("[handleFileListData] Cannot apply pending data: currentWorkspace is null.");
-      //   }
-      // }
-
+      let filesArray: FileData[] = [];
+      let isComplete = false;
+      let processedCount = 0;
+      let directoriesCount = 0;
+      let totalCount = 0;
+      
+      if (!data) {
+        setProcessingStatus({
+          status: "error",
+          message: "Invalid file data received: data is null or undefined"
+        });
+        
+        const event = new CustomEvent('file-list-updated');
+        window.dispatchEvent(event);
+        return;
+      }
+      
+      if (Array.isArray(data)) {
+        filesArray = data;
+        isComplete = true;
+        processedCount = data.length;
+        
+        setAllFiles(filesArray);
+        
+        setProcessingStatus({
+          status: "complete",
+          message: `Loaded ${processedCount} files directly.`,
+          processed: processedCount,
+          directories: directoriesCount,
+          total: totalCount
+        });
+        
+        applyFiltersAndSort(filesArray, sortOrder, searchTerm);
+        
+        setIsLoadingCancellable(false);
+        setAppInitialized(true);
+        
+        const event = new CustomEvent('file-list-updated');
+        window.dispatchEvent(event);
+        return;
+      }
+      
+      if (data.files === undefined) {
+        filesArray = [];
+        
+        setProcessingStatus({
+          status: "error",
+          message: "Invalid file data received: files property is missing"
+        });
+      } else if (Array.isArray(data.files)) {
+        filesArray = data.files;
+        isComplete = data.isComplete || false;
+        processedCount = data.processed || 0;
+        directoriesCount = data.directories || 0;
+        totalCount = data.total || 0;
+      } else {
+        try {
+          filesArray = Array.isArray(data.files) ? data.files : 
+                      ((typeof data.files === 'object' && data.files !== null) ? 
+                      Object.values(data.files as Record<string, FileData>) : []);
+        } catch {
+          filesArray = [];
+        }
+        
+        setProcessingStatus({
+          status: "error",
+          message: "Invalid file data received: files property is not an array"
+        });
+      }
+      
+      setAllFiles(filesArray);
+      
+      if (isComplete) {
+        applyFiltersAndSort(filesArray, sortOrder, searchTerm);
+        
+        setProcessingStatus({
+          status: "complete",
+          message: `Loaded ${processedCount} files from ${directoriesCount} directories.`,
+          processed: processedCount,
+          directories: directoriesCount,
+          total: totalCount
+        });
+        
+        setIsLoadingCancellable(false);
+        setAppInitialized(true);
+      }
+      
+      const event = new CustomEvent('file-list-updated');
+      window.dispatchEvent(event);
+      
     } catch (error) {
-      console.error("Error handling file list data:", error);
       setProcessingStatus({
         status: "error",
-        message: `Error processing files: ${error instanceof Error ? error.message : "Unknown error"}`,
+        message: `Error processing files: ${error instanceof Error ? error.message : "Unknown error"}`
       });
+      
+      const event = new CustomEvent('file-list-updated');
+      window.dispatchEvent(event);
     }
   };
 

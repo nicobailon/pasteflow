@@ -22,10 +22,7 @@ const useAppState = () => {
   const isElectron = window.electron !== undefined;
 
   // Core state from localStorage
-  const [selectedFolder, setSelectedFolder] = useLocalStorage<string | null>(
-    STORAGE_KEYS.SELECTED_FOLDER,
-    null
-  );
+  const [selectedFolder, setSelectedFolder] = useState(null as string | null);
   const [sortOrder, setSortOrder] = useLocalStorage<string>(
     STORAGE_KEYS.SORT_ORDER,
     "tokens-desc"
@@ -311,53 +308,7 @@ const useAppState = () => {
     }
   }, [setExpandedNodes]); // Depend on the stable setter function
 
-  // Load initial data from saved folder
-  useEffect(() => {
-    if (!isElectron) return;
-    
-    // Use a flag in sessionStorage to ensure we only load data once per session
-    const hasLoadedInitialData = sessionStorage.getItem("hasLoadedInitialData");
-    
-    if (hasLoadedInitialData === "true") {
-      setAppInitialized(true);
-    } else {
-      setAppInitialized(false);
-      
-      if (selectedFolder) {
-        try {
-          console.log("Loading saved folder on startup:", selectedFolder);
-          setProcessingStatus({
-            status: "processing",
-            message: "Loading files from previously selected folder...",
-            processed: 0,
-            directories: 0,
-            total: 0
-          });
-          
-          // Clear any previously selected files when loading initial data
-          fileSelection.clearSelectedFiles();
-          
-          // Pass exclusion patterns to the main process
-          if (window.electron?.ipcRenderer) {
-            window.electron.ipcRenderer.send("request-file-list", selectedFolder, exclusionPatterns || []);
-          }
-          
-          // Mark that we've loaded the initial data
-          sessionStorage.setItem("hasLoadedInitialData", "true");
-          setAppInitialized(true);
-        } catch (error) {
-          console.error("Error loading saved folder:", error);
-          setProcessingStatus({
-            status: "error",
-            message: `Error loading saved folder: ${error instanceof Error ? error.message : "Unknown error"}`,
-            processed: 0,
-            directories: 0,
-            total: 0
-          });
-        }
-      }
-    }
-  }, [isElectron, selectedFolder, exclusionPatterns, fileSelection, setSelectedFolder]);
+
 
   // Set up viewFile event listener
   useEffect(() => {
@@ -375,6 +326,21 @@ const useAppState = () => {
       window.removeEventListener('viewFile', handleViewFileEvent as EventListener);
     };
   }, [modalState]);
+  
+  // Set up file-list-updated event listener to handle pending workspace data
+  useEffect(() => {
+    const handleFileListUpdated = () => {
+      console.log('[useAppState.fileListUpdatedListener] File list updated event received. Pending data application handled by separate effect.');
+    };
+    
+    // Add event listener
+    window.addEventListener('file-list-updated', handleFileListUpdated);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('file-list-updated', handleFileListUpdated);
+    };
+  }, [pendingWorkspaceData, currentWorkspace, allFiles, selectedFolder]);
 
   // Wrap saveWorkspace in useCallback to avoid recreating it on every render
   const saveWorkspace = useCallback((name: string) => {
@@ -409,7 +375,8 @@ const useAppState = () => {
   ]);
 
   // This function handles applying workspace data, with proper file selection management
-  const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null, applyImmediately = false) => {
+  const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null) => {
+    console.log(`[useAppState.applyWorkspaceData ENTRY] Name: ${workspaceName}, Has Data: ${!!workspaceData}`);
     if (!workspaceData || !workspaceName) {
       console.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
       setPendingWorkspaceData(null); // Clear any pending data if null is passed
@@ -417,10 +384,10 @@ const useAppState = () => {
     }
 
     // Access state via refs for consistency
-    const currentAllFiles = allFilesRef.current;
+    const filesFromRef = allFilesRef.current;
     const currentSelectedFolder = selectedFolderRef.current;
     const currentProcessingStatus = processingStatusRef.current;
-    const currentPromptState = promptStateRef.current;
+    const promptStateFromRef = promptStateRef.current;
     const currentHandleResetFolderState = handleResetFolderStateRef.current;
 
     const workspaceFolder = workspaceData.selectedFolder || null;
@@ -432,10 +399,12 @@ const useAppState = () => {
 
     if (folderChanged && !isProcessing) {
       // Set the current workspace name immediately before folder change
+      console.log(`[useAppState.applyWorkspaceData] Folder changed: "${currentSelectedFolder}" -> "${workspaceFolder}"`);
       setCurrentWorkspace(workspaceName);
       
       if (workspaceFolder === null) {
         // Workspace folder is null, resetting folder state immediately
+        console.log(`[useAppState.applyWorkspaceData] Resetting folder state`);
         currentHandleResetFolderState();
         setPendingWorkspaceData(null); // No pending data needed if resetting
       } else {
@@ -443,7 +412,21 @@ const useAppState = () => {
         // Using destructuring but ignoring the selectedFolder property since we handle it separately
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { selectedFolder: _, ...restOfData } = workspaceData;
+        console.log(`[useAppState.applyWorkspaceData] Setting pending workspace data:`, restOfData);
         setPendingWorkspaceData(restOfData);
+        
+        // Trigger file loading for the new folder
+        console.log(`[useAppState.applyWorkspaceData] Triggering file loading for: "${workspaceFolder}"`);
+        if (window.electron?.ipcRenderer) {
+          setProcessingStatus({
+            status: "processing",
+            message: `Loading files from workspace folder: ${workspaceFolder}`,
+            processed: 0,
+            directories: 0,
+            total: 0
+          });
+          window.electron.ipcRenderer.send("request-file-list", workspaceFolder, exclusionPatterns || []);
+        }
       }
       
       setSelectedFolder(workspaceFolder);
@@ -458,77 +441,110 @@ const useAppState = () => {
     
     setPendingWorkspaceData(null); // Clear pending data as we are applying it now
 
+    console.log(`[useAppState.applyWorkspaceData APPLYING] Applying state for workspace: ${workspaceName}.`);
+    
     // Apply expanded nodes
-    const fileTreeState = applyImmediately ? pendingWorkspaceData?.fileTreeState : workspaceData.fileTreeState;
+    const fileTreeState = workspaceData.fileTreeState;
+    console.log('[useAppState.applyWorkspaceData APPLYING] fileTreeState:', fileTreeState);
     setExpandedNodes(fileTreeState || {});
     localStorage.setItem(STORAGE_KEYS.EXPANDED_NODES, JSON.stringify(fileTreeState || {}));
 
     // Apply selected files (filter against current file list)
-    const selectedFilesToApply = applyImmediately ? pendingWorkspaceData?.selectedFiles : workspaceData.selectedFiles;
-    
-    // Filter for valid files that exist in the current file list
+    const selectedFilesToApply = workspaceData.selectedFiles;
+    console.log('[useAppState.applyWorkspaceData APPLYING] selectedFiles (raw):', selectedFilesToApply);
+    const availableFiles = filesFromRef; // Use ref for stability
     const validFiles = (selectedFilesToApply || []).filter((file: FileData) =>
-      currentAllFiles.some((f: FileData) => f.path === file.path)
+      availableFiles.some((f: FileData) => f.path === file.path)
     );
-    
-    // Apply the valid files to the selection
+    console.log('[useAppState.applyWorkspaceData APPLYING] Filtered validFiles:', validFiles);
+    // Clear selection first before applying new ones
+    fileSelection.clearSelectedFiles();
     if (validFiles.length > 0) {
       fileSelection.setSelectedFiles(validFiles);
+    } else {
+      console.log('[useAppState.applyWorkspaceData APPLYING] No valid files found in current file list.');
+      // Selection already cleared above
     }
 
     // Apply user instructions
-    const instructionsToApply = applyImmediately ? pendingWorkspaceData?.userInstructions : workspaceData.userInstructions;
+    const instructionsToApply = workspaceData.userInstructions;
+    console.log('[useAppState.applyWorkspaceData APPLYING] instructions:', instructionsToApply);
     setUserInstructions(instructionsToApply || '');
 
     // Apply prompts
-    const promptsToApply = applyImmediately ? pendingWorkspaceData?.customPrompts : workspaceData.customPrompts;
+    const promptsToApply = workspaceData.customPrompts;
+    console.log('[useAppState.applyWorkspaceData APPLYING] prompts (raw):', promptsToApply);
+    const currentPrompts = promptStateFromRef; // Use ref for stability
 
     // Deselect current prompts first
-    for (const prompt of currentPromptState.selectedSystemPrompts) currentPromptState.toggleSystemPromptSelection(prompt);
-    for (const prompt of currentPromptState.selectedRolePrompts) currentPromptState.toggleRolePromptSelection(prompt);
-    console.log("  - Deselected current prompts.");
+    console.log('[useAppState.applyWorkspaceData APPLYING] Deselecting current prompts...');
+    // Create copies of arrays before iterating to avoid modifying during iteration issues
+    const currentSelectedSystem = [...currentPrompts.selectedSystemPrompts];
+    const currentSelectedRole = [...currentPrompts.selectedRolePrompts];
+    for (const prompt of currentSelectedSystem) currentPrompts.toggleSystemPromptSelection(prompt);
+    for (const prompt of currentSelectedRole) currentPrompts.toggleRolePromptSelection(prompt);
 
+    // Apply saved prompts (ensure loops use currentPromptState and promptsToApply)
     if (promptsToApply?.systemPrompts) {
-      for (const savedPrompt of promptsToApply.systemPrompts) {
-        const availablePrompt = currentPromptState.systemPrompts.find((p: SystemPrompt) => p.id === savedPrompt.id);
-        if (availablePrompt && !currentPromptState.selectedSystemPrompts.some((p: SystemPrompt) => p.id === availablePrompt.id)) {
-          currentPromptState.toggleSystemPromptSelection(availablePrompt);
-        } else if (!availablePrompt) {
-          console.warn(`  - Saved system prompt ID ${savedPrompt.id} not found.`);
+        console.log('[useAppState.applyWorkspaceData APPLYING] Applying system prompts...');
+        for (const savedPrompt of promptsToApply.systemPrompts) {
+            const availablePrompt = currentPrompts.systemPrompts.find((p: SystemPrompt) => p.id === savedPrompt.id);
+            // Check if it exists and is not already selected (though deselection should handle this)
+            if (availablePrompt && !currentPrompts.selectedSystemPrompts.some((p: SystemPrompt) => p.id === availablePrompt.id)) {
+                currentPrompts.toggleSystemPromptSelection(availablePrompt);
+            } else if (!availablePrompt) {
+                console.warn(`  - Saved system prompt ID ${savedPrompt.id} not found.`);
+            }
         }
-      }
-    } else {
-      console.log('  - No system prompts in workspace data to apply.');
     }
-
     if (promptsToApply?.rolePrompts) {
-      for (const savedPrompt of promptsToApply.rolePrompts) {
-        const availablePrompt = currentPromptState.rolePrompts.find((p: RolePrompt) => p.id === savedPrompt.id);
-        if (availablePrompt && !currentPromptState.selectedRolePrompts.some((p: RolePrompt) => p.id === availablePrompt.id)) {
-          currentPromptState.toggleRolePromptSelection(availablePrompt);
-        } else if (!availablePrompt) {
-          console.warn(`  - Saved role prompt ID ${savedPrompt.id} not found.`);
+        console.log('[useAppState.applyWorkspaceData APPLYING] Applying role prompts...');
+        for (const savedPrompt of promptsToApply.rolePrompts) {
+            const availablePrompt = currentPrompts.rolePrompts.find((p: RolePrompt) => p.id === savedPrompt.id);
+             // Check if it exists and is not already selected
+            if (availablePrompt && !currentPrompts.selectedRolePrompts.some((p: RolePrompt) => p.id === availablePrompt.id)) {
+                currentPrompts.toggleRolePromptSelection(availablePrompt);
+            } else if (!availablePrompt) {
+                console.warn(`  - Saved role prompt ID ${savedPrompt.id} not found.`);
+            }
         }
-      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-      setUserInstructions,
-      setSelectedFolder,
-      setPendingWorkspaceData,
-      setCurrentWorkspace,
-      pendingWorkspaceData,
-      fileSelection,
-      promptState,
-      allFiles,
-      expandedNodes
-  ]);
+            // Setters (stable)
+            setCurrentWorkspace,
+            setExpandedNodes,
+            setUserInstructions,
+            setPendingWorkspaceData,
+            setSelectedFolder,
+            setProcessingStatus, // Added: Used when triggering file load
+
+            // State objects/functions called (ensure hooks return stable refs/memoized functions if possible)
+            fileSelection.setSelectedFiles,
+            fileSelection.clearSelectedFiles,
+            promptState.toggleSystemPromptSelection,
+            promptState.toggleRolePromptSelection,
+            promptState.selectedSystemPrompts, // Needed for iteration/deselection logic
+            promptState.selectedRolePrompts,  // Needed for iteration/deselection logic
+            promptState.systemPrompts,        // Needed for finding available prompts
+            promptState.rolePrompts,          // Needed for finding available prompts
+            exclusionPatterns,                // Added: Used when triggering file load
+
+            // Refs (stable)
+            allFilesRef,
+            promptStateRef,
+            handleResetFolderStateRef,
+            selectedFolderRef, // Added: Used for comparison
+            processingStatusRef, // Added: Used for comparison
+        ]);
   
   useEffect(() => {
     if (!isElectron) return;
 
     let cleanup: () => void = () => {};
     try {
+      console.log('[useAppState.setupElectronHandlers] Setting up Electron handlers with currentWorkspace:', currentWorkspace);
+      
       cleanup = setupElectronHandlers(
         isElectron,
         setSelectedFolder,
@@ -544,6 +560,11 @@ const useAppState = () => {
         setCurrentWorkspace,
         persistWorkspace
       );
+      
+      // Dispatch a custom event when handlers are set up
+      const event = new CustomEvent('electron-handlers-ready');
+      window.dispatchEvent(event);
+      console.log('[useAppState.setupElectronHandlers] Handlers ready event dispatched');
     } catch (error) {
       console.error("Error setting up Electron handlers:", error);
       setProcessingStatus({
@@ -607,12 +628,20 @@ const useAppState = () => {
   }, [currentWorkspace, saveWorkspace]);
 
   const loadWorkspace = useCallback((name: string) => {
+    console.log(`[useAppState.loadWorkspace] Loading workspace: "${name}"`);
     const workspaceData = loadPersistedWorkspace(name);
     
     if (workspaceData) {
+        console.log(`[useAppState.loadWorkspace] Workspace data loaded:`, workspaceData);
+        // Ensure we have the folder path before applying
+        if (workspaceData.selectedFolder) {
+            console.log(`[useAppState.loadWorkspace] Workspace has folder: "${workspaceData.selectedFolder}"`);
+        } else {
+            console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
+        }
         applyWorkspaceData(name, workspaceData);
     } else {
-        console.error(`Failed to load workspace data for "${name}"`);
+        console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
     }
   }, [loadPersistedWorkspace, applyWorkspaceData]);
 
@@ -646,15 +675,26 @@ const useAppState = () => {
     };
   }, [handleWorkspaceLoadedEvent]);
 
-  // Effect to apply pending workspace data after allFiles has updated
   useEffect(() => {
+    console.log('[useAppState.applyPendingEffect] Effect triggered with:', {
+      hasPendingData: !!pendingWorkspaceData,
+      currentWorkspace,
+      filesCount: allFiles.length,
+      selectedFolder
+    });
+    
     if (pendingWorkspaceData && currentWorkspace && allFiles.length > 0) {
-      console.log('[useAppState.applyPendingEffect] Applying pending workspace data now that allFiles is updated.');
+      console.log('[useAppState.applyPendingEffect] Conditions met to apply pending workspace data');
+      console.log('[useAppState.applyPendingEffect] pendingWorkspaceData:', pendingWorkspaceData);
+      
       const fullWorkspaceData: WorkspaceState = {
         selectedFolder: selectedFolder,
         ...pendingWorkspaceData
       };
-      applyWorkspaceData(currentWorkspace, fullWorkspaceData, true);
+      
+      console.log('[useAppState.applyPendingEffect TRIGGERED] Applying pending workspace data. Pending data:', pendingWorkspaceData, 'Current selectedFolder:', selectedFolder);
+      
+      applyWorkspaceData(currentWorkspace, fullWorkspaceData);
     }
   }, [allFiles, pendingWorkspaceData, currentWorkspace, selectedFolder, applyWorkspaceData]);
 

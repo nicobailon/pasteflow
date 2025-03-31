@@ -81,21 +81,14 @@ const AppHeader = ({
       <div className="header-actions">
         <div className="folder-info">
           <h1 className="app-title">
+            <WorkspaceDropdown
+                currentWorkspace={currentWorkspace}
+                toggleWorkspaceModal={handleWorkspaceToggle}
+                containerClassName="workspace-dropdown"
+                buttonClassName="dropdown-header"
+            />
             {selectedFolder && 
-              <span className="folder-name-container"> <Folder className="folder-icon-app-title" size={24} /> 
-                {/* Always show dropdown if we have workspaces or a selected folder */}
-                {selectedFolder ? (
-                   <WorkspaceDropdown
-                    currentWorkspace={currentWorkspace}
-                    toggleWorkspaceModal={handleWorkspaceToggle} // Use the combined toggle handler
-                    // onRenameRequest prop removed
-                    containerClassName="workspace-dropdown"
-                    buttonClassName="dropdown-header"
-                  />
-                ) : (
-                  <span className="folder-name">No Folder Selected</span> // Handle case with no folder
-                )}
-              </span>
+                <Folder className="folder-icon-app-title" size={24} style={{ marginLeft: '8px', verticalAlign: 'middle' }} />
             }
           </h1>
         </div>

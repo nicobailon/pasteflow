@@ -39,9 +39,6 @@ function useFileTree({
   // Reference to track if we've already started processing
   const processingStartedRef = useRef(false);
   
-  // Add a reference to track previous expanded nodes state
-  const previousExpandedNodesRef = useRef({} as Record<string, boolean>);
-  
   // We'll use this to store the file tree incrementally
   const [fileTree, setFileTree] = useState([] as TreeNode[]);
   
@@ -202,7 +199,7 @@ function useFileTree({
       processingStartedRef.current = false;
     };
   // Only include dependencies that should trigger a full tree rebuild
-  }, [allFiles, selectedFolder, fileTreeSortOrder, convertToTreeNodes]);
+  }, [allFiles, selectedFolder, fileTreeSortOrder, convertToTreeNodes, expandedNodes]);
 
   // Effect to handle cleanup on sort order change - keep separate from main effect
   useEffect(() => {
@@ -213,7 +210,7 @@ function useFileTree({
       // Clear the node priority cache
       clearNodePriorityCache();
     }
-  }, [fileTreeSortOrder]);
+  }, [fileTreeSortOrder, expandedNodes]);
 
   // Function to sort tree nodes based on sort order
   const sortTreeNodes = (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
