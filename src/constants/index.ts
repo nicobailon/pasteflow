@@ -1,6 +1,5 @@
 // Keys for localStorage
 export const STORAGE_KEYS = {
-  SELECTED_FOLDER: "pasteflow-selected-folder",
   SELECTED_FILES: "pasteflow-selected-files",
   SORT_ORDER: "pasteflow-sort-order",
   FILE_TREE_SORT_ORDER: "pasteflow-file-tree-sort-order",
