@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { TreeItemProps, TreeNode } from "../types/file-types";
 
 // Helper function to check if a node is fully selected - moved outside component
-const isNodeFullySelected = (node: TreeNode, selectedFiles: Array<{ path: string; lines?: Array<{ start: number; end: number }> }>): boolean => {
+const isNodeFullySelected = (node: TreeNode, selectedFiles: { path: string; lines?: { start: number; end: number }[] }[]): boolean => {
   const { type, path, fileData, children } = node;
   
   if (type === "file") {
@@ -25,7 +25,7 @@ const isNodeFullySelected = (node: TreeNode, selectedFiles: Array<{ path: string
 };
 
 // Helper function to check if a node is partially selected - moved outside component
-const isNodePartiallySelected = (node: TreeNode, selectedFiles: Array<{ path: string; lines?: Array<{ start: number; end: number }> }>): boolean => {
+const isNodePartiallySelected = (node: TreeNode, selectedFiles: { path: string; lines?: { start: number; end: number }[] }[]): boolean => {
   const { type, path, fileData, children } = node;
   
   if (type === "file") {
@@ -62,7 +62,7 @@ const isNodePartiallySelected = (node: TreeNode, selectedFiles: Array<{ path: st
 };
 
 // Helper function to format line ranges for display in tooltip
-const formatSelectedLines = (selectedFile?: { path: string; lines?: Array<{ start: number; end: number }> }): string => {
+const formatSelectedLines = (selectedFile?: { path: string; lines?: { start: number; end: number }[] }): string => {
   if (!selectedFile || !selectedFile.lines || selectedFile.lines.length === 0) {
     return 'Entire file selected';
   }

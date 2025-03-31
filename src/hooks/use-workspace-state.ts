@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+
 import { STORAGE_KEYS } from '../constants';
 import { WorkspaceState } from '../types/file-types';
 
@@ -144,7 +145,8 @@ export const useWorkspaceState = () => {
       const workspaces = JSON.parse(workspacesString);
 
       // Get entries, parse data, sort by savedAt (descending), return names
-      const sortedNames = Object.entries(workspaces)
+      // Extract just the names
+      return Object.entries(workspaces)
         .map(([name, dataString]) => {
           try {
             // Ensure dataString is actually a string before parsing
@@ -161,9 +163,7 @@ export const useWorkspaceState = () => {
           }
         })
         .sort((a, b) => b.savedAt - a.savedAt) // Sort descending (newest first)
-        .map(item => item.name); // Extract just the names
-
-      return sortedNames;
+        .map(item => item.name);
     } catch (error) {
       console.error(`[useWorkspaceState.getWorkspaceNames] Failed to get and sort workspace names:`, error);
       return [];

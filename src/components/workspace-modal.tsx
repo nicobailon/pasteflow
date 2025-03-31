@@ -27,18 +27,32 @@ const WorkspaceModal = ({
     getWorkspaceNames 
   } = useWorkspaceState();
   const appState = useAppState();
-  const [name, setName] = useState('') as [string, React.Dispatch<React.SetStateAction<string>>]; // For saving new/overwriting
-  const [workspaceNames, setWorkspaceNames] = useState([]) as [string[], React.Dispatch<React.SetStateAction<string[]>>];
-  const [renamingWsName, setRenamingWsName] = useState(null) as [string | null, React.Dispatch<React.SetStateAction<string | null>>]; // Track which workspace is being renamed
-  const [newName, setNewName] = useState('') as [string, React.Dispatch<React.SetStateAction<string>>]; // Input for the new name
-  const [saveState, setSaveState] = useState('idle') as ['idle' | 'saving' | 'success', React.Dispatch<React.SetStateAction<'idle' | 'saving' | 'success'>>]; // State for save button animation
-  const saveTimeoutRef = useRef(null) as React.MutableRefObject<NodeJS.Timeout | null>; // Ref to manage timeout
+  const [name, setName] = useState("");
+  const [newName, setNewName] = useState("");
+  const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
+  const [renamingWsName, setRenamingWsName] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const refreshWorkspaceList = useCallback(() => {
     const names = getWorkspaceNames();
     console.log("[WorkspaceModal] Refreshing internal workspace list:", names);
     setWorkspaceNames(names);
   }, [getWorkspaceNames]);
+  
+  const handleRenameStart = (wsName: string) => {
+    console.log(`[WorkspaceModal.handleRenameStart] Initiating rename for: ${wsName}`);
+    setRenamingWsName(wsName);
+    setNewName(wsName); // Pre-fill input with current name
+  };
+
+  const handleRenameCancel = () => {
+    console.log("[WorkspaceModal.handleRenameCancel] Cancelling rename operation.");
+    setRenamingWsName(null);
+    setNewName('');
+  };
   
   useEffect(() => {
     if (isOpen) {
@@ -60,6 +74,13 @@ const WorkspaceModal = ({
       }
     }
   }, [isOpen, refreshWorkspaceList, initialRenameTarget, onClearInitialRenameTarget]); // Added dependencies
+
+  useEffect(() => {
+    // Focus the rename input when renaming starts
+    if (renamingWsName && renameInputRef.current) {
+      renameInputRef.current.focus();
+    }
+  }, [renamingWsName]);
 
   // Clear timeout on unmount or when modal closes
   useEffect(() => {
@@ -176,12 +197,6 @@ const WorkspaceModal = ({
     }
   };
  
-  const handleRenameStart = (wsName: string) => {
-    console.log(`[WorkspaceModal.handleRenameStart] Initiating rename for: ${wsName}`);
-    setRenamingWsName(wsName);
-    setNewName(wsName); // Pre-fill input with current name
-  };
-
   const handleRenameConfirm = () => {
     if (!renamingWsName || !newName.trim() || renamingWsName === newName.trim()) {
       console.warn("[WorkspaceModal.handleRenameConfirm] Rename cancelled - invalid state or no change.");
@@ -212,10 +227,32 @@ const WorkspaceModal = ({
     }
   };
 
-  const handleRenameCancel = () => {
-    console.log("[WorkspaceModal.handleRenameCancel] Cancelling rename operation.");
-    setRenamingWsName(null);
-    setNewName('');
+  // Function to generate class name for the apply button
+  const getApplyButtonClassName = () => {
+    let className = "apply-button save-button";
+    if (saveState !== 'idle') {
+      className += ` save-${saveState}`;
+    }
+    return className;
+  };
+
+  // Function to generate title for the apply button
+  const getApplyButtonTitle = () => {
+    if (renamingWsName) {
+      return "Complete or cancel the current rename operation first";
+    }
+    if (saveState === 'saving') {
+      return "Saving...";
+    }
+    if (saveState === 'success') {
+      return "Saved!";
+    }
+    return workspaceNames.includes(name.trim()) ? 'Overwrite Workspace' : 'Save Workspace';
+  };
+
+  // Function to determine the button text content
+  const getApplyButtonText = () => {
+    return workspaceNames.includes(name.trim()) ? 'Overwrite Workspace' : 'Save Workspace';
   };
 
   return (
@@ -242,21 +279,17 @@ const WorkspaceModal = ({
                 placeholder="Enter workspace name"
                 disabled={!!renamingWsName} // Disable if renaming is active
                 title={renamingWsName ? "Complete or cancel the current rename operation first" : "Enter workspace name"}
+                ref={nameInputRef}
               />
               <button 
-                className={`apply-button save-button ${saveState !== 'idle' ? `save-${saveState}` : ''}`} // Add dynamic classes
+                className={getApplyButtonClassName()}
                 onClick={handleSave}
                 disabled={!name.trim() || !!renamingWsName || saveState === 'saving' || saveState === 'success'} // Disable during saving/success/renaming
-                title={
-                  renamingWsName ? "Complete or cancel the current rename operation first" :
-                  saveState === 'saving' ? "Saving..." :
-                  saveState === 'success' ? "Saved!" :
-                  (workspaceNames.includes(name.trim()) ? 'Overwrite Workspace' : 'Save Workspace')
-                }
+                title={getApplyButtonTitle()}
                 style={{ position: 'relative', overflow: 'hidden' }} // Needed for absolute positioning of icon
               >
-                <span className={`button-text ${saveState !== 'idle' ? 'hide' : ''}`}>
-                  {workspaceNames.includes(name.trim()) ? 'Overwrite Workspace' : 'Save Workspace'}
+                <span className={`button-text ${saveState === 'idle' ? '' : 'hide'}`}>
+                  {getApplyButtonText()}
                 </span>
                  {saveState === 'saving' && (
                   <Loader2 size={16} className="button-icon spin" />
@@ -286,7 +319,7 @@ const WorkspaceModal = ({
                               value={newName}
                               onChange={(e) => setNewName(e.target.value)}
                               onKeyDown={(e) => e.key === 'Enter' && handleRenameConfirm()}
-                              autoFocus // Focus the input when renaming starts
+                              ref={renameInputRef}
                             />
                           </div>
                           <div className="workspace-actions">

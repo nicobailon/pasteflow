@@ -23,8 +23,6 @@ interface ContentAreaProps {
   toggleRolePromptSelection: (prompt: RolePrompt) => void;
   sortOrder: string;
   handleSortChange: (newSort: string) => void;
-  sortDropdownOpen: boolean;
-  toggleSortDropdown: () => void;
   sortOptions: { value: string; label: string }[];
   getSelectedFilesContent: () => string;
   getContentWithXmlPrompt: () => string;
@@ -55,8 +53,6 @@ const ContentArea = ({
   toggleRolePromptSelection,
   sortOrder,
   handleSortChange,
-  sortDropdownOpen,
-  toggleSortDropdown,
   sortOptions,
   getSelectedFilesContent,
   getContentWithXmlPrompt,

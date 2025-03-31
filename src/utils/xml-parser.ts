@@ -17,30 +17,30 @@ export function parseXmlChanges(xmlContent: string): FileChange[] {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
     
-    // Use getElementsByTagName which works with DOM interfaces
-    const fileNodes = xmlDoc.getElementsByTagName('file');
+    // Use querySelectorAll with type assertion since @xmldom/xmldom doesn't expose proper typings
+    const fileNodes = (xmlDoc as any).querySelectorAll('file');
     const changes: FileChange[] = [];
     
-    for (let i = 0; i < fileNodes.length; i++) {
-      const fileNode = fileNodes[i];
+    // Use for...of instead of the standard for loop
+    for (const fileNode of fileNodes) {
       
       // Get file summary
-      const summaryNodes = fileNode.getElementsByTagName('file_summary');
+      const summaryNodes = (fileNode as any).querySelectorAll('file_summary');
       const summary = summaryNodes.length > 0 ? summaryNodes[0].textContent || '' : '';
       
       // Get file operation
-      const operationNodes = fileNode.getElementsByTagName('file_operation');
+      const operationNodes = (fileNode as any).querySelectorAll('file_operation');
       const operation = operationNodes.length > 0 ? 
         operationNodes[0].textContent as 'CREATE' | 'UPDATE' | 'DELETE' : 'UPDATE';
       
       // Get file path
-      const pathNodes = fileNode.getElementsByTagName('file_path');
+      const pathNodes = (fileNode as any).querySelectorAll('file_path');
       const path = pathNodes.length > 0 ? pathNodes[0].textContent || '' : '';
       
       // Get file code (if not DELETE operation)
       let code: string | undefined;
       if (operation !== 'DELETE') {
-        const codeNodes = fileNode.getElementsByTagName('file_code');
+        const codeNodes = (fileNode as any).querySelectorAll('file_code');
         code = codeNodes.length > 0 ? codeNodes[0].textContent || '' : '';
       }
       
