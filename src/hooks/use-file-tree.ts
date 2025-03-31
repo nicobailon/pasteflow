@@ -202,7 +202,7 @@ function useFileTree({
       processingStartedRef.current = false;
     };
   // Only include dependencies that should trigger a full tree rebuild
-  }, [allFiles, selectedFolder, fileTreeSortOrder, expandedNodes, convertToTreeNodes]);
+  }, [allFiles, selectedFolder, fileTreeSortOrder, convertToTreeNodes]);
 
   // Effect to handle cleanup on sort order change - keep separate from main effect
   useEffect(() => {
@@ -214,62 +214,6 @@ function useFileTree({
       clearNodePriorityCache();
     }
   }, [fileTreeSortOrder]);
-
-  // Add a new effect to update isExpanded states when expandedNodes changes
-  useEffect(() => {
-    // Only run if we already have a file tree built
-    if (fileTree.length === 0 || !isTreeBuildingComplete) return;
-    
-    // Check if expandedNodes has actually changed
-    let hasChanged = false;
-    const prevExpandedNodes = previousExpandedNodesRef.current;
-    
-    // Check if any new nodes were expanded or collapsed
-    for (const key of Object.keys(expandedNodes)) {
-      if (prevExpandedNodes[key] !== expandedNodes[key]) {
-        hasChanged = true;
-      }
-    }
-    
-    // Check if any previously expanded nodes were removed
-    for (const key of Object.keys(prevExpandedNodes)) {
-      if (expandedNodes[key] === undefined && prevExpandedNodes[key] !== undefined) {
-        hasChanged = true;
-      }
-    }
-    
-    // Only update if there's an actual change
-    if (!hasChanged) return;
-    
-    // Update the reference
-    previousExpandedNodesRef.current = {...expandedNodes};
-    
-    // Create a function to update nodes recursively
-    const updateNodesExpandedState = (nodes: TreeNode[]): TreeNode[] => {
-      return nodes.map(node => {
-        if (node.type === "directory") {
-          // Update this node's expanded state based on expandedNodes
-          const newExpandedState = expandedNodes[node.id];
-          
-          // Return the updated node with potentially updated children
-          return {
-            ...node,
-            // Only update isExpanded if the node exists in expandedNodes
-            isExpanded: newExpandedState === undefined ? node.isExpanded : newExpandedState,
-            // Recursively update children if they exist
-            ...(node.children ? { children: updateNodesExpandedState(node.children) } : {})
-          };
-        }
-        // For file nodes, just return them unchanged
-        return node;
-      });
-    };
-    
-    // Update the file tree with new expanded states
-    const updatedTree = updateNodesExpandedState(fileTree);
-    setFileTree(updatedTree);
-    
-  }, [expandedNodes, fileTree, isTreeBuildingComplete]);
 
   // Function to sort tree nodes based on sort order
   const sortTreeNodes = (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
@@ -500,9 +444,8 @@ function useFileTree({
         const nodeWithUpdatedExpanded = {
           ...node,
           level: baseLevel + (node.level || 0),
-          isExpanded: node.type === "directory" 
-            ? (expandedNodes[node.id] === undefined ? node.isExpanded : expandedNodes[node.id])
-            : undefined
+          // Determine expansion state *only* from the expandedNodes prop
+          isExpanded: node.type === "directory" ? !!expandedNodes[node.id] : undefined
         };
         
         // Add the current node
