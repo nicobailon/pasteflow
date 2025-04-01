@@ -37,6 +37,7 @@ interface ContentAreaProps {
   setSystemPromptsModalOpen: (open: boolean) => void;
   setRolePromptsModalOpen: (open: boolean) => void;
   setDocsModalOpen: (open: boolean) => void;
+  loadFileContent: (filePath: string) => Promise<void>;
 }
 
 const ContentArea = ({
@@ -66,8 +67,17 @@ const ContentArea = ({
   setShowApplyChangesModal,
   setSystemPromptsModalOpen,
   setRolePromptsModalOpen,
-  setDocsModalOpen
+  setDocsModalOpen,
+  loadFileContent
 }: ContentAreaProps) => {
+  
+  const handleCopyWithLoading = async (getContent: () => string): Promise<string> => {
+    const unloadedFiles = selectedFiles.filter((f) => !f.isContentLoaded);
+    if (unloadedFiles.length > 0) {
+      await Promise.all(unloadedFiles.map((f) => loadFileContent(f.path)));
+    }
+    return getContent();
+  };
   return (
     <div className="content-area">
       <div className="selected-files-content-area">
@@ -153,7 +163,7 @@ const ContentArea = ({
         <div className="copy-button-container">
           <div className="copy-button-group">
             <CopyButton
-              text={getSelectedFilesContent}
+              text={() => handleCopyWithLoading(getSelectedFilesContent)}
               className="primary copy-selected-files-btn"
             >
               <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
@@ -172,13 +182,13 @@ const ContentArea = ({
                 }
                 
                 return total.toLocaleString();
-              })().toString()} tokens
+              })().toString()} tokens (loaded files only)
             </div>
           </div>
           
           <div className="copy-button-group">
             <CopyButton
-              text={getContentWithXmlPrompt}
+              text={() => handleCopyWithLoading(getContentWithXmlPrompt)}
               className="secondary copy-selected-files-btn"
             >
               <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>

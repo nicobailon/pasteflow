@@ -20,16 +20,22 @@ const FileCard = ({
   toggleSelection,
   onViewFile
 }: FileCardProps) => {
-  const { name, path: filePath, tokenCount, content } = file;
+  const { name, path: filePath, content } = file;
   const { lines, content: selectedContent } = selectedFile || {};
   const isSelected = !!selectedFile;
   
   // Get the appropriate token count (selected lines or full file)
-  const getDisplayTokenCount = (): number => {
-    if (selectedFile && selectedFile.tokenCount !== undefined) {
-      return selectedFile.tokenCount;
+  const getDisplayTokenCount = (): string => {
+    const { isContentLoaded: selectedIsContentLoaded, tokenCount: selectedTokenCount } = selectedFile || {};
+    const { isContentLoaded, tokenCount } = file;
+
+    if (selectedIsContentLoaded && selectedTokenCount !== undefined) {
+      return selectedTokenCount.toLocaleString();
     }
-    return tokenCount;
+    if (isContentLoaded && tokenCount !== undefined) {
+      return tokenCount.toLocaleString();
+    }
+    return "N/A";
   };
 
   // Determine if we should display the line information
@@ -53,7 +59,7 @@ const FileCard = ({
         </div>
       )}
       <div className="file-card-info">
-        <div className="file-card-tokens">~{getDisplayTokenCount().toLocaleString()} tokens</div>
+        <div className="file-card-tokens">~{getDisplayTokenCount()} tokens</div>
       </div>
 
       <div className="file-card-actions">

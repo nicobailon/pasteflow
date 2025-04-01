@@ -234,38 +234,33 @@ export const getSelectedFilesContentWithoutInstructions = (
   }
   
   for (const file of sortedSelected) {
-    // Calculate the relative path from the selected folder
+    const selectedFileInfo = selectedFilesMap.get(file.path);
+    if (!selectedFileInfo?.isContentLoaded || selectedFileInfo.content === undefined) {
+      console.warn(`Content not loaded for ${file.path} when formatting. Skipping.`);
+      continue;
+    }
+    const { content, partial } = processFileContent(selectedFileInfo.content, selectedFileInfo);
     let relativePath = file.path;
-    
+
     if (selectedFolder) {
-      // Normalize paths to handle platform-specific separators
       const normalizedFilePath = normalizePath(file.path);
       const normalizedRootPath = normalizePath(selectedFolder);
-      
+
       try {
-        // getRelativePath expects (filePath, baseDir)
         relativePath = getRelativePath(normalizedFilePath, normalizedRootPath);
       } catch (error) {
-        // Fallback if getRelativePath fails
         console.error("Error calculating relative path:", error);
       }
     }
-    
-    // Determine the file extension for the code block language
-    const extension = extname(file.path).replace(/^\./, '').toLowerCase() || '';
+
+    const extension = extname(file.path).replace(/^\./, "").toLowerCase();
     const languageIdentifier = getLanguageIdentifier(extension, file.path);
-    
-    // Get the selected file info including any line selections
-    const selectedFileInfo = selectedFilesMap.get(file.path);
-    const { content, partial } = processFileContent(file.content, selectedFileInfo);
-    
-    // Format the file header
+
     let fileHeader = `\nFile: ${relativePath}`;
     if (partial) {
-      fileHeader += ` (Selected Lines)`;
+      fileHeader += " (Selected Lines)";
     }
-    
-    // Add file content with file header and code block
+
     concatenatedString += `${fileHeader}\n\`\`\`${languageIdentifier}\n${content}\n\`\`\`\n`;
   }
   

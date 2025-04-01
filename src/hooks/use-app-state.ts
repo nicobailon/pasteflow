@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
-import { cancelFileLoading, openFolderDialog, setupElectronHandlers } from '../handlers/electron-handlers';
+import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { FileData, FileTreeMode, RolePrompt, SystemPrompt, WorkspaceState } from '../types/file-types';
 import { getContentWithXmlPrompt, getSelectedFilesContent } from '../utils/content-formatter';
@@ -293,6 +293,35 @@ const useAppState = () => {
     promptState.selectedRolePrompts,
     userInstructions
   ]);
+  
+  const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
+    const file = allFiles.find((f) => f.path === filePath);
+    if (!file || file.isContentLoaded) return;
+
+    const result = await requestFileContent(filePath);
+    if (result.success && result.content !== undefined && result.tokenCount !== undefined) {
+      setAllFiles((prev) =>
+        prev.map((f) =>
+          f.path === filePath
+            ? { ...f, content: result.content, tokenCount: result.tokenCount, isContentLoaded: true }
+            : f
+        )
+      );
+      fileSelection.updateSelectedFile({
+        path: filePath,
+        content: result.content,
+        tokenCount: result.tokenCount,
+        isFullFile: true,
+        isContentLoaded: true
+      });
+    } else {
+      setAllFiles((prev) =>
+        prev.map((f) =>
+          f.path === filePath ? { ...f, error: result.error, isContentLoaded: false } : f
+        )
+      );
+    }
+  }, [allFiles, setAllFiles, fileSelection]);
 
   // Load expanded nodes state from localStorage
   useEffect(() => {
@@ -774,7 +803,10 @@ const useAppState = () => {
     saveWorkspace,
     loadWorkspace,
     saveCurrentWorkspace,
-    headerSaveState
+    headerSaveState,
+
+    // Lazy loading
+    loadFileContent
   };
 };
 

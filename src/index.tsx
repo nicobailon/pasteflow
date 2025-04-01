@@ -115,6 +115,7 @@ const App = () => {
             setSystemPromptsModalOpen={appState.setSystemPromptsModalOpen}
             setRolePromptsModalOpen={appState.setRolePromptsModalOpen}
             setDocsModalOpen={appState.setDocsModalOpen}
+            loadFileContent={appState.loadFileContent}
           />
         </div>
         
@@ -145,6 +146,7 @@ const App = () => {
           allFiles={appState.allFiles}
           selectedFile={appState.findSelectedFile(appState.currentViewedFilePath)}
           onUpdateSelectedFile={appState.updateSelectedFile}
+          loadFileContent={appState.loadFileContent}
         />
         
         <SystemPromptsModal

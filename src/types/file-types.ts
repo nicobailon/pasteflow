@@ -1,14 +1,15 @@
 export interface FileData {
   name: string;
   path: string;
-  content: string;
-  tokenCount: number;
+  content?: string;
+  tokenCount?: number;
   size: number;
   isBinary: boolean;
   isSkipped: boolean;
   error?: string;
   fileType?: string;
   excludedByDefault?: boolean;
+  isContentLoaded?: boolean;
 }
 
 // New interface for selected line ranges
@@ -20,10 +21,11 @@ export interface LineRange {
 // New interface for selected files with line ranges
 export interface SelectedFileWithLines {
   path: string;
-  lines?: LineRange[];  // Undefined or empty array means entire file
-  content?: string;     // Cached content of selected lines
-  tokenCount?: number;  // Pre-computed token count for selected content
-  isFullFile?: boolean; // Explicit flag indicating if the whole file is selected
+  lines?: LineRange[];       // Undefined or empty array means entire file
+  content?: string;          // Cached content of selected lines
+  tokenCount?: number;       // Pre-computed token count for selected content
+  isFullFile?: boolean;      // Explicit flag indicating if the whole file is selected
+  isContentLoaded?: boolean; // Flag indicating if content has been loaded
 }
 
 export interface TreeNode {
@@ -141,6 +143,7 @@ export interface FileViewModalProps {
   allFiles: FileData[];
   selectedFile: SelectedFileWithLines | undefined;
   onUpdateSelectedFile: (selectedFile: SelectedFileWithLines) => void;
+  loadFileContent: (filePath: string) => Promise<void>;
 }
 
 // Interface for system prompts

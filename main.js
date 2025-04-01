@@ -457,16 +457,15 @@ ipcMain.on("request-file-list", (event, folderPath) => {
                         fileType: "BINARY",
                       });
                     } else {
-                      const tokenCount = countTokens(fileContent);
-                      
                       allFiles.push({
                         name: dirent.name,
                         path: fullPath,
-                        content: fileContent,
-                        tokenCount: tokenCount,
                         size: fileSize,
                         isBinary: false,
                         isSkipped: false,
+                        fileType: path.extname(fullPath).slice(1).toUpperCase(),
+                        excludedByDefault: shouldExcludeByDefault(fullPath, folderPath),
+                        isContentLoaded: false
                       });
                     }
                   } catch (error) {
@@ -778,6 +777,20 @@ ipcMain.on('open-docs', (event, docName) => {
         }
       });
   });
+});
+
+// Add request-file-content handler for lazy loading file content
+ipcMain.handle('request-file-content', async (event, filePath) => {
+  try {
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    if (isLikelyBinaryContent(content, filePath)) {
+      return { success: false, error: 'File contains binary data', isBinary: true };
+    }
+    const tokenCount = countTokens(content);
+    return { success: true, content, tokenCount };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
 
 // Add this near the other IPC handlers
