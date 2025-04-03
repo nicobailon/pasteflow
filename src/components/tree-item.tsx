@@ -143,9 +143,7 @@ const TreeItem = ({
   // @ts-expect-error - Typed useRef hook is flagged in strict mode
   const checkboxRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [localTokenCount, setLocalTokenCount] = useState<number | undefined>(
-    fileData?.tokenCount
-  );
+  const [localTokenCount, setLocalTokenCount] = useState(fileData?.tokenCount);
 
   // Find the selected file (if any) for this node
   const selectedFile = selectedFiles.find(f => f.path === path);
@@ -261,11 +259,17 @@ const TreeItem = ({
           <span className="tree-item-tokens">
             {isLoading ? (
               "Loading..."
-            ) : (localTokenCount ? (
-              `(~${localTokenCount.toLocaleString()})`
-            ) : fileData?.tokenCount ? (
-              `(~${fileData.tokenCount.toLocaleString()})`
-            ) : null)}
+            ) : (
+              (() => {
+                if (localTokenCount) {
+                  return `(~${localTokenCount.toLocaleString()})`;
+                } else if (fileData?.tokenCount) {
+                  return `(~${fileData.tokenCount.toLocaleString()})`;
+                } else {
+                  return null;
+                }
+              })()
+            )}
           </span>
         )}
 
