@@ -31,7 +31,18 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
 - **Custom File Exclusion Patterns**: Define custom patterns for excluding files from the tree view
 - **Dark Mode**: Toggle between light and dark themes for comfortable viewing in any environment
 - **Binary File Detection**: Automatic detection and exclusion of binary files
+  - Uses both file extensions and content analysis to identify binary files
+  - Prevents loading of binary content that could crash the application
+  - Improves performance by skipping token counting for binary files
 - **Smart File Exclusion**: Automatically excludes common files like package-lock.json, binary files, and more by default
+  - Based on common .gitignore patterns for various programming languages
+  - Excludes build artifacts, temporary files, logs, and other non-relevant files
+  - Customizable through global and project-specific settings
+- **Lazy Content Loading**: Files are loaded on-demand to improve performance with large codebases
+  - Only loads file content when actually needed (selection, viewing, copying)
+  - Shows loading indicators while content is being fetched
+  - Significantly improves performance with large codebases
+  - Supports cancellation of loading operations when switching contexts
 - **File Tree Structure Options**: Choose how to include file structure in your copies:
   - None: Just the file contents
   - Selected: Include only the selected files in the tree
@@ -55,9 +66,24 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
   - Real-time token estimation for user instructions
   - Dynamic token counts for different file tree modes
   - Accurate representation of context consumption for AI models
+- **Batch Processing**: Directory contents are processed in batches to prevent UI freezing
+  - Improves responsiveness when scanning large directories
+  - Allows cancellation between batches for better user control
+  - Provides improved user experience with large projects
+- **Workspace Reset**: Ability to completely reset to a blank workspace
+  - Clears all selections, files, and application state
+  - Returns to welcome screen with a fresh start
+  - Perfect for switching between projects
 
 ## Features in Latest Updates
 
+- **Lazy Content Loading**: Implemented on-demand file content loading to significantly improve performance with large codebases
+- **Enhanced Binary Detection**: Improved detection of binary files using both extension analysis and content inspection
+- **GitIgnore-based File Filtering**: Added smart file exclusion based on common .gitignore patterns
+- **Batch Directory Processing**: Implemented batch processing of directories to improve UI responsiveness
+- **Loading Indicators**: Added visual feedback for file loading operations
+- **Cancellation Support**: Added support for cancelling file loading operations when switching contexts
+- **Workspace Reset**: Added ability to reset to a blank workspace state
 - **System Prompts**: Added ability to create and manage reusable system prompts that can be included with code selections
 - **Enhanced Selection Control**: Added the ability to toggle specific line ranges within selected files
 - **Improved Token Counting**: Enhanced token calculations to include system prompts in the total count
@@ -172,6 +198,9 @@ Code signing ensures users can install and run the application without security 
     - `useFileTree/` - Custom hook for file tree management and sorting
     - `useLocalStorage/` - Enhanced localStorage hook with type safety
     - `pathUtils/` - Utilities for path handling and normalization
+    - `file-processing.ts` - File processing and binary detection utilities
+    - `ignore-utils.ts` - GitIgnore pattern handling utilities
+    - `ui-utils.ts` - UI state management utilities
   - `__tests__/` - Unit tests
 - `main.js` - Electron main process
 - `build.js` - Build script for production
