@@ -28,6 +28,7 @@ const FileList = ({
   toggleSystemPromptSelection,
   selectedRolePrompts = [],
   toggleRolePromptSelection,
+  loadFileContent,
 }: FileListProps) => {
   // Create a Map for faster lookups
   const selectedFilesMap = new Map(selectedFiles.map(file => [file.path, file]));
@@ -49,7 +50,12 @@ const FileList = ({
     // If the file has no line ranges or is a full file, create a single card
     if (!selectedFile.lines || selectedFile.lines.length === 0 || selectedFile.isFullFile) {
       expandedCards.push({
-        originalFile: file,
+        originalFile: {
+          ...file,
+          isContentLoaded: selectedFile.isContentLoaded || file.isContentLoaded,
+          tokenCount: selectedFile.tokenCount || file.tokenCount,
+          error: selectedFile.error || file.error
+        },
         selectedFilePath: file.path,
         content: selectedFile.content || file.content,
         tokenCount: selectedFile.tokenCount || file.tokenCount,
@@ -60,13 +66,18 @@ const FileList = ({
     else if (selectedFile.lines && selectedFile.lines.length > 0) {
       for (const lineRange of selectedFile.lines) {
         // Calculate content and token count for this specific line range
-        const lines = file.content.split('\n');
+        const lines = file.content?.split('\n') || [];
         const rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
         // Simple estimation: ~4 characters per token on average
         const rangeTokenCount = Math.ceil(rangeContent.length / 4);
         
         expandedCards.push({
-          originalFile: file,
+          originalFile: {
+            ...file,
+            isContentLoaded: selectedFile.isContentLoaded || file.isContentLoaded,
+            tokenCount: rangeTokenCount,
+            error: selectedFile.error || file.error
+          },
           selectedFilePath: file.path,
           lineRange: lineRange,
           content: rangeContent,
@@ -120,6 +131,7 @@ const FileList = ({
                 selectedFile={modifiedSelectedFile}
                 toggleSelection={toggleSelection || toggleFileSelection}
                 onViewFile={onViewFile}
+                loadFileContent={loadFileContent}
               />
             );
           })}

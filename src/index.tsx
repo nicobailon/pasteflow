@@ -83,6 +83,7 @@ const App = () => {
             refreshFileTree={appState.handleRefreshFileTree}
             onViewFile={appState.openFileViewModal}
             processingStatus={appState.processingStatus}
+            loadFileContent={appState.loadFileContent}
           />
           
           <ContentArea 

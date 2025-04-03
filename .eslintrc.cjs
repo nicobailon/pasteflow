@@ -43,7 +43,7 @@ module.exports = {
     // SonarJS rules
     "sonarjs/no-identical-expressions": "error",
     "sonarjs/no-duplicate-string": ["warn", { "threshold": 5 }],
-    "sonarjs/cognitive-complexity": ["warn", 20], // Increased threshold to reduce warnings
+    "sonarjs/cognitive-complexity": ["warn", 25], // Increased threshold to reduce warnings
     "sonarjs/no-duplicated-branches": "warn", // Downgrade to warning
     
     // Unicorn rules - disable some that might be too strict

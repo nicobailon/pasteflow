@@ -24,6 +24,8 @@ interface ContentAreaProps {
   sortOrder: string;
   handleSortChange: (newSort: string) => void;
   sortOptions: { value: string; label: string }[];
+  sortDropdownOpen?: boolean;
+  toggleSortDropdown?: () => void;
   getSelectedFilesContent: () => string;
   getContentWithXmlPrompt: () => string;
   calculateTotalTokens: () => number;
@@ -55,6 +57,8 @@ const ContentArea = ({
   sortOrder,
   handleSortChange,
   sortOptions,
+  sortDropdownOpen,
+  toggleSortDropdown,
   getSelectedFilesContent,
   getContentWithXmlPrompt,
   calculateTotalTokens,
@@ -148,6 +152,7 @@ const ContentArea = ({
           toggleSystemPromptSelection={toggleSystemPromptSelection}
           selectedRolePrompts={selectedRolePrompts}
           toggleRolePromptSelection={toggleRolePromptSelection}
+          loadFileContent={loadFileContent}
         />
       </div>
       <div className="user-instructions-input-area">

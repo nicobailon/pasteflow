@@ -33,6 +33,7 @@ const Sidebar = ({
   refreshFileTree = () => {/* Default handler - no operation */},
   onViewFile,
   processingStatus,
+  loadFileContent,
 }: SidebarProps) => {
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
@@ -412,6 +413,7 @@ const Sidebar = ({
                       toggleFolderSelection={toggleFolderSelection}
                       toggleExpanded={toggleExpanded}
                       onViewFile={onViewFile}
+                      loadFileContent={loadFileContent}
                     />
                   ))
                 ) : (

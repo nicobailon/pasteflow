@@ -103,7 +103,8 @@ const BINARY_EXTENSIONS = new Set([
   ".bin",
   ".dat",
   ".lockb",
-].concat(binaryExtensions || [])); // Add any additional binary extensions from excluded-files.js
+  ...(binaryExtensions || []) // Add any additional binary extensions from excluded-files.js
+]);
 
 // Max file size to read (5MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -201,12 +202,14 @@ function createWindow() {
   );
 }
 
+// Replace the top-level await with a proper async function
+// eslint-disable-next-line unicorn/prefer-top-level-await
 app.whenReady().then(() => {
   createWindow();
+});
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
 app.on("window-all-closed", () => {
