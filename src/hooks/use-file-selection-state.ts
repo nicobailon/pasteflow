@@ -41,28 +41,25 @@ const useFileSelectionState = (allFiles: FileData[]) => {
   }, [selectedFiles]);
 
   // Toggle file selection
-  const toggleFileSelection = useCallback((filePath: string) => {
-    setSelectedFiles((prev: SelectedFileWithLines[]) => {
-      const existingIndex = prev.findIndex(f => f.path === filePath);
-      
+  const toggleFileSelection = useCallback((filePath: string): void => {
+    setSelectedFiles((prev) => {
+      const existingIndex = prev.findIndex((f) => f.path === filePath);
       if (existingIndex >= 0) {
-        // Remove the file if it exists in selection
-        return prev.filter((f: SelectedFileWithLines) => f.path !== filePath);
-      } else {
-        // Add the file to selection (whole file)
-        // Find file content from allFiles
-        const fileData = allFiles.find((f: FileData) => f.path === filePath);
-        if (!fileData) return prev;
-        
-        return [...prev, {
-          path: filePath,
-          content: fileData.content,
-          tokenCount: fileData.tokenCount,
-          isFullFile: true
-        }];
+        return prev.filter((f) => f.path !== filePath);
       }
+      const fileData = allFiles.find((f) => f.path === filePath);
+      if (!fileData) return prev;
+      const newFile: SelectedFileWithLines = {
+        path: filePath,
+        isFullFile: true,
+        isContentLoaded: fileData.isContentLoaded ?? false,
+        content: fileData.content,
+        tokenCount: fileData.tokenCount
+      };
+      // Note: loadFileContent will be provided as a prop when this hook is used
+      return [...prev, newFile];
     });
-  }, [setSelectedFiles, allFiles]);
+  }, [allFiles, setSelectedFiles]);
 
   // Toggle selection for a specific line range within a file
   const toggleSelection = useCallback((filePath: string, lineRange?: LineRange) => {

@@ -2,7 +2,7 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 interface CopyButtonProps {
-  text: string | (() => string);
+  text: string | (() => string) | (() => Promise<string>);
   className?: string;
   children?: JSX.Element | string;
 }
@@ -46,7 +46,7 @@ const fallbackCopyTextToClipboard = (text: string): boolean => {
  * CopyButton component - Provides a button that copies text to clipboard
  * with visual feedback and accessibility support
  * 
- * @param text - Text to copy or function that returns text to copy
+ * @param text - Text to copy, function that returns text to copy, or async function that resolves to text
  * @param className - Additional CSS classes
  * @param children - Optional child elements
  */
@@ -56,7 +56,14 @@ const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
   const handleCopy = async () => {
     try {
       // Get the text to copy - either use the string directly or call the function
-      const textToCopy = typeof text === 'function' ? text() : text;
+      let textToCopy;
+      if (typeof text === 'function') {
+        const result = text();
+        // Handle both regular functions and async functions
+        textToCopy = result instanceof Promise ? await result : result;
+      } else {
+        textToCopy = text;
+      }
       
       // Try to use modern clipboard API first
       if (navigator.clipboard && navigator.clipboard.writeText) {

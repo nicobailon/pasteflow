@@ -28,6 +28,10 @@ export const estimateTokenCount = (text: string): number => {
  * @param lines - Array of line ranges
  * @returns - Estimated token count for selected lines
  */
+// This function was used in the previous token counting implementation but is
+// no longer needed with lazy loading. Keeping here for reference in case it
+// becomes useful in the future.
+/* 
 const calculateSelectedLinesTokens = (fileData: FileData, lines: { start: number; end: number }[]): number => {
   const contentLines = fileData.content.split('\n');
   let selectedContent = '';
@@ -42,45 +46,21 @@ const calculateSelectedLinesTokens = (fileData: FileData, lines: { start: number
   
   return estimateTokenCount(selectedContent);
 };
+*/
 
 /**
  * Calculates the total token count for all selected files.
  * 
  * @param {SelectedFileWithLines[]} selectedFiles - Array of selected files
- * @param {FileData[]} allFiles - Array of all files
  * @returns {number} The sum of token counts from all selected files.
  */
-export const calculateTotalTokens = (
-  selectedFiles: SelectedFileWithLines[],
-  allFiles: FileData[]
-): number => {
+export const calculateTotalTokens = (selectedFiles: SelectedFileWithLines[]): number => {
   let total = 0;
-  
   for (const file of selectedFiles) {
-    // If we have a precomputed token count, use it
-    if (file.tokenCount !== undefined) {
+    if (file.isContentLoaded && file.tokenCount !== undefined) {
       total += file.tokenCount;
-      continue;
     }
-    
-    // If we have content, estimate tokens
-    if (file.content) {
-      total += estimateTokenCount(file.content);
-      continue;
-    }
-    
-    // Otherwise, find the file in allFiles and use its tokenCount
-    const fileData = allFiles.find((f: FileData) => f.path === file.path);
-    
-    // If we don't have file data, skip this file
-    if (!fileData) {
-      continue;
-    }
-    
-    // If it has line selections, calculate tokens for those lines only
-    total += file.lines && file.lines.length > 0 ? calculateSelectedLinesTokens(fileData, file.lines) : fileData.tokenCount;
   }
-  
   return total;
 };
 

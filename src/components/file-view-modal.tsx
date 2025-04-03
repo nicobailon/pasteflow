@@ -61,6 +61,7 @@ const FileViewModal = ({
   allFiles,
   selectedFile,
   onUpdateSelectedFile,
+  loadFileContent,
 }: FileViewModalProps): JSX.Element => {
   const { currentTheme } = useTheme();
   // @ts-expect-error - Typed useState hooks are flagged in strict mode
@@ -110,23 +111,24 @@ const FileViewModal = ({
     return Math.ceil(wordCount * 1.3 * (1 + specialCharRatio));
   }, []);
   
-  // Find the file in allFiles when filePath changes
+  // Find the file in allFiles when filePath changes and load content if needed
   useEffect(() => {
-    if (filePath) {
+    if (filePath && isOpen) {
       const foundFile = allFiles.find((file: FileData) => file.path === filePath);
-      setFile(foundFile || null);
-      
-      // Calculate total token count when file changes
-      if (foundFile && foundFile.content) {
-        setTotalTokenCount(calculateTokenCount(foundFile.content));
+      if (foundFile && !foundFile.isContentLoaded) {
+        loadFileContent(filePath).then(() => {
+          const updatedFile = allFiles.find((f) => f.path === filePath);
+          setFile(updatedFile ?? null);
+          if (updatedFile?.content) {
+            setTotalTokenCount(calculateTokenCount(updatedFile.content));
+          }
+        });
       } else {
-        setTotalTokenCount(0);
+        setFile(foundFile ?? null);
+        setTotalTokenCount(foundFile?.content ? calculateTokenCount(foundFile.content) : 0);
       }
-    } else {
-      setFile(null);
-      setTotalTokenCount(0);
     }
-  }, [filePath, allFiles, calculateTokenCount]);
+  }, [filePath, isOpen, allFiles, calculateTokenCount, loadFileContent]);
   
   // Initialize selected lines based on the selectedFile prop
   useEffect(() => {

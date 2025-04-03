@@ -2813,3 +2813,32 @@ input[type="text"].search-input:focus {
 .save-button.save-success .success-check {
    color: var(--primary-button-text); /* Use button text color for contrast */
 }
+
+/* Add these styles to the appropriate section of the file */
+
+.tree-item.loading .tree-item-tokens {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.tree-item-tokens {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.tree-item-badge {
+  margin-left: 0.5rem;
+  padding: 0.0625rem 0.25rem;
+  font-size: 0.625rem;
+  background-color: var(--badge-bg);
+  color: var(--badge-text);
+  border-radius: 0.25rem;
+  text-transform: uppercase;
+}
+
+.tree-item-badge.excluded {
+  background-color: var(--badge-excluded-bg);
+  color: var(--badge-excluded-text);
+}

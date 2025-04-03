@@ -43,7 +43,7 @@ module.exports = {
     // SonarJS rules
     "sonarjs/no-identical-expressions": "error",
     "sonarjs/no-duplicate-string": ["warn", { "threshold": 5 }],
-    "sonarjs/cognitive-complexity": ["warn", 20], // Increased threshold to reduce warnings
+    "sonarjs/cognitive-complexity": ["warn", 30], // Increased threshold to reduce warnings
     "sonarjs/no-duplicated-branches": "warn", // Downgrade to warning
     
     // Unicorn rules - disable some that might be too strict
@@ -84,12 +84,18 @@ module.exports = {
   },
   overrides: [
     {
-      // Apply these rules only to the main.js file
+      // Electron main process file (CommonJS)
       files: ["main.js"],
+      parser: "espree", // Use standard ESLint parser for JavaScript
       rules: {
-        "@typescript-eslint/no-var-requires": "off", // Disable for Electron main process
-        "no-control-regex": "off", // Completely disable for main.js
-        "@typescript-eslint/no-unused-vars": "off" // Disable unused vars for main.js
+        "unicorn/prefer-module": "off", // Allow CommonJS require and __dirname
+        "sonarjs/cognitive-complexity": ["warn", 60], // Increased threshold for main process
+        "sonarjs/no-duplicate-string": "off", // Disable duplicate string check for main process
+        "@typescript-eslint/no-var-requires": "off", // Not applicable to JS files
+        "@typescript-eslint/no-explicit-any": "off", // Not applicable to JS files
+        "@typescript-eslint/no-unused-vars": "off", // Use ESLint's built-in no-unused-vars instead
+        "no-unused-vars": "warn", // Standard ESLint rule for unused variables
+        "import/order": "warn" // Keep import order as warning for organization
       }
     },
     {

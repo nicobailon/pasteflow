@@ -8,7 +8,7 @@
  */
 
 // Define the list of excluded files
-const excludedFiles = [
+export const excludedFiles: string[] = [
   // NPM/Yarn/Node related
   "package-lock.json",
   "yarn.lock",
@@ -122,7 +122,7 @@ const excludedFiles = [
 ];
 
 // Define binary extensions
-const binaryExtensions = [
+export const binaryExtensions: string[] = [
   // Images (including .svg which might not be detected as binary)
   ".svg",
   ".jpg",
@@ -142,10 +142,4 @@ const binaryExtensions = [
   ".xlsx",
   ".ppt",
   ".pptx",
-];
-
-// Export the configuration
-module.exports = {
-  excludedFiles,
-  binaryExtensions,
-};
+]; 

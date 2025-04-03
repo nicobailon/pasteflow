@@ -1,14 +1,15 @@
 export interface FileData {
   name: string;
   path: string;
-  content: string;
-  tokenCount: number;
+  content?: string;
+  tokenCount?: number;
   size: number;
   isBinary: boolean;
   isSkipped: boolean;
   error?: string;
   fileType?: string;
   excludedByDefault?: boolean;
+  isContentLoaded?: boolean;
 }
 
 // New interface for selected line ranges
@@ -20,10 +21,12 @@ export interface LineRange {
 // New interface for selected files with line ranges
 export interface SelectedFileWithLines {
   path: string;
-  lines?: LineRange[];  // Undefined or empty array means entire file
-  content?: string;     // Cached content of selected lines
-  tokenCount?: number;  // Pre-computed token count for selected content
-  isFullFile?: boolean; // Explicit flag indicating if the whole file is selected
+  lines?: LineRange[];       // Undefined or empty array means entire file
+  content?: string;          // Cached content of selected lines
+  tokenCount?: number;       // Pre-computed token count for selected content
+  isFullFile?: boolean;      // Explicit flag indicating if the whole file is selected
+  isContentLoaded?: boolean; // Flag indicating if content has been loaded
+  error?: string;           // Error message if loading failed
 }
 
 export interface TreeNode {
@@ -62,6 +65,7 @@ export interface SidebarProps {
     directories?: number;
     total?: number;
   };
+  loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property
 }
 
 export interface FileListProps {
@@ -79,6 +83,7 @@ export interface FileListProps {
   toggleSystemPromptSelection?: (prompt: SystemPrompt) => void;
   selectedRolePrompts?: RolePrompt[];
   toggleRolePromptSelection?: (prompt: RolePrompt) => void;
+  loadFileContent: (filePath: string) => Promise<void>; // Added loadFileContent property
 }
 
 export interface FileCardProps {
@@ -86,6 +91,7 @@ export interface FileCardProps {
   selectedFile: SelectedFileWithLines | undefined; // Updated type
   toggleSelection: (filePath: string, lineRange?: LineRange) => void;
   onViewFile?: (filePath: string) => void; // New prop
+  loadFileContent: (filePath: string) => Promise<void>; // Added loadFileContent property
 }
 
 export interface TreeItemProps {
@@ -96,6 +102,7 @@ export interface TreeItemProps {
   toggleExpanded: (nodeId: string) => void;
   expandedNodes?: Record<string, boolean>;
   onViewFile?: (filePath: string) => void; // New prop
+  loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property
 }
 
 export interface SortOption {
@@ -141,6 +148,7 @@ export interface FileViewModalProps {
   allFiles: FileData[];
   selectedFile: SelectedFileWithLines | undefined;
   onUpdateSelectedFile: (selectedFile: SelectedFileWithLines) => void;
+  loadFileContent: (filePath: string) => Promise<void>;
 }
 
 // Interface for system prompts

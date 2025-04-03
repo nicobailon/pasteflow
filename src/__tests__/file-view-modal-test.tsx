@@ -82,6 +82,7 @@ describe('FileViewModal Component', () => {
   // Mock props and handlers
   const mockOnClose = jest.fn();
   const mockOnUpdateSelectedFile = jest.fn();
+  const mockLoadFileContent = jest.fn().mockResolvedValue(undefined);
   
   const defaultProps: FileViewModalProps = {
     isOpen: true,
@@ -89,7 +90,8 @@ describe('FileViewModal Component', () => {
     filePath: '/path/to/test.js',
     allFiles,
     selectedFile: undefined,
-    onUpdateSelectedFile: mockOnUpdateSelectedFile
+    onUpdateSelectedFile: mockOnUpdateSelectedFile,
+    loadFileContent: mockLoadFileContent
   };
   
   beforeEach(() => {

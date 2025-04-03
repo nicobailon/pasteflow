@@ -1,5 +1,5 @@
-import { ChevronRight, Eye, File, Folder } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { TreeItemProps, TreeNode } from "../types/file-types";
 
@@ -114,11 +114,16 @@ const handleTreeItemActions = {
     type: "file" | "directory", 
     toggleFileSelection: (path: string) => void, 
     toggleFolderSelection: (path: string, isChecked: boolean) => void, 
-    path: string
+    path: string,
+    loadFileContent?: (filePath: string) => Promise<void>
   ) => {
     e.stopPropagation();
     if (type === "file") {
       toggleFileSelection(path);
+      // If this is a newly checked file, load its content
+      if (e.target.checked && loadFileContent) {
+        loadFileContent(path);
+      }
     } else if (type === "directory") {
       toggleFolderSelection(path, e.target.checked);
     }
@@ -131,11 +136,14 @@ const TreeItem = ({
   toggleFileSelection,
   toggleFolderSelection,
   toggleExpanded,
-  onViewFile
+  onViewFile,
+  loadFileContent
 }: TreeItemProps) => {
   const { id, name, path, type, level, isExpanded, fileData } = node;
   // @ts-expect-error - Typed useRef hook is flagged in strict mode
   const checkboxRef = useRef<HTMLInputElement>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [localTokenCount, setLocalTokenCount] = useState(fileData?.tokenCount);
 
   // Find the selected file (if any) for this node
   const selectedFile = selectedFiles.find(f => f.path === path);
@@ -151,6 +159,25 @@ const TreeItem = ({
 
   // Check if the file is excluded by default (but still selectable)
   const isExcludedByDefault = fileData?.excludedByDefault || false;
+
+  // Handle loading content when a file is selected
+  useEffect(() => {
+    if (type === "file" && isSelected && 
+        fileData && !fileData.isContentLoaded && !isDisabled && 
+        loadFileContent && !isLoading) {
+      setIsLoading(true);
+      
+      loadFileContent(path).then(() => {
+        // The content will be loaded in the allFiles state, but we can update our local token count
+        if (fileData.tokenCount) {
+          setLocalTokenCount(fileData.tokenCount);
+        }
+        setIsLoading(false);
+      }).catch(() => {
+        setIsLoading(false);
+      });
+    }
+  }, [type, isSelected, fileData, isDisabled, loadFileContent, path, isLoading]);
   
   // Extract rendering functions to reduce cognitive complexity
   const renderToggleButton = () => {
@@ -228,9 +255,21 @@ const TreeItem = ({
   const renderFileMetadata = () => {
     return (
       <>
-        {fileData && fileData.tokenCount > 0 && (
+        {type === "file" && (
           <span className="tree-item-tokens">
-            (~{fileData.tokenCount.toLocaleString()})
+            {isLoading ? (
+              "Loading..."
+            ) : (
+              (() => {
+                if (localTokenCount) {
+                  return `(~${localTokenCount.toLocaleString()})`;
+                } else if (fileData?.tokenCount) {
+                  return `(~${fileData.tokenCount.toLocaleString()})`;
+                } else {
+                  return null;
+                }
+              })()
+            )}
           </span>
         )}
 
@@ -275,7 +314,7 @@ const TreeItem = ({
     <div
       className={`tree-item ${isSelected ? "selected" : ""} ${isPartiallySelected ? "partially-selected" : ""} ${
         isExcludedByDefault ? "excluded-by-default" : ""
-      }`}
+      } ${isLoading ? "loading" : ""}`}
       style={{ marginLeft: `${level * 16}px` }}
       onClick={() => handleTreeItemActions.handleItemClick(
         type, isDisabled, toggleExpanded, toggleFileSelection, id, path
@@ -300,23 +339,22 @@ const TreeItem = ({
           checked={type === "file" ? isSelected : isDirectorySelected}
           ref={checkboxRef}
           onChange={(e) => handleTreeItemActions.handleCheckboxChange(
-            e, type, toggleFileSelection, toggleFolderSelection, path
+            e, type, toggleFileSelection, toggleFolderSelection, path, loadFileContent
           )}
           disabled={isDisabled}
           onClick={(e) => e.stopPropagation()}
         />
         <span className="custom-checkbox"></span>
       </div>
-
-      <div className="tree-item-content">
-        <div className="tree-item-icon">
-          {type === "directory" ? <Folder size={16} /> : <File size={16} />}
-        </div>
-
-        {renderItemName()}
-        {renderFileMetadata()}
-        {renderViewButton()}
+      <div className="tree-item-icon">
+        {type === "directory" 
+          ? (isExpanded ? <FolderOpen size={16} /> : <Folder size={16} />)
+          : <File size={16} />
+        }
       </div>
+      {renderItemName()}
+      {renderFileMetadata()}
+      {renderViewButton()}
     </div>
   );
 };

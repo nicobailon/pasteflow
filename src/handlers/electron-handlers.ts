@@ -87,114 +87,45 @@ export const setupElectronHandlers = (
     }
   };
 
-  const handleFileListData = (data: { 
-    files?: FileData[], 
-    isComplete?: boolean,
-    processed?: number,
-    directories?: number,
-    total?: number
-  } | FileData[]) => {
-    try {
-      let filesArray: FileData[] = [];
-      let isComplete = false;
-      let processedCount = 0;
-      let directoriesCount = 0;
-      let totalCount = 0;
-      
-      if (!data) {
-        setProcessingStatus({
-          status: "error",
-          message: "Invalid file data received: data is null or undefined"
-        });
-        
-        const event = new CustomEvent('file-list-updated');
-        window.dispatchEvent(event);
-        return;
-      }
-      
-      if (Array.isArray(data)) {
-        filesArray = data;
-        isComplete = true;
-        processedCount = data.length;
-        
-        setAllFiles(filesArray);
-        
-        setProcessingStatus({
-          status: "complete",
-          message: `Loaded ${processedCount} files directly.`,
-          processed: processedCount,
-          directories: directoriesCount,
-          total: totalCount
-        });
-        
-        applyFiltersAndSort(filesArray, sortOrder, searchTerm);
-        
-        setIsLoadingCancellable(false);
-        setAppInitialized(true);
-        
-        const event = new CustomEvent('file-list-updated');
-        window.dispatchEvent(event);
-        return;
-      }
-      
-      if (data.files === undefined) {
-        filesArray = [];
-        
-        setProcessingStatus({
-          status: "error",
-          message: "Invalid file data received: files property is missing"
-        });
-      } else if (Array.isArray(data.files)) {
-        filesArray = data.files;
-        isComplete = data.isComplete || false;
-        processedCount = data.processed || 0;
-        directoriesCount = data.directories || 0;
-        totalCount = data.total || 0;
-      } else {
-        try {
-          filesArray = Array.isArray(data.files) ? data.files : 
-                      ((typeof data.files === 'object' && data.files !== null) ? 
-                      Object.values(data.files as Record<string, FileData>) : []);
-        } catch {
-          filesArray = [];
-        }
-        
-        setProcessingStatus({
-          status: "error",
-          message: "Invalid file data received: files property is not an array"
-        });
-      }
-      
-      setAllFiles(filesArray);
-      
-      if (isComplete) {
-        applyFiltersAndSort(filesArray, sortOrder, searchTerm);
-        
-        setProcessingStatus({
-          status: "complete",
-          message: `Loaded ${processedCount} files from ${directoriesCount} directories.`,
-          processed: processedCount,
-          directories: directoriesCount,
-          total: totalCount
-        });
-        
-        setIsLoadingCancellable(false);
-        setAppInitialized(true);
-      }
-      
-      const event = new CustomEvent('file-list-updated');
-      window.dispatchEvent(event);
-      
-    } catch (error) {
-      setProcessingStatus({
-        status: "error",
-        message: `Error processing files: ${error instanceof Error ? error.message : "Unknown error"}`
-      });
-      
-      const event = new CustomEvent('file-list-updated');
-      window.dispatchEvent(event);
-    }
-  };
+  const handleFileListData = (
+  data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number } | FileData[]
+): void => {
+  let filesArray: FileData[] = [];
+  let isComplete = false;
+  let processedCount = 0;
+  let directoriesCount = 0;
+  let totalCount = 0;
+
+  if (Array.isArray(data)) {
+    filesArray = data.map(file => ({ ...file, isContentLoaded: file.isContentLoaded ?? false }));
+    isComplete = true;
+    processedCount = filesArray.length;
+  } else if (data?.files) {
+    filesArray = data.files.map(file => ({ ...file, isContentLoaded: file.isContentLoaded ?? false }));
+    isComplete = data.isComplete ?? false;
+    processedCount = data.processed ?? 0;
+    directoriesCount = data.directories ?? 0;
+    totalCount = data.total ?? 0;
+  }
+
+  setAllFiles(filesArray);
+
+  if (isComplete) {
+    applyFiltersAndSort(filesArray, sortOrder, searchTerm);
+    setProcessingStatus({
+      status: "complete",
+      message: `Loaded ${processedCount} files from ${directoriesCount} directories`,
+      processed: processedCount,
+      directories: directoriesCount,
+      total: totalCount
+    });
+    setIsLoadingCancellable(false);
+    setAppInitialized(true);
+  }
+
+  const event = new CustomEvent("file-list-updated");
+  window.dispatchEvent(event);
+};
 
   const handleProcessingStatus = (status: ProcessingStatus) => {
     console.log("Processing status:", status);
@@ -282,4 +213,21 @@ export const requestFileList = (
     return true;
   }
   return false;
+};
+
+export const requestFileContent = async (filePath: string): Promise<{
+  success: boolean;
+  content?: string;
+  tokenCount?: number;
+  error?: string;
+}> => {
+  if (!window.electron?.ipcRenderer?.invoke) {
+    return { success: false, error: "Electron IPC not available" };
+  }
+  try {
+    const result = await window.electron.ipcRenderer.invoke("request-file-content", filePath);
+    return result as { success: boolean; content?: string; tokenCount?: number; error?: string };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
 };
