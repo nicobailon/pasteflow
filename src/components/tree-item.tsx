@@ -1,5 +1,5 @@
 import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 
 import { TreeItemProps, TreeNode } from "../types/file-types";
 
@@ -130,7 +130,46 @@ const handleTreeItemActions = {
   }
 };
 
-const TreeItem = ({
+// Custom comparison function for memo
+const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
+  // Always re-render if node structure changes
+  if (prevProps.node.id !== nextProps.node.id) return false;
+  if (prevProps.node.type !== nextProps.node.type) return false;
+  if (prevProps.node.name !== nextProps.node.name) return false;
+  
+  // Check if selection state changed for this specific node
+  const prevSelected = prevProps.selectedFiles.find(f => f.path === prevProps.node.path);
+  const nextSelected = nextProps.selectedFiles.find(f => f.path === nextProps.node.path);
+  
+  if ((prevSelected && !nextSelected) || (!prevSelected && nextSelected)) return false;
+  if (prevSelected && nextSelected) {
+    // Check if line selections changed
+    const prevLines = prevSelected.lines || [];
+    const nextLines = nextSelected.lines || [];
+    if (prevLines.length !== nextLines.length) return false;
+    
+    for (let i = 0; i < prevLines.length; i++) {
+      if (prevLines[i].start !== nextLines[i].start || prevLines[i].end !== nextLines[i].end) {
+        return false;
+      }
+    }
+  }
+  
+  // Check if expanded state changed for directories
+  if (prevProps.node.type === 'directory') {
+    const prevExpanded = prevProps.node.isExpanded;
+    const nextExpanded = nextProps.node.isExpanded;
+    if (prevExpanded !== nextExpanded) return false;
+  }
+  
+  // Check if children count changed (affects partial selection state)
+  if (prevProps.node.children?.length !== nextProps.node.children?.length) return false;
+  
+  // Props are equal enough to skip re-render
+  return true;
+};
+
+const TreeItem = memo(({
   node,
   selectedFiles,
   toggleFileSelection,
@@ -357,6 +396,8 @@ const TreeItem = ({
       {renderViewButton()}
     </div>
   );
-};
+}, areEqual);
+
+TreeItem.displayName = 'TreeItem';
 
 export default TreeItem;

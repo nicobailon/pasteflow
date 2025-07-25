@@ -12,7 +12,7 @@ const useModalState = () => {
   const [fileViewModalOpen, setFileViewModalOpen] = useState(false);
   const [systemPromptsModalOpen, setSystemPromptsModalOpen] = useState(false);
   const [rolePromptsModalOpen, setRolePromptsModalOpen] = useState(false);
-  const [docsModalOpen, setDocsModalOpen] = useState(false);
+  const [instructionsModalOpen, setInstructionsModalOpen] = useState(false);
   
   // Track currently viewed file path for file view modal
   const [currentViewedFilePath, setCurrentViewedFilePath] = useState("");
@@ -34,8 +34,8 @@ const useModalState = () => {
     setRolePromptsModalOpen((prev: boolean) => !prev);
   }, []);
   
-  const toggleDocsModal = useCallback(() => {
-    setDocsModalOpen((prev: boolean) => !prev);
+  const toggleInstructionsModal = useCallback(() => {
+    setInstructionsModalOpen((prev: boolean) => !prev);
   }, []);
 
   // Function to open the file view modal
@@ -56,7 +56,7 @@ const useModalState = () => {
     fileViewModalOpen,
     systemPromptsModalOpen,
     rolePromptsModalOpen,
-    docsModalOpen,
+    instructionsModalOpen,
     currentViewedFilePath,
     
     // Toggle functions
@@ -64,7 +64,7 @@ const useModalState = () => {
     toggleFilterModal,
     toggleSystemPromptsModal,
     toggleRolePromptsModal,
-    toggleDocsModal,
+    toggleInstructionsModal,
     openFileViewModal,
     closeFileViewModal,
     
@@ -74,7 +74,7 @@ const useModalState = () => {
     setFileViewModalOpen,
     setSystemPromptsModalOpen,
     setRolePromptsModalOpen,
-    setDocsModalOpen,
+    setInstructionsModalOpen,
     setCurrentViewedFilePath
   };
 };

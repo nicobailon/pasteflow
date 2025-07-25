@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
-import { FileData, FileTreeMode, RolePrompt, SystemPrompt, WorkspaceState } from '../types/file-types';
-import { getContentWithXmlPrompt, getSelectedFilesContent } from '../utils/content-formatter';
+import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction } from '../types/file-types';
+import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } from '../utils/content-formatter';
 import { resetFolderState } from '../utils/file-utils';
-import { calculateFileTreeTokens, calculateRolePromptsTokens, calculateSystemPromptsTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
-import { XML_FORMATTING_INSTRUCTIONS } from '../utils/xml-templates';
+import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
+import { fileContentCache } from '../utils/file-cache';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -100,8 +100,7 @@ const useAppState = () => {
   const promptStateRef = useRef(promptState); // Ref for the whole prompt state object
 
   // Update refs whenever state changes
-  const currentAllFiles = allFiles; // Extract complex expression
-  useEffect(() => { allFilesRef.current = currentAllFiles; }, [allFiles, currentAllFiles]); // Add allFiles dependency
+  useEffect(() => { allFilesRef.current = allFiles; }, [allFiles]);
   useEffect(() => { selectedFolderRef.current = selectedFolder; }, [selectedFolder]);
   useEffect(() => { processingStatusRef.current = processingStatus; }, [processingStatus]);
   useEffect(() => { promptStateRef.current = promptState; }, [promptState]);
@@ -247,7 +246,7 @@ const useAppState = () => {
     });
   }, []);
 
-  // Format content for copying
+  // Get content with prompts and instructions
   const getFormattedContent = useCallback(() => {
     return getSelectedFilesContent(
       allFiles,
@@ -270,38 +269,55 @@ const useAppState = () => {
     userInstructions
   ]);
 
-  // Get content with XML prompt
-  const getFormattedContentWithXml = useCallback(() => {
-    return getContentWithXmlPrompt(
+  // Get content without instructions
+  const getFormattedContentWithoutInstructions = useCallback(() => {
+    return getSelectedFilesContentWithoutInstructions(
       allFiles,
       fileSelection.selectedFiles,
       sortOrder,
       fileTreeMode,
-      selectedFolder,
-      promptState.selectedSystemPrompts,
-      promptState.selectedRolePrompts,
-      userInstructions,
-      XML_FORMATTING_INSTRUCTIONS
+      selectedFolder
     );
   }, [
     allFiles,
     fileSelection.selectedFiles,
     sortOrder,
     fileTreeMode,
-    selectedFolder,
-    promptState.selectedSystemPrompts,
-    promptState.selectedRolePrompts,
-    userInstructions
+    selectedFolder
   ]);
   
   const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
-    const file = allFiles.find((f) => f.path === filePath);
+    const file = allFiles.find((f: FileData) => f.path === filePath);
     if (!file || file.isContentLoaded) return;
 
+    // Check cache first
+    const cached = fileContentCache.get(filePath);
+    if (cached) {
+      setAllFiles((prev: FileData[]) =>
+        prev.map((f: FileData) =>
+          f.path === filePath
+            ? { ...f, content: cached.content, tokenCount: cached.tokenCount, isContentLoaded: true }
+            : f
+        )
+      );
+      fileSelection.updateSelectedFile({
+        path: filePath,
+        content: cached.content,
+        tokenCount: cached.tokenCount,
+        isFullFile: true,
+        isContentLoaded: true
+      });
+      return;
+    }
+
+    // Load from backend if not cached
     const result = await requestFileContent(filePath);
     if (result.success && result.content !== undefined && result.tokenCount !== undefined) {
-      setAllFiles((prev) =>
-        prev.map((f) =>
+      // Cache the result
+      fileContentCache.set(filePath, result.content, result.tokenCount);
+      
+      setAllFiles((prev: FileData[]) =>
+        prev.map((f: FileData) =>
           f.path === filePath
             ? { ...f, content: result.content, tokenCount: result.tokenCount, isContentLoaded: true }
             : f
@@ -315,8 +331,8 @@ const useAppState = () => {
         isContentLoaded: true
       });
     } else {
-      setAllFiles((prev) =>
-        prev.map((f) =>
+      setAllFiles((prev: FileData[]) =>
+        prev.map((f: FileData) =>
           f.path === filePath ? { ...f, error: result.error, isContentLoaded: false } : f
         )
       );
@@ -375,8 +391,13 @@ const useAppState = () => {
   const saveWorkspace = useCallback((name: string) => {
     const workspace: WorkspaceState = {
       selectedFolder: selectedFolder,
-      fileTreeState: expandedNodes,
+      expandedNodes: expandedNodes,
       selectedFiles: fileSelection.selectedFiles,
+      allFiles: allFiles,
+      sortOrder: sortOrder,
+      searchTerm: searchTerm,
+      fileTreeMode: fileTreeMode,
+      exclusionPatterns: exclusionPatterns,
       userInstructions: userInstructions,
       tokenCounts: (() => {
         const acc: { [filePath: string]: number } = {};
@@ -397,176 +418,155 @@ const useAppState = () => {
     selectedFolder,
     expandedNodes,
     fileSelection.selectedFiles,
+    allFiles,
+    sortOrder,
+    searchTerm,
+    fileTreeMode,
+    exclusionPatterns,
     userInstructions,
     promptState.selectedSystemPrompts,
     promptState.selectedRolePrompts,
     persistWorkspace
   ]);
 
+  // Helper functions for workspace data application
+  const handleFolderChange = useCallback((workspaceName: string, workspaceFolder: string | null, workspaceData: WorkspaceState) => {
+    console.log(`[useAppState.handleFolderChange] Folder changed: "${selectedFolderRef.current}" -> "${workspaceFolder}"`);
+    setCurrentWorkspace(workspaceName);
+    
+    if (workspaceFolder === null) {
+      console.log(`[useAppState.handleFolderChange] Resetting folder state`);
+      handleResetFolderStateRef.current();
+      setPendingWorkspaceData(null);
+    } else {
+      const { selectedFolder: _selectedFolder, ...restOfData } = workspaceData;
+      console.log(`[useAppState.handleFolderChange] Setting pending workspace data:`, restOfData);
+      setPendingWorkspaceData(restOfData);
+      
+      console.log(`[useAppState.handleFolderChange] Triggering file loading for: "${workspaceFolder}"`);
+      if (window.electron?.ipcRenderer) {
+        setProcessingStatus({
+          status: "processing",
+          message: `Loading files from workspace folder: ${workspaceFolder}`,
+          processed: 0,
+          directories: 0,
+          total: 0
+        });
+        window.electron.ipcRenderer.send("request-file-list", workspaceFolder, exclusionPatterns || []);
+      }
+    }
+    
+    setSelectedFolder(workspaceFolder);
+  }, [exclusionPatterns, setProcessingStatus, setSelectedFolder, setCurrentWorkspace, setPendingWorkspaceData]);
+
+  const applyExpandedNodes = useCallback((expandedNodesFromWorkspace: Record<string, boolean>) => {
+    console.log('[useAppState.applyExpandedNodes] Applying:', expandedNodesFromWorkspace);
+    setExpandedNodes(expandedNodesFromWorkspace || {});
+    localStorage.setItem(STORAGE_KEYS.EXPANDED_NODES, JSON.stringify(expandedNodesFromWorkspace || {}));
+  }, [setExpandedNodes]);
+
+  const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileWithLines[], availableFiles: FileData[]) => {
+    // Create a map of available files for efficient lookup
+    const availableFilesMap = new Map(availableFiles.map(f => [f.path, f]));
+
+    // Filter the saved selections and restore them with proper line selection data
+    const filesToSelect = (selectedFilesToApply || [])
+      .map(savedFile => {
+        const availableFile = availableFilesMap.get(savedFile.path);
+        if (!availableFile) return null;
+        
+        // Restore the saved line selection data
+        return {
+          ...savedFile,
+          // Ensure we have current file content if it's loaded
+          content: availableFile.content || savedFile.content,
+          isContentLoaded: availableFile.isContentLoaded || savedFile.isContentLoaded
+        } as SelectedFileWithLines;
+      })
+      .filter((file): file is SelectedFileWithLines => !!file);
+
+    fileSelection.clearSelectedFiles();
+    if (filesToSelect.length > 0) {
+      // Use setSelectionState to restore the SelectedFileWithLines objects with line data
+      fileSelection.setSelectionState(filesToSelect);
+    }
+  }, [fileSelection]);
+
+  const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
+    console.log('[useAppState.applyPrompts] Applying prompts (raw):', promptsToApply);
+    const currentPrompts = promptStateRef.current;
+
+    // Deselect current prompts
+    for (const prompt of currentPrompts.selectedSystemPrompts) currentPrompts.toggleSystemPromptSelection(prompt)
+    ;
+    for (const prompt of currentPrompts.selectedRolePrompts) currentPrompts.toggleRolePromptSelection(prompt)
+    ;
+
+    // Apply new prompts
+    if (promptsToApply?.systemPrompts) {
+      for (const savedPrompt of promptsToApply.systemPrompts) {
+        const availablePrompt = currentPrompts.systemPrompts.find((p: SystemPrompt) => p.id === savedPrompt.id);
+        if (availablePrompt && !currentPrompts.selectedSystemPrompts.some((p: SystemPrompt) => p.id === availablePrompt.id)) {
+          currentPrompts.toggleSystemPromptSelection(availablePrompt);
+        }
+      }
+    }
+    if (promptsToApply?.rolePrompts) {
+      for (const savedPrompt of promptsToApply.rolePrompts) {
+        const availablePrompt = currentPrompts.rolePrompts.find((p: RolePrompt) => p.id === savedPrompt.id);
+        if (availablePrompt && !currentPrompts.selectedRolePrompts.some((p: RolePrompt) => p.id === availablePrompt.id)) {
+          currentPrompts.toggleRolePromptSelection(availablePrompt);
+        }
+      }
+    }
+  }, []);
+
   // This function handles applying workspace data, with proper file selection management
   const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null) => {
     console.log(`[useAppState.applyWorkspaceData ENTRY] Name: ${workspaceName}, Has Data: ${!!workspaceData}`);
     if (!workspaceData || !workspaceName) {
       console.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
-      setPendingWorkspaceData(null); // Clear any pending data if null is passed
+      setPendingWorkspaceData(null);
       return;
     }
 
-    // Access state via refs for consistency
-    const filesFromRef = allFilesRef.current;
     const currentSelectedFolder = selectedFolderRef.current;
     const currentProcessingStatus = processingStatusRef.current;
-    const promptStateFromRef = promptStateRef.current;
-    const currentHandleResetFolderState = handleResetFolderStateRef.current;
-
     const workspaceFolder = workspaceData.selectedFolder || null;
     const folderChanged = currentSelectedFolder !== workspaceFolder;
     const isProcessing = currentProcessingStatus.status === 'processing';
 
-    // Always clear selected files first to avoid stale selections
     fileSelection.clearSelectedFiles();
 
     if (folderChanged && !isProcessing) {
-      // Set the current workspace name immediately before folder change
-      console.log(`[useAppState.applyWorkspaceData] Folder changed: "${currentSelectedFolder}" -> "${workspaceFolder}"`);
-      setCurrentWorkspace(workspaceName);
-      
-      if (workspaceFolder === null) {
-        // Workspace folder is null, resetting folder state immediately
-        console.log(`[useAppState.applyWorkspaceData] Resetting folder state`);
-        currentHandleResetFolderState();
-        setPendingWorkspaceData(null); // No pending data needed if resetting
-      } else {
-        // Defer the rest of the workspace application
-        // Using destructuring but ignoring the selectedFolder property since we handle it separately
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { selectedFolder: _, ...restOfData } = workspaceData;
-        console.log(`[useAppState.applyWorkspaceData] Setting pending workspace data:`, restOfData);
-        setPendingWorkspaceData(restOfData);
-        
-        // Trigger file loading for the new folder
-        console.log(`[useAppState.applyWorkspaceData] Triggering file loading for: "${workspaceFolder}"`);
-        if (window.electron?.ipcRenderer) {
-          setProcessingStatus({
-            status: "processing",
-            message: `Loading files from workspace folder: ${workspaceFolder}`,
-            processed: 0,
-            directories: 0,
-            total: 0
-          });
-          window.electron.ipcRenderer.send("request-file-list", workspaceFolder, exclusionPatterns || []);
-        }
-      }
-      
-      setSelectedFolder(workspaceFolder);
-      return; // Stop execution here, wait for file-list-updated
+      handleFolderChange(workspaceName, workspaceFolder, workspaceData);
+      return;
     } else if (folderChanged && isProcessing) {
-      console.warn(`  - Folder changed but currently processing. Cannot change folder to "${workspaceFolder}". Aborting workspace load.`);
-      setPendingWorkspaceData(null); // Clear any pending data
+      console.warn(`[useAppState.applyWorkspaceData] Folder changed but currently processing. Cannot change folder to "${workspaceFolder}". Aborting workspace load.`);
+      setPendingWorkspaceData(null);
       return;
     }
 
-    setCurrentWorkspace(workspaceName); 
+    setCurrentWorkspace(workspaceName);
+    setPendingWorkspaceData(null);
+
+    console.log(`[useAppState.applyWorkspaceData APPLYING] Applying state for workspace: ${workspaceName}`);
     
-    setPendingWorkspaceData(null); // Clear pending data as we are applying it now
-
-    console.log(`[useAppState.applyWorkspaceData APPLYING] Applying state for workspace: ${workspaceName}.`);
-    
-    // Apply expanded nodes
-    const fileTreeState = workspaceData.fileTreeState;
-    console.log('[useAppState.applyWorkspaceData APPLYING] fileTreeState:', fileTreeState);
-    setExpandedNodes(fileTreeState || {});
-    localStorage.setItem(STORAGE_KEYS.EXPANDED_NODES, JSON.stringify(fileTreeState || {}));
-
-    // Apply selected files (filter against current file list)
-    const selectedFilesToApply = workspaceData.selectedFiles;
-    console.log('[useAppState.applyWorkspaceData APPLYING] selectedFiles (raw):', selectedFilesToApply);
-    const availableFiles = filesFromRef; // Use ref for stability
-    const validFiles = (selectedFilesToApply || []).filter((file: FileData) =>
-      availableFiles.some((f: FileData) => f.path === file.path)
-    );
-    console.log('[useAppState.applyWorkspaceData APPLYING] Filtered validFiles:', validFiles);
-    // Clear selection first before applying new ones
-    fileSelection.clearSelectedFiles();
-    if (validFiles.length > 0) {
-      fileSelection.setSelectedFiles(validFiles);
-    } else {
-      console.log('[useAppState.applyWorkspaceData APPLYING] No valid files found in current file list.');
-      // Selection already cleared above
-    }
-
-    // Apply user instructions
-    const instructionsToApply = workspaceData.userInstructions;
-    console.log('[useAppState.applyWorkspaceData APPLYING] instructions:', instructionsToApply);
-    setUserInstructions(instructionsToApply || '');
-
-    // Apply prompts
-    const promptsToApply = workspaceData.customPrompts;
-    console.log('[useAppState.applyWorkspaceData APPLYING] prompts (raw):', promptsToApply);
-    const currentPrompts = promptStateFromRef; // Use ref for stability
-
-    // Deselect current prompts first
-    console.log('[useAppState.applyWorkspaceData APPLYING] Deselecting current prompts...');
-    // Create copies of arrays before iterating to avoid modifying during iteration issues
-    const currentSelectedSystem = [...currentPrompts.selectedSystemPrompts];
-    const currentSelectedRole = [...currentPrompts.selectedRolePrompts];
-    for (const prompt of currentSelectedSystem) currentPrompts.toggleSystemPromptSelection(prompt);
-    for (const prompt of currentSelectedRole) currentPrompts.toggleRolePromptSelection(prompt);
-
-    // Apply saved prompts (ensure loops use currentPromptState and promptsToApply)
-    if (promptsToApply?.systemPrompts) {
-        console.log('[useAppState.applyWorkspaceData APPLYING] Applying system prompts...');
-        for (const savedPrompt of promptsToApply.systemPrompts) {
-            const availablePrompt = currentPrompts.systemPrompts.find((p: SystemPrompt) => p.id === savedPrompt.id);
-            // Check if it exists and is not already selected (though deselection should handle this)
-            if (availablePrompt && !currentPrompts.selectedSystemPrompts.some((p: SystemPrompt) => p.id === availablePrompt.id)) {
-                currentPrompts.toggleSystemPromptSelection(availablePrompt);
-            } else if (!availablePrompt) {
-                console.warn(`  - Saved system prompt ID ${savedPrompt.id} not found.`);
-            }
-        }
-    }
-    if (promptsToApply?.rolePrompts) {
-        console.log('[useAppState.applyWorkspaceData APPLYING] Applying role prompts...');
-        for (const savedPrompt of promptsToApply.rolePrompts) {
-            const availablePrompt = currentPrompts.rolePrompts.find((p: RolePrompt) => p.id === savedPrompt.id);
-             // Check if it exists and is not already selected
-            if (availablePrompt && !currentPrompts.selectedRolePrompts.some((p: RolePrompt) => p.id === availablePrompt.id)) {
-                currentPrompts.toggleRolePromptSelection(availablePrompt);
-            } else if (!availablePrompt) {
-                console.warn(`  - Saved role prompt ID ${savedPrompt.id} not found.`);
-            }
-        }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    applyExpandedNodes(workspaceData.expandedNodes);
+    applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
+    setUserInstructions(workspaceData.userInstructions || '');
+    applyPrompts(workspaceData.customPrompts);
   }, [
-            // Setters (stable)
-            setCurrentWorkspace,
-            setExpandedNodes,
-            setUserInstructions,
-            setPendingWorkspaceData,
-            setSelectedFolder,
-            setProcessingStatus, // Added: Used when triggering file load
+    setPendingWorkspaceData,
+    setCurrentWorkspace,
+    setUserInstructions,
+    handleFolderChange,
+    applyExpandedNodes,
+    applySelectedFiles,
+    applyPrompts,
+    fileSelection
+  ]);
 
-            // State objects/functions called (ensure hooks return stable refs/memoized functions if possible)
-            fileSelection.setSelectedFiles,
-            fileSelection.clearSelectedFiles,
-            promptState.toggleSystemPromptSelection,
-            promptState.toggleRolePromptSelection,
-            promptState.selectedSystemPrompts, // Needed for iteration/deselection logic
-            promptState.selectedRolePrompts,  // Needed for iteration/deselection logic
-            promptState.systemPrompts,        // Needed for finding available prompts
-            promptState.rolePrompts,          // Needed for finding available prompts
-            exclusionPatterns,                // Added: Used when triggering file load
-
-            // Refs (stable)
-            allFilesRef,
-            promptStateRef,
-            handleResetFolderStateRef,
-            selectedFolderRef, // Added: Used for comparison
-            processingStatusRef, // Added: Used for comparison
-        ]);
-  
   useEffect(() => {
     if (!isElectron) return;
 
@@ -676,12 +676,12 @@ const useAppState = () => {
 
   // Initial workspace loading effect
   useEffect(() => {
-    // Check if app is ready and files are loaded (currentAllFiles is the state value)
-    if (appInitialized && currentAllFiles.length > 0) {
+    // Check if app is ready and files are loaded
+    if (appInitialized && allFiles.length > 0) {
       // Mark that we've initiated workspace handling for this session
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true");
     }
-  }, [appInitialized, allFiles, currentAllFiles]);
+  }, [appInitialized, allFiles]);
 
   // Define the event handler using useCallback outside the effect
   const handleWorkspaceLoadedEvent = useCallback((event: CustomEvent) => {
@@ -709,10 +709,12 @@ const useAppState = () => {
       hasPendingData: !!pendingWorkspaceData,
       currentWorkspace,
       filesCount: allFiles.length,
+      processingStatus: processingStatus.status,
       selectedFolder
     });
     
-    if (pendingWorkspaceData && currentWorkspace && allFiles.length > 0) {
+    // Wait for file loading to complete before applying workspace data
+    if (pendingWorkspaceData && currentWorkspace && allFiles.length > 0 && processingStatus.status === "complete") {
       console.log('[useAppState.applyPendingEffect] Conditions met to apply pending workspace data');
       console.log('[useAppState.applyPendingEffect] pendingWorkspaceData:', pendingWorkspaceData);
       
@@ -725,7 +727,7 @@ const useAppState = () => {
       
       applyWorkspaceData(currentWorkspace, fullWorkspaceData);
     }
-  }, [allFiles, pendingWorkspaceData, currentWorkspace, selectedFolder, applyWorkspaceData]);
+  }, [allFiles, pendingWorkspaceData, currentWorkspace, selectedFolder, processingStatus.status, applyWorkspaceData]);
 
   useEffect(() => {
     const handleCreateNewWorkspaceEvent = () => {
@@ -741,6 +743,96 @@ const useAppState = () => {
       window.removeEventListener('createNewWorkspace', handleCreateNewWorkspaceEvent as EventListener);
       console.log("[useAppState] Removed createNewWorkspace event listener.");
     };
+  }, []);
+
+  // Calculate total tokens for selected files
+  const totalTokensForSelectedFiles = useMemo(() => {
+    return fileSelection.selectedFiles.reduce((acc: number, file: FileData) => {
+      return acc + (file.tokenCount || estimateTokenCount(file.content));
+    }, 0);
+  }, [fileSelection.selectedFiles]);
+
+  // Calculate total tokens for system prompts
+  const totalTokensForSystemPrompt = useMemo(() => {
+    if (!promptState.selectedSystemPrompts) return 0;
+    return promptState.selectedSystemPrompts.reduce((prev: number, f: SystemPrompt) => {
+      return prev + (f.tokenCount || estimateTokenCount(f.content));
+    }, 0);
+  }, [promptState.selectedSystemPrompts]);
+
+  // Calculate total tokens for role prompts
+  const totalTokensForRolePrompt = useMemo(() => {
+    if (!promptState.selectedRolePrompts) return 0;
+    return promptState.selectedRolePrompts.reduce((prev: number, f: RolePrompt) => {
+      return prev + (f.tokenCount || estimateTokenCount(f.content));
+    }, 0);
+  }, [promptState.selectedRolePrompts]);
+
+  const totalTokens = useMemo(() => {
+    return totalTokensForSelectedFiles + totalTokensForSystemPrompt + totalTokensForRolePrompt;
+  }, [totalTokensForSelectedFiles, totalTokensForSystemPrompt, totalTokensForRolePrompt]);
+
+  // Helper functions to reduce complexity
+  const handleFileSelection = useCallback((file: FileData) => {
+    if (!file.isDirectory) {
+      fileSelection.toggleFileSelection(file.path);
+    }
+  }, [fileSelection]);
+
+  const handleDirectoryExpansion = useCallback((file: FileData) => {
+    if (file.isDirectory) {
+      toggleExpanded(file.path);
+    }
+  }, [toggleExpanded]);
+
+  const handleFileProcessing = useCallback(async (file: FileData) => {
+    if (!file.isDirectory && !file.isContentLoaded) {
+      await requestFileContent(file.path);
+    }
+  }, []);
+
+  const handleFileOperations = useCallback(async (file: FileData) => {
+    handleFileSelection(file);
+    handleDirectoryExpansion(file);
+    await handleFileProcessing(file);
+  }, [handleFileSelection, handleDirectoryExpansion, handleFileProcessing]);
+
+  const handleWorkspaceUpdate = useCallback(() => {
+    return {
+      selectedFolder: selectedFolderRef.current,
+      allFiles: allFilesRef.current,
+      selectedFiles: fileSelection.selectedFiles,
+      expandedNodes,
+      sortOrder,
+      searchTerm,
+      fileTreeMode,
+      exclusionPatterns
+    };
+  }, [expandedNodes, sortOrder, searchTerm, fileTreeMode, exclusionPatterns, fileSelection.selectedFiles]);
+
+
+  const [instructions, setInstructions] = useState(() => [] as Instruction[]);
+  const [selectedInstructions, setSelectedInstructions] = useState(() => [] as Instruction[]);
+
+  const onAddInstruction = useCallback((instruction: Instruction) => {
+    setInstructions((prev: Instruction[]) => [...prev, instruction]);
+  }, []);
+
+  const onDeleteInstruction = useCallback((id: string) => {
+    setInstructions((prev: Instruction[]) => prev.filter(instruction => instruction.id !== id));
+    setSelectedInstructions((prev: Instruction[]) => prev.filter(instruction => instruction.id !== id));
+  }, []);
+
+  const onUpdateInstruction = useCallback((instruction: Instruction) => {
+    setInstructions((prev: Instruction[]) => prev.map(i => i.id === instruction.id ? instruction : i));
+    setSelectedInstructions((prev: Instruction[]) => prev.map(i => i.id === instruction.id ? instruction : i));
+  }, []);
+
+  const toggleInstructionSelection = useCallback((instruction: Instruction) => {
+    setSelectedInstructions((prev: Instruction[]) => {
+      const isSelected = prev.some(i => i.id === instruction.id);
+      return isSelected ? prev.filter(i => i.id !== instruction.id) : [...prev, instruction];
+    });
   }, []);
 
   return {
@@ -787,17 +879,19 @@ const useAppState = () => {
     toggleExpanded,
     handleRefreshFileTree,
     handleResetFolderState,
+    handleFileOperations,
+    handleWorkspaceUpdate,
     
     // Calculations
     calculateTotalTokens,
     fileTreeTokenCounts,
     getCurrentFileTreeTokens,
-    systemPromptTokens: calculateSystemPromptsTokens(promptState.selectedSystemPrompts),
-    rolePromptTokens: calculateRolePromptsTokens(promptState.selectedRolePrompts),
+    systemPromptsTokens: totalTokensForSystemPrompt,
+    rolePromptsTokens: totalTokensForRolePrompt,
     
     // Content formatting
     getFormattedContent,
-    getFormattedContentWithXml,
+    getFormattedContentWithoutInstructions,
     
     // Workspace management
     saveWorkspace,
@@ -806,7 +900,20 @@ const useAppState = () => {
     headerSaveState,
 
     // Lazy loading
-    loadFileContent
+    loadFileContent,
+
+    // New additions
+    totalTokens,
+    totalTokensForSelectedFiles,
+    totalTokensForSystemPrompt,
+    totalTokensForRolePrompt,
+
+    instructions,
+    selectedInstructions,
+    onAddInstruction,
+    onDeleteInstruction,
+    onUpdateInstruction,
+    toggleInstructionSelection,
   };
 };
 

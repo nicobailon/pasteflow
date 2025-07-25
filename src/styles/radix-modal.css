@@ -34,7 +34,7 @@
 /* System prompts modal */
 .system-prompts-modal,
 .role-prompts-modal,
-.docs-modal {
+.instructions-modal {
   display: flex;
   flex-direction: column;
   height: 90vh;

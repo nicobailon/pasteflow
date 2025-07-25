@@ -10,7 +10,7 @@ export const useWorkspaceState = () => {
       const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
       // Add timestamp before saving
       const workspaceWithTimestamp = { ...workspace, savedAt: Date.now() };
-      workspaces[name] = JSON.stringify(workspaceWithTimestamp);
+      workspaces[name] = workspaceWithTimestamp;
       localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
       localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, name);
       console.log(`[useWorkspaceState.saveWorkspace] Successfully saved workspace "${name}" and set as current.`);
@@ -43,10 +43,19 @@ export const useWorkspaceState = () => {
       // This hook is only responsible for retrieving the data from storage.
       console.log(`[useWorkspaceState.loadWorkspace] Found workspace data for "${name}" in localStorage.`);
 
-      const specificWorkspaceString = workspaces[name];
+      const workspaceData = workspaces[name];
       try {
-        if (typeof specificWorkspaceString !== 'string') {
-             console.error(`[useWorkspaceState.loadWorkspace] Workspace data for "${name}" is not a string:`, specificWorkspaceString);
+        if (typeof workspaceData === 'string') {
+          // Handle legacy double-serialized data
+          const parsedWorkspace = JSON.parse(workspaceData);
+          console.log(`[useWorkspaceState.loadWorkspace] Successfully parsed legacy workspace "${name}".`);
+          return parsedWorkspace;
+        } else if (typeof workspaceData === 'object' && workspaceData !== null) {
+          // Handle new direct object storage
+          console.log(`[useWorkspaceState.loadWorkspace] Successfully loaded workspace "${name}".`);
+          return workspaceData;
+        } else {
+             console.error(`[useWorkspaceState.loadWorkspace] Workspace data for "${name}" has invalid type:`, workspaceData);
              console.log(`[useWorkspaceState.loadWorkspace] Auto-deleting corrupted workspace: "${name}"`);
              delete workspaces[name];
              localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
@@ -54,11 +63,8 @@ export const useWorkspaceState = () => {
              window.dispatchEvent(new CustomEvent('workspacesChanged', { detail: { deleted: name, wasCurrent: true, wasCorrupted: true } }));
              return null;
         }
-        const parsedWorkspace = JSON.parse(specificWorkspaceString);
-        console.log(`[useWorkspaceState.loadWorkspace] Successfully parsed workspace "${name}".`);
-        return parsedWorkspace;
       } catch (parseError) {
-        console.error(`[useWorkspaceState.loadWorkspace] Failed to parse workspace data for "${name}":`, parseError, { storedValue: specificWorkspaceString });
+        console.error(`[useWorkspaceState.loadWorkspace] Failed to parse workspace data for "${name}":`, parseError, { storedValue: workspaceData });
         console.log(`[useWorkspaceState.loadWorkspace] Auto-deleting corrupted workspace: "${name}"`);
         delete workspaces[name];
         localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
@@ -147,14 +153,19 @@ export const useWorkspaceState = () => {
       // Get entries, parse data, sort by savedAt (descending), return names
       // Extract just the names
       return Object.entries(workspaces)
-        .map(([name, dataString]) => {
+        .map(([name, dataValue]) => {
           try {
-            // Ensure dataString is actually a string before parsing
-            if (typeof dataString !== 'string') {
+            let data: WorkspaceState;
+            if (typeof dataValue === 'string') {
+              // Handle legacy double-serialized data
+              data = JSON.parse(dataValue);
+            } else if (typeof dataValue === 'object' && dataValue !== null) {
+              // Handle new direct object storage
+              data = dataValue as WorkspaceState;
+            } else {
               console.warn(`[useWorkspaceState.getWorkspaceNames] Invalid data type for workspace "${name}", skipping.`);
               return { name, savedAt: 0 }; // Treat as oldest if invalid
             }
-            const data: WorkspaceState = JSON.parse(dataString);
             // Use savedAt, default to 0 if missing for older workspaces
             return { name, savedAt: data.savedAt || 0 }; 
           } catch (parseError) {

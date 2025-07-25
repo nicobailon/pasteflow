@@ -1,4 +1,5 @@
 import { basename } from './path-utils';
+import { fileContentCache } from './file-cache';
 
 /**
  * Function to reset the app to its blank starting state
@@ -22,6 +23,9 @@ export const resetFolderState = (
   setSelectedFiles([]);
   setProcessingStatus({ status: "idle", message: "" });
   setAppInitialized(false);
+  
+  // Clear the file content cache
+  fileContentCache.clear();
   
   // Clear the session flag to ensure welcome screen appears next time
   sessionStorage.removeItem("hasLoadedInitialData");
