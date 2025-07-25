@@ -1,5 +1,5 @@
 import { basename } from './path-utils';
-import { fileContentCache } from './file-cache';
+import { enhancedFileContentCache as fileContentCache } from './enhanced-file-cache';
 
 /**
  * Function to reset the app to its blank starting state

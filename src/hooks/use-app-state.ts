@@ -3,11 +3,11 @@ import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
-import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction } from '../types/file-types';
+import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction, SelectedFileWithLines } from '../types/file-types';
 import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } from '../utils/content-formatter';
 import { resetFolderState } from '../utils/file-utils';
 import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
-import { fileContentCache } from '../utils/file-cache';
+import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -747,8 +747,8 @@ const useAppState = () => {
 
   // Calculate total tokens for selected files
   const totalTokensForSelectedFiles = useMemo(() => {
-    return fileSelection.selectedFiles.reduce((acc: number, file: FileData) => {
-      return acc + (file.tokenCount || estimateTokenCount(file.content));
+    return fileSelection.selectedFiles.reduce((acc: number, file: SelectedFileWithLines) => {
+      return acc + (file.tokenCount || estimateTokenCount(file.content || ''));
     }, 0);
   }, [fileSelection.selectedFiles]);
 

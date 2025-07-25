@@ -3,11 +3,16 @@ const path = require("node:path");
 const { Worker } = require("worker_threads");
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { getPathValidator } = require("./src/security/path-validator.js");
+const { ipcValidator } = require("./src/validation/ipc-validator.js");
 
 // Add handling for the 'ignore' module
 let ignore;
 // Global cancellation flag for file loading
 let fileLoadingCancelled = false;
+
+// Track current workspace paths for security validation
+let currentWorkspacePaths = [];
 
 try {
   ignore = require("ignore");
@@ -242,6 +247,14 @@ app.on("window-all-closed", () => {
 
 // Handle folder selection
 ipcMain.on("open-folder", async (event) => {
+  // SECURITY: Apply rate limiting
+  const validation = ipcValidator.validate('open-folder', {}, event);
+  
+  if (!validation.success) {
+    console.warn(`Rate limit exceeded for open-folder from sender: ${event.sender.id}`);
+    return;
+  }
+  
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
   });
@@ -251,6 +264,11 @@ ipcMain.on("open-folder", async (event) => {
     try {
       // Ensure we're only sending a string, not an object
       const pathString = String(selectedPath);
+      
+      // Update workspace paths for security validation
+      currentWorkspacePaths = [pathString];
+      getPathValidator(currentWorkspacePaths);
+      
       console.log("Sending folder-selected event with path:", pathString);
       event.sender.send("folder-selected", pathString);
     } catch (error) {
@@ -423,9 +441,23 @@ function processDirectory(dirPath, folderPath, depth, ignoreFilter) {
 
 // Handle file list request
 ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []) => {
+  // SECURITY: Validate input parameters
+  const validation = ipcValidator.validate('request-file-list', { folderPath, exclusionPatterns }, event);
+  
+  if (!validation.success) {
+    console.warn(`Input validation failed for request-file-list: ${validation.error}`);
+    event.sender.send("file-processing-status", {
+      status: "error",
+      message: validation.error
+    });
+    return;
+  }
+  
+  const { folderPath: validatedFolderPath, exclusionPatterns: validatedPatterns } = validation.data;
+  
   try {
-    console.log("Received request for file list in:", folderPath);
-    console.log("Exclusion patterns:", exclusionPatterns);
+    console.log("Received request for file list in:", validatedFolderPath);
+    console.log("Exclusion patterns:", validatedPatterns);
     fileLoadingCancelled = false;
 
     event.sender.send("file-processing-status", {
@@ -434,9 +466,9 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
     });
 
     const allFiles = [];
-    const directoryQueue = [{path: folderPath, depth: 0}];
+    const directoryQueue = [{path: validatedFolderPath, depth: 0}];
     const processedDirs = new Set();
-    const ignoreFilter = loadGitignore(folderPath, exclusionPatterns);
+    const ignoreFilter = loadGitignore(validatedFolderPath, validatedPatterns);
     const pendingFiles = []; // Files to process in workers
     const NUM_WORKERS = 4; // Number of worker threads
     let processingComplete = false; // Flag to prevent multiple completion calls
@@ -594,18 +626,39 @@ function shouldExcludeByDefault(filePath, rootDir) {
 
 // Add a new IPC handler for opening documentation
 ipcMain.on('open-docs', (event, docName) => {
-  // Path to the documentation file
-  const docPath = path.join(__dirname, 'docs', docName);
+  // SECURITY: Validate and sanitize document name to prevent path injection
+  if (!docName || typeof docName !== 'string') {
+    console.warn('Invalid document name provided to open-docs');
+    return;
+  }
+  
+  // Only allow specific document formats and remove any path traversal
+  const sanitizedDocName = path.basename(docName);
+  if (!/^[a-zA-Z0-9._-]+\.(md|txt|pdf)$/i.test(sanitizedDocName)) {
+    console.warn(`Invalid document format requested: ${docName}`);
+    return;
+  }
+  
+  // Path to the documentation file - only allow files in docs directory
+  const docPath = path.join(__dirname, 'docs', sanitizedDocName);
+  
+  // Additional security check - ensure resolved path is still within docs directory
+  const resolvedDocPath = path.resolve(docPath);
+  const docsDir = path.resolve(__dirname, 'docs');
+  if (!resolvedDocPath.startsWith(docsDir + path.sep)) {
+    console.warn(`Attempted access outside docs directory: ${docName}`);
+    return;
+  }
   
   // Check if the file exists
-  fs.access(docPath, fs.constants.F_OK, (err) => {
+  fs.access(resolvedDocPath, fs.constants.F_OK, (err) => {
     if (err) {
-      console.error(`Documentation file not found: ${docPath}`);
+      console.error(`Documentation file not found: ${resolvedDocPath}`);
       return;
     }
     
     // Open the file in the default application
-    shell.openPath(docPath)
+    shell.openPath(resolvedDocPath)
       .then(result => {
         if (result) {
           console.error(`Error opening documentation: ${result}`);
@@ -616,8 +669,17 @@ ipcMain.on('open-docs', (event, docName) => {
 
 // Add request-file-content handler for lazy loading file content
 ipcMain.handle('request-file-content', async (event, filePath) => {
+  // SECURITY: Validate path to prevent path traversal attacks
+  const validator = getPathValidator(currentWorkspacePaths);
+  const validation = validator.validatePath(filePath);
+  
+  if (!validation.valid) {
+    console.warn(`Security violation in request-file-content: ${validation.reason} for path: ${filePath}`);
+    return { success: false, error: 'Access denied', reason: validation.reason };
+  }
+  
   try {
-    const content = await fs.promises.readFile(filePath, 'utf8');
+    const content = await fs.promises.readFile(validation.sanitizedPath, 'utf8');
     if (isLikelyBinaryContent(content, filePath)) {
       return { success: false, error: 'File contains binary data', isBinary: true };
     }

@@ -1,0 +1,101 @@
+const path = require('path');
+
+class PathValidator {
+  constructor(workspacePaths = []) {
+    this.allowedBasePaths = new Set(workspacePaths.map(p => path.resolve(p)));
+    this.blockedPaths = new Set([
+      '/etc',
+      '/sys', 
+      '/proc',
+      '/root',
+      '/boot',
+      'C:\\Windows\\System32',
+      'C:\\Windows\\SysWOW64',
+      'C:\\Windows\\System',
+      'C:\\Windows\\Boot',
+      '/Users/*/.*',
+      '/home/*/.*',
+      'C:\\Users\\*\\.*',
+      // Common sensitive directories
+      path.resolve(process.env.HOME || '', '.ssh'),
+      path.resolve(process.env.HOME || '', '.aws'),
+      path.resolve(process.env.HOME || '', '.config'),
+    ]);
+  }
+
+  validatePath(inputPath) {
+    // Basic input validation
+    if (!inputPath || typeof inputPath !== 'string') {
+      return { valid: false, reason: 'INVALID_INPUT' };
+    }
+
+    // Check for path traversal patterns
+    if (inputPath.includes('..') || inputPath.includes('\0') || inputPath.includes('%00')) {
+      return { valid: false, reason: 'PATH_TRAVERSAL_DETECTED' };
+    }
+
+    // Resolve the path to prevent bypasses
+    let resolved;
+    try {
+      resolved = path.resolve(inputPath);
+    } catch (error) {
+      return { valid: false, reason: 'PATH_RESOLUTION_FAILED' };
+    }
+
+    // Check against blocked paths
+    for (const blockedPath of this.blockedPaths) {
+      if (resolved.startsWith(blockedPath) || this.matchesPattern(resolved, blockedPath)) {
+        return { valid: false, reason: 'BLOCKED_PATH' };
+      }
+    }
+
+    // Verify within allowed workspaces
+    if (this.allowedBasePaths.size > 0) {
+      const isInWorkspace = Array.from(this.allowedBasePaths)
+        .some(basePath => resolved.startsWith(basePath + path.sep) || resolved === basePath);
+      
+      if (!isInWorkspace) {
+        return { valid: false, reason: 'OUTSIDE_WORKSPACE' };
+      }
+    }
+
+    return { valid: true, sanitizedPath: resolved };
+  }
+
+  matchesPattern(filepath, pattern) {
+    // Simple glob-like pattern matching for basic wildcards
+    if (pattern.includes('*')) {
+      const regexPattern = pattern
+        .replace(/\*/g, '[^/\\\\]*')
+        .replace(/\//g, path.sep === '\\' ? '\\\\' : '/')
+        .replace(/\\/g, '\\\\');
+      
+      try {
+        return new RegExp(regexPattern).test(filepath);
+      } catch {
+        return false;
+      }
+    }
+    
+    return filepath.startsWith(pattern);
+  }
+
+  updateWorkspacePaths(workspacePaths) {
+    this.allowedBasePaths = new Set(workspacePaths.map(p => path.resolve(p)));
+  }
+}
+
+// Singleton instance to be used across the application
+let globalPathValidator = null;
+
+function getPathValidator(workspacePaths) {
+  if (!globalPathValidator || workspacePaths) {
+    globalPathValidator = new PathValidator(workspacePaths || []);
+  }
+  return globalPathValidator;
+}
+
+module.exports = {
+  PathValidator,
+  getPathValidator
+};
