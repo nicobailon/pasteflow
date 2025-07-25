@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import useFileTree from "../hooks/use-file-tree";
 import { SidebarProps, TreeNode } from "../types/file-types";
+import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
 
 import Dropdown, { DropdownOption } from './dropdown';
 import SearchBar from "./search-bar";
@@ -38,6 +39,9 @@ const Sidebar = ({
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
+  const [treeHeight, setTreeHeight] = useState(600);
+  const treeContainerRef = useRef<HTMLDivElement>(null);
+  const virtualListRef = useRef<VirtualizedTreeHandle>(null);
   
   // Get the current file tree sort order from localStorage
   const [currentSortOption, setCurrentSortOption] = useState(
@@ -136,6 +140,23 @@ const Sidebar = ({
       }
     };
   }, [processingStatus, isTreeLoading, isTreeBuildingComplete]);
+  
+  // Handle tree container resize
+  useEffect(() => {
+    if (!treeContainerRef.current) return;
+    
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setTreeHeight(entry.contentRect.height);
+      }
+    });
+    
+    resizeObserver.observe(treeContainerRef.current);
+    
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
 
   // All the tree management logic is now handled by the useFileTree hook
 
@@ -395,7 +416,7 @@ const Sidebar = ({
             </div>
           )}
           
-          <div className="tree-view">
+          <div className="tree-view" ref={treeContainerRef}>
             {showLoadingIndicator ? (
               <div className="tree-loading">
                 <div className="spinner"></div>
@@ -404,18 +425,17 @@ const Sidebar = ({
             ) : (
               <>
                 {visibleTree.length > 0 ? (
-                  visibleTree.map((node) => (
-                    <TreeItem
-                      key={node.id}
-                      node={node}
-                      selectedFiles={selectedFiles}
-                      toggleFileSelection={toggleFileSelection}
-                      toggleFolderSelection={toggleFolderSelection}
-                      toggleExpanded={toggleExpanded}
-                      onViewFile={onViewFile}
-                      loadFileContent={loadFileContent}
-                    />
-                  ))
+                  <VirtualizedTree
+                    ref={virtualListRef}
+                    visibleTree={visibleTree}
+                    selectedFiles={selectedFiles}
+                    toggleFileSelection={toggleFileSelection}
+                    toggleFolderSelection={toggleFolderSelection}
+                    toggleExpanded={toggleExpanded}
+                    onViewFile={onViewFile}
+                    loadFileContent={loadFileContent}
+                    height={treeHeight}
+                  />
                 ) : (
                   <div className="no-results">
                     <span>No files found.</span>

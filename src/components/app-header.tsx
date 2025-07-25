@@ -1,11 +1,11 @@
-import { Archive, Check, Folder, Loader2, Save } from 'lucide-react'; // Added Check, Loader2
+import { Archive, Check, Folder, Loader2, Save } from 'lucide-react';
 import { useState } from 'react';
 
 import { FileTreeMode } from '../types/file-types';
 
 import FileTreeToggle from './file-tree-toggle';
 import ThemeToggle from './theme-toggle';
-import WorkspaceDropdown from './workspace-dropdown'; // Import the actual component
+import WorkspaceDropdown from './workspace-dropdown';
 import WorkspaceModal from './workspace-modal';
 
 interface AppHeaderProps {
@@ -16,7 +16,7 @@ interface AppHeaderProps {
   toggleWorkspaceModal?: () => void;
   currentWorkspace?: string | null;
   saveCurrentWorkspace?: () => void;
-  headerSaveState?: 'idle' | 'saving' | 'success'; // Add the new prop type
+  headerSaveState?: 'idle' | 'saving' | 'success';
 }
 
 const AppHeader = ({
@@ -30,31 +30,14 @@ const AppHeader = ({
   headerSaveState // Destructure the new prop
 }: AppHeaderProps): JSX.Element => {
   const [localIsWorkspaceModalOpen, setLocalIsWorkspaceModalOpen] = useState(false);
-  // Removed renameTarget state
-  
-  console.log("[AppHeader] Rendering with currentWorkspace:", currentWorkspace);
   
   const handleWorkspaceToggle = () => {
-    console.log("[AppHeader] Toggling workspace modal.");
-    // Removed renameTarget logic
     if (toggleWorkspaceModal) {
-      // Use parent-provided toggle if available
       toggleWorkspaceModal();
     } else {
-      // Fallback to local state
       setLocalIsWorkspaceModalOpen(!localIsWorkspaceModalOpen); // Toggle local state
     }
   };
-
-  // --- Removed rename-related handlers: ---
-  // handleRenameRequest
-  // clearRenameTarget
-
-  // --- Removed redundant internal dropdown logic: ---
-  // handleSelectAndLoadWorkspace
-  // getWorkspaceOptions
-  // handleWorkspaceDropdownChange
-  // renderCustomOption
   
   const getButtonClassName = () => {
     let className = "workspace-button save-button";
@@ -125,10 +108,7 @@ const AppHeader = ({
           isOpen={localIsWorkspaceModalOpen}
           onClose={() => {
             setLocalIsWorkspaceModalOpen(false);
-            // clearRenameTarget call removed
           }}
-          // initialRenameTarget prop removed
-          // onClearInitialRenameTarget prop removed
         />
       )}
     </header>

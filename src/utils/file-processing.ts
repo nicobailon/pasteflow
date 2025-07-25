@@ -5,6 +5,26 @@ import { FileData } from '../types/file-types';
 
 import { loadGitignore } from './ignore-utils';
 
+// Binary file extensions
+const BINARY_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.ico', '.webp', '.svg',
+  '.mp3', '.mp4', '.wav', '.ogg', '.avi', '.mov', '.mkv', '.flac',
+  '.zip', '.rar', '.tar', '.gz', '.7z',
+  '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx',
+  '.exe', '.dll', '.so', '.class', '.o', '.pyc',
+  '.db', '.sqlite', '.sqlite3',
+  '.woff', '.woff2', '.ttf', '.eot',
+  '.jar', '.war', '.ear',
+  '.bin', '.dat', '.pak',
+  '.node', '.wasm'
+]);
+
+// Function to check if file is binary based on extension
+const isBinaryFile = (filePath: string): boolean => {
+  const ext = path.extname(filePath).toLowerCase();
+  return BINARY_EXTENSIONS.has(ext);
+};
+
 // Regex pattern to detect potential binary content
 /* eslint-disable-next-line no-control-regex */
 const BINARY_CONTENT_REGEX = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u00FF]{50,}/;
@@ -55,6 +75,7 @@ const processFile = async (
       isBinary: false,
       isSkipped: true,
       error: "File too large to process",
+      isDirectory: false
     };
   }
 
@@ -68,6 +89,7 @@ const processFile = async (
       isBinary: true,
       isSkipped: false,
       fileType: path.extname(filePath).slice(1).toUpperCase(),
+      isDirectory: false
     };
   }
 
@@ -83,6 +105,7 @@ const processFile = async (
         isBinary: true,
         isSkipped: false,
         fileType: "BINARY",
+        isDirectory: false
       };
     }
 
@@ -94,7 +117,8 @@ const processFile = async (
       isSkipped: false,
       fileType: path.extname(filePath).slice(1).toUpperCase(),
       excludedByDefault: shouldExcludeByDefault(filePath, folderPath),
-      isContentLoaded: false
+      isContentLoaded: false,
+      isDirectory: false
     };
   } catch (error) {
     const errorMessage = error instanceof Error && error.message === 'ENOENT' 
@@ -110,6 +134,7 @@ const processFile = async (
       isBinary: false,
       isSkipped: true,
       error: errorMessage,
+      isDirectory: false
     };
   }
 };

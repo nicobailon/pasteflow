@@ -1,15 +1,17 @@
 export interface FileData {
   name: string;
   path: string;
-  content?: string;
+  isDirectory: boolean;
+  isContentLoaded?: boolean;
   tokenCount?: number;
+  children?: FileData[];
+  content?: string;
   size: number;
   isBinary: boolean;
   isSkipped: boolean;
   error?: string;
   fileType?: string;
   excludedByDefault?: boolean;
-  isContentLoaded?: boolean;
 }
 
 // New interface for selected line ranges
@@ -154,15 +156,17 @@ export interface FileViewModalProps {
 // Interface for system prompts
 export interface SystemPrompt {
   id: string;
-  title: string;
+  name: string;
   content: string;
+  tokenCount?: number;
 }
 
 // Interface for role prompts
 export interface RolePrompt {
   id: string;
-  title: string;
+  name: string;
   content: string;
+  tokenCount?: number;
 }
 
 export interface SystemPromptsModalProps {
@@ -191,27 +195,32 @@ export interface RolePromptsModalProps {
 
 // If these types don't exist, add them:
 
-export interface Doc {
+export interface Instruction {
   id: string;
   title: string;
   content: string;
 }
 
-export interface DocsModalProps {
+export interface InstructionsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  docs: Doc[];
-  onAddDoc: (doc: Doc) => void;
-  onDeleteDoc: (id: string) => void;
-  onUpdateDoc: (doc: Doc) => void;
-  selectedDocs: Doc[];
-  toggleDocSelection: (doc: Doc) => void;
+  instructions: Instruction[];
+  onAddInstruction: (instruction: Instruction) => void;
+  onDeleteInstruction: (id: string) => void;
+  onUpdateInstruction: (instruction: Instruction) => void;
+  selectedInstructions: Instruction[];
+  toggleInstructionSelection: (instruction: Instruction) => void;
 }
 
 export interface WorkspaceState {
   selectedFolder: string | null;
-  fileTreeState: Record<string, boolean>;
+  allFiles: FileData[];
   selectedFiles: SelectedFileWithLines[];
+  expandedNodes: Record<string, boolean>;
+  sortOrder: string;
+  searchTerm: string;
+  fileTreeMode: FileTreeMode;
+  exclusionPatterns: string[];
   userInstructions: string;
   tokenCounts: { [filePath: string]: number };
   customPrompts: {
@@ -219,4 +228,50 @@ export interface WorkspaceState {
     rolePrompts: RolePrompt[];
   };
   savedAt?: number; // Added timestamp for sorting
+}
+
+export interface LineSelectionValidationResult {
+  isValid: boolean;
+  validatedLines: LineRange[] | undefined;
+  removedLines: LineRange[];
+  reason?: string;
+  contentAvailable: boolean;
+}
+
+export interface LineSelectionChangeEvent {
+  filePath: string;
+  previousLines: LineRange[] | undefined;
+  currentLines: LineRange[] | undefined;
+  removedLines: LineRange[];
+  validationSkipped?: boolean;
+  reason?: string;
+}
+
+export interface ValidationSummary {
+  validatedFiles: string[];
+  skippedFiles: string[];
+  deletedFiles: string[];
+  renamedFiles: string[];
+}
+
+export interface NotificationConfig {
+  type: 'warning' | 'error' | 'info' | 'success';
+  title: string;
+  message: string;
+  details?: {
+    summary: {
+      totalFiles: number;
+      totalRemovedLines: number;
+      validatedFiles: string[];
+      skippedFiles: string[];
+      deletedFiles: string[];
+      renamedFiles: string[];
+    };
+    changes: {
+      file: string;
+      removedLines: LineRange[];
+      status: 'pending' | 'validated';
+      reason?: string;
+    }[];
+  };
 }

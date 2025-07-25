@@ -22,11 +22,9 @@ const WorkspaceDropdown = ({
   const { getWorkspaceNames, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
 
   const handleSelectAndLoadWorkspace = (name: string) => {
-    console.log(`[WorkspaceDropdown] Attempting to load workspace: ${name}`);
     try {
       const workspaceData = loadPersistedWorkspace(name);
       if (workspaceData) {
-        console.log(`[WorkspaceDropdown] Workspace "${name}" loaded successfully. Dispatching 'workspaceLoaded' event.`);
         window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name, workspace: workspaceData } }));
       } else {
         console.error(`[WorkspaceDropdown] loadPersistedWorkspace returned null for "${name}". Load failed.`);
@@ -54,19 +52,15 @@ const WorkspaceDropdown = ({
       { value: '__new__', label: 'New Workspace' }, 
       { value: '__manage__', label: 'Manage Workspaces' }
     );
-    console.log("[WorkspaceDropdown.getWorkspaceOptions] Final options:", options);
     return options;
   }, [getWorkspaceNames, currentWorkspace]);
 
   const handleWorkspaceDropdownChange = (value: string) => {
-    console.log(`[WorkspaceDropdown] Selection changed: ${value}`);
     if (value === '__manage__') {
       toggleWorkspaceModal();
     } else if (value === '__new__') {
-      console.log("[WorkspaceDropdown] 'New Workspace' selected. Dispatching 'createNewWorkspace' event.");
       window.dispatchEvent(new CustomEvent('createNewWorkspace'));
-      // The App component should listen for this and reset state.
-    } else if (value !== '__divider1__' && value !== currentWorkspace) { // Avoid reloading the current workspace
+    } else if (value !== '__divider1__' && value !== currentWorkspace) {
       handleSelectAndLoadWorkspace(value);
     }
   };
@@ -74,9 +68,6 @@ const WorkspaceDropdown = ({
   // Only render the dropdown if there are workspaces or a current one is selected
   const workspaceNames = getWorkspaceNames();
   if (!currentWorkspace && workspaceNames.length === 0) {
-      // Maybe render nothing, or a placeholder? For now, render nothing.
-      // This prevents showing "Select Workspace" when there are none.
-      // Consider if a different behavior is desired on the Welcome Screen.
       return null;
   }
 

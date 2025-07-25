@@ -30,6 +30,9 @@ export const setupElectronHandlers = (
       if (typeof folderPath === "string") {
         console.log("Folder selected:", folderPath);
         const newPath = folderPath; // Use newPath consistent with prompt
+        
+        // Clear accumulated files when new folder is selected
+        accumulatedFiles = [];
 
         // ---> START OF NEW LOGIC BLOCK <---
         if (currentWorkspace === null) {
@@ -87,6 +90,9 @@ export const setupElectronHandlers = (
     }
   };
 
+  // Keep accumulated files in closure
+  let accumulatedFiles: FileData[] = [];
+  
   const handleFileListData = (
   data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number } | FileData[]
 ): void => {
@@ -97,21 +103,48 @@ export const setupElectronHandlers = (
   let totalCount = 0;
 
   if (Array.isArray(data)) {
-    filesArray = data.map(file => ({ ...file, isContentLoaded: file.isContentLoaded ?? false }));
+    // Legacy format - treat as complete and reset accumulated files
+    accumulatedFiles = [];
+    filesArray = data.map(file => ({ ...file, isContentLoaded: file.isContentLoaded ?? false, isDirectory: file.isDirectory ?? false }));
     isComplete = true;
     processedCount = filesArray.length;
   } else if (data?.files) {
-    filesArray = data.files.map(file => ({ ...file, isContentLoaded: file.isContentLoaded ?? false }));
+    // Progressive loading - accumulate files
+    const newFiles = data.files.map(file => ({ 
+      ...file, 
+      isContentLoaded: file.isContentLoaded ?? false,
+      isDirectory: file.isDirectory ?? false 
+    }));
+    
+    if (data.isComplete && newFiles.length === 0) {
+      // This is the final signal - use accumulated files
+      filesArray = accumulatedFiles;
+    } else {
+      // Add new files to accumulation with memory limit
+      const MAX_FILES_IN_MEMORY = 50000; // Prevent OOM by limiting files in memory
+      accumulatedFiles = [...accumulatedFiles, ...newFiles];
+      
+      // If approaching memory limit, send batch to free up memory
+      if (accumulatedFiles.length > MAX_FILES_IN_MEMORY) {
+        console.warn(`Memory limit reached: ${accumulatedFiles.length} files. Consider using exclusion patterns.`);
+        // Keep only the most recent files
+        accumulatedFiles = accumulatedFiles.slice(-MAX_FILES_IN_MEMORY);
+      }
+      
+      filesArray = accumulatedFiles;
+    }
+    
     isComplete = data.isComplete ?? false;
-    processedCount = data.processed ?? 0;
+    processedCount = data.processed ?? filesArray.length;
     directoriesCount = data.directories ?? 0;
-    totalCount = data.total ?? 0;
+    totalCount = data.total ?? filesArray.length;
   }
 
+  // Always update files, even for partial updates
   setAllFiles(filesArray);
+  applyFiltersAndSort(filesArray, sortOrder, searchTerm);
 
   if (isComplete) {
-    applyFiltersAndSort(filesArray, sortOrder, searchTerm);
     setProcessingStatus({
       status: "complete",
       message: `Loaded ${processedCount} files from ${directoriesCount} directories`,
@@ -121,6 +154,8 @@ export const setupElectronHandlers = (
     });
     setIsLoadingCancellable(false);
     setAppInitialized(true);
+    // Clear accumulated files after completion
+    accumulatedFiles = [];
   }
 
   const event = new CustomEvent("file-list-updated");

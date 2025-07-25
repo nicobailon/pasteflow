@@ -1,9 +1,8 @@
 import { useState } from "react";
 
 import AppHeader from "./components/app-header";
-import { ApplyChangesModal } from "./components/apply-changes-modal";
 import ContentArea from "./components/content-area";
-import DocsModal from "./components/docs-modal";
+import InstructionsModal from "./components/instructions-modal";
 import FileViewModal from "./components/file-view-modal";
 import FilterModal from "./components/filter-modal";
 import ProcessingIndicator from "./components/processing-indicator";
@@ -47,7 +46,7 @@ const App = () => {
           toggleWorkspaceModal={() => setIsWorkspaceModalOpen(true)}
           currentWorkspace={appState.currentWorkspace}
           saveCurrentWorkspace={appState.saveCurrentWorkspace}
-          headerSaveState={appState.headerSaveState} // Pass the new state down
+          headerSaveState={appState.headerSaveState}
         />
 
         {/* Processing indicator overlay */}
@@ -104,30 +103,21 @@ const App = () => {
             toggleSortDropdown={appState.toggleSortDropdown}
             sortOptions={SORT_OPTIONS}
             getSelectedFilesContent={appState.getFormattedContent}
-            getContentWithXmlPrompt={appState.getFormattedContentWithXml}
             calculateTotalTokens={appState.calculateTotalTokens}
             instructionsTokenCount={appState.instructionsTokenCount}
             userInstructions={appState.userInstructions}
             setUserInstructions={appState.setUserInstructions}
             fileTreeTokens={appState.getCurrentFileTreeTokens()}
-            systemPromptTokens={appState.systemPromptTokens}
-            rolePromptTokens={appState.rolePromptTokens}
-            setShowApplyChangesModal={appState.setShowApplyChangesModal}
+            systemPromptTokens={appState.systemPromptsTokens}
+            rolePromptTokens={appState.rolePromptsTokens}
             setSystemPromptsModalOpen={appState.setSystemPromptsModalOpen}
             setRolePromptsModalOpen={appState.setRolePromptsModalOpen}
-            setDocsModalOpen={appState.setDocsModalOpen}
+            setInstructionsModalOpen={appState.setInstructionsModalOpen}
             loadFileContent={appState.loadFileContent}
           />
         </div>
         
         {/* Modals */}
-        {appState.showApplyChangesModal && appState.selectedFolder && (
-          <ApplyChangesModal
-            selectedFolder={appState.selectedFolder}
-            onClose={() => appState.setShowApplyChangesModal(false)}
-          />
-        )}
-        
         {appState.filterModalOpen && (
           <FilterModal
             exclusionPatterns={appState.exclusionPatterns}
@@ -174,15 +164,15 @@ const App = () => {
           toggleRolePromptSelection={appState.toggleRolePromptSelection}
         />
         
-        <DocsModal
-          isOpen={appState.docsModalOpen}
-          onClose={() => appState.setDocsModalOpen(false)}
-          docs={appState.docs}
-          onAddDoc={appState.handleAddDoc}
-          onDeleteDoc={appState.handleDeleteDoc}
-          onUpdateDoc={appState.handleUpdateDoc}
-          selectedDocs={appState.selectedDocs}
-          toggleDocSelection={appState.toggleDocSelection}
+        <InstructionsModal
+          isOpen={appState.instructionsModalOpen}
+          onClose={() => appState.setInstructionsModalOpen(false)}
+          instructions={appState.instructions || []}
+          onAddInstruction={appState.onAddInstruction}
+          onDeleteInstruction={appState.onDeleteInstruction}
+          onUpdateInstruction={appState.onUpdateInstruction}
+          selectedInstructions={appState.selectedInstructions || []}
+          toggleInstructionSelection={appState.toggleInstructionSelection}
         />
         
         <WorkspaceModal

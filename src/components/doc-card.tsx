@@ -1,6 +1,6 @@
 import { FileText, X } from "lucide-react";
 
-import { Doc } from "../types/file-types";
+import { Instruction } from "../types/file-types";
 
 import CopyButton from "./copy-button";
 
@@ -10,15 +10,15 @@ const estimateTokenCount = (text: string) => {
 };
 
 interface DocCardProps {
-  doc: Doc;
-  toggleSelection: (doc: Doc) => void;
+  instruction: Instruction;
+  toggleSelection: (instruction: Instruction) => void;
 }
 
 const DocCard = ({
-  doc,
+  instruction,
   toggleSelection
 }: DocCardProps) => {
-  const { title, content } = doc;
+  const { title, content } = instruction;
   
   const tokenCount = estimateTokenCount(content);
 
@@ -43,7 +43,7 @@ const DocCard = ({
         </CopyButton>
         <button
           className="file-card-action remove-selection-btn"
-          onClick={() => toggleSelection(doc)}
+          onClick={() => toggleSelection(instruction)}
           title="Remove from selection"
         >
           <X size={16} />

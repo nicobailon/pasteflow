@@ -23,11 +23,10 @@ interface ContentAreaProps {
   toggleRolePromptSelection: (prompt: RolePrompt) => void;
   sortOrder: string;
   handleSortChange: (newSort: string) => void;
+  sortDropdownOpen: boolean;
+  toggleSortDropdown: () => void;
   sortOptions: { value: string; label: string }[];
-  sortDropdownOpen?: boolean;
-  toggleSortDropdown?: () => void;
   getSelectedFilesContent: () => string;
-  getContentWithXmlPrompt: () => string;
   calculateTotalTokens: () => number;
   instructionsTokenCount: number;
   userInstructions: string;
@@ -35,10 +34,9 @@ interface ContentAreaProps {
   fileTreeTokens: number;
   systemPromptTokens: number;
   rolePromptTokens: number;
-  setShowApplyChangesModal: (show: boolean) => void;
   setSystemPromptsModalOpen: (open: boolean) => void;
   setRolePromptsModalOpen: (open: boolean) => void;
-  setDocsModalOpen: (open: boolean) => void;
+  setInstructionsModalOpen: (open: boolean) => void;
   loadFileContent: (filePath: string) => Promise<void>;
 }
 
@@ -57,10 +55,7 @@ const ContentArea = ({
   sortOrder,
   handleSortChange,
   sortOptions,
-  sortDropdownOpen,
-  toggleSortDropdown,
   getSelectedFilesContent,
-  getContentWithXmlPrompt,
   calculateTotalTokens,
   instructionsTokenCount,
   userInstructions,
@@ -68,10 +63,9 @@ const ContentArea = ({
   fileTreeTokens,
   systemPromptTokens,
   rolePromptTokens,
-  setShowApplyChangesModal,
   setSystemPromptsModalOpen,
   setRolePromptsModalOpen,
-  setDocsModalOpen,
+  setInstructionsModalOpen,
   loadFileContent
 }: ContentAreaProps) => {
   
@@ -82,6 +76,7 @@ const ContentArea = ({
     }
     return getContent();
   };
+
   return (
     <div className="content-area">
       <div className="selected-files-content-area">
@@ -132,7 +127,7 @@ const ContentArea = ({
 
             <button 
               className="docs-button"
-              onClick={() => setDocsModalOpen(true)}
+              onClick={() => setInstructionsModalOpen(true)}
             >
               <FileText size={16} />
               <span>Docs</span>
@@ -189,41 +184,6 @@ const ContentArea = ({
                 return total.toLocaleString();
               })().toString()} tokens (loaded files only)
             </div>
-          </div>
-          
-          <div className="copy-button-group">
-            <CopyButton
-              text={() => handleCopyWithLoading(getContentWithXmlPrompt)}
-              className="secondary copy-selected-files-btn"
-            >
-              <span>COPY WITH XML PROMPT ({selectedFiles.length} files)</span>
-            </CopyButton>
-            <div className="token-count-display">
-              ~{(() => {
-                // Calculate total tokens for content with XML prompt
-                // This is a simplified calculation since the actual function isn't called here
-                const baseTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens;
-                // Add XML formatting instructions tokens using accurate method
-                // We use 800 as more realistic estimation based on actual XML formatting instructions length
-                const xmlInstructionsTokens = 800;
-                
-                let total = baseTokens + xmlInstructionsTokens;
-                if (userInstructions.trim()) {
-                  total += instructionsTokenCount;
-                }
-                
-                return total.toLocaleString();
-              })().toString()} tokens
-            </div>
-          </div>
-
-          <div className="copy-button-group">
-            <button
-              className="apply-changes-btn"
-              onClick={() => setShowApplyChangesModal(true)}
-            >
-              Apply XML Changes
-            </button>
           </div>
         </div>
       </div>

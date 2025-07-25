@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { FileData, TreeNode } from '../types/file-types';
+import type { FileData, TreeNode } from '../types/file-types';
 import { normalizePath } from '../utils/path-utils';
 
 interface UseFileTreeProps {
@@ -33,30 +33,30 @@ function useFileTree({
   fileTreeSortOrder = 'default'
 }: UseFileTreeProps): UseFileTreeResult {
   const [isTreeBuildingComplete, setIsTreeBuildingComplete] = useState(false);
+  const [fileTree, setFileTree] = useState([] as TreeNode[]);
+  
   // Reference to track previous sort order for cache invalidation
   const prevSortOrderRef = useRef(fileTreeSortOrder);
   
   // Reference to track if we've already started processing
   const processingStartedRef = useRef(false);
   
-  // We'll use this to store the file tree incrementally
-  const [fileTree, setFileTree] = useState([] as TreeNode[]);
+  // Reference to store the complete file map
+  const fileMapRef = useRef({});
   
   // Convert the nested object structure to the TreeNode array format
+  // Now with deferred sorting
   const convertToTreeNodes = useCallback((
     node: Record<string, any>,
     level = 0,
+    shouldSort = false // Only sort when needed
   ): TreeNode[] => {
-    // Handle null or undefined values
-    if (!node) {
-      return [];
-    }
+    if (!node) return [];
     
     return Object.keys(node).map((key) => {
       const item = node[key];
 
       if (item.isFile) {
-        // Ensure all file nodes have the 'type' and 'level' properties set
         return {
           ...item,
           type: 'file',
@@ -64,44 +64,39 @@ function useFileTree({
           id: item.path || `file-${Math.random().toString(36).slice(2, 11)}`
         } as TreeNode;
       } else {
-        // Add null check for item.children too
-        const children = item.children ? convertToTreeNodes(item.children, level + 1) : [];
-        const isExpanded =
-          expandedNodes[item.path] === undefined
-            ? level < 2
-            : expandedNodes[item.path]; // Only auto-expand top 2 levels
+        const children = item.children ? 
+          convertToTreeNodes(item.children, level + 1, shouldSort) : [];
+        
+        const isExpanded = expandedNodes[item.path] ?? (level < 2);
+        
+        // Only sort children if explicitly requested and the node is expanded
+        const sortedChildren = (shouldSort && isExpanded) ? 
+          sortTreeNodes(children, fileTreeSortOrder) : 
+          children;
 
-        // Ensure all directory nodes have the 'type' and 'level' properties set
         return {
           ...item,
           type: 'directory',
           level,
           id: item.path || `dir-${Math.random().toString(36).slice(2, 11)}`,
-          children: sortTreeNodes(children, fileTreeSortOrder),
+          children: sortedChildren,
           isExpanded,
         } as TreeNode;
       }
     });
   }, [expandedNodes, fileTreeSortOrder]);
 
-  // Process files in batches for better performance
+  // Process files in smaller batches for better responsiveness
   useEffect(() => {
-    // Reset the processing state when dependencies change
     processingStartedRef.current = false;
-    
-    // Mark tree building as incomplete
     setIsTreeBuildingComplete(false);
+    fileMapRef.current = {};
     
-    // Create a structured representation using nested objects first
-    const fileMap: Record<string, any> = {};
-    
-    // Process files in batches
-    const BATCH_SIZE = 200;
+    const BATCH_SIZE = 50; // Reduced batch size
+    const BATCH_INTERVAL = 1; // Increased frequency (1ms)
     let processedCount = 0;
     
-    // Function to process a batch of files
     const processBatch = () => {
-      // Check if we should stop processing (component unmounted or dependencies changed)
       if (!processingStartedRef.current) {
         processingStartedRef.current = true;
       }
@@ -109,7 +104,6 @@ function useFileTree({
       const endIdx = Math.min(processedCount + BATCH_SIZE, allFiles.length);
       const batch = allFiles.slice(processedCount, endIdx);
       
-      // Process this batch
       for (const file of batch) {
         if (!file.path) continue;
 
@@ -125,16 +119,14 @@ function useFileTree({
 
         const parts = relativePath.split(/[/\\]/);
         let currentPath = "";
-        let current = fileMap;
+        let current = fileMapRef.current;
 
-        // Build the path in the tree
         for (let i = 0; i < parts.length; i++) {
           const part = parts[i];
           if (!part) continue;
 
           currentPath = currentPath ? `${currentPath}/${part}` : part;
           
-          // For intermediate directories
           if (i < parts.length - 1) {
             const dirPath = selectedFolder
               ? normalizePath(`${selectedFolder}/${currentPath}`)
@@ -146,13 +138,11 @@ function useFileTree({
                 path: dirPath,
                 children: {},
                 isDirectory: true,
-                isExpanded: expandedNodes[dirPath] ?? (i < 2) // Auto-expand first two levels
+                isExpanded: expandedNodes[dirPath] ?? (i < 2)
               };
             }
             current = current[part].children;
-          } 
-          // For files
-          else {
+          } else {
             const filePath = selectedFolder
               ? normalizePath(`${selectedFolder}/${currentPath}`)
               : normalizePath(`/${currentPath}`);
@@ -169,48 +159,46 @@ function useFileTree({
       
       processedCount = endIdx;
       
-      // Check if we're done processing all files
+      // Update tree without sorting for intermediate updates
+      const intermediateTree = convertToTreeNodes(fileMapRef.current, 0, false);
+      setFileTree(intermediateTree);
+      
       if (processedCount >= allFiles.length) {
-        // Convert the tree and update state
-        const convertedTree = convertToTreeNodes(fileMap);
-        setFileTree(convertedTree);
+        // Only sort the final tree when all files are processed
+        const finalTree = convertToTreeNodes(fileMapRef.current, 0, true);
+        setFileTree(finalTree);
         setIsTreeBuildingComplete(true);
       } else {
-        // Check if we're running in a Jest test environment with fake timers
-        // In Jest test environment, process all files immediately to avoid timer issues
-        if (typeof jest === 'undefined') {
-          // Schedule the next batch with a small delay to let UI update
-          // Using a small non-zero timeout to prevent test issues
-          setTimeout(processBatch, 1);
-        } else {
-          // Continue processing immediately when in test environment
-          processBatch();
-        }
+        setTimeout(processBatch, BATCH_INTERVAL);
       }
     };
     
-    // Start processing the first batch
-    processBatch();
+    if (allFiles.length > 0) {
+      processBatch();
+    } else {
+      setFileTree([]);
+      setIsTreeBuildingComplete(true);
+    }
     
-    // Cleanup function to reset the state if the component unmounts
-    // or if dependencies change
     return () => {
-      // Cancel any pending batch operations by setting the flag to false
       processingStartedRef.current = false;
     };
-  // Only include dependencies that should trigger a full tree rebuild
-  }, [allFiles, selectedFolder, fileTreeSortOrder, convertToTreeNodes, expandedNodes]);
+  }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder]);
 
-  // Effect to handle cleanup on sort order change - keep separate from main effect
+  // Effect to handle cleanup on sort order change
   useEffect(() => {
     if (prevSortOrderRef.current !== fileTreeSortOrder) {
-      // Reset processing to rebuild tree with new sort order
       processingStartedRef.current = false;
       prevSortOrderRef.current = fileTreeSortOrder;
-      // Clear the node priority cache
       clearNodePriorityCache();
+      
+      // Re-sort the existing tree without rebuilding
+      if (fileMapRef.current && Object.keys(fileMapRef.current).length > 0) {
+        const sortedTree = convertToTreeNodes(fileMapRef.current, 0, true);
+        setFileTree(sortedTree);
+      }
     }
-  }, [fileTreeSortOrder, expandedNodes]);
+  }, [fileTreeSortOrder, convertToTreeNodes]);
 
   // Function to sort tree nodes based on sort order
   const sortTreeNodes = (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
@@ -508,8 +496,14 @@ function useFileTree({
 
   // The final tree to render, filtered and flattened
   const visibleTree = useMemo(() => {
+    // If there's no search term and the tree isn't complete, return unfiltered tree
+    if (!searchTerm && !isTreeBuildingComplete) {
+      return flattenTree(fileTree);
+    }
+    
+    // Only apply filtering and sorting when needed
     return flattenTree(filterTree(fileTree, searchTerm));
-  }, [fileTree, searchTerm, filterTree, flattenTree]);
+  }, [fileTree, searchTerm, isTreeBuildingComplete, filterTree, flattenTree]);
 
   return {
     fileTree,

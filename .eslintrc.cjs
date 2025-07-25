@@ -31,7 +31,12 @@ module.exports = {
       { allowConstantExport: true },
     ],
     "@typescript-eslint/no-explicit-any": "off", // During development, allow 'any' type
-    "@typescript-eslint/no-unused-vars": "warn",
+    "@typescript-eslint/no-unused-vars": ['warn', {
+      'argsIgnorePattern': '^_',
+      'varsIgnorePattern': '^_',
+      'caughtErrorsIgnorePattern': '^_',
+      'destructuredArrayIgnorePattern': '^_'
+    }],
     "@typescript-eslint/array-type": ["error", { "default": "array" }], // Force array types to be properly typed
     "@typescript-eslint/no-inferrable-types": "warn", // Warn about unnecessary type annotations
     "filenames/match-regex": ["warn", "^[a-z0-9-]+(.d)?$", true],
@@ -181,28 +186,8 @@ module.exports = {
       }
     },
     {
-      // TypeScript specific files
-      files: ["src/main/xml-utils.ts", "src/utils/token-utils.ts"],
-      rules: {
-        "@typescript-eslint/no-unused-vars": "warn",
-        "@typescript-eslint/no-explicit-any": "off",
-        "@typescript-eslint/ban-ts-comment": "off"
-      }
-    },
-    {
-      // XML utility JavaScript files (CommonJS)
-      files: ["src/main/xml-utils.js", "src/main/xml-format-instructions.js"],
-      rules: {
-        "unicorn/prefer-module": "off",
-        "import/order": "off",
-        "sonarjs/cognitive-complexity": "off",
-        "unicorn/prefer-add-event-listener": "off",
-        "sonarjs/no-duplicate-string": "off"
-      }
-    },
-    {
       // Files with extremely complex functions
-      files: ["src/hooks/use-file-tree.ts", "src/main/xml-utils.ts"],
+      files: ["src/hooks/use-file-tree.ts"],
       rules: {
         "sonarjs/cognitive-complexity": "off",
         "sonarjs/no-duplicate-string": "off"
@@ -246,20 +231,10 @@ module.exports = {
       }
     },
     {
-      // Files with high cognitive complexity
-      files: [
-        "src/handlers/electron-handlers.ts",
-        "src/hooks/use-app-state.ts"
-      ],
+      files: ['src/hooks/*'],
       rules: {
-        "sonarjs/cognitive-complexity": "off" // Disable for files with complex functions
-      }
-    },
-    {
-      // Files with hooks dependency issues
-      files: ["src/hooks/use-app-state.ts"],
-      rules: {
-        "react-hooks/exhaustive-deps": "warn" // Keep as warning for now while development continues
+        'complexity': ['warn', { max: 25 }], // Hooks often need more complexity
+        '@typescript-eslint/no-unused-vars': 'warn'
       }
     }
   ],

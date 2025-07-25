@@ -149,7 +149,6 @@ function handleCheckboxChange(event) {
     selectedFiles = selectedFiles.filter((path) => path !== filePath);
   }
   updateTotalTokens();
-  console.log("Selected files:", selectedFiles.length);
 }
 
 // Select All button functionality
@@ -174,7 +173,6 @@ selectAllButton.addEventListener("click", () => {
   }
 
   updateTotalTokens();
-  console.log("Selected all displayed files:", selectedFiles.length);
 });
 
 // Deselect All button functionality
@@ -197,7 +195,6 @@ deselectAllButton.addEventListener("click", () => {
   }
 
   updateTotalTokens();
-  console.log("Deselected all displayed files");
 });
 
 // Format file size to be human-readable
@@ -249,7 +246,6 @@ copyButton.addEventListener("click", async () => {
       copyStatus.classList.remove("visible");
     }, 2000);
 
-    console.log("Content copied to clipboard");
   } catch (error) {
     console.error("Could not copy content:", error);
     alert("Failed to copy to clipboard");

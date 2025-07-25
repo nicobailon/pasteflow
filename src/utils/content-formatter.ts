@@ -1,6 +1,10 @@
-import { FileData, FileTreeMode, RolePrompt, SelectedFileWithLines, SystemPrompt } from "../types/file-types";
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { FileData, FileTreeMode, RolePrompt, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
 
 import { extname, generateAsciiFileTree, getAllDirectories, getRelativePath, normalizePath } from "./path-utils";
+import { validateLineSelections, extractContentForLines } from './workspace-utils';
 
 /**
  * Helper function to sort files according to the current sort order
@@ -16,7 +20,7 @@ const sortFilesByOrder = (files: FileData[], sortOrder: string): FileData[] => {
         break;
       }
       case "tokens": {
-        comparison = a.tokenCount - b.tokenCount;
+        comparison = (a.tokenCount || 0) - (b.tokenCount || 0);
         break;
       }
       case "size": {
@@ -75,73 +79,43 @@ const generateFileTreeItems = (
 const getLanguageIdentifier = (extension: string, filePath: string): string => {
   // Web development languages
   switch (extension) {
-    case 'js': { return 'javascript';
-    }
-    case 'ts': { return 'typescript';
-    }
-    case 'tsx': { return 'tsx';
-    }
-    case 'jsx': { return 'jsx';
-    }
-    case 'css': { return 'css';
-    }
+    case 'js': { return 'javascript'; }
+    case 'ts': { return 'typescript'; }
+    case 'tsx': { return 'tsx'; }
+    case 'jsx': { return 'jsx'; }
+    case 'css': { return 'css'; }
     case 'scss': 
-    case 'sass': { return 'scss';
-    }
-    case 'less': { return 'less';
-    }
-    case 'html': { return 'html';
-    }
-    case 'json': { return 'json';
-    }
-    case 'md': { return 'markdown';
-    }
-    case 'xml': { return 'xml';
-    }
-    case 'svg': { return 'svg';
-    }
-    case 'py': { return 'python';
-    }
-    case 'rb': { return 'ruby';
-    }
-    case 'php': { return 'php';
-    }
-    case 'java': { return 'java';
-    }
-    case 'cs': { return 'csharp';
-    }
-    case 'go': { return 'go';
-    }
-    case 'rs': { return 'rust';
-    }
-    case 'swift': { return 'swift';
-    }
+    case 'sass': { return 'scss'; }
+    case 'less': { return 'less'; }
+    case 'html': { return 'html'; }
+    case 'json': { return 'json'; }
+    case 'md': { return 'markdown'; }
+    case 'svg': { return 'svg'; }
+    case 'py': { return 'python'; }
+    case 'rb': { return 'ruby'; }
+    case 'php': { return 'php'; }
+    case 'java': { return 'java'; }
+    case 'cs': { return 'csharp'; }
+    case 'go': { return 'go'; }
+    case 'rs': { return 'rust'; }
+    case 'swift': { return 'swift'; }
     case 'kt': 
-    case 'kts': { return 'kotlin';
-    }
+    case 'kts': { return 'kotlin'; }
     case 'c': 
-    case 'h': { return 'c';
-    }
+    case 'h': { return 'c'; }
     case 'cpp': 
     case 'cc': 
     case 'cxx': 
-    case 'hpp': { return 'cpp';
-    }
+    case 'hpp': { return 'cpp'; }
     case 'sh': 
-    case 'bash': { return 'bash';
-    }
-    case 'ps1': { return 'powershell';
-    }
+    case 'bash': { return 'bash'; }
+    case 'ps1': { return 'powershell'; }
     case 'bat': 
-    case 'cmd': { return 'batch';
-    }
+    case 'cmd': { return 'batch'; }
     case 'yaml': 
-    case 'yml': { return 'yaml';
-    }
-    case 'toml': { return 'toml';
-    }
-    case 'ini': { return 'ini';
-    }
+    case 'yml': { return 'yaml'; }
+    case 'toml': { return 'toml'; }
+    case 'ini': { return 'ini'; }
     default: { 
       if (extension === 'dockerfile' || filePath.toLowerCase().endsWith('dockerfile')) return 'dockerfile';
       // Database
@@ -155,39 +129,44 @@ const getLanguageIdentifier = (extension: string, filePath: string): string => {
 /**
  * Process content for a file based on the selected lines
  */
-const processFileContent = (
-  fileContent: string, 
-  selectedFileInfo: SelectedFileWithLines | undefined
-): { content: string, partial: boolean } => {
-  let content = fileContent;
-  let partial = false;
-  
-  // If we have line selections, only include those lines
-  if (selectedFileInfo?.lines && selectedFileInfo.lines.length > 0) {
-    partial = true;
-    
-    // If we have precomputed content, use it
-    if (selectedFileInfo.content) {
-      content = selectedFileInfo.content;
-    } else {
-      // Otherwise compute it from the ranges
-      const lines = content.split('\n');
-      const selectedContent: string[] = [];
-      
-      for (const range of selectedFileInfo.lines) {
-        for (let i = range.start - 1; i < range.end; i++) {
-          if (i >= 0 && i < lines.length) {
-            selectedContent.push(lines[i]);
-          }
-        }
-      }
-      
-      content = selectedContent.join('\n');
-    }
+export function processFileContent(
+  fileContent: string | undefined,
+  selectedFileInfo: SelectedFileWithLines | undefined,
+  onValidationChange?: (result: LineSelectionValidationResult) => void
+): { content: string; partial: boolean } {
+  if (!selectedFileInfo || !selectedFileInfo.lines) {
+    return { content: fileContent || '', partial: false };
   }
+
+  if (!fileContent) {
+    if (onValidationChange) {
+      onValidationChange({
+        isValid: true,
+        validatedLines: selectedFileInfo.lines,
+        removedLines: [],
+        contentAvailable: false
+      });
+    }
+    return { content: '', partial: false };
+  }
+
+  const validation = validateLineSelections(fileContent, selectedFileInfo);
   
-  return { content, partial };
-};
+  if (!validation.isValid && onValidationChange) {
+    onValidationChange(validation);
+  }
+
+  if (!validation.validatedLines) {
+    return { content: fileContent, partial: false };
+  }
+
+  const selectedContent = extractContentForLines(fileContent, validation.validatedLines);
+
+  return {
+    content: selectedContent,
+    partial: true
+  };
+}
 
 /**
  * Generates a formatted string containing all selected files' contents without user instructions.
@@ -271,19 +250,16 @@ export const getSelectedFilesContentWithoutInstructions = (
 };
 
 /**
- * Generates a formatted string containing selected files' content with optional user instructions.
- * This function extends getSelectedFilesContentWithoutInstructions by adding any user-provided 
- * instructions from the textarea input.
- * 
+ * Gets the content of selected files with optional system prompt and user instructions.
  * @param {FileData[]} allFiles - Array of all files
  * @param {SelectedFileWithLines[]} selectedFiles - Array of selected files
  * @param {string} sortOrder - Current sort order
  * @param {FileTreeMode} fileTreeMode - Current file tree mode
  * @param {string | null} selectedFolder - Selected folder path
- * @param {SystemPrompt[]} selectedSystemPrompts - Selected system prompts
- * @param {RolePrompt[]} selectedRolePrompts - Selected role prompts
- * @param {string} userInstructions - User-provided instructions
- * @returns {string} A formatted string with selected files' content and optional user instructions.
+ * @param {SystemPrompt[]} selectedSystemPrompts - Array of selected system prompts
+ * @param {RolePrompt[]} selectedRolePrompts - Array of selected role prompts
+ * @param {string} userInstructions - User instructions to append
+ * @returns {string} A formatted string with selected files' content and optional prompts.
  */
 export const getSelectedFilesContent = (
   allFiles: FileData[],
@@ -295,7 +271,7 @@ export const getSelectedFilesContent = (
   selectedRolePrompts: RolePrompt[],
   userInstructions: string
 ): string => {
-  // Get the base content
+  // Get base content without instructions
   const baseContent = getSelectedFilesContentWithoutInstructions(
     allFiles,
     selectedFiles,
@@ -303,86 +279,104 @@ export const getSelectedFilesContent = (
     fileTreeMode,
     selectedFolder
   );
-  
+
+  // Add system prompts if any are selected
   let result = baseContent;
-  
-  // Add role prompts if selected (before system prompts)
-  if (selectedRolePrompts.length > 0) {
-    for (const prompt of selectedRolePrompts) {
-      result += `\n\n<role>\n${prompt.content}\n</role>`;
-    }
-  }
-  
-  // Add system prompts if selected
   if (selectedSystemPrompts.length > 0) {
-    for (const prompt of selectedSystemPrompts) {
-      result += `\n\n<guidelines>\n${prompt.content}\n</guidelines>`;
-    }
+    const systemPromptsText = selectedSystemPrompts
+      .map(prompt => prompt.content)
+      .join('\n\n');
+    result = `${systemPromptsText}\n\n${result}`;
   }
-  
-  // Append user instructions if they exist
+
+  // Add role prompts if any are selected
+  if (selectedRolePrompts.length > 0) {
+    const rolePromptsText = selectedRolePrompts
+      .map(prompt => prompt.content)
+      .join('\n\n');
+    result = `${rolePromptsText}\n\n${result}`;
+  }
+
+  // Add user instructions if provided
   if (userInstructions) {
-    result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+    result = `${result}\n\n${userInstructions}`;
   }
-  
+
   return result;
 };
 
+export function getFileType(fileName: string): string {
+  const extension = fileName.split('.').pop()?.toLowerCase() || '';
+  switch (extension) {
+    case 'js': { return 'javascript'; }
+    case 'jsx': { return 'javascript'; }
+    case 'ts': { return 'typescript'; }
+    case 'tsx': { return 'typescript'; }
+    case 'py': { return 'python'; }
+    case 'java': { return 'java'; }
+    case 'cpp': { return 'cpp'; }
+    case 'c': { return 'c'; }
+    case 'cs': { return 'csharp'; }
+    case 'go': { return 'go'; }
+    case 'rs': { return 'rust'; }
+    case 'swift': { return 'swift'; }
+    case 'kt': { return 'kotlin'; }
+    case 'rb': { return 'ruby'; }
+    case 'php': { return 'php'; }
+    case 'html': { return 'html'; }
+    case 'css': { return 'css'; }
+    case 'scss': { return 'scss'; }
+    case 'json': { return 'json'; }
+    case 'md': { return 'markdown'; }
+    case 'sh': { return 'shell'; }
+    case 'bash': { return 'shell'; }
+    case 'zsh': { return 'shell'; }
+    case 'sql': { return 'sql'; }
+    case 'yaml': { return 'yaml'; }
+    case 'yml': { return 'yaml'; }
+    case 'toml': { return 'toml'; }
+    default: { return extension || 'plaintext'; }
+  }
+}
+
 /**
- * Generates content with XML formatting instructions and optional system prompt and user instructions.
- * 
- * @param {FileData[]} allFiles - Array of all files
- * @param {SelectedFileWithLines[]} selectedFiles - Array of selected files
- * @param {string} sortOrder - Current sort order
- * @param {FileTreeMode} fileTreeMode - Current file tree mode
- * @param {string | null} selectedFolder - Selected folder path
- * @param {SystemPrompt[]} selectedSystemPrompts - Selected system prompts
- * @param {RolePrompt[]} selectedRolePrompts - Selected role prompts
- * @param {string} userInstructions - User-provided instructions
- * @param {string} xmlFormatInstructions - XML formatting instructions
- * @returns {string} A formatted string with selected files' content, XML instructions, and optional prompts.
+ * Gets the content of selected files with optional system prompt and user instructions.
+ * @param {string[]} selectedFiles - Array of selected file paths
+ * @param {string} [systemPrompt] - Optional system prompt to prepend
+ * @param {string} [userInstructions] - Optional user instructions to append
+ * @returns {string} A formatted string with selected files' content and optional prompts.
  */
-export const getContentWithXmlPrompt = (
-  allFiles: FileData[],
-  selectedFiles: SelectedFileWithLines[],
-  sortOrder: string,
-  fileTreeMode: FileTreeMode,
-  selectedFolder: string | null,
-  selectedSystemPrompts: SystemPrompt[],
-  selectedRolePrompts: RolePrompt[],
-  userInstructions: string,
-  xmlFormatInstructions: string
+export const getSimpleFileContent = (
+  selectedFiles: string[],
+  systemPrompt?: string,
+  userInstructions?: string
 ): string => {
-  // Get the content without user instructions
-  const baseContent = getSelectedFilesContentWithoutInstructions(
-    allFiles,
-    selectedFiles,
-    sortOrder,
-    fileTreeMode,
-    selectedFolder
-  );
-  
-  // Combine content with XML instructions
-  let result = `${baseContent}\n\n${xmlFormatInstructions}`;
-  
-  // Add role prompts if selected
-  if (selectedRolePrompts.length > 0) {
-    for (const prompt of selectedRolePrompts) {
-      result += `\n\n<role>\n${prompt.content}\n</role>`;
-    }
+  let content = '';
+
+  // Add system prompt if provided
+  if (systemPrompt) {
+    content += `${systemPrompt}\n\n`;
   }
-  
-  // Add system prompts if selected
-  if (selectedSystemPrompts.length > 0) {
-    for (const prompt of selectedSystemPrompts) {
-      result += `\n\n<guidelines>\n${prompt.content}\n</guidelines>`;
-    }
-  }
-  
-  // Add user instructions at the very end if they exist
+
+  // Add file contents
+  content += selectedFiles
+    .map((filePath) => {
+      try {
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        const fileName = path.basename(filePath);
+        const fileType = getFileType(fileName);
+        return `\`\`\`${fileType}\n${fileContent}\n\`\`\``;
+      } catch (error) {
+        console.error(`Error reading file ${filePath}:`, error);
+        return `Error reading file ${filePath}`;
+      }
+    })
+    .join('\n\n');
+
+  // Add user instructions if provided
   if (userInstructions) {
-    result += `\n\n<user_instructions>\n${userInstructions}\n</user_instructions>`;
+    content += `\n\n${userInstructions}`;
   }
-  
-  return result;
+
+  return content;
 };

@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, Loader2, Pencil, X } from "lucide-react"; // Added Loader2
-import { useCallback, useEffect, useRef, useState } from 'react'; // Added useRef
+import { Check, Loader2, Pencil, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import useAppState from '../hooks/use-app-state';
 import { useWorkspaceState } from '../hooks/use-workspace-state';
@@ -9,8 +9,8 @@ import { WorkspaceState } from '../types/file-types';
 interface WorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialRenameTarget?: string | null; // Optional prop to trigger rename on open
-  onClearInitialRenameTarget?: () => void; // Optional prop to clear the target in parent
+  initialRenameTarget?: string | null;
+  onClearInitialRenameTarget?: () => void;
 }
 
 const WorkspaceModal = ({ 
@@ -23,18 +23,18 @@ const WorkspaceModal = ({
     saveWorkspace: persistWorkspace, 
     loadWorkspace: loadPersistedWorkspace, 
     deleteWorkspace: deletePersistedWorkspace, 
-    renameWorkspace: renamePersistedWorkspace, // Added rename function
+    renameWorkspace: renamePersistedWorkspace,
     getWorkspaceNames 
   } = useWorkspaceState();
   const appState = useAppState();
-  const [name, setName] = useState("");
-  const [newName, setNewName] = useState("");
-  const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
-  const [renamingWsName, setRenamingWsName] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
+  const [name, setName] = useState("" as string);
+  const [newName, setNewName] = useState("" as string);
+  const [workspaceNames, setWorkspaceNames] = useState([] as string[]);
+  const [renamingWsName, setRenamingWsName] = useState(null as string | null);
+  const [saveState, setSaveState] = useState('idle');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshWorkspaceList = useCallback(() => {
     const names = getWorkspaceNames();
@@ -117,10 +117,15 @@ const WorkspaceModal = ({
 
     console.log('[WorkspaceModal.handleSave] Reading current application state from appState hook...');
     const workspaceToSave: WorkspaceState = {
-      selectedFolder: appState.selectedFolder, // Added missing property
-      fileTreeState: appState.expandedNodes,
+      selectedFolder: appState.selectedFolder,
+      expandedNodes: appState.expandedNodes,
       selectedFiles: appState.selectedFiles,
       userInstructions: appState.userInstructions,
+      allFiles: appState.allFiles || [],
+      sortOrder: appState.sortOrder || "name",
+      searchTerm: appState.searchTerm || "",
+      fileTreeMode: appState.fileTreeMode || "none",
+      exclusionPatterns: appState.exclusionPatterns || [],
       tokenCounts: (() => {
         const acc: { [filePath: string]: number } = {};
         for (const file of appState.selectedFiles) {
@@ -136,7 +141,7 @@ const WorkspaceModal = ({
 
     console.log('[WorkspaceModal.handleSave] Constructed workspace state object from appState:', {
         name: trimmedName,
-        fileTreeStateKeys: Object.keys(workspaceToSave.fileTreeState || {}).length,
+        expandedNodesKeys: Object.keys(workspaceToSave.expandedNodes || {}).length,
         selectedFilesCount: workspaceToSave.selectedFiles.length,
         userInstructionsLength: workspaceToSave.userInstructions?.length || 0,
         systemPromptsCount: workspaceToSave.customPrompts?.systemPrompts?.length || 0,

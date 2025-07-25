@@ -9,9 +9,6 @@ const { execSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-console.log("🔧 PasteFlow Dependency Fixer");
-console.log("============================");
-
 // Define the dependencies we need to ensure are installed
 const criticalDependencies = ["ignore", "tiktoken", "gpt-3-encoder"];
 
@@ -61,13 +58,9 @@ function fixDependencies() {
     }
 
     // Install required dependencies
-    console.log("📦 Installing dependencies locally...");
     execSync("npm install ignore tiktoken gpt-3-encoder --no-save", {
       stdio: "inherit",
     });
-
-    // Build the app with the asar.unpacked option
-    console.log("🔄 Updating package.json build configuration...");
 
     // Read package.json
     const packageJson = JSON.parse(fs.readFileSync("./package.json", "utf8"));
@@ -85,15 +78,6 @@ function fixDependencies() {
 
     // Write updated package.json
     fs.writeFileSync("./package.json", JSON.stringify(packageJson, null, 2));
-
-    console.log("✅ package.json updated with asarUnpack configuration");
-    console.log("");
-    console.log("🚀 Build your app with:");
-    console.log("npm run build-electron && npm run dist");
-    console.log("");
-    console.log(
-      "This will create a distributable that correctly includes the critical dependencies.",
-    );
   } catch (error) {
     console.error("❌ Error fixing dependencies:", error.message);
   }
