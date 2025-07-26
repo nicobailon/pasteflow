@@ -1,4 +1,6 @@
 import { FileData, WorkspaceState } from '../types/file-types';
+import { getPathValidator } from '../security/path-validator';
+import { ApplicationError, ERROR_CODES, getRecoverySuggestions, logError } from '../utils/error-handling';
 
 export interface ProcessingStatus {
   status: "idle" | "processing" | "complete" | "error";
@@ -29,7 +31,41 @@ export const setupElectronHandlers = (
     try {
       if (typeof folderPath === "string") {
         console.log("Folder selected:", folderPath);
-        const newPath = folderPath; // Use newPath consistent with prompt
+        
+        // Validate the path before proceeding
+        const validator = getPathValidator();
+        const validation = validator.validatePath(folderPath);
+        
+        if (!validation.valid) {
+          const error = new ApplicationError(
+            `Path validation failed: ${validation.reason}`,
+            ERROR_CODES.PATH_VALIDATION_FAILED,
+            {
+              operation: 'handleFolderSelected',
+              details: { folderPath, reason: validation.reason },
+              timestamp: Date.now()
+            },
+            getRecoverySuggestions(ERROR_CODES.PATH_VALIDATION_FAILED)
+          );
+          
+          logError(error, error.context);
+          
+          const userMessage = validation.reason === 'BLOCKED_PATH' 
+            ? 'Access to this directory is restricted for security reasons' 
+            : (validation.reason === 'PATH_TRAVERSAL_DETECTED' 
+                ? 'Path contains invalid characters'
+                : (validation.reason === 'OUTSIDE_WORKSPACE' 
+                    ? 'Path is outside allowed workspace boundaries' 
+                    : 'The selected path is invalid'));
+          
+          setProcessingStatus({
+            status: "error",
+            message: `Invalid path: ${userMessage}`,
+          });
+          return;
+        }
+        
+        const newPath = validation.sanitizedPath || folderPath; // Use sanitized path
         
         // Clear accumulated files when new folder is selected
         accumulatedFiles = [];
@@ -41,8 +77,13 @@ export const setupElectronHandlers = (
           // Define the initial state for the new workspace
           const initialWorkspaceState: WorkspaceState = {
             selectedFolder: newPath, // Use the newly selected path
-            fileTreeState: {},       // Default empty expanded nodes
+            allFiles: [],            // Default empty files
             selectedFiles: [],       // Default empty selection
+            expandedNodes: {},       // Default empty expanded nodes
+            sortOrder: 'alphabetical', // Default sort
+            searchTerm: '',          // Default empty search
+            fileTreeMode: 'none',    // Default tree mode
+            exclusionPatterns: [],   // Default empty exclusions
             userInstructions: '',    // Default empty instructions
             tokenCounts: {},         // Default empty token counts
             customPrompts: { systemPrompts: [], rolePrompts: [] } // Default empty prompts
@@ -82,7 +123,21 @@ export const setupElectronHandlers = (
         });
       }
     } catch (error) {
-      console.error("Error handling folder selection:", error);
+      const appError = error instanceof ApplicationError 
+        ? error 
+        : new ApplicationError(
+            'Failed to handle folder selection',
+            ERROR_CODES.FILE_LOADING_FAILED,
+            {
+              operation: 'handleFolderSelected',
+              details: { folderPath },
+              timestamp: Date.now()
+            },
+            getRecoverySuggestions(ERROR_CODES.FILE_LOADING_FAILED)
+          );
+      
+      logError(appError, appError.context);
+      
       setProcessingStatus({
         status: "error",
         message: `Error selecting folder: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -121,12 +176,27 @@ export const setupElectronHandlers = (
       filesArray = accumulatedFiles;
     } else {
       // Add new files to accumulation with memory limit
-      const MAX_FILES_IN_MEMORY = 50000; // Prevent OOM by limiting files in memory
+      const MAX_FILES_IN_MEMORY = 50_000; // Prevent OOM by limiting files in memory
       accumulatedFiles = [...accumulatedFiles, ...newFiles];
       
       // If approaching memory limit, send batch to free up memory
       if (accumulatedFiles.length > MAX_FILES_IN_MEMORY) {
-        console.warn(`Memory limit reached: ${accumulatedFiles.length} files. Consider using exclusion patterns.`);
+        const error = new ApplicationError(
+          `Memory limit exceeded: ${accumulatedFiles.length} files`,
+          ERROR_CODES.MEMORY_LIMIT_EXCEEDED,
+          {
+            operation: 'handleFileListData',
+            details: { 
+              fileCount: accumulatedFiles.length,
+              limit: MAX_FILES_IN_MEMORY 
+            },
+            timestamp: Date.now()
+          },
+          getRecoverySuggestions(ERROR_CODES.MEMORY_LIMIT_EXCEEDED)
+        );
+        
+        logError(error, error.context);
+        
         // Keep only the most recent files
         accumulatedFiles = accumulatedFiles.slice(-MAX_FILES_IN_MEMORY);
       }
@@ -181,7 +251,37 @@ export const setupElectronHandlers = (
     handleProcessingStatus,
   );
 
+  // Set up periodic cleanup to prevent memory buildup in edge cases
+  const cleanupInterval = setInterval(() => {
+    // If we have accumulated files but haven't received updates in a while,
+    // it might indicate an interrupted process
+    if (accumulatedFiles.length > 0) {
+      const lastUpdateTime = window.sessionStorage.getItem('lastFileListUpdate');
+      const now = Date.now();
+      const timeSinceLastUpdate = lastUpdateTime ? now - Number.parseInt(lastUpdateTime) : Infinity;
+      
+      // If no updates for 5 minutes, clear the accumulated files
+      if (timeSinceLastUpdate > 5 * 60 * 1000) {
+        console.warn('Clearing stale accumulated files due to inactivity');
+        accumulatedFiles = [];
+        window.sessionStorage.removeItem('lastFileListUpdate');
+      }
+    }
+  }, 60000); // Check every minute
+
+  // Update timestamp on each file list update
+  const originalHandleFileListData = handleFileListData;
+  handleFileListData = (data) => {
+    window.sessionStorage.setItem('lastFileListUpdate', Date.now().toString());
+    originalHandleFileListData(data);
+  };
+
   return () => {
+    // Clear accumulated files to prevent memory leak
+    accumulatedFiles = [];
+    clearInterval(cleanupInterval);
+    window.sessionStorage.removeItem('lastFileListUpdate');
+    
     window.electron.ipcRenderer.removeListener(
       "folder-selected",
       handleFolderSelected,

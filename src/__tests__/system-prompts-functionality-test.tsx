@@ -133,11 +133,7 @@ jest.mock('../components/FileTreeToggle', () => {
   };
 });
 
-jest.mock('lucide-react', () => ({
-  FolderOpen: () => <div data-testid="folder-open-icon" />,
-  Folder: () => <div data-testid="folder-icon" />,
-  Settings: () => <div data-testid="settings-icon" />
-}));
+// Using shared lucide-react mock from jest.config.js
 
 // Provide a basic implementation of the ThemeProvider context
 jest.mock('../context/theme-context', () => ({

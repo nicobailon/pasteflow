@@ -19,26 +19,26 @@ const InstructionsModal = ({
   toggleInstructionSelection,
 }: InstructionsModalProps): JSX.Element => {
   const [editingInstruction, setEditingInstruction] = useState(null as Instruction | null);
-  const [newInstructionTitle, setNewInstructionTitle] = useState("");
+  const [newInstructionName, setNewInstructionName] = useState("");
   const [newInstructionContent, setNewInstructionContent] = useState("");
 
   const handleAddInstruction = () => {
-    if (!newInstructionTitle || !newInstructionContent) return;
+    if (!newInstructionName || !newInstructionContent) return;
     
     const newInstruction: Instruction = {
       id: Date.now().toString(),
-      title: newInstructionTitle,
+      name: newInstructionName,
       content: newInstructionContent
     };
     
     onAddInstruction(newInstruction);
-    setNewInstructionTitle("");
+    setNewInstructionName("");
     setNewInstructionContent("");
     setEditingInstruction(null);
   };
 
   const handleUpdateInstruction = () => {
-    if (!editingInstruction || !editingInstruction.title || !editingInstruction.content) return;
+    if (!editingInstruction || !editingInstruction.name || !editingInstruction.content) return;
     
     onUpdateInstruction(editingInstruction);
     setEditingInstruction(null);
@@ -97,7 +97,7 @@ const InstructionsModal = ({
                     tabIndex={0}
                   >
                     <div className="prompt-details">
-                      <div className="prompt-title">{instruction.title}</div>
+                      <div className="prompt-title">{instruction.name}</div>
                       <div className="prompt-preview">
                         {instruction.content.length > 60 
                           ? instruction.content.slice(0, 60) + "..." 
@@ -142,12 +142,12 @@ const InstructionsModal = ({
                   <input
                     type="text"
                     className="prompt-title-input"
-                    value={editingInstruction.title}
+                    value={editingInstruction.name}
                     onChange={(e) => setEditingInstruction({
                       ...editingInstruction,
-                      title: e.target.value
+                      name: e.target.value
                     })}
-                    placeholder="Enter instruction title"
+                    placeholder="Enter instruction name"
                   />
                   <textarea
                     className="prompt-content-input"
@@ -166,7 +166,7 @@ const InstructionsModal = ({
                     <button 
                       className="apply-button"
                       onClick={handleUpdateInstruction}
-                      disabled={!editingInstruction.title || !editingInstruction.content}
+                      disabled={!editingInstruction.name || !editingInstruction.content}
                     >
                       Update Instruction
                     </button>
@@ -179,7 +179,7 @@ const InstructionsModal = ({
                     <button 
                       className="apply-button add-prompt-button"
                       onClick={handleAddInstruction}
-                      disabled={!newInstructionTitle || !newInstructionContent}
+                      disabled={!newInstructionName || !newInstructionContent}
                     >
                       <Plus size={14} />
                       <span>Add Instruction</span>
@@ -188,9 +188,9 @@ const InstructionsModal = ({
                   <input
                     type="text"
                     className="prompt-title-input"
-                    value={newInstructionTitle}
-                    onChange={(e) => setNewInstructionTitle(e.target.value)}
-                    placeholder="Enter instruction title"
+                    value={newInstructionName}
+                    onChange={(e) => setNewInstructionName(e.target.value)}
+                    placeholder="Enter instruction name"
                   />
                   <textarea
                     className="prompt-content-input"

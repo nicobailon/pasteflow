@@ -4,22 +4,10 @@ import '@testing-library/jest-dom';
 import Sidebar from '../components/sidebar';
 import { FileData, TreeNode } from '../types/file-types';
 
-// Mock the Lucide React icons
-jest.mock('lucide-react', () => ({
-  Folder: () => <div data-testid="folder-icon" />,
-  ChevronDown: () => <div data-testid="chevron-down-icon" />,
-  ChevronUp: () => <div data-testid="chevron-up-icon" />,
-  ChevronRight: () => <div data-testid="chevron-right-icon" />,
-  X: () => <div data-testid="x-icon" />,
-  FolderOpen: () => <div data-testid="folder-open-icon" />,
-  Filter: () => <div data-testid="filter-icon" />,
-  RefreshCw: () => <div data-testid="refresh-icon" />,
-  File: () => <div data-testid="file-icon" />,
-  Search: () => <div data-testid="search-icon" />
-}));
+// Using shared lucide-react mock from jest.config.js
 
 // Mock the useFileTree hook
-jest.mock('../hooks/useFileTree', () => ({
+jest.mock('../hooks/use-file-tree', () => ({
   __esModule: true,
   default: jest.fn(({ allFiles, expandedNodes }) => {
     // Create a simple file tree structure for testing

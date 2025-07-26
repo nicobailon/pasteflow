@@ -42,7 +42,7 @@ const WorkspaceDropdown = ({
     }
     const sortedNames = [...displayNames].sort();
 
-    const options = sortedNames.map((name: string) => ({ value: name, label: name }));
+    const options = sortedNames.map((name) => ({ value: name, label: name }));
 
     if (sortedNames.length > 0) {
       options.push({ value: '__divider1__', label: '──────────' }); // Use unique value if multiple dividers
