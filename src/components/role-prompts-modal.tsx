@@ -20,26 +20,26 @@ const RolePromptsModal = ({
   toggleRolePromptSelection,
 }: RolePromptsModalProps): JSX.Element => {
   const [editingPrompt, setEditingPrompt] = useState(null as RolePrompt | null);
-  const [newPromptTitle, setNewPromptTitle] = useState("");
+  const [newPromptName, setNewPromptName] = useState("");
   const [newPromptContent, setNewPromptContent] = useState("");
 
   const handleAddPrompt = () => {
-    if (!newPromptTitle || !newPromptContent) return;
+    if (!newPromptName || !newPromptContent) return;
     
     const newPrompt: RolePrompt = {
       id: Date.now().toString(),
-      title: newPromptTitle,
+      name: newPromptName,
       content: newPromptContent
     };
     
     onAddPrompt(newPrompt);
-    setNewPromptTitle("");
+    setNewPromptName("");
     setNewPromptContent("");
     setEditingPrompt(null);
   };
 
   const handleUpdatePrompt = () => {
-    if (!editingPrompt || !editingPrompt.title || !editingPrompt.content) return;
+    if (!editingPrompt || !editingPrompt.name || !editingPrompt.content) return;
     
     onUpdatePrompt(editingPrompt);
     setEditingPrompt(null);
@@ -98,7 +98,7 @@ const RolePromptsModal = ({
                     tabIndex={0}
                   >
                     <div className="prompt-details">
-                      <div className="prompt-title">{prompt.title}</div>
+                      <div className="prompt-title">{prompt.name}</div>
                       <div className="prompt-preview">
                         {prompt.content.length > 60 
                           ? prompt.content.slice(0, 60) + "..." 
@@ -143,12 +143,12 @@ const RolePromptsModal = ({
                   <input
                     type="text"
                     className="prompt-title-input"
-                    value={editingPrompt.title}
+                    value={editingPrompt.name}
                     onChange={(e) => setEditingPrompt({
                       ...editingPrompt,
-                      title: e.target.value
+                      name: e.target.value
                     })}
-                    placeholder="Enter prompt title"
+                    placeholder="Enter prompt name"
                   />
                   <textarea
                     className="prompt-content-input"
@@ -167,7 +167,7 @@ const RolePromptsModal = ({
                     <button 
                       className="apply-button"
                       onClick={handleUpdatePrompt}
-                      disabled={!editingPrompt.title || !editingPrompt.content}
+                      disabled={!editingPrompt.name || !editingPrompt.content}
                     >
                       Update Prompt
                     </button>
@@ -180,7 +180,7 @@ const RolePromptsModal = ({
                     <button 
                       className="apply-button add-prompt-button"
                       onClick={handleAddPrompt}
-                      disabled={!newPromptTitle || !newPromptContent}
+                      disabled={!newPromptName || !newPromptContent}
                     >
                       <Plus size={14} />
                       <span>Add Prompt</span>
@@ -189,9 +189,9 @@ const RolePromptsModal = ({
                   <input
                     type="text"
                     className="prompt-title-input"
-                    value={newPromptTitle}
-                    onChange={(e) => setNewPromptTitle(e.target.value)}
-                    placeholder="Enter prompt title"
+                    value={newPromptName}
+                    onChange={(e) => setNewPromptName(e.target.value)}
+                    placeholder="Enter prompt name"
                   />
                   <textarea
                     className="prompt-content-input"

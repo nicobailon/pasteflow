@@ -204,7 +204,7 @@ export interface Doc {
 
 export interface Instruction {
   id: string;
-  title: string;
+  name: string;
   content: string;
 }
 

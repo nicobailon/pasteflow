@@ -18,7 +18,7 @@ const DocCard = ({
   instruction,
   toggleSelection
 }: DocCardProps) => {
-  const { title, content } = instruction;
+  const { name, content } = instruction;
   
   const tokenCount = estimateTokenCount(content);
 
@@ -28,7 +28,7 @@ const DocCard = ({
         <div className="file-card-icon">
           <FileText size={16} />
         </div>
-        <div className="file-card-name monospace">{title}</div>
+        <div className="file-card-name monospace">{name}</div>
       </div>
       <div className="file-card-line-badge doc-badge">
         Documentation

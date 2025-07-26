@@ -2,11 +2,30 @@ import { useCallback } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { WorkspaceState } from '../types/file-types';
+import { getPathValidator } from '../security/path-validator';
 
 export const useWorkspaceState = () => {
   const saveWorkspace = useCallback((name: string, workspace: WorkspaceState) => {
     try {
       console.log(`[useWorkspaceState.saveWorkspace] Attempting to save workspace: ${name}`);
+      
+      // Validate the workspace folder path if it exists
+      if (workspace.selectedFolder) {
+        const validator = getPathValidator();
+        const validation = validator.validatePath(workspace.selectedFolder);
+        
+        if (!validation.valid) {
+          console.error(`[useWorkspaceState.saveWorkspace] Invalid path in workspace: ${validation.reason}`);
+          throw new Error(`Cannot save workspace with invalid path: ${validation.reason}`);
+        }
+        
+        // Update workspace with sanitized path
+        workspace = {
+          ...workspace,
+          selectedFolder: validation.sanitizedPath || workspace.selectedFolder
+        };
+      }
+      
       const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
       // Add timestamp before saving
       const workspaceWithTimestamp = { ...workspace, savedAt: Date.now() };
