@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`SystemPromptCard Component matches snapshot for consistent UI rendering 1`] = `
+exports[`SystemPromptCard Component renders consistent UI with all expected elements 1`] = `
 <div>
   <div
     class="file-card system-prompt-card"
@@ -12,13 +12,14 @@ exports[`SystemPromptCard Component matches snapshot for consistent UI rendering
         class="file-card-icon"
       >
         <div
+          data-size="16"
           data-testid="message-square-code-icon"
         />
       </div>
       <div
         class="file-card-name monospace"
       >
-        Test Prompt Title
+        Test Prompt Name
       </div>
     </div>
     <div
@@ -50,6 +51,7 @@ exports[`SystemPromptCard Component matches snapshot for consistent UI rendering
         title="Remove from selection"
       >
         <div
+          data-size="16"
           data-testid="x-icon"
         />
       </button>

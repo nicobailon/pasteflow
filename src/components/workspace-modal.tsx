@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, Loader2, Pencil, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import useAppState from '../hooks/use-app-state';
 import { useWorkspaceState } from '../hooks/use-workspace-state';

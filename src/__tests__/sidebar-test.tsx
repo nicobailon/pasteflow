@@ -4,25 +4,12 @@ import '@testing-library/jest-dom';
 import Sidebar from '../components/sidebar';
 import { FileData, SelectedFileWithLines, TreeNode } from '../types/file-types';
 
-// Mock the Lucide React icons
-jest.mock('lucide-react', () => ({
-  Folder: () => <div data-testid="folder-icon" />,
-  ChevronDown: () => <div data-testid="chevron-down-icon" />,
-  ChevronUp: () => <div data-testid="chevron-up-icon" />,
-  ChevronRight: () => <div data-testid="chevron-right-icon" />,
-  X: () => <div data-testid="x-icon" />,
-  FolderOpen: () => <div data-testid="folder-open-icon" />,
-  Filter: () => <div data-testid="filter-icon" />,
-  RefreshCw: () => <div data-testid="refresh-icon" />,
-  File: () => <div data-testid="file-icon" />,
-  Search: () => <div data-testid="search-icon" />,
-  Eye: () => <div data-testid="eye-icon" />
-}));
+// Using shared lucide-react mock from jest.config.js
 
 // Mock the hooks
-jest.mock('../hooks/useFileTree', () => ({
+jest.mock('../hooks/use-file-tree', () => ({
   __esModule: true,
-  default: jest.fn(({ allFiles, expandedNodes }) => {
+  default: jest.fn(({ expandedNodes }) => {
     // Create a sample file tree based on the test data
     const createTreeNode = (file: FileData, level: number): TreeNode => ({
       id: file.path,
@@ -52,7 +39,8 @@ jest.mock('../hooks/useFileTree', () => ({
         tokenCount: 10,
         size: 100,
         isBinary: false,
-        isSkipped: false
+        isSkipped: false,
+        isDirectory: false
       }, 2)
     ]);
     
@@ -64,7 +52,8 @@ jest.mock('../hooks/useFileTree', () => ({
         tokenCount: 20,
         size: 200,
         isBinary: false,
-        isSkipped: false
+        isSkipped: false,
+        isDirectory: false
       }, 2)
     ]);
     
@@ -77,7 +66,8 @@ jest.mock('../hooks/useFileTree', () => ({
         tokenCount: 30,
         size: 300,
         isBinary: false,
-        isSkipped: false
+        isSkipped: false,
+        isDirectory: false
       }, 3)
     ]);
     
@@ -90,7 +80,8 @@ jest.mock('../hooks/useFileTree', () => ({
         tokenCount: 40,
         size: 400,
         isBinary: false,
-        isSkipped: false
+        isSkipped: false,
+        isDirectory: false
       }, 2)
     ]);
 
@@ -144,7 +135,8 @@ describe('Sidebar Component', () => {
         tokenCount: 10,
         size: 100,
         isBinary: false,
-        isSkipped: false
+        isSkipped: false,
+        isDirectory: false
       },
       { 
         name: 'file2.js', 
@@ -153,7 +145,8 @@ describe('Sidebar Component', () => {
         tokenCount: 20,
         size: 200,
         isBinary: false,
-        isSkipped: false
+        isSkipped: false,
+        isDirectory: false
       },
       { 
         name: 'file3.js', 
@@ -162,7 +155,8 @@ describe('Sidebar Component', () => {
         tokenCount: 40,
         size: 400,
         isBinary: false,
-        isSkipped: false
+        isSkipped: false,
+        isDirectory: false
       },
       { 
         name: 'nestedFile.js', 
@@ -171,7 +165,8 @@ describe('Sidebar Component', () => {
         tokenCount: 30,
         size: 300,
         isBinary: false,
-        isSkipped: false
+        isSkipped: false,
+        isDirectory: false
       }
     ],
     selectedFiles: [] as SelectedFileWithLines[],

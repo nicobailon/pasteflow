@@ -31,17 +31,7 @@ jest.mock('@radix-ui/react-dialog', () => {
   };
 });
 
-// Mock Lucide React icons
-jest.mock('lucide-react', () => ({
-  Plus: () => <div data-testid="plus-icon" />,
-  Trash: () => <div data-testid="trash-icon" />,
-  Edit: () => <div data-testid="edit-icon" />,
-  Clipboard: () => <div data-testid="clipboard-icon" />,
-  Check: () => <div data-testid="check-icon" />,
-  Pencil: () => <div data-testid="pencil-icon" />,
-  CirclePlus: () => <div data-testid="circle-plus-icon" />,
-  X: () => <>×</>
-}));
+// Using shared lucide-react mock from jest.config.js
 
 // Now import SystemPromptsModal after mocking
 import SystemPromptsModal from '../components/system-prompts-modal';

@@ -41,8 +41,13 @@ export const setupElectronHandlers = (
           // Define the initial state for the new workspace
           const initialWorkspaceState: WorkspaceState = {
             selectedFolder: newPath, // Use the newly selected path
-            fileTreeState: {},       // Default empty expanded nodes
+            allFiles: [],            // Default empty files
             selectedFiles: [],       // Default empty selection
+            expandedNodes: {},       // Default empty expanded nodes
+            sortOrder: 'alphabetical', // Default sort
+            searchTerm: '',          // Default empty search
+            fileTreeMode: 'none',    // Default tree mode
+            exclusionPatterns: [],   // Default empty exclusions
             userInstructions: '',    // Default empty instructions
             tokenCounts: {},         // Default empty token counts
             customPrompts: { systemPrompts: [], rolePrompts: [] } // Default empty prompts

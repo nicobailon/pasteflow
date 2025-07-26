@@ -1,17 +1,10 @@
-import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
 import TreeItem from '../components/tree-item';
 import { TreeNode, SelectedFileWithLines } from '../types/file-types';
 
-// Mock icons
-jest.mock('lucide-react', () => ({
-  ChevronRight: () => <div data-testid="chevron-icon" />,
-  File: () => <div data-testid="file-icon" />,
-  Folder: () => <div data-testid="folder-icon" />,
-  Eye: () => <div data-testid="eye-icon" />,
-}));
+// Using shared lucide-react mock from jest.config.js
 
 describe('TreeItem Component', () => {
   // Mock props and handlers

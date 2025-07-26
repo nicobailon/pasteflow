@@ -27,7 +27,10 @@
     "rename:files": "node scripts/rename-to-kebab-case.js",
     "preview": "vite preview",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:mock-check": "npx tsx scripts/test-quality/mock-count-checker.ts",
+    "test:assertion-check": "npx tsx scripts/test-quality/assertion-density-checker.ts",
+    "test:quality-full": "npm run test:mock-check && npm run test:assertion-check && npm test"
   },
   "keywords": [
     "clipboard",

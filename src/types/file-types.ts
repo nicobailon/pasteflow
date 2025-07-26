@@ -195,6 +195,13 @@ export interface RolePromptsModalProps {
 
 // If these types don't exist, add them:
 
+export interface Doc {
+  id: string;
+  name: string;
+  content: string;
+  tokenCount?: number;
+}
+
 export interface Instruction {
   id: string;
   title: string;

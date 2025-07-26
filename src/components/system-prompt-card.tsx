@@ -18,7 +18,7 @@ const SystemPromptCard = ({
   prompt,
   toggleSelection
 }: SystemPromptCardProps) => {
-  const { title, content } = prompt;
+  const { name, content } = prompt;
   
   const tokenCount = estimateTokenCount(content);
 
@@ -28,7 +28,7 @@ const SystemPromptCard = ({
         <div className="file-card-icon">
           <MessageSquareCode size={16} />
         </div>
-        <div className="file-card-name monospace">{title}</div>
+        <div className="file-card-name monospace">{name}</div>
       </div>
       <div className="file-card-line-badge system-prompt-badge">
         System Prompt
