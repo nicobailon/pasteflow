@@ -199,6 +199,13 @@ const TreeItem = memo(({
   // Check if the file is excluded by default (but still selectable)
   const isExcludedByDefault = fileData?.excludedByDefault || false;
 
+  // Update local token count when fileData changes
+  useEffect(() => {
+    if (fileData?.tokenCount && fileData.tokenCount !== localTokenCount) {
+      setLocalTokenCount(fileData.tokenCount);
+    }
+  }, [fileData?.tokenCount]);
+
   // Handle loading content when a file is selected
   useEffect(() => {
     if (type === "file" && isSelected && 
@@ -212,11 +219,12 @@ const TreeItem = memo(({
           setLocalTokenCount(fileData.tokenCount);
         }
         setIsLoading(false);
-      }).catch(() => {
+      }).catch((error) => {
+        console.warn(`Failed to load content for ${path}:`, error);
         setIsLoading(false);
       });
     }
-  }, [type, isSelected, fileData, isDisabled, loadFileContent, path, isLoading]);
+  }, [type, isSelected, fileData?.isContentLoaded, isDisabled, loadFileContent, path, isLoading]);
   
   // Extract rendering functions to reduce cognitive complexity
   const renderToggleButton = () => {
@@ -304,6 +312,9 @@ const TreeItem = memo(({
                   return `(~${localTokenCount.toLocaleString()})`;
                 } else if (fileData?.tokenCount) {
                   return `(~${fileData.tokenCount.toLocaleString()})`;
+                } else if (fileData?.isContentLoaded) {
+                  // Content is loaded but no token count - might be binary or error
+                  return fileData.isBinary ? "(binary)" : null;
                 } else {
                   return null;
                 }
