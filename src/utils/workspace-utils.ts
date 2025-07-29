@@ -179,3 +179,26 @@ function calculateTokenCount(content: string): number {
   // This is a simple example - replace with your actual tokenization logic
   return content.split(/\s+/).length;
 }
+
+export function generateUniqueWorkspaceName(existingNames: string[], basePath?: string): string {
+  // If basePath is provided, extract the folder name
+  const baseWorkspaceName = basePath 
+    ? basePath.split(/[/\\]/).pop() || 'Untitled'
+    : 'Untitled';
+  
+  // If the base name doesn't exist, use it
+  if (!existingNames.includes(baseWorkspaceName)) {
+    return baseWorkspaceName;
+  }
+  
+  // Otherwise, append a number to make it unique
+  let counter = 2;
+  let candidateName = `${baseWorkspaceName} ${counter}`;
+  
+  while (existingNames.includes(candidateName)) {
+    counter++;
+    candidateName = `${baseWorkspaceName} ${counter}`;
+  }
+  
+  return candidateName;
+}

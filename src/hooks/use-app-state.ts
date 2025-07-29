@@ -93,7 +93,7 @@ const useAppState = () => {
   const promptState = usePromptState();
   const modalState = useModalState();
   const docState = useDocState();
-  const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
+  const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace, getWorkspaceNames } = useWorkspaceState();
   
   // Token counter hook - only used when feature is enabled
   const workerTokensEnabled = FeatureControl.isEnabled();
@@ -689,7 +689,9 @@ const useAppState = () => {
 
   // Helper functions for workspace data application
   const handleFolderChange = useCallback((workspaceName: string, workspaceFolder: string | null, workspaceData: WorkspaceState) => {
-    console.log(`[useAppState.handleFolderChange] Folder changed: "${selectedFolderRef.current}" -> "${workspaceFolder}"`);
+    const callStackTrace = new Error().stack;
+    console.log(`[DEBUG] handleFolderChange called: "${selectedFolderRef.current}" -> "${workspaceFolder}"`);
+    console.log(`[DEBUG] handleFolderChange call stack:`, callStackTrace);
     setCurrentWorkspace(workspaceName);
     
     if (workspaceFolder === null) {
@@ -701,7 +703,7 @@ const useAppState = () => {
       console.log(`[useAppState.handleFolderChange] Setting pending workspace data:`, restOfData);
       setPendingWorkspaceData(restOfData);
       
-      console.log(`[useAppState.handleFolderChange] Triggering file loading for: "${workspaceFolder}"`);
+      console.log(`[DEBUG] handleFolderChange sending request-file-list for: "${workspaceFolder}"`);
       if (window.electron?.ipcRenderer) {
         setProcessingStatus({
           status: "processing",
@@ -845,7 +847,9 @@ const useAppState = () => {
         setAppInitialized,
         currentWorkspace,
         setCurrentWorkspace,
-        persistWorkspace
+        persistWorkspace,
+        getWorkspaceNames,
+        selectedFolder
       );
       
       // Dispatch a custom event when handlers are set up
@@ -866,7 +870,6 @@ const useAppState = () => {
     return cleanup;
     }, [
       isElectron,
-      currentWorkspace,
       sortOrder,
       searchTerm
     ]);

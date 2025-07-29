@@ -1,6 +1,7 @@
 import { FileData, WorkspaceState } from '../types/file-types';
 import { getPathValidator } from '../security/path-validator';
 import { ApplicationError, ERROR_CODES, getRecoverySuggestions, logError } from '../utils/error-handling';
+import { generateUniqueWorkspaceName } from '../utils/workspace-utils';
 
 export interface ProcessingStatus {
   status: "idle" | "processing" | "complete" | "error";
@@ -23,11 +24,28 @@ export const setupElectronHandlers = (
   setAppInitialized: (initialized: boolean) => void,
   currentWorkspace: string | null,
   setCurrentWorkspace: (name: string | null) => void,
-  persistWorkspace: (name: string, state: WorkspaceState) => void
+  persistWorkspace: (name: string, state: WorkspaceState) => void,
+  getWorkspaceNames: () => string[],
+  selectedFolder: string | null
 ): (() => void) => {
   if (!isElectron) return () => {};
 
+  // Add debouncing to prevent rapid workspace creation
+  let folderSelectionTimeout: NodeJS.Timeout | null = null;
+  
+  // Add unique handler ID for debugging
+  const handlerId = Math.random().toString(36).substr(2, 9);
+  console.log(`[DEBUG] Creating handleFolderSelected handler with ID: ${handlerId}`);
+
   const handleFolderSelected = (folderPath: string) => {
+    console.log(`[DEBUG] handleFolderSelected called with handler ID: ${handlerId}, path: ${folderPath}`);
+    // Clear any pending folder selection
+    if (folderSelectionTimeout) {
+      clearTimeout(folderSelectionTimeout);
+    }
+
+    // Debounce the folder selection to prevent multiple rapid calls
+    folderSelectionTimeout = setTimeout(() => {
     try {
       if (typeof folderPath === "string") {
         console.log("Folder selected:", folderPath);
@@ -70,38 +88,62 @@ export const setupElectronHandlers = (
         // Clear accumulated files when new folder is selected
         accumulatedFiles = [];
 
-        // ---> START OF NEW LOGIC BLOCK <---
-        if (currentWorkspace === null) {
-          console.log('[electron-handler] No active workspace. Creating "Untitled" workspace for new folder:', newPath);
-
-          // Define the initial state for the new workspace
-          const initialWorkspaceState: WorkspaceState = {
-            selectedFolder: newPath, // Use the newly selected path
-            allFiles: [],            // Default empty files
-            selectedFiles: [],       // Default empty selection
-            expandedNodes: {},       // Default empty expanded nodes
-            sortOrder: 'alphabetical', // Default sort
-            searchTerm: '',          // Default empty search
-            fileTreeMode: 'none',    // Default tree mode
-            exclusionPatterns: [],   // Default empty exclusions
-            userInstructions: '',    // Default empty instructions
-            tokenCounts: {},         // Default empty token counts
-            customPrompts: { systemPrompts: [], rolePrompts: [] } // Default empty prompts
-          };
-
-          // Persist this new "Untitled" workspace
-          persistWorkspace("Untitled", initialWorkspaceState);
-
-          // Update the application's current workspace state
-          setCurrentWorkspace("Untitled");
-          console.log('[electron-handler] "Untitled" workspace created and activated.');
-
+        // Check if we're opening the same folder that's already open
+        if (selectedFolder === newPath) {
+          console.log('[electron-handler] Same folder selected, no workspace change needed:', newPath);
+          // Just proceed with refreshing the file list
         } else {
-          // A workspace is already active. The new folder will be associated with it.
-          // No specific action needed here for workspace creation/activation.
-          console.log(`[electron-handler] Workspace "${currentWorkspace}" is active. Associating new folder:`, newPath);
+          // Different folder selected - check if we need to create a new workspace
+          const existingWorkspaceNames = getWorkspaceNames();
+          
+          if (currentWorkspace === null) {
+            // No active workspace - create a new one
+            const newWorkspaceName = generateUniqueWorkspaceName(existingWorkspaceNames, newPath);
+            console.log(`[DEBUG] Handler ${handlerId} - No active workspace. Creating new workspace:`, newWorkspaceName);
+            console.log(`[DEBUG] Handler ${handlerId} - Existing workspace names:`, existingWorkspaceNames);
+
+            const initialWorkspaceState: WorkspaceState = {
+              selectedFolder: newPath,
+              allFiles: [],
+              selectedFiles: [],
+              expandedNodes: {},
+              sortOrder: 'alphabetical',
+              searchTerm: '',
+              fileTreeMode: 'none',
+              exclusionPatterns: [],
+              userInstructions: '',
+              tokenCounts: {},
+              customPrompts: { systemPrompts: [], rolePrompts: [] }
+            };
+
+            persistWorkspace(newWorkspaceName, initialWorkspaceState);
+            setCurrentWorkspace(newWorkspaceName);
+            console.log(`[electron-handler] Workspace "${newWorkspaceName}" created and activated.`);
+          } else {
+            // Workspace is already active - create a new workspace for the different folder
+            const newWorkspaceName = generateUniqueWorkspaceName(existingWorkspaceNames, newPath);
+            console.log(`[DEBUG] Handler ${handlerId} - Creating new workspace "${newWorkspaceName}" for different folder:`, newPath);
+            console.log(`[DEBUG] Handler ${handlerId} - Current workspace: ${currentWorkspace}, Existing names:`, existingWorkspaceNames);
+            
+            const initialWorkspaceState: WorkspaceState = {
+              selectedFolder: newPath,
+              allFiles: [],
+              selectedFiles: [],
+              expandedNodes: {},
+              sortOrder: 'alphabetical',
+              searchTerm: '',
+              fileTreeMode: 'none',
+              exclusionPatterns: [],
+              userInstructions: '',
+              tokenCounts: {},
+              customPrompts: { systemPrompts: [], rolePrompts: [] }
+            };
+
+            persistWorkspace(newWorkspaceName, initialWorkspaceState);
+            setCurrentWorkspace(newWorkspaceName);
+            console.log(`[electron-handler] New workspace "${newWorkspaceName}" created and activated.`);
+          }
         }
-        // ---> END OF NEW LOGIC BLOCK <---
 
         setSelectedFolder(newPath); // Existing call
         // Clear any previously selected files
@@ -114,6 +156,7 @@ export const setupElectronHandlers = (
           processed: 0,
           directories: 0
         });
+        console.log(`[DEBUG] handleFolderSelected sending request-file-list for: "${newPath}"`);
         window.electron.ipcRenderer.send("request-file-list", newPath, []); // Use newPath
       } else {
         console.error("Invalid folder path received:", folderPath);
@@ -143,6 +186,7 @@ export const setupElectronHandlers = (
         message: `Error selecting folder: ${error instanceof Error ? error.message : "Unknown error"}`,
       });
     }
+    }, 100); // 100ms debounce
   };
 
   // Keep accumulated files in closure
@@ -247,6 +291,7 @@ export const setupElectronHandlers = (
     }
   };
 
+  console.log(`[DEBUG] Registering folder-selected listener with handler ID: ${handlerId}`);
   window.electron.ipcRenderer.on("folder-selected", handleFolderSelected);
   window.electron.ipcRenderer.on("file-list-data", handleFileListData);
   window.electron.ipcRenderer.on(
@@ -274,11 +319,18 @@ export const setupElectronHandlers = (
 
 
   return () => {
+    console.log(`[DEBUG] Cleaning up handler with ID: ${handlerId}`);
+    // Clear any pending folder selection timeout
+    if (folderSelectionTimeout) {
+      clearTimeout(folderSelectionTimeout);
+    }
+    
     // Clear accumulated files to prevent memory leak
     accumulatedFiles = [];
     clearInterval(cleanupInterval);
     window.sessionStorage.removeItem('lastFileListUpdate');
     
+    console.log(`[DEBUG] Removing folder-selected listener for handler ID: ${handlerId}`);
     window.electron.ipcRenderer.removeListener(
       "folder-selected",
       handleFolderSelected,
@@ -299,7 +351,7 @@ export const setupElectronHandlers = (
  */
 export const openFolderDialog = (isElectron: boolean, setProcessingStatus: (status: ProcessingStatus) => void) => {
   if (isElectron) {
-    console.log("Opening folder dialog");
+    console.log("[DEBUG] openFolderDialog called - sending open-folder IPC event");
     setProcessingStatus({ status: "idle", message: "Select a folder..." });
     window.electron.ipcRenderer.send("open-folder");
 

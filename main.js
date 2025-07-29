@@ -294,13 +294,10 @@ ipcMain.on("open-folder", async (event) => {
       // Update workspace paths for security validation
       currentWorkspacePaths = [pathString];
       getPathValidator(currentWorkspacePaths);
-      
-      console.log("Sending folder-selected event with path:", pathString);
       event.sender.send("folder-selected", pathString);
     } catch (error) {
       console.error("Error sending folder-selected event:", error);
-      // Try a more direct approach as a fallback
-      event.sender.send("folder-selected", String(selectedPath));
+      // Don't send the event again in the catch block to avoid duplicates
     }
   }
 });
