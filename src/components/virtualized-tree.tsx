@@ -1,7 +1,9 @@
 import { VariableSizeList as List } from 'react-window';
 import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
-import TreeItem from './tree-item';
+
 import { TreeNode } from '../types/file-types';
+
+import TreeItem from './tree-item';
 
 interface VirtualizedTreeProps {
   visibleTree: TreeNode[];

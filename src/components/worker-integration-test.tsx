@@ -1,4 +1,5 @@
 import { useState } from 'react';
+
 import useAppState from '../hooks/use-app-state';
 import { FeatureControl } from '../utils/feature-flags';
 import { FileData, SelectedFileWithLines } from '../types/file-types';
@@ -40,10 +41,10 @@ const WorkerIntegrationTest = () => {
           
           // Check if token count was set
           const updatedFile = allFiles.find((f: FileData) => f.path === testFile.path);
-          if (updatedFile?.tokenCount !== undefined) {
-            log(`✓ Token count: ${updatedFile.tokenCount}`);
-          } else {
+          if (updatedFile?.tokenCount === undefined) {
             log('✗ Token count not set');
+          } else {
+            log(`✓ Token count: ${updatedFile.tokenCount}`);
           }
         }
       }

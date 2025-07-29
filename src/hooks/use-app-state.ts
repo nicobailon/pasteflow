@@ -434,7 +434,7 @@ const useAppState = () => {
         }
       } else {
         // Use the token count from the backend (legacy behavior)
-        const tokenCount = result.tokenCount !== undefined ? result.tokenCount : estimateTokenCount(result.content!);
+        const tokenCount = result.tokenCount === undefined ? estimateTokenCount(result.content!) : result.tokenCount;
         fileContentCache.set(filePath, result.content!, tokenCount);
         
         setAllFiles((prev: FileData[]) =>

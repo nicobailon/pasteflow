@@ -8,6 +8,7 @@ export class TokenWorkerPool {
   private pendingRequests = new Map<string, Promise<number>>();
   private droppedRequests = 0;
   private isTerminated = false;
+  private isRecycling = false;
   private totalProcessed = 0;
   private failureCount = 0;
   
@@ -35,6 +36,11 @@ export class TokenWorkerPool {
   async countTokens(text: string): Promise<number> {
     if (this.isTerminated) {
       throw new Error('Worker pool has been terminated');
+    }
+    
+    // Fast path for recycling state
+    if (this.isRecycling) {
+      return Math.ceil(text.length / 4); // Estimation fallback
     }
     
     // Input size validation - exact same as real implementation
@@ -75,7 +81,7 @@ export class TokenWorkerPool {
   }
   
   private processQueue() {
-    if (this.queue.length === 0 || this.isTerminated) return;
+    if (this.queue.length === 0 || this.isTerminated || this.isRecycling) return;
     
     // Find available worker
     const availableWorkerIndex = this.workers.findIndex((_, index) => {
@@ -179,8 +185,50 @@ export class TokenWorkerPool {
       activeJobs: this.activeJobs.size,
       maxQueueSize: 1000,
       poolSize: this.poolSize,
-      availableWorkers: this.poolSize - this.activeJobs.size
+      availableWorkers: this.poolSize - this.activeJobs.size,
+      isRecycling: this.isRecycling
     };
+  }
+  
+  async forceRecycle(): Promise<void> {
+    // Set recycling flag to prevent new jobs
+    this.isRecycling = true;
+    
+    // Process any queued items with fallback
+    while (this.queue.length > 0) {
+      const item = this.queue.shift();
+      if (item) {
+        item.resolve(Math.ceil(item.text.length / 4)); // Estimation fallback
+      }
+    }
+    
+    // Wait for active jobs to complete with timeout
+    const maxWaitTime = 100; // Short timeout for testing
+    const startWait = Date.now();
+    
+    while (this.activeJobs.size > 0 && Date.now() - startWait < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    
+    // Clear active jobs
+    this.activeJobs.clear();
+    
+    // Simulate worker recreation
+    this.workers.forEach(worker => worker.terminate());
+    this.workers = [];
+    this.initializeWorkers();
+    
+    // Clear recycling flag
+    this.isRecycling = false;
+  }
+  
+  async countTokensBatch(texts: string[]): Promise<number[]> {
+    // Fast path for recycling state
+    if (this.isRecycling) {
+      return texts.map(text => Math.ceil(text.length / 4));
+    }
+    
+    return Promise.all(texts.map(text => this.countTokens(text)));
   }
   
   terminate() {

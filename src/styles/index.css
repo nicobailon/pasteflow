@@ -2487,6 +2487,11 @@ input[type="text"].search-input:focus {
   cursor: pointer;
 }
 
+/* Ensure workspace dropdown menu appears above other dropdowns */
+.workspace-dropdown .dropdown-menu {
+  z-index: 1100;
+}
+
 .dropdown-button,
 .dropdown-header {
   display: flex;

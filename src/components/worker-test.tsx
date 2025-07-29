@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+
 import { useTokenCounter } from '../hooks/use-token-counter';
 
 export const WorkerTest = () => {
@@ -42,7 +43,7 @@ export const WorkerTest = () => {
       addResult(`Large text (${largeText.length} chars): ${count3} tokens in ${time3.toFixed(2)}ms`);
 
       // Test 4: Batch processing
-      const batchTexts = Array(10).fill(null).map((_, i) => 
+      const batchTexts = Array.from({length: 10}).fill(null).map((_, i) => 
         `Batch text ${i}: ${mediumText.slice(0, 100)}`
       );
       const start4 = performance.now();
@@ -51,7 +52,7 @@ export const WorkerTest = () => {
       addResult(`Batch processing (${batchTexts.length} texts): ${batchCounts.reduce((a: number, b: number) => a + b, 0)} total tokens in ${time4.toFixed(2)}ms`);
 
       // Test 5: Concurrent requests
-      const concurrentPromises = Array(5).fill(null).map((_, i) => 
+      const concurrentPromises = Array.from({length: 5}).fill(null).map((_, i) => 
         countTokens(`Concurrent test ${i}: ${mediumText}`)
       );
       const start5 = performance.now();

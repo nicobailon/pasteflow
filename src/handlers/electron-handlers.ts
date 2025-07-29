@@ -261,7 +261,7 @@ export const setupElectronHandlers = (
     if (accumulatedFiles.length > 0) {
       const lastUpdateTime = window.sessionStorage.getItem('lastFileListUpdate');
       const now = Date.now();
-      const timeSinceLastUpdate = lastUpdateTime ? now - Number.parseInt(lastUpdateTime) : Infinity;
+      const timeSinceLastUpdate = lastUpdateTime ? now - Number.parseInt(lastUpdateTime) : Number.POSITIVE_INFINITY;
       
       // If no updates for 5 minutes, clear the accumulated files
       if (timeSinceLastUpdate > 5 * 60 * 1000) {
@@ -270,7 +270,7 @@ export const setupElectronHandlers = (
         window.sessionStorage.removeItem('lastFileListUpdate');
       }
     }
-  }, 60000); // Check every minute
+  }, 60_000); // Check every minute
 
 
   return () => {

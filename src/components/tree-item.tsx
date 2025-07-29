@@ -148,8 +148,8 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
     const nextLines = nextSelected.lines || [];
     if (prevLines.length !== nextLines.length) return false;
     
-    for (let i = 0; i < prevLines.length; i++) {
-      if (prevLines[i].start !== nextLines[i].start || prevLines[i].end !== nextLines[i].end) {
+    for (const [i, prevLine] of prevLines.entries()) {
+      if (prevLine.start !== nextLines[i].start || prevLine.end !== nextLines[i].end) {
         return false;
       }
     }

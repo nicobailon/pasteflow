@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import useFileTree from "../hooks/use-file-tree";
 import { SidebarProps, TreeNode } from "../types/file-types";
-import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
 
+import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
 import Dropdown, { DropdownOption } from './dropdown';
 import SearchBar from "./search-bar";
 import TreeItem from "./tree-item";

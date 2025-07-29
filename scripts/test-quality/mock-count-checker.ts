@@ -1,7 +1,8 @@
 #!/usr/bin/env npx tsx
 
-import { readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { glob } from 'glob';
 
 interface MockViolation {
@@ -14,7 +15,7 @@ function countMocksInFile(filePath: string): { count: number; mocks: string[] } 
   const content = readFileSync(filePath, 'utf8');
   
   // Find jest.mock() calls
-  const mockMatches = content.match(/jest\.mock\(['"`][^'"`]+['"`]/g) || [];
+  const mockMatches = content.match(/jest\.mock\(["'`][^"'`]+["'`]/g) || [];
   
   // Find other mock patterns
   const mockFnMatches = content.match(/const \w+ = jest\.fn\(\)/g) || [];
@@ -46,10 +47,10 @@ async function checkMockLimits() {
   
   if (violations.length > 0) {
     console.error('❌ Mock limit violations found:');
-    violations.forEach(v => {
+    for (const v of violations) {
       console.error(`\n${v.file}: ${v.mockCount} mocks (limit: 3)`);
-      v.mocks.forEach(mock => console.error(`  - ${mock}`));
-    });
+      for (const mock of v.mocks) console.error(`  - ${mock}`);
+    }
     process.exit(1);
   }
   

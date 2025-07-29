@@ -15,14 +15,14 @@ function isControlOrBinaryChar(codePoint: number | undefined): boolean {
     return true;
   }
   // Additional ranges for other non-printable or binary-indicative characters
-  if (codePoint > 0xFFFF) return false;
+  if (codePoint > 0xFF_FF) return false;
   return false;
 }
 
 // Port sanitization function from main process
 function sanitizeTextForTokenCount(text: string): string {
   // Remove special tiktoken end-of-text markers
-  let sanitizedText = text.replace(/<\|endoftext\|>/g, "");
+  const sanitizedText = text.replace(/<\|endoftext\|>/g, "");
   
   // Remove control and binary characters except tab, newline, carriage return
   let result = "";
@@ -71,22 +71,24 @@ self.onmessage = async (event) => {
   
   try {
     switch (type) {
-      case 'INIT':
+      case 'INIT': {
         console.log('[Worker] Processing INIT message...');
         const success = await initializeEncoder();
         console.log('[Worker] Sending INIT_COMPLETE with success:', success);
         self.postMessage({ type: 'INIT_COMPLETE', id, success });
         break;
+      }
         
-      case 'HEALTH_CHECK':
+      case 'HEALTH_CHECK': {
         self.postMessage({ 
           type: 'HEALTH_RESPONSE', 
           id, 
           healthy: encoder !== null 
         });
         break;
+      }
         
-      case 'COUNT_TOKENS':
+      case 'COUNT_TOKENS': {
         // Validate input size
         if (payload.text.length > MAX_TEXT_SIZE) {
           self.postMessage({ 
@@ -107,8 +109,9 @@ self.onmessage = async (event) => {
           fallback: count === -1 
         });
         break;
+      }
         
-      case 'BATCH_COUNT':
+      case 'BATCH_COUNT': {
         const results = await Promise.all(
           payload.texts.map((text: string) => {
             const sanitized = sanitizeTextForTokenCount(text);
@@ -117,6 +120,7 @@ self.onmessage = async (event) => {
         );
         self.postMessage({ type: 'BATCH_RESULT', id, results });
         break;
+      }
     }
   } catch (error) {
     self.postMessage({ 

@@ -47,7 +47,7 @@ export class PathValidator {
       if (!resolved) {
         return { valid: false, reason: 'PATH_RESOLUTION_FAILED' };
       }
-    } catch (error) {
+    } catch {
       return { valid: false, reason: 'PATH_RESOLUTION_FAILED' };
     }
 
@@ -60,7 +60,7 @@ export class PathValidator {
 
     // Verify within allowed workspaces
     if (this.allowedBasePaths.size > 0) {
-      const isInWorkspace = Array.from(this.allowedBasePaths)
+      const isInWorkspace = [...this.allowedBasePaths]
         .some(basePath => resolved.startsWith(basePath + '/') || resolved === basePath);
       
       if (!isInWorkspace) {

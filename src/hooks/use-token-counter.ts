@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+
 import { TokenWorkerPool } from '../utils/token-worker-pool';
 import { estimateTokenCount } from '../utils/token-utils';
 
@@ -18,12 +19,12 @@ export function useTokenCounter() {
     refCount++;
     console.log(`[useTokenCounter] Reference count: ${refCount}`);
     
-    if (!globalWorkerPool) {
+    if (globalWorkerPool) {
+      console.log('[useTokenCounter] Reusing existing singleton TokenWorkerPool');
+    } else {
       console.log('[useTokenCounter] Creating singleton TokenWorkerPool');
       globalWorkerPool = new TokenWorkerPool();
       globalWorkerPool.monitorWorkerMemory();
-    } else {
-      console.log('[useTokenCounter] Reusing existing singleton TokenWorkerPool');
     }
     
     workerPoolRef.current = globalWorkerPool;
@@ -97,7 +98,7 @@ export function useTokenCounter() {
     
     try {
       // Process valid texts through workers, use estimation for oversized ones
-      const results = await Promise.all(
+      return await Promise.all(
         validatedTexts.map(async (text, index) => {
           if (text === null) {
             return estimateTokenCount(texts[index]);
@@ -110,8 +111,6 @@ export function useTokenCounter() {
           }
         })
       );
-      
-      return results;
     } catch (error) {
       console.warn('Batch token counting error:', error);
     }
