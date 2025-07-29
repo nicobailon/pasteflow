@@ -295,6 +295,12 @@ const useAppState = () => {
   const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
     const file = allFiles.find((f: FileData) => f.path === filePath);
     if (!file || file.isContentLoaded) return;
+    
+    // Prevent loading files outside the current workspace
+    if (selectedFolder && !filePath.startsWith(selectedFolder)) {
+      console.warn(`Skipping file outside current workspace: ${filePath}`);
+      return;
+    }
 
     // Check cache first
     const cached = fileContentCache.get(filePath);
@@ -435,7 +441,7 @@ const useAppState = () => {
         )
       );
     }
-  }, [allFiles, setAllFiles, fileSelection, workerTokensEnabled, workerCountTokens, isTokenWorkerReady]);
+  }, [allFiles, setAllFiles, fileSelection, workerTokensEnabled, workerCountTokens, isTokenWorkerReady, selectedFolder]);
 
   // Batch load multiple file contents
   const loadMultipleFileContents = useCallback(async (filePaths: string[]): Promise<void> => {
@@ -907,6 +913,21 @@ const useAppState = () => {
         console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
     }
   }, [loadPersistedWorkspace, applyWorkspaceData]);
+
+  // Clean up selected files when workspace changes
+  useEffect(() => {
+    if (selectedFolder) {
+      // Remove any selected files that are outside the current workspace
+      const validSelectedFiles = fileSelection.selectedFiles.filter(
+        file => file.path.startsWith(selectedFolder)
+      );
+      
+      if (validSelectedFiles.length < fileSelection.selectedFiles.length) {
+        console.log('Cleaning up selected files outside current workspace');
+        fileSelection.setSelectedFiles(validSelectedFiles);
+      }
+    }
+  }, [selectedFolder]);
 
   // Initial workspace loading effect
   useEffect(() => {
