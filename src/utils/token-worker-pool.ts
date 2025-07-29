@@ -50,8 +50,121 @@ export class TokenWorkerPool {
     failureCount: 0
   };
   
+  // Recovery lock mechanism to prevent race conditions
+  private workerRecoveryLocks = new Map<number, boolean>();
+  private workerRecoveryQueue = new Map<number, Promise<void>>();
+  
+  // Recovery debouncing for rapid failures
+  private workerFailureTimes = new Map<number, number[]>();
+  private readonly FAILURE_WINDOW_MS = 5000; // 5 seconds
+  private readonly MAX_FAILURES_IN_WINDOW = 3;
+  
+  // Graceful degradation tracking
+  private workerPermanentlyFailed = new Set<number>();
+  
   constructor(private poolSize = Math.min(navigator.hardwareConcurrency || 4, 8)) {
     this.initializeWorkers();
+  }
+  
+  /**
+   * Atomically acquire a recovery lock for a specific worker.
+   * Returns true if lock was acquired, false if recovery is already in progress.
+   */
+  private async acquireRecoveryLock(workerId: number): Promise<boolean> {
+    // Check if already recovering
+    if (this.workerRecoveryLocks.get(workerId)) {
+      // Wait for existing recovery to complete
+      const existingRecovery = this.workerRecoveryQueue.get(workerId);
+      if (existingRecovery) {
+        await existingRecovery;
+      }
+      return false; // Don't proceed with another recovery
+    }
+    
+    // Atomically acquire lock
+    this.workerRecoveryLocks.set(workerId, true);
+    return true;
+  }
+  
+  /**
+   * Check if we should attempt to recover a worker based on recent failure history.
+   * Implements debouncing to prevent rapid recovery attempts.
+   */
+  private shouldRecoverWorker(workerId: number): boolean {
+    const now = Date.now();
+    const failures = this.workerFailureTimes.get(workerId) || [];
+    
+    // Remove old failures outside the window
+    const recentFailures = failures.filter(time => now - time < this.FAILURE_WINDOW_MS);
+    
+    // Add current failure
+    recentFailures.push(now);
+    this.workerFailureTimes.set(workerId, recentFailures);
+    
+    // If too many failures, don't recover immediately
+    if (recentFailures.length >= this.MAX_FAILURES_IN_WINDOW) {
+      console.warn(`Worker ${workerId} has failed ${recentFailures.length} times in ${this.FAILURE_WINDOW_MS}ms, delaying recovery`);
+      return false;
+    }
+    
+    return true;
+  }
+  
+  /**
+   * Mark a worker as permanently failed and handle graceful degradation.
+   */
+  private markWorkerAsFailed(workerId: number): void {
+    this.workerPermanentlyFailed.add(workerId);
+    this.workerStatus[workerId] = false;
+    console.error(`Worker ${workerId} marked as permanently failed`);
+    
+    // Check if we still have enough healthy workers
+    const healthyWorkerCount = this.getHealthyWorkerCount();
+    if (healthyWorkerCount === 0) {
+      console.error('All workers have failed, falling back to estimation only');
+      this.acceptingJobs = false;
+    }
+  }
+  
+  /**
+   * Get the count of healthy (non-permanently-failed) workers.
+   */
+  private getHealthyWorkerCount(): number {
+    let count = 0;
+    for (let i = 0; i < this.poolSize; i++) {
+      if (this.workerStatus[i] && !this.workerPermanentlyFailed.has(i)) {
+        count++;
+      }
+    }
+    return count;
+  }
+  
+  /**
+   * Verify if a specific worker is healthy by sending a health check.
+   */
+  private async isWorkerHealthy(workerId: number): Promise<boolean> {
+    if (!this.workerStatus[workerId]) return false;
+    
+    try {
+      const worker = this.workers[workerId];
+      const healthCheckId = `health-verify-${Date.now()}-${workerId}`;
+      
+      worker.postMessage({ type: 'HEALTH_CHECK', id: healthCheckId });
+      
+      return await this.waitForWorkerMessage(
+        worker,
+        `health-verify-${workerId}`,
+        1000, // 1 second timeout
+        (event) => {
+          if (event.data.id === healthCheckId && event.data.type === 'HEALTH_RESPONSE') {
+            return event.data.healthy === true;
+          }
+          return null;
+        }
+      );
+    } catch {
+      return false;
+    }
   }
   
   /**
@@ -340,10 +453,11 @@ export class TokenWorkerPool {
         return;
       }
       
-      // Find available worker
+      // Find available worker (excluding permanently failed ones)
       const availableWorkerIndex = this.workerStatus.findIndex(
-        (status, index) => status && ![...this.activeJobs.values()]
-          .some(job => job.workerId === index)
+        (status, index) => status && 
+          ![...this.activeJobs.values()].some(job => job.workerId === index) &&
+          !this.workerPermanentlyFailed.has(index)
       );
       const id = `count-${Date.now()}-${Math.random()}`;
       
@@ -423,10 +537,19 @@ export class TokenWorkerPool {
           if (resolved) return;
           console.error('Worker crashed:', event);
           
-          // Recover worker asynchronously (don't await)
-          this.recoverWorker(availableWorkerIndex);
+          // Check if we should attempt recovery
+          if (this.shouldRecoverWorker(availableWorkerIndex)) {
+            // Recover worker asynchronously (don't await)
+            this.recoverWorker(availableWorkerIndex).catch(error => {
+              console.error(`Failed to recover worker ${availableWorkerIndex}:`, error);
+              this.markWorkerAsFailed(availableWorkerIndex);
+            });
+          } else {
+            // Too many failures, mark as permanently failed
+            this.markWorkerAsFailed(availableWorkerIndex);
+          }
           
-          // Use fallback
+          // Use fallback immediately
           handleResult(estimateTokenCount(text));
         };
         
@@ -434,7 +557,7 @@ export class TokenWorkerPool {
         timeoutId = setTimeout(() => {
           console.warn(`Token counting timeout for worker ${availableWorkerIndex}`);
           handleResult(estimateTokenCount(text));
-        }, 30000); // 30 second timeout for token counting
+        }, 30_000); // 30 second timeout for token counting
         
         // Add listeners and send message - wrap in try/catch for safety
         try {
@@ -595,7 +718,54 @@ export class TokenWorkerPool {
     }
   }
   
-  private async recoverWorker(workerId: number) {
+  private async recoverWorker(workerId: number): Promise<void> {
+    // Validate worker ID
+    if (workerId < 0 || workerId >= this.poolSize) {
+      console.error(`Invalid worker ID for recovery: ${workerId}`);
+      return;
+    }
+    
+    // Check if pool is being recycled
+    if (this.isRecycling || this.recyclingLock || !this.acceptingJobs) {
+      console.log(`Skipping recovery for worker ${workerId} - pool is recycling`);
+      return;
+    }
+    
+    // Check if worker is permanently failed
+    if (this.workerPermanentlyFailed.has(workerId)) {
+      console.log(`Skipping recovery for worker ${workerId} - permanently failed`);
+      return;
+    }
+    
+    // Try to acquire recovery lock
+    const lockAcquired = await this.acquireRecoveryLock(workerId);
+    if (!lockAcquired) {
+      console.log(`Worker ${workerId} is already being recovered`);
+      return;
+    }
+    
+    // Create recovery promise for others to wait on
+    const recoveryPromise = this.performWorkerRecovery(workerId);
+    this.workerRecoveryQueue.set(workerId, recoveryPromise);
+    
+    try {
+      await recoveryPromise;
+    } finally {
+      // Always release lock and clean up
+      this.workerRecoveryLocks.delete(workerId);
+      this.workerRecoveryQueue.delete(workerId);
+    }
+  }
+  
+  private async performWorkerRecovery(workerId: number): Promise<void> {
+    // Double-check worker still needs recovery
+    if (this.workerStatus[workerId] && await this.isWorkerHealthy(workerId)) {
+      console.log(`Worker ${workerId} is already healthy, skipping recovery`);
+      return;
+    }
+    
+    console.log(`Starting recovery for worker ${workerId}`);
+    
     // Clean up old worker listeners before termination
     this.cleanupWorkerListeners(workerId);
     
@@ -664,22 +834,24 @@ export class TokenWorkerPool {
       // Continue anyway
     }
     
-    // Wait for initialization
-    await new Promise<void>((resolve) => {
-      const checkInit = setInterval(() => {
-        if (this.workerStatus[workerId]) {
-          clearInterval(checkInit);
-          resolve();
-        }
-      }, 50);
-      
-      // Timeout after 2 seconds
-      setTimeout(() => {
-        clearInterval(checkInit);
-        console.error(`Worker ${workerId} failed to initialize after recovery`);
-        resolve();
-      }, 2000);
-    });
+    // Wait for initialization with timeout
+    const initTimeout = 2000;
+    const initStart = Date.now();
+    let initialized = false;
+    
+    while (Date.now() - initStart < initTimeout && !initialized) {
+      if (this.workerStatus[workerId]) {
+        initialized = true;
+        console.log(`Worker ${workerId} successfully recovered`);
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    
+    if (!initialized) {
+      console.error(`Worker ${workerId} failed to initialize after recovery`);
+      this.markWorkerAsFailed(workerId);
+    }
   }
   
   getPerformanceStats() {
@@ -703,6 +875,64 @@ export class TokenWorkerPool {
     };
   }
   
+  /**
+   * Get detailed recovery statistics for monitoring and debugging.
+   */
+  getRecoveryStats() {
+    return {
+      recoveryLocks: [...this.workerRecoveryLocks.entries()],
+      pendingRecoveries: [...this.workerRecoveryQueue.keys()],
+      failureCounts: [...this.workerFailureTimes.entries()].map(([id, times]) => ({
+        workerId: id,
+        recentFailures: times.filter(time => Date.now() - time < this.FAILURE_WINDOW_MS).length,
+        lastFailure: times[times.length - 1] || null
+      })),
+      permanentlyFailed: [...this.workerPermanentlyFailed],
+      healthyWorkers: this.getHealthyWorkerCount(),
+      totalWorkers: this.poolSize
+    };
+  }
+  
+  /**
+   * Validate internal state consistency for debugging.
+   */
+  validateInternalState(): boolean {
+    try {
+      // Check workers array consistency
+      if (this.workers.length !== this.poolSize) {
+        console.error(`Worker array size mismatch: ${this.workers.length} vs ${this.poolSize}`);
+        return false;
+      }
+      
+      // Check status arrays consistency
+      if (this.workerStatus.length !== this.poolSize || this.workerReadyStatus.length !== this.poolSize) {
+        console.error('Status arrays size mismatch');
+        return false;
+      }
+      
+      // Check for orphaned locks
+      for (const [workerId] of this.workerRecoveryLocks) {
+        if (workerId >= this.poolSize) {
+          console.error(`Invalid worker ID in recovery locks: ${workerId}`);
+          return false;
+        }
+      }
+      
+      // Check for active jobs with invalid worker IDs
+      for (const [jobId, job] of this.activeJobs) {
+        if (job.workerId >= this.poolSize) {
+          console.error(`Invalid worker ID in active job ${jobId}: ${job.workerId}`);
+          return false;
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error validating internal state:', error);
+      return false;
+    }
+  }
+  
   private isWorkerBusy(workerId: number): boolean {
     return [...this.activeJobs.values()].some(job => job.workerId === workerId);
   }
@@ -710,7 +940,7 @@ export class TokenWorkerPool {
   private getAvailableWorkerCount(): number {
     let available = 0;
     for (let i = 0; i < this.poolSize; i++) {
-      if (this.workerStatus[i] && !this.isWorkerBusy(i)) {
+      if (this.workerStatus[i] && !this.isWorkerBusy(i) && !this.workerPermanentlyFailed.has(i)) {
         available++;
       }
     }
@@ -728,7 +958,7 @@ export class TokenWorkerPool {
           worker.postMessage({ type: 'HEALTH_CHECK', id });
           
           // Wait for response using our utility method
-          const result = await this.waitForWorkerMessage(
+          return await this.waitForWorkerMessage(
             worker,
             `health-check-${index}`,
             this.HEALTH_CHECK_TIMEOUT,
@@ -743,9 +973,7 @@ export class TokenWorkerPool {
               return null;
             }
           );
-          
-          return result;
-        } catch (error) {
+        } catch {
           // Timeout or error occurred
           return {
             workerId: index,
@@ -758,7 +986,7 @@ export class TokenWorkerPool {
   }
   
   async performHealthMonitoring() {
-    if (this.isTerminated) return;
+    if (this.isTerminated || this.isRecycling) return;
     
     const healthResults = await this.healthCheck();
     const unhealthyWorkers = healthResults.filter(r => !r.healthy);
@@ -766,14 +994,21 @@ export class TokenWorkerPool {
     if (unhealthyWorkers.length > 0) {
       console.warn(`${unhealthyWorkers.length} unhealthy workers detected:`, unhealthyWorkers);
       
-      // Attempt to recover unhealthy workers
-      for (const { workerId } of unhealthyWorkers) {
-        await this.recoverWorker(workerId);
-      }
+      // Attempt to recover unhealthy workers concurrently
+      // The recovery lock will prevent race conditions
+      await Promise.all(
+        unhealthyWorkers.map(({ workerId }) => 
+          this.recoverWorker(workerId).catch(error => {
+            console.error(`Health monitor failed to recover worker ${workerId}:`, error);
+          })
+        )
+      );
     }
     
     // Schedule next health check
-    setTimeout(() => this.performHealthMonitoring(), 30_000); // Every 30 seconds
+    if (!this.isTerminated) {
+      setTimeout(() => this.performHealthMonitoring(), 30_000); // Every 30 seconds
+    }
   }
   
   private cleanupWorkerListeners(workerId: number) {

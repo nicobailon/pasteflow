@@ -95,6 +95,15 @@ const useAppState = () => {
   const docState = useDocState();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace, getWorkspaceNames } = useWorkspaceState();
   
+  // Extract specific functions from fileSelection to avoid dependency on the whole object
+  const clearSelectedFiles = fileSelection.clearSelectedFiles;
+  const setSelectionState = fileSelection.setSelectionState;
+  const cleanupStaleSelections = fileSelection.cleanupStaleSelections;
+  const setSelectedFiles = fileSelection.setSelectedFiles;
+  const selectedFiles = fileSelection.selectedFiles;
+  const updateSelectedFile = fileSelection.updateSelectedFile;
+  const toggleFileSelection = fileSelection.toggleFileSelection;
+  
   // Token counter hook - always enabled
   const { countTokens: workerCountTokens, countTokensBatch, isReady: isTokenWorkerReady } = useTokenCounter();
 
@@ -760,12 +769,12 @@ const useAppState = () => {
       })
       .filter((file): file is SelectedFileWithLines => !!file);
 
-    fileSelection.clearSelectedFiles();
+    clearSelectedFiles();
     if (filesToSelect.length > 0) {
       // Use setSelectionState to restore the SelectedFileWithLines objects with line data
-      fileSelection.setSelectionState(filesToSelect);
+      setSelectionState(filesToSelect);
     }
-  }, [fileSelection]);
+  }, [clearSelectedFiles, setSelectionState]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
     console.log('[useAppState.applyPrompts] Applying prompts (raw):', promptsToApply);
@@ -813,7 +822,7 @@ const useAppState = () => {
 
     // Only clear files if folder is changing - otherwise we'll apply the saved selections
     if (folderChanged) {
-      fileSelection.clearSelectedFiles();
+      clearSelectedFiles();
     }
 
     if (folderChanged && !isProcessing) {
@@ -842,7 +851,7 @@ const useAppState = () => {
     applyExpandedNodes,
     applySelectedFiles,
     applyPrompts,
-    fileSelection
+    clearSelectedFiles
   ]);
 
   // Store refs to get latest values in handlers
@@ -975,9 +984,9 @@ const useAppState = () => {
   // Clean up selected files when workspace changes
   useEffect(() => {
     if (selectedFolder) {
-      fileSelection.cleanupStaleSelections();
+      cleanupStaleSelections();
     }
-  }, [selectedFolder, fileSelection]);
+  }, [selectedFolder, cleanupStaleSelections]);
 
   // Initial workspace loading effect
   useEffect(() => {
@@ -1032,7 +1041,7 @@ const useAppState = () => {
       
       applyWorkspaceData(currentWorkspace, fullWorkspaceData);
     }
-  }, [allFiles, pendingWorkspaceData, currentWorkspace, selectedFolder, processingStatus.status, applyWorkspaceData]);
+  }, [allFiles.length, pendingWorkspaceData, currentWorkspace, selectedFolder, processingStatus.status, applyWorkspaceData]);
 
   useEffect(() => {
     const handleCreateNewWorkspaceEvent = () => {
@@ -1052,10 +1061,10 @@ const useAppState = () => {
 
   // Calculate total tokens for selected files
   const totalTokensForSelectedFiles = useMemo(() => {
-    return fileSelection.selectedFiles.reduce((acc: number, file: SelectedFileWithLines) => {
+    return selectedFiles.reduce((acc: number, file: SelectedFileWithLines) => {
       return acc + (file.tokenCount || estimateTokenCount(file.content || ''));
     }, 0);
-  }, [fileSelection.selectedFiles]);
+  }, [selectedFiles]);
 
   // Calculate total tokens for system prompts
   const totalTokensForSystemPrompt = useMemo(() => {
