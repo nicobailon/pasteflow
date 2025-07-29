@@ -28,7 +28,7 @@ class MockWorker {
             this.onmessage({ data: { type: 'INIT_COMPLETE', id: data.id, success: true } } as MessageEvent);
             break;
           case 'HEALTH_CHECK':
-            this.onmessage({ data: { type: 'HEALTH_CHECK_RESPONSE', id: data.id } } as MessageEvent);
+            this.onmessage({ data: { type: 'HEALTH_RESPONSE', id: data.id, healthy: true } } as MessageEvent);
             break;
           case 'COUNT_TOKENS':
             // Simulate token counting

@@ -39,11 +39,16 @@ function sanitizeTextForTokenCount(text: string): string {
 // Initialize encoder with proper error handling
 async function initializeEncoder(): Promise<boolean> {
   try {
+    console.log('[Worker] Starting tiktoken initialization...');
+    console.log('[Worker] o200k_base available:', !!o200k_base);
+    console.log('[Worker] bpe_ranks available:', !!o200k_base?.bpe_ranks);
+    
     encoder = new Tiktoken(
       o200k_base.bpe_ranks,
       o200k_base.special_tokens,
       o200k_base.pat_str
     );
+    console.log('[Worker] Tiktoken encoder initialized successfully');
     return true;
   } catch (error) {
     console.error('[Worker] Failed to initialize tiktoken encoder:', error);
@@ -55,19 +60,30 @@ async function initializeEncoder(): Promise<boolean> {
 // Security: Input validation
 const MAX_TEXT_SIZE = 10 * 1024 * 1024; // 10MB limit
 
+// Send READY signal immediately when worker script loads
+console.log('[Worker] Worker script loaded, sending READY signal');
+self.postMessage({ type: 'WORKER_READY' });
+
 self.onmessage = async (event) => {
   const { type, payload, id } = event.data;
+  
+  console.log('[Worker] Received message:', { type, id });
   
   try {
     switch (type) {
       case 'INIT':
+        console.log('[Worker] Processing INIT message...');
         const success = await initializeEncoder();
+        console.log('[Worker] Sending INIT_COMPLETE with success:', success);
         self.postMessage({ type: 'INIT_COMPLETE', id, success });
         break;
         
       case 'HEALTH_CHECK':
-        // Respond immediately to health check
-        self.postMessage({ type: 'HEALTH_CHECK_RESPONSE', id });
+        self.postMessage({ 
+          type: 'HEALTH_RESPONSE', 
+          id, 
+          healthy: encoder !== null 
+        });
         break;
         
       case 'COUNT_TOKENS':
@@ -100,14 +116,6 @@ self.onmessage = async (event) => {
           })
         );
         self.postMessage({ type: 'BATCH_RESULT', id, results });
-        break;
-        
-      case 'HEALTH_CHECK':
-        self.postMessage({ 
-          type: 'HEALTH_RESPONSE', 
-          id, 
-          healthy: encoder !== null 
-        });
         break;
     }
   } catch (error) {

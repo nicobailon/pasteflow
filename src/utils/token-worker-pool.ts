@@ -18,6 +18,7 @@ export class TokenWorkerPool {
   private queue: QueueItem[] = [];
   private activeJobs = new Map<string, ActiveJob>();
   private workerStatus: boolean[] = [];
+  private workerReadyStatus: boolean[] = [];
   private isTerminated = false;
   
   // Queue management
@@ -39,9 +40,12 @@ export class TokenWorkerPool {
   }
   
   private async initializeWorkers() {
+    console.log('[Pool] Starting worker initialization...');
     // Progressive enhancement check
     const supportsWorkers = typeof Worker !== 'undefined';
     const supportsWasm = typeof WebAssembly !== 'undefined';
+    
+    console.log('[Pool] Support check - Workers:', supportsWorkers, 'WASM:', supportsWasm);
     
     if (!supportsWorkers || !supportsWasm) {
       console.warn('Web Workers or WASM not supported, falling back to estimation');
@@ -51,11 +55,13 @@ export class TokenWorkerPool {
     
     for (let i = 0; i < this.poolSize; i++) {
       try {
+        console.log(`[Pool] Creating worker ${i}...`);
         // Note: Webpack/Vite will handle worker bundling
         const worker = new Worker(
           new URL('../workers/token-counter-worker.ts', import.meta.url),
           { type: 'module' }
         );
+        console.log(`[Pool] Worker ${i} created successfully`);
         
         worker.onerror = (error) => {
           console.error(`Worker ${i} error:`, error);
@@ -66,21 +72,56 @@ export class TokenWorkerPool {
           this.handleWorkerMessage(i, event);
         };
         
-        // Initialize the worker
-        worker.postMessage({ type: 'INIT', id: `init-${i}` });
-        
         this.workers.push(worker);
         this.workerStatus.push(false); // Will be set to true on successful init
+        this.workerReadyStatus.push(false); // Will be set to true when worker sends READY
       } catch (error) {
         console.error(`Failed to create worker ${i}:`, error);
       }
     }
+    
+    // Wait for all workers to send READY signal
+    console.log('[Pool] Waiting for workers to be ready...');
+    await this.waitForWorkersReady();
+    
+    // Send INIT messages to all ready workers
+    console.log('[Pool] All workers ready, sending INIT messages...');
+    this.workers.forEach((worker, i) => {
+      if (this.workerReadyStatus[i]) {
+        console.log(`[Pool] Sending INIT message to worker ${i}`);
+        worker.postMessage({ type: 'INIT', id: `init-${i}` });
+      }
+    });
     
     // Wait for workers to initialize
     await this.waitForWorkerInit();
     
     // Start health monitoring
     this.performHealthMonitoring();
+  }
+  
+  private async waitForWorkersReady(timeout = 5000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const readyCount = this.workerReadyStatus.filter(Boolean).length;
+      console.log(`[Pool] ${readyCount}/${this.workers.length} workers ready`);
+      
+      if (readyCount === this.workers.length) {
+        console.log('[Pool] All workers are ready!');
+        return;
+      }
+      
+      // If at least half are ready after 1 second, continue
+      if (Date.now() - start > 1000 && readyCount >= Math.ceil(this.workers.length / 2)) {
+        console.log(`[Pool] ${readyCount} workers ready, continuing with partial pool`);
+        return;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    const readyCount = this.workerReadyStatus.filter(Boolean).length;
+    console.warn(`[Pool] Worker ready timeout - only ${readyCount}/${this.workers.length} workers ready`);
   }
   
   private async waitForWorkerInit(timeout = 5000): Promise<void> {
@@ -95,10 +136,18 @@ export class TokenWorkerPool {
   }
   
   private handleWorkerMessage(workerId: number, event: MessageEvent) {
-    const { type, id, success } = event.data;
+    const { type, id, success, healthy } = event.data;
+    
+    console.log(`[Pool] Received message from worker ${workerId}:`, { type, id, success: success || healthy });
     
     switch (type) {
+      case 'WORKER_READY':
+        console.log(`[Pool] Worker ${workerId} is ready`);
+        this.workerReadyStatus[workerId] = true;
+        break;
+        
       case 'INIT_COMPLETE':
+        console.log(`[Pool] Worker ${workerId} initialization complete, success: ${success}`);
         this.workerStatus[workerId] = success;
         break;
         
@@ -353,14 +402,33 @@ export class TokenWorkerPool {
     
     this.workers[workerId] = worker;
     this.workerStatus[workerId] = false;
+    this.workerReadyStatus[workerId] = false; // Reset ready status
     
     // Set up the worker's message handler
     worker.addEventListener('message', (event) => {
       this.handleWorkerMessage(workerId, event);
     });
     
-    // Initialize the new worker
-    worker.postMessage({ type: 'INIT' });
+    // Wait for worker to be ready before sending INIT
+    await new Promise<void>((resolve) => {
+      const readyTimeout = setTimeout(() => {
+        console.error(`Worker ${workerId} failed to send READY signal during recovery`);
+        resolve(); // Continue anyway
+      }, 2000);
+      
+      const readyHandler = (event: MessageEvent) => {
+        if (event.data.type === 'WORKER_READY') {
+          clearTimeout(readyTimeout);
+          worker.removeEventListener('message', readyHandler);
+          console.log(`[Pool] Recovered worker ${workerId} is ready, sending INIT`);
+          this.workerReadyStatus[workerId] = true;
+          worker.postMessage({ type: 'INIT', id: `init-recovery-${workerId}` });
+          resolve();
+        }
+      };
+      
+      worker.addEventListener('message', readyHandler);
+    });
     
     // Wait for initialization
     await new Promise<void>((resolve) => {
@@ -428,12 +496,12 @@ export class TokenWorkerPool {
           }, 1000);
           
           const handler = (e: MessageEvent) => {
-            if (e.data.id === id && e.data.type === 'HEALTH_CHECK_RESPONSE') {
+            if (e.data.id === id && e.data.type === 'HEALTH_RESPONSE') {
               clearTimeout(timeout);
               worker.removeEventListener('message', handler);
               resolve({
                 workerId: index,
-                healthy: true,
+                healthy: e.data.healthy === true, // Require explicit true from worker
                 responseTime: performance.now() - start
               });
             }

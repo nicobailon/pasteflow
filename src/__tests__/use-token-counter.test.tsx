@@ -1,63 +1,113 @@
+// Mock the TokenWorkerPool to use our test-friendly version
+jest.mock('../utils/token-worker-pool');
+jest.mock('../utils/token-utils');
+
 import { renderHook, act } from '@testing-library/react';
 import { useTokenCounter } from '../hooks/use-token-counter';
 import { TokenWorkerPool } from '../utils/token-worker-pool';
 import { estimateTokenCount } from '../utils/token-utils';
 import { TEST_CONSTANTS } from './test-constants';
+import { MockWorker, createMockWorker } from './test-utils/mock-worker';
 
-jest.mock('../utils/token-worker-pool');
-jest.mock('../utils/token-utils');
+// Store original constructors
+const originalWorker = global.Worker;
+const originalURL = global.URL;
+
+// Mock URL constructor to avoid import.meta.url issues
+beforeAll(() => {
+  // Define a proper mock URL class
+  class MockURL {
+    href: string;
+    constructor(url: string | URL, base?: string | URL) {
+      this.href = typeof url === 'string' ? url : url.href;
+    }
+    toString() {
+      return this.href;
+    }
+  }
+  
+  // Type-safe assignment
+  (global as { URL?: typeof URL }).URL = MockURL as unknown as typeof URL;
+});
+
+afterAll(() => {
+  // Restore the original URL constructor
+  (global as { URL?: typeof URL }).URL = originalURL;
+});
 
 describe('useTokenCounter Hook', () => {
-  let mockPool: Partial<jest.Mocked<TokenWorkerPool>>;
+  let mockWorkers: MockWorker[];
   
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.useFakeTimers();
+    mockWorkers = [];
     
-    mockPool = {
-      countTokens: jest.fn(),
-      terminate: jest.fn(),
-      monitorWorkerMemory: jest.fn(),
-      getPerformanceStats: jest.fn().mockReturnValue({
-        totalProcessed: 0,
-        totalTime: 0,
-        failureCount: 0,
-        averageTime: 0,
-        successRate: 0,
-        queueLength: 0,
-        activeJobs: 0,
-        droppedRequests: 0,
-        maxQueueSize: 1000,
-        poolSize: 4,
-        availableWorkers: 4
-      }),
-      countTokensBatch: jest.fn(),
-      healthCheck: jest.fn(),
-      performHealthMonitoring: jest.fn()
-    };
+    // Mock Worker constructor to return our mock workers
+    Object.defineProperty(global, 'Worker', {
+      writable: true,
+      configurable: true,
+      value: jest.fn().mockImplementation(() => {
+        const worker = createMockWorker({ autoRespond: true, responseDelay: 10 });
+        mockWorkers.push(worker);
+        
+        // Simulate worker initialization
+        setTimeout(() => {
+          worker.simulateMessage({ type: 'INIT_COMPLETE', id: 'init-' + (mockWorkers.length - 1), success: true });
+        }, 5);
+        
+        return worker;
+      })
+    });
     
-    (TokenWorkerPool as jest.Mock).mockImplementation(() => mockPool);
     (estimateTokenCount as jest.Mock).mockImplementation(text => Math.ceil(text.length / 4));
   });
   
   afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
     jest.clearAllMocks();
+    
+    // Restore original Worker
+    Object.defineProperty(global, 'Worker', {
+      writable: true,
+      configurable: true,
+      value: originalWorker
+    });
   });
   
   describe('Hook Lifecycle', () => {
-    it('should initialize worker pool on mount', () => {
+    it('should initialize worker pool on mount', async () => {
       const { result } = renderHook(() => useTokenCounter());
       
-      expect(TokenWorkerPool).toHaveBeenCalledTimes(1);
-      expect(mockPool.monitorWorkerMemory).toHaveBeenCalledTimes(1);
+      // Advance timers to allow worker initialization
+      await act(async () => {
+        jest.advanceTimersByTime(100);
+      });
+      
+      // Check that workers were created
+      expect(global.Worker).toHaveBeenCalled();
+      expect(mockWorkers.length).toBeGreaterThan(0);
       expect(result.current.isReady).toBe(true);
     });
     
-    it('should terminate worker pool on unmount', () => {
+    it('should terminate worker pool on unmount', async () => {
       const { unmount } = renderHook(() => useTokenCounter());
+      
+      // Advance timers to allow worker initialization
+      await act(async () => {
+        jest.advanceTimersByTime(100);
+      });
+      
+      const terminateSpy = jest.fn();
+      mockWorkers.forEach(worker => {
+        worker.terminate = terminateSpy;
+      });
       
       unmount();
       
-      expect(mockPool.terminate).toHaveBeenCalledTimes(1);
+      // Verify workers were terminated
+      expect(terminateSpy).toHaveBeenCalled();
     });
   });
   

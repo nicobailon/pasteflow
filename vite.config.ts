@@ -5,13 +5,17 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 
 export default defineConfig({
   plugins: [
-    react(),
+    react({
+      babel: {
+        plugins: [],
+      },
+    }),
     wasm(),
     topLevelAwait()
   ],
   worker: {
     format: 'es',
-    plugins: [wasm(), topLevelAwait()]
+    plugins: () => [wasm(), topLevelAwait()]
   },
   optimizeDeps: {
     exclude: ['tiktoken'],

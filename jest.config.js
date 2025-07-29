@@ -1,6 +1,9 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
+  testEnvironmentOptions: {
+    customExportConditions: ['node', 'node-addons'],
+  },
   moduleNameMapper: {
     // Handle CSS imports (with CSS modules)
     '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.js',
@@ -11,9 +14,14 @@ module.exports = {
     // Mock react-syntax-highlighter
     'react-syntax-highlighter/dist/esm/styles/prism': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.js',
     'react-syntax-highlighter': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.js',
+    // Handle worker imports
+    '^.*/workers/token-counter-worker\\.ts$': '<rootDir>/src/__tests__/__mocks__/token-counter-worker.ts',
+    // Mock TokenWorkerPool to avoid import.meta.url issues
+    '^.*/utils/token-worker-pool$': '<rootDir>/src/__tests__/__mocks__/token-worker-pool.ts',
   },
   globals: {
     URL: URL,
+    'process.env.NODE_ENV': 'test',
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/dist/'],

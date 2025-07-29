@@ -176,26 +176,34 @@ function createWindow() {
   });
 
   // Set Content Security Policy for Web Workers and WASM
+  const isDev = process.env.NODE_ENV === "development";
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const csp = isDev 
+      ? "default-src 'self';" +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: http://localhost:*;" +
+        "worker-src 'self' blob:;" +
+        "connect-src 'self' http://localhost:* ws://localhost:*;" +
+        "style-src 'self' 'unsafe-inline';" +
+        "img-src 'self' data: blob:;" +
+        "font-src 'self' data:;"
+      : "default-src 'self';" +
+        "script-src 'self' 'wasm-unsafe-eval' blob:;" +
+        "worker-src 'self' blob:;" +
+        "connect-src 'self';" +
+        "style-src 'self' 'unsafe-inline';" +
+        "img-src 'self' data: blob:;" +
+        "font-src 'self' data:;";
+    
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self';" +
-          "script-src 'self' 'wasm-unsafe-eval' blob:;" +
-          "worker-src 'self' blob:;" +
-          "connect-src 'self';" +
-          "style-src 'self' 'unsafe-inline';" +
-          "img-src 'self' data: blob:;" +
-          "font-src 'self' data:;"
-        ]
+        'Content-Security-Policy': [csp]
       }
     });
   });
 
   // In development, load from Vite dev server
   // In production, load from built files
-  const isDev = process.env.NODE_ENV === "development";
   if (isDev) {
     // Use the URL provided by the dev script, or fall back to default
     const startUrl = process.env.ELECTRON_START_URL || "http://localhost:3000";

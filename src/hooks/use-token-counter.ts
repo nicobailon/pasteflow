@@ -5,20 +5,39 @@ import { estimateTokenCount } from '../utils/token-utils';
 // Match the worker's size limit
 const MAX_TEXT_SIZE = 10 * 1024 * 1024; // 10MB
 
+// Singleton instance outside React lifecycle
+let globalWorkerPool: TokenWorkerPool | null = null;
+let refCount = 0;
+
 export function useTokenCounter() {
   const workerPoolRef = useRef<TokenWorkerPool | undefined>();
   const fallbackCountRef = useRef(0);
   
   useEffect(() => {
-    // Initialize worker pool
-    workerPoolRef.current = new TokenWorkerPool();
+    // Use singleton instance with reference counting
+    refCount++;
+    console.log(`[useTokenCounter] Reference count: ${refCount}`);
     
-    // Start memory monitoring
-    workerPoolRef.current.monitorWorkerMemory();
+    if (!globalWorkerPool) {
+      console.log('[useTokenCounter] Creating singleton TokenWorkerPool');
+      globalWorkerPool = new TokenWorkerPool();
+      globalWorkerPool.monitorWorkerMemory();
+    } else {
+      console.log('[useTokenCounter] Reusing existing singleton TokenWorkerPool');
+    }
     
-    // Cleanup on unmount
+    workerPoolRef.current = globalWorkerPool;
+    
+    // Cleanup on unmount - only terminate if last reference
     return () => {
-      workerPoolRef.current?.terminate();
+      refCount--;
+      console.log(`[useTokenCounter] Cleanup - Reference count: ${refCount}`);
+      
+      if (refCount === 0) {
+        console.log('[useTokenCounter] Last reference removed, terminating TokenWorkerPool');
+        globalWorkerPool?.terminate();
+        globalWorkerPool = null;
+      }
     };
   }, []);
   
@@ -47,8 +66,11 @@ export function useTokenCounter() {
       
       // If too many failures, recreate the pool
       if (fallbackCountRef.current > 10) {
-        workerPoolRef.current?.terminate();
-        workerPoolRef.current = new TokenWorkerPool();
+        console.warn('[useTokenCounter] Too many failures, recreating pool');
+        globalWorkerPool?.terminate();
+        globalWorkerPool = new TokenWorkerPool();
+        globalWorkerPool.monitorWorkerMemory();
+        workerPoolRef.current = globalWorkerPool;
         fallbackCountRef.current = 0;
       }
     }

@@ -1,5 +1,5 @@
 import { FileData, WorkspaceState } from '../types/file-types';
-import { getPathValidator } from '../security/path-validator';
+import { getPathValidator } from '../security/path-validator.ts';
 import { ApplicationError, ERROR_CODES, getRecoverySuggestions, logError } from '../utils/error-handling';
 
 export interface ProcessingStatus {
@@ -151,6 +151,9 @@ export const setupElectronHandlers = (
   const handleFileListData = (
   data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number } | FileData[]
 ): void => {
+  // Update timestamp on each file list update
+  window.sessionStorage.setItem('lastFileListUpdate', Date.now().toString());
+
   let filesArray: FileData[] = [];
   let isComplete = false;
   let processedCount = 0;
@@ -269,12 +272,6 @@ export const setupElectronHandlers = (
     }
   }, 60000); // Check every minute
 
-  // Update timestamp on each file list update
-  const originalHandleFileListData = handleFileListData;
-  handleFileListData = (data) => {
-    window.sessionStorage.setItem('lastFileListUpdate', Date.now().toString());
-    originalHandleFileListData(data);
-  };
 
   return () => {
     // Clear accumulated files to prevent memory leak

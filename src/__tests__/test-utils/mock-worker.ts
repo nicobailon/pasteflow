@@ -51,8 +51,8 @@ export class MockWorker {
         if (data.type === 'INIT') {
           this.simulateMessage({ type: 'INIT_COMPLETE', id: data.id, success: true });
         } else if (data.type === 'HEALTH_CHECK') {
-          this.simulateMessage({ type: 'HEALTH_CHECK_RESPONSE', id: data.id });
-        } else if (data.type === 'COUNT_TOKENS') {
+          this.simulateMessage({ type: 'HEALTH_RESPONSE', id: data.id, healthy: true });
+        } else if (data.type === 'COUNT_TOKENS' && data.payload) {
           const tokenCount = Math.ceil(data.payload.text.length / 4);
           this.simulateMessage({ 
             type: 'TOKEN_COUNT', 
