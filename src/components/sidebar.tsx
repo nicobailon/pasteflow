@@ -7,7 +7,6 @@ import { SidebarProps, TreeNode } from "../types/file-types";
 import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
 import Dropdown, { DropdownOption } from './dropdown';
 import SearchBar from "./search-bar";
-import TreeItem from "./tree-item";
 
 // Custom type for resize events
 type ResizeMouseEvent = {

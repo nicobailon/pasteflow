@@ -2,6 +2,7 @@ import { Archive, Check, Folder, Loader2, Save } from 'lucide-react';
 import { useState } from 'react';
 
 import { FileTreeMode } from '../types/file-types';
+import type { AppState } from '../hooks/use-app-state';
 
 import FileTreeToggle from './file-tree-toggle';
 import ThemeToggle from './theme-toggle';
@@ -17,6 +18,7 @@ interface AppHeaderProps {
   currentWorkspace?: string | null;
   saveCurrentWorkspace?: () => void;
   headerSaveState?: 'idle' | 'saving' | 'success';
+  appState?: AppState; // Will be passed through to WorkspaceModal
 }
 
 const AppHeader = ({
@@ -27,7 +29,8 @@ const AppHeader = ({
   toggleWorkspaceModal,
   currentWorkspace,
   saveCurrentWorkspace,
-  headerSaveState // Destructure the new prop
+  headerSaveState, // Destructure the new prop
+  appState
 }: AppHeaderProps): JSX.Element => {
   const [localIsWorkspaceModalOpen, setLocalIsWorkspaceModalOpen] = useState(false);
   
@@ -103,12 +106,13 @@ const AppHeader = ({
         )}
         <ThemeToggle />
       </div>
-      {!toggleWorkspaceModal && (
+      {!toggleWorkspaceModal && appState && (
         <WorkspaceModal
           isOpen={localIsWorkspaceModalOpen}
           onClose={() => {
             setLocalIsWorkspaceModalOpen(false);
           }}
+          appState={appState}
         />
       )}
     </header>

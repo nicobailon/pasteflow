@@ -30,7 +30,7 @@ export function setupWorkerMocks(options?: {
   Object.defineProperty(global, 'Worker', {
     writable: true,
     configurable: true,
-    value: jest.fn().mockImplementation((url: any, options: any) => {
+    value: jest.fn().mockImplementation((_url: string | URL, _options?: WorkerOptions) => {
       // Create a mock worker instance
       const worker = mockWorkerFactory();
       mockWorkerInstances.push(worker);
@@ -52,7 +52,7 @@ export function setupWorkerMocks(options?: {
   Object.defineProperty(global, 'URL', {
     writable: true,
     configurable: true,
-    value: jest.fn().mockImplementation((url: string, base?: string) => {
+    value: jest.fn().mockImplementation((url: string, _base?: string) => {
       return { 
         href: url, 
         toString: () => url,

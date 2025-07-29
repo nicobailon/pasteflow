@@ -28,6 +28,7 @@ describe('TreeItem Component', () => {
     fileData: {
       name: 'example.js',
       path: '/path/to/example.js',
+      isDirectory: false,
       content: 'console.log("Hello World");',
       tokenCount: 100,
       size: 1024,
@@ -44,6 +45,7 @@ describe('TreeItem Component', () => {
     fileData: {
       name: 'binary.bin',
       path: '/path/to/binary.bin',
+      isDirectory: false,
       content: '',
       tokenCount: 0,
       size: 1024,

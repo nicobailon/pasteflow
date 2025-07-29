@@ -9,7 +9,7 @@ import { FileData, TreeNode } from '../types/file-types';
 // Mock the useFileTree hook
 jest.mock('../hooks/use-file-tree', () => ({
   __esModule: true,
-  default: jest.fn(({ allFiles, expandedNodes }) => {
+  default: jest.fn(({ allFiles: _allFiles, expandedNodes }) => {
     // Create a simple file tree structure for testing
     
     // Helper functions to create tree nodes
@@ -22,6 +22,7 @@ jest.mock('../hooks/use-file-tree', () => ({
       fileData: {
         name,
         path,
+        isDirectory: false,
         content: 'content',
         tokenCount: 10,
         size: 100,
@@ -100,10 +101,10 @@ jest.mock('../hooks/use-file-tree', () => ({
 describe('Expand and Collapse All Functions', () => {
   // Test data
   const testFiles: FileData[] = [
-    { name: 'file1.js', path: '/test/dir1/file1.js', content: 'content', tokenCount: 10, size: 100, isBinary: false, isSkipped: false },
-    { name: 'file2.js', path: '/test/dir2/file2.js', content: 'content', tokenCount: 10, size: 100, isBinary: false, isSkipped: false },
-    { name: 'file3.js', path: '/test/dir3/file3.js', content: 'content', tokenCount: 10, size: 100, isBinary: false, isSkipped: false },
-    { name: 'nestedFile.js', path: '/test/dir3/nested/nestedFile.js', content: 'content', tokenCount: 10, size: 100, isBinary: false, isSkipped: false }
+    { name: 'file1.js', path: '/test/dir1/file1.js', isDirectory: false, content: 'content', tokenCount: 10, size: 100, isBinary: false, isSkipped: false },
+    { name: 'file2.js', path: '/test/dir2/file2.js', isDirectory: false, content: 'content', tokenCount: 10, size: 100, isBinary: false, isSkipped: false },
+    { name: 'file3.js', path: '/test/dir3/file3.js', isDirectory: false, content: 'content', tokenCount: 10, size: 100, isBinary: false, isSkipped: false },
+    { name: 'nestedFile.js', path: '/test/dir3/nested/nestedFile.js', isDirectory: false, content: 'content', tokenCount: 10, size: 100, isBinary: false, isSkipped: false }
   ];
   
   // Base props for tests

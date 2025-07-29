@@ -69,4 +69,8 @@ async function checkAssertionDensity() {
   console.log('✅ All tests meet assertion density requirements');
 }
 
-checkAssertionDensity().catch(console.error);
+try {
+  await checkAssertionDensity();
+} catch (error) {
+  console.error(error);
+}

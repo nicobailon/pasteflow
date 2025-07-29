@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface ProcessingIndicatorProps {
   status: "idle" | "processing" | "complete" | "error";
   message: string;

@@ -48,6 +48,7 @@ const App = () => {
           currentWorkspace={appState.currentWorkspace}
           saveCurrentWorkspace={appState.saveCurrentWorkspace}
           headerSaveState={appState.headerSaveState}
+          appState={appState}
         />
 
         {/* Processing indicator overlay */}

@@ -291,310 +291,326 @@ const useAppState = () => {
     selectedFolder
   ]);
   
-  const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
-    // Use functional update to avoid stale closure
-    setAllFiles((prevFiles: FileData[]) => {
-      const file = prevFiles.find((f: FileData) => f.path === filePath);
-      if (!file || file.isContentLoaded) return prevFiles;
-      
-      // Mark file as loading/counting tokens immediately
-      return prevFiles.map((f: FileData) =>
-        f.path === filePath
-          ? { ...f, isCountingTokens: true }
-          : f
-      );
-    });
+  // Helper function to validate file load request
+  const validateFileLoadRequest = useCallback((filePath: string, files: FileData[]): { valid: boolean; file?: FileData; reason?: string } => {
+    const file = files.find((f: FileData) => f.path === filePath);
     
-    // Prevent loading files outside the current workspace
-    if (selectedFolder && !filePath.startsWith(selectedFolder)) {
-      console.warn(`Skipping file outside current workspace: ${filePath}`);
-      return;
+    if (!file) {
+      return { valid: false, reason: 'File not found' };
     }
     
-    // Also update the selected file to show it's counting
+    if (file.isContentLoaded) {
+      return { valid: false, reason: 'Already loaded' };
+    }
+    
+    if (selectedFolder && !filePath.startsWith(selectedFolder)) {
+      return { valid: false, reason: 'Outside workspace' };
+    }
+    
+    return { valid: true, file };
+  }, [selectedFolder]);
+
+  // Helper function to update file loading state
+  const updateFileLoadingState = useCallback((filePath: string, isLoading: boolean) => {
+    setAllFiles((prev: FileData[]) =>
+      prev.map((f: FileData) =>
+        f.path === filePath
+          ? { ...f, isCountingTokens: isLoading }
+          : f
+      )
+    );
+    
+    if (isLoading) {
+      fileSelection.updateSelectedFile({
+        path: filePath,
+        isFullFile: true,
+        isContentLoaded: false,
+        isCountingTokens: true
+      });
+    }
+  }, [setAllFiles, fileSelection]);
+
+  // Helper function to process token counting
+  const processFileTokens = useCallback(async (
+    content: string,
+    filePath: string
+  ): Promise<{ tokenCount: number; error?: string }> => {
+    try {
+      if (isTokenWorkerReady) {
+        const tokenCount = await workerCountTokens(content);
+        return { tokenCount };
+      } else {
+        const tokenCount = estimateTokenCount(content);
+        return { tokenCount, error: 'Worker not ready, used estimation' };
+      }
+    } catch (error) {
+      console.error(`Token counting failed for ${filePath}:`, error);
+      const tokenCount = estimateTokenCount(content);
+      return { tokenCount, error: 'Worker failed, used estimation' };
+    }
+  }, [isTokenWorkerReady, workerCountTokens]);
+
+  // Helper function to update file with content and tokens
+  const updateFileWithContent = useCallback((
+    filePath: string,
+    content: string,
+    tokenCount: number,
+    tokenCountError?: string
+  ) => {
+    fileContentCache.set(filePath, content, tokenCount);
+    
+    setAllFiles((prev: FileData[]) =>
+      prev.map((f: FileData) =>
+        f.path === filePath
+          ? { 
+              ...f, 
+              content, 
+              tokenCount, 
+              isContentLoaded: true, 
+              isCountingTokens: false,
+              error: undefined,
+              tokenCountError 
+            }
+          : f
+      )
+    );
+    
     fileSelection.updateSelectedFile({
       path: filePath,
+      content,
+      tokenCount,
       isFullFile: true,
-      isContentLoaded: false,
-      isCountingTokens: true
+      isContentLoaded: true,
+      isCountingTokens: false
     });
+  }, [setAllFiles, fileSelection]);
+
+  // Helper function to handle cached content
+  const handleCachedContent = useCallback(async (
+    filePath: string,
+    cached: { content: string; tokenCount?: number }
+  ): Promise<boolean> => {
+    if (cached.tokenCount !== undefined) {
+      updateFileWithContent(filePath, cached.content, cached.tokenCount);
+      return true;
+    }
+    
+    // Need to count tokens for cached content
+    const { tokenCount, error } = await processFileTokens(cached.content, filePath);
+    updateFileWithContent(filePath, cached.content, tokenCount, error);
+    return true;
+  }, [processFileTokens, updateFileWithContent]);
+
+  const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
+    // Get current files state for validation
+    const currentFiles = await new Promise<FileData[]>((resolve) => {
+      setAllFiles((prev: FileData[]) => {
+        resolve(prev);
+        return prev;
+      });
+    });
+
+    // Validate the request
+    const validation = validateFileLoadRequest(filePath, currentFiles);
+    if (!validation.valid) {
+      if (validation.reason === 'Outside workspace') {
+        console.warn(`Skipping file outside current workspace: ${filePath}`);
+      }
+      return;
+    }
+
+    // Mark file as loading
+    updateFileLoadingState(filePath, true);
 
     // Check cache first
     const cached = fileContentCache.get(filePath);
     if (cached) {
-      // If we have cached content but no token count, use workers to count tokens
-      if (cached.tokenCount === undefined && cached.content) {
-        setAllFiles((prev: FileData[]) =>
-          prev.map((f: FileData) =>
-            f.path === filePath
-              ? { ...f, content: cached.content, isContentLoaded: true, isCountingTokens: true }
-              : f
-          )
-        );
-        
-        try {
-          const tokenCount = await workerCountTokens(cached.content);
-          fileContentCache.set(filePath, cached.content, tokenCount);
-          
-          setAllFiles((prev: FileData[]) =>
-            prev.map((f: FileData) =>
-              f.path === filePath
-                ? { ...f, content: cached.content, tokenCount, isContentLoaded: true, isCountingTokens: false }
-                : f
-            )
-          );
-          fileSelection.updateSelectedFile({
-            path: filePath,
-            content: cached.content,
-            tokenCount,
-            isFullFile: true,
-            isContentLoaded: true,
-            isCountingTokens: false
-          });
-        } catch (error) {
-          console.error('Error counting tokens with worker:', error);
-          const fallbackCount = estimateTokenCount(cached.content);
-          setAllFiles((prev: FileData[]) =>
-            prev.map((f: FileData) =>
-              f.path === filePath
-                ? { ...f, content: cached.content, tokenCount: fallbackCount, isContentLoaded: true, isCountingTokens: false }
-                : f
-            )
-          );
-        }
-      } else {
-        setAllFiles((prev: FileData[]) =>
-          prev.map((f: FileData) =>
-            f.path === filePath
-              ? { ...f, content: cached.content, tokenCount: cached.tokenCount, isContentLoaded: true }
-              : f
-          )
-        );
-        fileSelection.updateSelectedFile({
-          path: filePath,
-          content: cached.content,
-          tokenCount: cached.tokenCount,
-          isFullFile: true,
-          isContentLoaded: true
-        });
-      }
+      await handleCachedContent(filePath, cached);
       return;
     }
 
-    // Load from backend if not cached
+    // Load from backend
     const result = await requestFileContent(filePath);
     if (result.success && result.content !== undefined) {
-      // Use worker-based token counting
-      if (isTokenWorkerReady) {
-        // Set loading state
-        setAllFiles((prev: FileData[]) =>
-          prev.map((f: FileData) =>
-            f.path === filePath
-              ? { ...f, content: result.content, isContentLoaded: true, isCountingTokens: true }
-              : f
-          )
-        );
-        
-        try {
-          // Count tokens using worker
-          const tokenCount = await workerCountTokens(result.content!);
-          
-          // Cache the result with token count
-          fileContentCache.set(filePath, result.content!, tokenCount);
-          
-          setAllFiles((prev: FileData[]) =>
-            prev.map((f: FileData) =>
-              f.path === filePath
-                ? { ...f, content: result.content, tokenCount, isContentLoaded: true, isCountingTokens: false }
-                : f
-            )
-          );
+      // Process tokens and update state
+      const { tokenCount, error } = await processFileTokens(result.content, filePath);
+      updateFileWithContent(filePath, result.content, tokenCount, error);
+    } else {
+      // Handle error
+      setAllFiles((prev: FileData[]) =>
+        prev.map((f: FileData) =>
+          f.path === filePath 
+            ? { ...f, error: result.error, isContentLoaded: false, isCountingTokens: false } 
+            : f
+        )
+      );
+    }
+  }, [
+    validateFileLoadRequest, 
+    updateFileLoadingState, 
+    handleCachedContent, 
+    processFileTokens, 
+    updateFileWithContent,
+    setAllFiles
+  ]);
+
+  // Helper function to set batch loading state
+  const setBatchLoadingState = useCallback((filePaths: string[], isLoading: boolean) => {
+    setAllFiles((prev: FileData[]) =>
+      prev.map((f: FileData) =>
+        filePaths.includes(f.path)
+          ? { ...f, isCountingTokens: isLoading }
+          : f
+      )
+    );
+  }, [setAllFiles]);
+
+  // Helper function to process batch results
+  const processBatchResults = useCallback((
+    results: { success: boolean; content?: string; error?: string }[],
+    filePaths: string[]
+  ) => {
+    const successful: { path: string; content: string }[] = [];
+    const failed: { path: string; error: string }[] = [];
+
+    for (const [index, result] of results.entries()) {
+      const path = filePaths[index];
+      if (result.success && result.content) {
+        successful.push({ path, content: result.content });
+      } else {
+        failed.push({ path, error: result.error || 'Failed to load content' });
+      }
+    }
+
+    return { successful, failed };
+  }, []);
+
+  // Helper function to update file state with token counts
+  const updateFilesWithTokenCounts = useCallback((
+    filePaths: string[],
+    filePathToResult: Map<string, any>,
+    filePathToTokenCount: Map<string, number>
+  ) => {
+    setAllFiles((prev: FileData[]) =>
+      prev.map((f: FileData) => {
+        if (!filePaths.includes(f.path)) return f;
+
+        const result = filePathToResult.get(f.path);
+        const tokenCount = filePathToTokenCount.get(f.path);
+
+        if (result?.success && result.content !== undefined && tokenCount !== undefined) {
+          fileContentCache.set(f.path, result.content, tokenCount);
           fileSelection.updateSelectedFile({
-            path: filePath,
-            content: result.content!,
+            path: f.path,
+            content: result.content,
             tokenCount,
             isFullFile: true,
             isContentLoaded: true,
             isCountingTokens: false
           });
-        } catch (error) {
-          console.error('Error counting tokens with worker:', error);
-          // Fall back to estimation
-          const tokenCount = estimateTokenCount(result.content!);
-          fileContentCache.set(filePath, result.content!, tokenCount);
-          
-          setAllFiles((prev: FileData[]) =>
-            prev.map((f: FileData) =>
-              f.path === filePath
-                ? { ...f, content: result.content, tokenCount, isContentLoaded: true, isCountingTokens: false, tokenCountError: 'Worker failed, used estimation' }
-                : f
-            )
-          );
+
+          return {
+            ...f,
+            content: result.content,
+            tokenCount,
+            isContentLoaded: true,
+            isCountingTokens: false,
+            error: undefined,
+            tokenCountError: undefined
+          };
+        } else if (result && !result.success) {
+          return {
+            ...f,
+            error: result.error || 'Failed to load content',
+            isContentLoaded: false,
+            isCountingTokens: false,
+            tokenCountError: undefined
+          };
+        } else {
+          return {
+            ...f,
+            tokenCountError: 'Failed to count tokens',
+            isCountingTokens: false
+          };
         }
-      } else {
-        // Worker not ready, fall back to estimation
-        const tokenCount = estimateTokenCount(result.content!);
-        fileContentCache.set(filePath, result.content!, tokenCount);
-        
-        setAllFiles((prev: FileData[]) =>
-          prev.map((f: FileData) =>
-            f.path === filePath
-              ? { ...f, content: result.content, tokenCount, isContentLoaded: true, tokenCountError: 'Worker not ready, used estimation' }
-              : f
-          )
-        );
-        fileSelection.updateSelectedFile({
-          path: filePath,
-          content: result.content!,
-          tokenCount,
-          isFullFile: true,
-          isContentLoaded: true
-        });
-      }
-    } else {
+      })
+    );
+  }, [setAllFiles, fileSelection]);
+
+  // Helper function for fallback token counting
+  const fallbackTokenCounting = useCallback(async (
+    successfulLoads: { path: string; content: string }[]
+  ) => {
+    for (const { path, content } of successfulLoads) {
+      const tokenCount = estimateTokenCount(content);
+      fileContentCache.set(path, content, tokenCount);
+      
       setAllFiles((prev: FileData[]) =>
         prev.map((f: FileData) =>
-          f.path === filePath ? { ...f, error: result.error, isContentLoaded: false } : f
+          f.path === path
+            ? { ...f, content, tokenCount, isContentLoaded: true, isCountingTokens: false }
+            : f
         )
       );
     }
-  }, [allFiles, setAllFiles, fileSelection, workerCountTokens, isTokenWorkerReady, selectedFolder]);
+  }, [setAllFiles]);
 
   // Batch load multiple file contents
   const loadMultipleFileContents = useCallback(async (filePaths: string[]): Promise<void> => {
     if (!isTokenWorkerReady) {
-      // Fall back to sequential loading with existing method
       for (const path of filePaths) {
         await loadFileContent(path);
       }
       return;
     }
 
-    // Set loading states for all files
-    setAllFiles((prev: FileData[]) =>
-      prev.map((f: FileData) =>
-        filePaths.includes(f.path)
-          ? { ...f, isCountingTokens: true }
-          : f
-      )
-    );
+    setBatchLoadingState(filePaths, true);
 
-    // Load all contents from backend
     const results = await Promise.all(
       filePaths.map(path => requestFileContent(path))
     );
 
-    // Extract successful content loads
-    const successfulLoads = results
-      .map((result, index) => ({
-        path: filePaths[index],
-        content: result.success ? result.content : null,
-        error: result.success ? null : result.error
-      }))
-      .filter(item => item.content !== null);
+    const { successful, failed } = processBatchResults(results, filePaths);
 
-    if (successfulLoads.length > 0) {
+    if (successful.length > 0) {
       try {
-        // Batch count tokens for all successful loads
-        const contents = successfulLoads.map(item => item.content!);
+        const contents = successful.map(item => item.content);
         const tokenCounts = await countTokensBatch(contents);
 
-        // Create atomic mapping of file paths to token counts
         const filePathToTokenCount = new Map(
-          successfulLoads.map((item, index) => [item.path, tokenCounts[index]])
+          successful.map((item, index) => [item.path, tokenCounts[index]])
         );
 
-        // Create atomic mapping of file paths to results
         const filePathToResult = new Map(
           results.map((result, index) => [filePaths[index], result])
         );
 
-        // Update state with all results atomically
-        setAllFiles((prev: FileData[]) =>
-          prev.map((f: FileData) => {
-            // Only update files that were part of the original request
-            if (!filePaths.includes(f.path)) return f;
-
-            const result = filePathToResult.get(f.path);
-            const tokenCount = filePathToTokenCount.get(f.path);
-
-            if (result?.success && result.content !== undefined && tokenCount !== undefined) {
-              // Cache the result
-              fileContentCache.set(f.path, result.content, tokenCount);
-
-              // Update file selection state
-              fileSelection.updateSelectedFile({
-                path: f.path,
-                content: result.content,
-                tokenCount,
-                isFullFile: true,
-                isContentLoaded: true,
-                isCountingTokens: false
-              });
-
-              return {
-                ...f,
-                content: result.content,
-                tokenCount,
-                isContentLoaded: true,
-                isCountingTokens: false,
-                error: undefined,
-                tokenCountError: undefined
-              };
-            } else if (result && !result.success) {
-              return {
-                ...f,
-                error: result.error || 'Failed to load content',
-                isContentLoaded: false,
-                isCountingTokens: false,
-                tokenCountError: undefined
-              };
-            } else {
-              // Token counting failed but content loaded successfully
-              return {
-                ...f,
-                tokenCountError: 'Failed to count tokens',
-                isCountingTokens: false
-              };
-            }
-          })
-        );
+        updateFilesWithTokenCounts(filePaths, filePathToResult, filePathToTokenCount);
       } catch (error) {
         console.error('Error in batch token counting:', error);
-        // Fall back to individual token counting
-        for (const { path, content } of successfulLoads) {
-          if (content) {
-            const tokenCount = estimateTokenCount(content);
-            fileContentCache.set(path, content, tokenCount);
-            
-            setAllFiles((prev: FileData[]) =>
-              prev.map((f: FileData) =>
-                f.path === path
-                  ? { ...f, content, tokenCount, isContentLoaded: true, isCountingTokens: false }
-                  : f
-              )
-            );
-          }
-        }
+        await fallbackTokenCounting(successful);
       }
     }
 
-    // Handle failed loads
-    const failedPaths = results
-      .map((result, index) => ({ result, path: filePaths[index] }))
-      .filter(item => !item.result.success)
-      .map(item => item.path);
-
-    if (failedPaths.length > 0) {
+    if (failed.length > 0) {
       setAllFiles((prev: FileData[]) =>
         prev.map((f: FileData) =>
-          failedPaths.includes(f.path)
+          failed.some(item => item.path === f.path)
             ? { ...f, error: 'Failed to load content', isContentLoaded: false, isCountingTokens: false }
             : f
         )
       );
     }
-  }, [isTokenWorkerReady, loadFileContent, countTokensBatch, setAllFiles, fileSelection]);
+  }, [
+    isTokenWorkerReady, 
+    loadFileContent, 
+    countTokensBatch, 
+    setBatchLoadingState, 
+    processBatchResults, 
+    updateFilesWithTokenCounts,
+    fallbackTokenCounting,
+    setAllFiles
+  ]);
 
   // Load expanded nodes state from localStorage
   useEffect(() => {
@@ -688,7 +704,7 @@ const useAppState = () => {
 
   // Helper functions for workspace data application
   const handleFolderChange = useCallback((workspaceName: string, workspaceFolder: string | null, workspaceData: WorkspaceState) => {
-    const callStackTrace = new Error().stack;
+    const callStackTrace = new Error('Stack trace for debugging').stack;
     console.log(`[DEBUG] handleFolderChange called: "${selectedFolderRef.current}" -> "${workspaceFolder}"`);
     console.log(`[DEBUG] handleFolderChange call stack:`, callStackTrace);
     setCurrentWorkspace(workspaceName);
@@ -853,12 +869,9 @@ const useAppState = () => {
         console.log('[useAppState.setupElectronHandlers] Setting up Electron handlers');
         
         // Create wrapper functions that use refs to get latest values
-        const handleFiltersAndSortWrapper = (files: FileData[], sort: string, filter: string) => {
+        const handleFiltersAndSortWrapper = (files: FileData[], _sort: string, _filter: string) => {
           handleFiltersAndSort(files, sortOrderRef.current, searchTermRef.current);
         };
-        
-        const getCurrentWorkspace = () => currentWorkspaceRef.current;
-        const getSelectedFolder = () => selectedFolderRef.current;
         
         const cleanup = setupElectronHandlers(
           isElectron,
@@ -871,11 +884,11 @@ const useAppState = () => {
           searchTermRef.current,
           setIsLoadingCancellable,
           setAppInitialized,
-          getCurrentWorkspace(),
+          currentWorkspaceRef.current,
           setCurrentWorkspace,
           persistWorkspace,
           getWorkspaceNames,
-          getSelectedFolder()
+          selectedFolderRef.current
         );
         
         // Dispatch a custom event when handlers are set up
@@ -902,6 +915,7 @@ const useAppState = () => {
     return () => {
       // Empty cleanup - handlers persist
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
       isElectron
       // Removed dependencies to ensure this only runs once
@@ -960,7 +974,7 @@ const useAppState = () => {
     if (selectedFolder) {
       fileSelection.cleanupStaleSelections();
     }
-  }, [selectedFolder, fileSelection.cleanupStaleSelections]);
+  }, [selectedFolder, fileSelection]);
 
   // Initial workspace loading effect
   useEffect(() => {

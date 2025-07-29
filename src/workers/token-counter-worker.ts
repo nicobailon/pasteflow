@@ -8,15 +8,10 @@ let encoder: Tiktoken | null = null;
 function isControlOrBinaryChar(codePoint: number | undefined): boolean {
   if (codePoint === undefined) return false;
   // Control characters: 0x00-0x1F (excluding tab, newline, carriage return) and 0x7F-0x9F
-  if ((codePoint >= 0x00 && codePoint <= 0x08) ||
+  return (codePoint >= 0x00 && codePoint <= 0x08) ||
       (codePoint >= 0x0B && codePoint <= 0x0C) ||
       (codePoint >= 0x0E && codePoint <= 0x1F) ||
-      (codePoint >= 0x7F && codePoint <= 0x9F)) {
-    return true;
-  }
-  // Additional ranges for other non-printable or binary-indicative characters
-  if (codePoint > 0xFF_FF) return false;
-  return false;
+      (codePoint >= 0x7F && codePoint <= 0x9F);
 }
 
 // Port sanitization function from main process
@@ -64,7 +59,7 @@ const MAX_TEXT_SIZE = 10 * 1024 * 1024; // 10MB limit
 console.log('[Worker] Worker script loaded, sending READY signal');
 self.postMessage({ type: 'WORKER_READY' });
 
-self.onmessage = async (event) => {
+self.addEventListener('message', async (event) => {
   const { type, payload, id } = event.data;
   
   console.log('[Worker] Received message:', { type, id });
@@ -129,4 +124,4 @@ self.onmessage = async (event) => {
       error: error instanceof Error ? error.message : 'Unknown error' 
     });
   }
-};
+});

@@ -1,10 +1,10 @@
-import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { ThemeProvider } from '../context/theme-context';
 import WorkspaceModal from '../components/workspace-modal';
 import { STORAGE_KEYS } from '../constants';
 import { setupMockLocalStorage, mockDateNow } from './test-helpers';
+import type { AppState } from '../hooks/use-app-state';
 
 // Mock useWorkspaceState
 jest.mock('../hooks/use-workspace-state', () => ({
@@ -42,27 +42,31 @@ jest.mock('../hooks/use-workspace-state', () => ({
   })
 }));
 
-// Mock useAppState (only what's needed for the tests)
-jest.mock('../hooks/use-app-state', () => () => ({
+// Create a minimal mock that satisfies the AppState type requirements
+const createMockAppState = (): Partial<AppState> => ({
   selectedFolder: '/test/folder',
   fileSelection: {
     selectedFiles: [{ path: 'test.ts', content: 'test content' }]
-  },
+  } as AppState['fileSelection'],
   expandedNodes: { 'src': true },
   userInstructions: 'test instructions',
   currentWorkspace: localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE),
-  loadWorkspace: jest.fn().mockImplementation((name) => {
+  loadWorkspace: jest.fn().mockImplementation((name: string) => {
     localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, name);
     window.dispatchEvent(new CustomEvent('workspacesChanged'));
   }),
-  saveWorkspace: jest.fn().mockImplementation((name) => {
+  saveWorkspace: jest.fn().mockImplementation((name: string) => {
     const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
     workspaces[name] = JSON.stringify({ name, savedAt: Date.now() });
     localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
     localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, name);
     window.dispatchEvent(new CustomEvent('workspacesChanged'));
   })
-}));
+});
+
+const mockAppState = createMockAppState();
+
+jest.mock('../hooks/use-app-state', () => () => mockAppState);
 
 describe('WorkspaceModal Component', () => {
   beforeEach(() => {
@@ -89,7 +93,7 @@ describe('WorkspaceModal Component', () => {
     localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
     
     // Render modal
-    render(<WorkspaceModal isOpen={true} onClose={() => {}} />);
+    render(<WorkspaceModal isOpen={true} onClose={() => {}} appState={mockAppState as AppState} />);
     
     // Get workspace list items
     const workspaceItems = screen.getAllByRole('button', { name: /load/i });
@@ -102,7 +106,7 @@ describe('WorkspaceModal Component', () => {
 
   test('should save workspace with correct data', async () => {
     // Setup
-    render(<WorkspaceModal isOpen={true} onClose={() => {}} />);
+    render(<WorkspaceModal isOpen={true} onClose={() => {}} appState={mockAppState as AppState} />);
     
     // Enter workspace name
     const nameInput = screen.getByLabelText(/workspace name/i);
@@ -131,7 +135,7 @@ describe('WorkspaceModal Component', () => {
     localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, 'old-name');
     
     // Render modal
-    render(<WorkspaceModal isOpen={true} onClose={() => {}} />);
+    render(<WorkspaceModal isOpen={true} onClose={() => {}} appState={mockAppState as AppState} />);
     
     // Get rename button and click it
     const renameButtons = screen.getAllByRole('button', { name: /rename/i });
@@ -176,7 +180,7 @@ describe('WorkspaceModal Component', () => {
     }));
     
     // Render modal
-    render(<WorkspaceModal isOpen={true} onClose={() => {}} />);
+    render(<WorkspaceModal isOpen={true} onClose={() => {}} appState={mockAppState as AppState} />);
     
     // Enter workspace name
     const nameInput = screen.getByLabelText(/workspace name/i);
@@ -208,7 +212,7 @@ describe('WorkspaceModal Component', () => {
     localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
     
     // Render modal
-    render(<WorkspaceModal isOpen={true} onClose={() => {}} />);
+    render(<WorkspaceModal isOpen={true} onClose={() => {}} appState={mockAppState as AppState} />);
     
     // Enter existing workspace name
     const nameInput = screen.getByLabelText(/workspace name/i);
@@ -234,7 +238,7 @@ describe('WorkspaceModal Component', () => {
     localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
     
     // Render modal
-    render(<WorkspaceModal isOpen={true} onClose={() => {}} />);
+    render(<WorkspaceModal isOpen={true} onClose={() => {}} appState={mockAppState as AppState} />);
     
     // Click delete button for workspace1
     const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
@@ -272,7 +276,7 @@ describe('WorkspaceModal Component', () => {
     }));
     
     // Render modal
-    render(<WorkspaceModal isOpen={true} onClose={() => {}} />);
+    render(<WorkspaceModal isOpen={true} onClose={() => {}} appState={mockAppState as AppState} />);
     
     // Enter workspace name
     const nameInput = screen.getByLabelText(/workspace name/i);

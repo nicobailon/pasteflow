@@ -124,7 +124,7 @@ describe('Worker Pool Critical Fixes', () => {
       const result = await pool.countTokens(largeText);
       
       const tokenCountingCalls = postMessageSpy.mock.calls.filter(
-        call => call[0].type === 'COUNT_TOKENS'
+        (call: unknown[]) => call[0] && (call[0] as { type: string }).type === 'COUNT_TOKENS'
       );
       expect(tokenCountingCalls.length).toBe(0);
       
@@ -308,7 +308,7 @@ describe('Worker Pool Critical Fixes', () => {
       expect(promise2).toBe(promise3);
       
       const tokenCountingCalls = postMessageSpy.mock.calls.filter(
-        call => call[0].type === 'COUNT_TOKENS'
+        (call: unknown[]) => call[0] && (call[0] as { type: string }).type === 'COUNT_TOKENS'
       );
       expect(tokenCountingCalls.length).toBe(1);
       
@@ -335,7 +335,7 @@ describe('Worker Pool Critical Fixes', () => {
       expect(promise1).not.toBe(promise2);
       
       const tokenCountingCalls = postMessageSpy.mock.calls.filter(
-        call => call[0].type === 'COUNT_TOKENS'
+        (call: unknown[]) => call[0] && (call[0] as { type: string }).type === 'COUNT_TOKENS'
       );
       expect(tokenCountingCalls.length).toBe(2);
       

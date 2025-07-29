@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react-hooks';
+import { renderHook, act } from '@testing-library/react';
 import { STORAGE_KEYS } from '../constants';
 import useAppState from '../hooks/use-app-state';
 import { setupMockLocalStorage } from './test-helpers';
@@ -106,7 +106,7 @@ describe('useAppState (Workspace Integration)', () => {
     const mockWorkspaceData: Partial<WorkspaceState> = {
       selectedFiles: [{ path: 'test.ts', content: 'test content' }],
       userInstructions: 'test instructions',
-      fileTreeState: { 'src': true },
+      expandedNodes: { 'src': true },
       tokenCounts: { total: 100 },
       customPrompts: {
         systemPrompts: [],

@@ -35,11 +35,11 @@ function useFileTree({
   // Create a map for quick file lookups by path
   const filesByPath = useMemo((): Map<string, FileData> => {
     const map = new Map<string, FileData>();
-    allFiles.forEach((file: FileData) => {
+    for (const file of allFiles) {
       if (file.path) {
         map.set(file.path, file);
       }
-    });
+    }
     return map;
   }, [allFiles]);
   const [isTreeBuildingComplete, setIsTreeBuildingComplete] = useState(false);
@@ -196,7 +196,7 @@ function useFileTree({
     return () => {
       processingStartedRef.current = false;
     };
-  }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder]);
+  }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder, convertToTreeNodes]);
 
   // Effect to handle cleanup on sort order change
   useEffect(() => {

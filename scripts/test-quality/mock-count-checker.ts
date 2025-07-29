@@ -1,7 +1,6 @@
 #!/usr/bin/env npx tsx
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 import { glob } from 'glob';
 
@@ -57,4 +56,8 @@ async function checkMockLimits() {
   console.log('✅ All test files comply with 3-mock limit');
 }
 
-checkMockLimits().catch(console.error);
+try {
+  await checkMockLimits();
+} catch (error) {
+  console.error(error);
+}

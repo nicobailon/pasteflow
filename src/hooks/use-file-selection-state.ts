@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { FileData, LineRange, SelectedFileWithLines } from '../types/file-types';
@@ -18,7 +18,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   );
 
   // Immediate cleanup on mount if workspace is provided
-  React.useEffect(() => {
+  useEffect(() => {
     if (currentWorkspacePath && selectedFiles.length > 0) {
       const validFiles = selectedFiles.filter(file => file.path.startsWith(currentWorkspacePath));
       if (validFiles.length < selectedFiles.length) {
@@ -26,6 +26,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         setSelectedFiles(validFiles);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
 
   // Clean up files outside current workspace

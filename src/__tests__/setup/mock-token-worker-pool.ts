@@ -7,9 +7,7 @@ export class MockTokenWorkerPool {
   private isTerminated = false;
   private mockDelay = 10;
   private shouldFail = false;
-  private fallbackToEstimation = false;
-
-  constructor(poolSize?: number) {
+  constructor(_poolSize?: number) {
     // Poolsize is ignored in mock
   }
 

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import React from 'react';
+import { useState } from 'react';
 
 import { SystemPrompt } from '../types/file-types';
 
@@ -22,7 +22,7 @@ jest.mock('../components/FileList', () => {
         <span data-testid="selected-prompts-count">{selectedSystemPrompts.length}</span>
         {selectedSystemPrompts.map((prompt: SystemPrompt) => (
           <div key={prompt.id} data-testid={`selected-prompt-${prompt.id}`}>
-            {prompt.title}
+            {prompt.name}
             <button 
               data-testid={`toggle-prompt-${prompt.id}`}
               onClick={() => toggleSystemPromptSelection(prompt)}
@@ -79,7 +79,7 @@ jest.mock('../components/SystemPromptsModal', () => {
             data-testid="add-prompt-button" 
             onClick={() => onAddPrompt({
               id: 'new-prompt-id',
-              title: 'New Test Prompt',
+              name: 'New Test Prompt',
               content: 'New test prompt content'
             })}
           >
@@ -87,7 +87,7 @@ jest.mock('../components/SystemPromptsModal', () => {
           </button>
           {systemPrompts.map((prompt: SystemPrompt) => (
             <div key={prompt.id} data-testid={`prompt-${prompt.id}`}>
-              {prompt.title}
+              {prompt.name}
               <button 
                 data-testid={`delete-prompt-${prompt.id}`}
                 onClick={() => onDeletePrompt(prompt.id)}
@@ -98,7 +98,7 @@ jest.mock('../components/SystemPromptsModal', () => {
                 data-testid={`update-prompt-${prompt.id}`}
                 onClick={() => onUpdatePrompt({
                   ...prompt,
-                  title: `Updated ${prompt.title}`,
+                  name: `Updated ${prompt.name}`,
                   content: `Updated ${prompt.content}`
                 })}
               >
@@ -148,9 +148,9 @@ jest.mock('../context/theme-context', () => ({
 
 // Custom SystemPromptsTest component for testing
 function SystemPromptsTest({ initialPrompts = [] as SystemPrompt[] }) {
-  const [systemPrompts, setSystemPrompts] = React.useState(initialPrompts);
-  const [selectedSystemPrompts, setSelectedSystemPrompts] = React.useState([]);
-  const [isModalOpen, setIsModalOpen] = React.useState(false);
+  const [systemPrompts, setSystemPrompts] = useState(initialPrompts);
+  const [selectedSystemPrompts, setSelectedSystemPrompts] = useState([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   
   const onAddPrompt = (prompt: SystemPrompt) => {
     const updatedPrompts = [...systemPrompts, prompt];
@@ -220,7 +220,7 @@ function SystemPromptsTest({ initialPrompts = [] as SystemPrompt[] }) {
             data-testid="add-prompt-button" 
             onClick={() => onAddPrompt({
               id: 'new-prompt-id',
-              title: 'New Test Prompt',
+              name: 'New Test Prompt',
               content: 'New test prompt content'
             })}
           >
@@ -228,7 +228,7 @@ function SystemPromptsTest({ initialPrompts = [] as SystemPrompt[] }) {
           </button>
           {systemPrompts.map((prompt: SystemPrompt) => (
             <div key={prompt.id} data-testid={`prompt-${prompt.id}`}>
-              {prompt.title}
+              {prompt.name}
               <button 
                 data-testid={`delete-prompt-${prompt.id}`}
                 onClick={() => onDeletePrompt(prompt.id)}
@@ -239,7 +239,7 @@ function SystemPromptsTest({ initialPrompts = [] as SystemPrompt[] }) {
                 data-testid={`update-prompt-${prompt.id}`}
                 onClick={() => onUpdatePrompt({
                   ...prompt,
-                  title: `Updated ${prompt.title}`,
+                  name: `Updated ${prompt.name}`,
                   content: `Updated ${prompt.content}`
                 })}
               >
@@ -261,7 +261,7 @@ function SystemPromptsTest({ initialPrompts = [] as SystemPrompt[] }) {
       
       {selectedSystemPrompts.map((prompt: SystemPrompt) => (
         <div key={prompt.id} data-testid={`selected-prompt-${prompt.id}`}>
-          {prompt.title}
+          {prompt.name}
           <button 
             data-testid={`toggle-prompt-${prompt.id}`}
             onClick={() => toggleSystemPromptSelection(prompt)}
@@ -324,14 +324,14 @@ describe('SystemPrompts Functionality', () => {
     // Check localStorage was updated
     const storedPrompts = JSON.parse(window.localStorage.getItem('pasteflow-system-prompts') || '[]');
     expect(storedPrompts).toHaveLength(1);
-    expect(storedPrompts[0].title).toBe('New Test Prompt');
+    expect(storedPrompts[0].name).toBe('New Test Prompt');
   });
   
   it('updates an existing system prompt', async () => {
     // Initialize with a test prompt
     const initialPrompt: SystemPrompt = {
       id: 'test-prompt-1',
-      title: 'Test Prompt',
+      name: 'Test Prompt',
       content: 'Test prompt content'
     };
     
@@ -355,7 +355,7 @@ describe('SystemPrompts Functionality', () => {
     // Check localStorage was updated
     const storedPrompts = JSON.parse(window.localStorage.getItem('pasteflow-system-prompts') || '[]');
     expect(storedPrompts).toHaveLength(1);
-    expect(storedPrompts[0].title).toBe('Updated Test Prompt');
+    expect(storedPrompts[0].name).toBe('Updated Test Prompt');
     expect(storedPrompts[0].content).toBe('Updated Test prompt content');
   });
   
@@ -363,7 +363,7 @@ describe('SystemPrompts Functionality', () => {
     // Initialize with a test prompt
     const initialPrompt: SystemPrompt = {
       id: 'test-prompt-1',
-      title: 'Test Prompt',
+      name: 'Test Prompt',
       content: 'Test prompt content'
     };
     
@@ -393,12 +393,12 @@ describe('SystemPrompts Functionality', () => {
     const initialPrompts: SystemPrompt[] = [
       {
         id: 'test-prompt-1',
-        title: 'Test Prompt 1',
+        name: 'Test Prompt 1',
         content: 'Test prompt content 1'
       },
       {
         id: 'test-prompt-2',
-        title: 'Test Prompt 2',
+        name: 'Test Prompt 2',
         content: 'Test prompt content 2'
       }
     ];
@@ -438,7 +438,7 @@ describe('SystemPrompts Functionality', () => {
     const initialPrompts: SystemPrompt[] = [
       {
         id: 'test-prompt-1',
-        title: 'Test Prompt 1',
+        name: 'Test Prompt 1',
         content: 'Test prompt content 1'
       }
     ];
@@ -468,7 +468,7 @@ describe('SystemPrompts Functionality', () => {
     // Initialize with a test prompt
     const initialPrompt: SystemPrompt = {
       id: 'test-prompt-1',
-      title: 'Test Prompt',
+      name: 'Test Prompt',
       content: 'Test prompt content'
     };
     
@@ -497,7 +497,7 @@ describe('SystemPrompts Functionality', () => {
     // Initialize with a test prompt
     const initialPrompt: SystemPrompt = {
       id: 'test-prompt-1',
-      title: 'Test Prompt',
+      name: 'Test Prompt',
       content: 'Test prompt content'
     };
     
