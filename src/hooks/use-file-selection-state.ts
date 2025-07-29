@@ -49,9 +49,24 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       const existingIndex = prev.findIndex(f => f.path === updatedFile.path);
       
       if (existingIndex >= 0) {
-        // Update existing file
+        // Get the existing file to preserve line selections if not explicitly changed
+        const existingFile = prev[existingIndex];
+        
+        // Update existing file, but preserve line selections if not explicitly changed
         const newSelection = [...prev];
-        newSelection[existingIndex] = updatedFile;
+        
+        // If the update doesn't include line data but the existing file has line data,
+        // and the update is setting isFullFile to true, preserve the line data
+        if (!updatedFile.lines && existingFile.lines && updatedFile.isFullFile) {
+          newSelection[existingIndex] = {
+            ...updatedFile,
+            lines: existingFile.lines,
+            isFullFile: false  // Keep it as partial file selection
+          };
+        } else {
+          newSelection[existingIndex] = updatedFile;
+        }
+        
         return newSelection;
       } else {
         // Add new file to selection

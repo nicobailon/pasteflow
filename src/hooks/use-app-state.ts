@@ -811,7 +811,10 @@ const useAppState = () => {
     const folderChanged = currentSelectedFolder !== workspaceFolder;
     const isProcessing = currentProcessingStatus.status === 'processing';
 
-    fileSelection.clearSelectedFiles();
+    // Only clear files if folder is changing - otherwise we'll apply the saved selections
+    if (folderChanged) {
+      fileSelection.clearSelectedFiles();
+    }
 
     if (folderChanged && !isProcessing) {
       handleFolderChange(workspaceName, workspaceFolder, workspaceData);
@@ -974,7 +977,7 @@ const useAppState = () => {
     if (selectedFolder) {
       fileSelection.cleanupStaleSelections();
     }
-  }, [selectedFolder, fileSelection.cleanupStaleSelections]);
+  }, [selectedFolder, fileSelection]);
 
   // Initial workspace loading effect
   useEffect(() => {
