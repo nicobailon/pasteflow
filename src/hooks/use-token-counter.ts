@@ -9,44 +9,152 @@ const MAX_TEXT_SIZE = 10 * 1024 * 1024; // 10MB
 // Singleton instance outside React lifecycle
 let globalWorkerPool: TokenWorkerPool | null = null;
 let refCount = 0;
+let idleTimeoutId: NodeJS.Timeout | null = null;
+let lastActivityTime = Date.now();
+
+// Configuration for idle cleanup
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const HEALTH_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
+
+// Helper function to update activity time
+function updateActivityTime() {
+  lastActivityTime = Date.now();
+  scheduleIdleCleanup();
+}
+
+// Helper function to schedule idle cleanup
+function scheduleIdleCleanup() {
+  // Clear existing timeout
+  if (idleTimeoutId) {
+    clearTimeout(idleTimeoutId);
+    idleTimeoutId = null;
+  }
+  
+  // Only schedule cleanup if pool exists and no active references
+  if (globalWorkerPool && refCount === 0) {
+    idleTimeoutId = setTimeout(() => {
+      const idleTime = Date.now() - lastActivityTime;
+      if (idleTime >= IDLE_TIMEOUT_MS && refCount === 0) {
+        console.log('[useTokenCounter] Idle timeout reached, terminating unused pool');
+        cleanupGlobalPool();
+      }
+    }, IDLE_TIMEOUT_MS);
+  }
+}
+
+// Helper function to cleanup global pool
+function cleanupGlobalPool(forceResetRefCount = true) {
+  if (globalWorkerPool) {
+    console.log('[useTokenCounter] Cleaning up global worker pool');
+    if (typeof globalWorkerPool.terminate === 'function') {
+      globalWorkerPool.terminate();
+    }
+    globalWorkerPool = null;
+  }
+  
+  if (idleTimeoutId) {
+    clearTimeout(idleTimeoutId);
+    idleTimeoutId = null;
+  }
+  
+  // Reset counters as a safety measure only when force cleanup
+  if (forceResetRefCount && refCount !== 0) {
+    console.warn(`[useTokenCounter] Reference count mismatch during cleanup: ${refCount}`);
+    refCount = 0;
+  }
+}
+
+// Helper function to verify pool health
+function verifyPoolHealth(): boolean {
+  if (!globalWorkerPool) {
+    return refCount === 0;
+  }
+  
+  // If we have a pool but no references, it might be a leak
+  if (refCount === 0) {
+    console.warn('[useTokenCounter] Pool exists with zero references, scheduling cleanup');
+    scheduleIdleCleanup();
+    return false;
+  }
+  
+  return true;
+}
 
 export function useTokenCounter() {
-  const workerPoolRef = useRef<TokenWorkerPool | undefined>();
+  const workerPoolRef = useRef<TokenWorkerPool | undefined>(undefined);
   const fallbackCountRef = useRef(0);
   
   useEffect(() => {
     // Use singleton instance with reference counting
     refCount++;
     console.log(`[useTokenCounter] Reference count: ${refCount}`);
+    updateActivityTime();
+    
+    // Clear any pending cleanup since we have a new reference
+    if (idleTimeoutId) {
+      clearTimeout(idleTimeoutId);
+      idleTimeoutId = null;
+    }
     
     if (globalWorkerPool) {
       console.log('[useTokenCounter] Reusing existing singleton TokenWorkerPool');
     } else {
       console.log('[useTokenCounter] Creating singleton TokenWorkerPool');
       globalWorkerPool = new TokenWorkerPool();
-      globalWorkerPool.monitorWorkerMemory();
+      if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
+        globalWorkerPool.monitorWorkerMemory();
+      }
     }
     
     workerPoolRef.current = globalWorkerPool;
     
+    // Verify pool health periodically
+    const healthCheckInterval = setInterval(() => {
+      verifyPoolHealth();
+    }, HEALTH_CHECK_INTERVAL_MS);
+    
     // Cleanup on unmount - only terminate if last reference
     return () => {
+      clearInterval(healthCheckInterval);
+      
       refCount--;
       console.log(`[useTokenCounter] Cleanup - Reference count: ${refCount}`);
       
       if (refCount === 0) {
-        console.log('[useTokenCounter] Last reference removed, terminating TokenWorkerPool');
-        globalWorkerPool?.terminate();
-        globalWorkerPool = null;
+        console.log('[useTokenCounter] Last reference removed, scheduling idle cleanup');
+        scheduleIdleCleanup();
+      } else if (refCount < 0) {
+        // Safety check for reference count going negative
+        console.error('[useTokenCounter] Reference count went negative, resetting to 0');
+        refCount = 0;
+        scheduleIdleCleanup();
       }
     };
   }, []);
   
   const countTokens = useCallback(async (text: string): Promise<number> => {
+    // Update activity time on usage
+    updateActivityTime();
+    
+    // Handle invalid inputs
+    if (text === null || text === undefined || typeof text !== 'string') {
+      return estimateTokenCount(String(text || ''));
+    }
+    
     // Pre-validate input size to avoid unnecessary worker communication
     if (text.length > MAX_TEXT_SIZE) {
       console.warn(`Text too large for token counting (${(text.length / 1024 / 1024).toFixed(2)}MB), using estimation`);
       return estimateTokenCount(text);
+    }
+    
+    // Check if pool needs to be recreated after force cleanup
+    if (!globalWorkerPool && refCount > 0) {
+      console.log('[useTokenCounter] Recreating pool after force cleanup');
+      globalWorkerPool = new TokenWorkerPool();
+      if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
+        globalWorkerPool.monitorWorkerMemory();
+      }
+      workerPoolRef.current = globalWorkerPool;
     }
     
     // Check if worker pool is available
@@ -66,13 +174,24 @@ export function useTokenCounter() {
       fallbackCountRef.current++;
       
       // If too many failures, recreate the pool
-      if (fallbackCountRef.current > 10) {
+      if (fallbackCountRef.current > 10 && refCount > 0) {
         console.warn('[useTokenCounter] Too many failures, recreating pool');
-        globalWorkerPool?.terminate();
+        const oldPool = globalWorkerPool;
+        
+        // Create new pool before terminating old one
         globalWorkerPool = new TokenWorkerPool();
-        globalWorkerPool.monitorWorkerMemory();
+        if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
+          globalWorkerPool.monitorWorkerMemory();
+        }
         workerPoolRef.current = globalWorkerPool;
+        
+        // Terminate old pool
+        if (oldPool && typeof oldPool.terminate === 'function') {
+          oldPool.terminate();
+        }
+        
         fallbackCountRef.current = 0;
+        updateActivityTime();
       }
     }
     
@@ -81,6 +200,9 @@ export function useTokenCounter() {
   }, []);
   
   const countTokensBatch = useCallback(async (texts: string[]): Promise<number[]> => {
+    // Update activity time on usage
+    updateActivityTime();
+    
     // Pre-validate all text sizes
     const validatedTexts = texts.map(text => {
       if (text.length > MAX_TEXT_SIZE) {
@@ -120,7 +242,10 @@ export function useTokenCounter() {
   }, []);
   
   const getPerformanceStats = useCallback(() => {
-    return workerPoolRef.current?.getPerformanceStats() ?? {
+    if (workerPoolRef.current && typeof workerPoolRef.current.getPerformanceStats === 'function') {
+      return workerPoolRef.current.getPerformanceStats();
+    }
+    return {
       totalProcessed: 0,
       totalTime: 0,
       failureCount: 0,
@@ -129,10 +254,27 @@ export function useTokenCounter() {
     };
   }, []);
   
+  const forceCleanup = useCallback(() => {
+    console.log('[useTokenCounter] Force cleanup requested');
+    if (refCount > 0) {
+      console.warn(`[useTokenCounter] Force cleanup with active references: ${refCount}`);
+    }
+    cleanupGlobalPool(false); // Don't reset refCount during force cleanup
+    // Clear local reference as well
+    workerPoolRef.current = undefined;
+  }, []);
+  
   return { 
     countTokens, 
     countTokensBatch, 
     getPerformanceStats,
-    isReady: !!workerPoolRef.current 
+    isReady: !!globalWorkerPool,
+    forceCleanup 
   };
+}
+
+// Export global cleanup function for edge cases
+export function forceCleanupTokenWorkerPool() {
+  console.log('[useTokenCounter] Global force cleanup requested');
+  cleanupGlobalPool(true); // Reset refCount for global cleanup
 }
