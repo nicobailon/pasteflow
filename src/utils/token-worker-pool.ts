@@ -24,6 +24,7 @@ export class TokenWorkerPool {
   private isTerminated = false;
   private isRecycling = false;
   private recyclingLock = false;
+  private acceptingJobs = true;
   
   // Store event listeners for cleanup
   private workerListeners = new Map<number, {
@@ -210,7 +211,7 @@ export class TokenWorkerPool {
   }
   
   private processNextInQueue(workerId: number) {
-    if (this.queue.length === 0 || this.isRecycling) return;
+    if (this.queue.length === 0 || !this.acceptingJobs) return;
     
     const item = this.queue.shift();
     if (!item) return;
@@ -244,7 +245,7 @@ export class TokenWorkerPool {
   async countTokens(text: string): Promise<number> {
     // Fast path for terminated, recycling, or no workers
     // Use atomic check to prevent race condition during recycling
-    if (this.isTerminated || this.isRecycling || this.recyclingLock || this.workers.length === 0) {
+    if (this.isTerminated || !this.acceptingJobs || this.workers.length === 0) {
       return estimateTokenCount(text);
     }
     
@@ -268,13 +269,18 @@ export class TokenWorkerPool {
   }
   
   private createCountTokensPromise(text: string): Promise<number> {
-    // Find available worker
-    const availableWorkerIndex = this.workerStatus.findIndex(
-      (status, index) => status && ![...this.activeJobs.values()]
-        .some(job => job.workerId === index)
-    );
-    
     return new Promise((resolve, reject) => {
+      // Double-check job acceptance inside promise creation
+      if (!this.acceptingJobs) {
+        resolve(estimateTokenCount(text));
+        return;
+      }
+      
+      // Find available worker
+      const availableWorkerIndex = this.workerStatus.findIndex(
+        (status, index) => status && ![...this.activeJobs.values()]
+          .some(job => job.workerId === index)
+      );
       const id = `count-${Date.now()}-${Math.random()}`;
       
       if (availableWorkerIndex === -1) {
@@ -366,8 +372,8 @@ export class TokenWorkerPool {
   }
   
   async countTokensBatch(texts: string[]): Promise<number[]> {
-    // Fast path for recycling state or lock
-    if (this.isRecycling || this.recyclingLock) {
+    // Fast path for recycling state or job acceptance disabled
+    if (!this.acceptingJobs) {
       return texts.map(text => estimateTokenCount(text));
     }
     
@@ -426,6 +432,8 @@ export class TokenWorkerPool {
       return;
     }
     
+    // Stop accepting new jobs BEFORE setting recycling flags
+    this.acceptingJobs = false;
     this.recyclingLock = true;
     this.isRecycling = true;
     
@@ -443,8 +451,28 @@ export class TokenWorkerPool {
       const maxWaitTime = 10_000; // 10 seconds max wait
       const startWait = Date.now();
       
+      // Create a snapshot of active job count to detect if new jobs are added
+      let lastJobCount = this.activeJobs.size;
+      let stableIterations = 0;
+      const requiredStableIterations = 3; // Require 3 consecutive checks with no new jobs
+      
       while (this.activeJobs.size > 0 && Date.now() - startWait < maxWaitTime) {
         await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Check if job count is stable
+        if (this.activeJobs.size === lastJobCount) {
+          stableIterations++;
+        } else {
+          // New job was added (shouldn't happen with acceptingJobs=false, but defensive)
+          console.warn(`New job detected during recycling: ${this.activeJobs.size} jobs (was ${lastJobCount})`);
+          stableIterations = 0;
+          lastJobCount = this.activeJobs.size;
+        }
+        
+        // If we've had stable job count for required iterations, we can proceed
+        if (stableIterations >= requiredStableIterations && this.activeJobs.size === 0) {
+          break;
+        }
       }
       
       // Force resolve any remaining active jobs with estimation
@@ -476,9 +504,11 @@ export class TokenWorkerPool {
       
       await this.initializeWorkers();
     } finally {
-      // Always clear both flags atomically, even if initialization fails
+      // Always clear flags atomically, even if initialization fails
       this.isRecycling = false;
       this.recyclingLock = false;
+      // Re-enable job acceptance only after recycling is complete
+      this.acceptingJobs = true;
     }
   }
   
@@ -592,7 +622,8 @@ export class TokenWorkerPool {
       poolSize: this.poolSize,
       availableWorkers: this.getAvailableWorkerCount(),
       isRecycling: this.isRecycling,
-      recyclingLock: this.recyclingLock
+      recyclingLock: this.recyclingLock,
+      acceptingJobs: this.acceptingJobs
     };
   }
   
@@ -699,6 +730,7 @@ export class TokenWorkerPool {
   
   terminate() {
     this.isTerminated = true;
+    this.acceptingJobs = false;
     
     // Clean up all worker listeners before termination
     for (const [index, worker] of this.workers.entries()) {

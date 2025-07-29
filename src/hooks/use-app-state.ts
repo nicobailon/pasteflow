@@ -974,7 +974,7 @@ const useAppState = () => {
     if (selectedFolder) {
       fileSelection.cleanupStaleSelections();
     }
-  }, [selectedFolder, fileSelection]);
+  }, [selectedFolder, fileSelection.cleanupStaleSelections]);
 
   // Initial workspace loading effect
   useEffect(() => {
