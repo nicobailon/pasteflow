@@ -257,7 +257,8 @@ export class TokenWorkerPool {
     }
     
     // Create new promise for this request
-    const promise = this.createCountTokensPromise(text);
+    // Pass true to indicate job acceptance was already verified
+    const promise = this.createCountTokensPromise(text, true);
     this.pendingRequests.set(textHash, promise);
     
     // Clean up after completion
@@ -268,10 +269,10 @@ export class TokenWorkerPool {
     return promise;
   }
   
-  private createCountTokensPromise(text: string): Promise<number> {
+  private createCountTokensPromise(text: string, jobAcceptanceVerified = false): Promise<number> {
     return new Promise((resolve, reject) => {
-      // Double-check job acceptance inside promise creation
-      if (!this.acceptingJobs) {
+      // Only check job acceptance if not already verified atomically
+      if (!jobAcceptanceVerified && !this.acceptingJobs) {
         resolve(estimateTokenCount(text));
         return;
       }
@@ -704,7 +705,7 @@ export class TokenWorkerPool {
           try {
             worker.addEventListener('message', cleanupState.handler);
             worker.postMessage({ type: 'HEALTH_CHECK', id });
-          } catch (error) {
+          } catch {
             // If setup fails, ensure cleanup happens
             cleanupState.isResolved = true;
             performCleanup();

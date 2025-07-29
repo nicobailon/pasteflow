@@ -81,7 +81,7 @@ function verifyPoolHealth(): boolean {
 }
 
 export function useTokenCounter() {
-  const workerPoolRef = useRef<TokenWorkerPool | undefined>(undefined);
+  const workerPoolRef = useRef(null as TokenWorkerPool | null);
   const fallbackCountRef = useRef(0);
   
   useEffect(() => {
@@ -261,7 +261,7 @@ export function useTokenCounter() {
     }
     cleanupGlobalPool(false); // Don't reset refCount during force cleanup
     // Clear local reference as well
-    workerPoolRef.current = undefined;
+    workerPoolRef.current = null;
   }, []);
   
   return { 
