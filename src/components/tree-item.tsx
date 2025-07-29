@@ -208,9 +208,12 @@ const TreeItem = memo(({
 
   // Handle loading content when a file is selected
   useEffect(() => {
-    if (type === "file" && isSelected && 
-        fileData && !fileData.isContentLoaded && !isDisabled && 
-        loadFileContent && !isLoading) {
+    // Skip if we're already loading or if content is already loaded
+    if (isLoading || (fileData && fileData.isContentLoaded)) {
+      return;
+    }
+    
+    if (type === "file" && isSelected && fileData && !isDisabled && loadFileContent) {
       setIsLoading(true);
       
       loadFileContent(path).then(() => {
@@ -224,7 +227,7 @@ const TreeItem = memo(({
         setIsLoading(false);
       });
     }
-  }, [type, isSelected, fileData?.isContentLoaded, isDisabled, loadFileContent, path, isLoading]);
+  }, [type, isSelected, path]); // Only depend on stable values
   
   // Extract rendering functions to reduce cognitive complexity
   const renderToggleButton = () => {
