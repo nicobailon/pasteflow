@@ -165,6 +165,24 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
   // Check if children count changed (affects partial selection state)
   if (prevProps.node.children?.length !== nextProps.node.children?.length) return false;
   
+  // Check if fileData changed (token count, loading state, etc.)
+  if (prevProps.node.type === 'file') {
+    const prevFileData = prevProps.node.fileData;
+    const nextFileData = nextProps.node.fileData;
+    
+    // If one has fileData and the other doesn't, re-render
+    if ((prevFileData && !nextFileData) || (!prevFileData && nextFileData)) return false;
+    
+    // If both have fileData, check key properties
+    if (prevFileData && nextFileData) {
+      if (prevFileData.tokenCount !== nextFileData.tokenCount) return false;
+      if (prevFileData.isCountingTokens !== nextFileData.isCountingTokens) return false;
+      if (prevFileData.isContentLoaded !== nextFileData.isContentLoaded) return false;
+      if (prevFileData.isBinary !== nextFileData.isBinary) return false;
+      if (prevFileData.isSkipped !== nextFileData.isSkipped) return false;
+    }
+  }
+  
   // Props are equal enough to skip re-render
   return true;
 };
