@@ -1,5 +1,5 @@
 import { FileData, WorkspaceState } from '../types/file-types';
-import { getPathValidator } from '../security/path-validator.ts';
+import { getPathValidator } from '../security/path-validator';
 import { ApplicationError, ERROR_CODES, getRecoverySuggestions, logError } from '../utils/error-handling';
 
 export interface ProcessingStatus {

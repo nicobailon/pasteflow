@@ -307,8 +307,8 @@ const TreeItem = memo(({
       <>
         {type === "file" && (
           <span className="tree-item-tokens">
-            {isLoading ? (
-              "Loading..."
+            {isLoading || fileData?.isCountingTokens ? (
+              "Counting..."
             ) : (
               (() => {
                 if (localTokenCount) {

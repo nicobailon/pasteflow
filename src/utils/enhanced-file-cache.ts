@@ -71,7 +71,8 @@ export class MemoryAwareFileCache {
   }
 
   set(filePath: string, content: string, tokenCount: number): boolean {
-    const sizeBytes = Buffer.byteLength(content, 'utf8');
+    // Use TextEncoder for browser compatibility instead of Buffer
+    const sizeBytes = new TextEncoder().encode(content).length;
     
     // Check individual file size limit
     if (sizeBytes > this.config.maxFileSizeMB * 1024 * 1024) {

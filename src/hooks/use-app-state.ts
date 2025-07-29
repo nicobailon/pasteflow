@@ -89,7 +89,7 @@ const useAppState = () => {
   const [currentWorkspace, setCurrentWorkspace] = useState(null as string | null);
 
   // Integration with specialized hooks
-  const fileSelection = useFileSelectionState(allFiles);
+  const fileSelection = useFileSelectionState(allFiles, selectedFolder);
   const promptState = usePromptState();
   const modalState = useModalState();
   const docState = useDocState();
@@ -293,14 +293,32 @@ const useAppState = () => {
   ]);
   
   const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
-    const file = allFiles.find((f: FileData) => f.path === filePath);
-    if (!file || file.isContentLoaded) return;
+    // Use functional update to avoid stale closure
+    setAllFiles((prevFiles: FileData[]) => {
+      const file = prevFiles.find((f: FileData) => f.path === filePath);
+      if (!file || file.isContentLoaded) return prevFiles;
+      
+      // Mark file as loading/counting tokens immediately
+      return prevFiles.map((f: FileData) =>
+        f.path === filePath
+          ? { ...f, isCountingTokens: true }
+          : f
+      );
+    });
     
     // Prevent loading files outside the current workspace
     if (selectedFolder && !filePath.startsWith(selectedFolder)) {
       console.warn(`Skipping file outside current workspace: ${filePath}`);
       return;
     }
+    
+    // Also update the selected file to show it's counting
+    fileSelection.updateSelectedFile({
+      path: filePath,
+      isFullFile: true,
+      isContentLoaded: false,
+      isCountingTokens: true
+    });
 
     // Check cache first
     const cached = fileContentCache.get(filePath);
@@ -848,22 +866,9 @@ const useAppState = () => {
     return cleanup;
     }, [
       isElectron,
-      setSelectedFolder,
-      setAllFiles,
-      setProcessingStatus,
-      fileSelection.clearSelectedFiles,
-      setIsLoadingCancellable,
-      setAppInitialized,
-      setCurrentWorkspace,
-      persistWorkspace,
-      pendingWorkspaceData,
-      applyWorkspaceData,
-      selectedFolder,
-      allFiles,
       currentWorkspace,
-      handleFiltersAndSort,
-      searchTerm,
-      sortOrder
+      sortOrder,
+      searchTerm
     ]);
 
   const saveCurrentWorkspace = useCallback(() => {
@@ -917,17 +922,9 @@ const useAppState = () => {
   // Clean up selected files when workspace changes
   useEffect(() => {
     if (selectedFolder) {
-      // Remove any selected files that are outside the current workspace
-      const validSelectedFiles = fileSelection.selectedFiles.filter(
-        file => file.path.startsWith(selectedFolder)
-      );
-      
-      if (validSelectedFiles.length < fileSelection.selectedFiles.length) {
-        console.log('Cleaning up selected files outside current workspace');
-        fileSelection.setSelectedFiles(validSelectedFiles);
-      }
+      fileSelection.cleanupStaleSelections();
     }
-  }, [selectedFolder]);
+  }, [selectedFolder, fileSelection.cleanupStaleSelections]);
 
   // Initial workspace loading effect
   useEffect(() => {

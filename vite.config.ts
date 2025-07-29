@@ -13,6 +13,10 @@ export default defineConfig({
     wasm(),
     topLevelAwait()
   ],
+  resolve: {
+    extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
+    preferRelative: true
+  },
   worker: {
     format: 'es',
     plugins: () => [wasm(), topLevelAwait()]

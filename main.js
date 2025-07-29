@@ -3,7 +3,7 @@ const path = require("node:path");
 const { Worker } = require("worker_threads");
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
-const { getPathValidator } = require("./src/security/path-validator.js");
+const { getPathValidator } = require("./src/security/path-validator.cjs");
 const { ipcValidator } = require("./src/validation/ipc-validator.js");
 
 // Add handling for the 'ignore' module
@@ -484,6 +484,12 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
   try {
     console.log("Received request for file list in:", validatedFolderPath);
     console.log("Exclusion patterns:", validatedPatterns);
+    
+    // Update workspace paths for security validation when loading files
+    // This ensures the path validator knows about the current workspace
+    currentWorkspacePaths = [validatedFolderPath];
+    getPathValidator(currentWorkspacePaths);
+    
     fileLoadingCancelled = false;
 
     event.sender.send("file-processing-status", {
@@ -696,6 +702,14 @@ ipcMain.on('open-docs', (event, docName) => {
 // Add request-file-content handler for lazy loading file content
 ipcMain.handle('request-file-content', async (event, filePath) => {
   // SECURITY: Validate path to prevent path traversal attacks
+  // If no workspace paths are set, this might be a file request before folder selection
+  // In this case, we should reject the request for security
+  if (!currentWorkspacePaths || currentWorkspacePaths.length === 0) {
+    console.warn('No workspace paths set - file access denied for security');
+    return { success: false, error: 'No workspace selected', reason: 'NO_WORKSPACE' };
+  }
+  
+  
   const validator = getPathValidator(currentWorkspacePaths);
   const validation = validator.validatePath(filePath);
   

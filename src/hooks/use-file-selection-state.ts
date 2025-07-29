@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import React, { useCallback } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { FileData, LineRange, SelectedFileWithLines } from '../types/file-types';
@@ -11,11 +11,35 @@ import useLocalStorage from './use-local-storage';
  * @param {FileData[]} allFiles - Array of all files
  * @returns {Object} File selection state and functions
  */
-const useFileSelectionState = (allFiles: FileData[]) => {
+const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: string | null) => {
   const [selectedFiles, setSelectedFiles] = useLocalStorage<SelectedFileWithLines[]>(
     STORAGE_KEYS.SELECTED_FILES,
     []
   );
+
+  // Immediate cleanup on mount if workspace is provided
+  React.useEffect(() => {
+    if (currentWorkspacePath && selectedFiles.length > 0) {
+      const validFiles = selectedFiles.filter(file => file.path.startsWith(currentWorkspacePath));
+      if (validFiles.length < selectedFiles.length) {
+        console.log(`[FileSelection] Cleaning up ${selectedFiles.length - validFiles.length} stale files on mount`);
+        setSelectedFiles(validFiles);
+      }
+    }
+  }, []); // Only run on mount
+
+  // Clean up files outside current workspace
+  const cleanupStaleSelections = useCallback(() => {
+    if (currentWorkspacePath) {
+      setSelectedFiles(prev => {
+        const filtered = prev.filter(file => file.path.startsWith(currentWorkspacePath));
+        if (filtered.length < prev.length) {
+          console.log(`Removed ${prev.length - filtered.length} files outside current workspace`);
+        }
+        return filtered;
+      });
+    }
+  }, [currentWorkspacePath, setSelectedFiles]);
 
   // Function to update a selected file with line selections
   const updateSelectedFile = useCallback((updatedFile: SelectedFileWithLines) => {
@@ -202,7 +226,8 @@ const useFileSelectionState = (allFiles: FileData[]) => {
     deselectAllFiles,
     clearSelectedFiles,
     getSelectionState,
-    setSelectionState
+    setSelectionState,
+    cleanupStaleSelections
   };
 };
 
