@@ -23,6 +23,7 @@ export class TokenWorkerPool {
   private workerReadyStatus: boolean[] = [];
   private isTerminated = false;
   private isRecycling = false;
+  private recyclingLock = false;
   
   // Store event listeners for cleanup
   private workerListeners = new Map<number, {
@@ -37,7 +38,6 @@ export class TokenWorkerPool {
   
   // Health check configuration
   private readonly HEALTH_CHECK_TIMEOUT = 1000;
-  private readonly HEALTH_CHECK_CLEANUP_BUFFER = 50; // Small buffer for cleanup after timeout
   
   // Request deduplication
   private pendingRequests = new Map<string, Promise<number>>();
@@ -243,7 +243,8 @@ export class TokenWorkerPool {
   
   async countTokens(text: string): Promise<number> {
     // Fast path for terminated, recycling, or no workers
-    if (this.isTerminated || this.isRecycling || this.workers.length === 0) {
+    // Use atomic check to prevent race condition during recycling
+    if (this.isTerminated || this.isRecycling || this.recyclingLock || this.workers.length === 0) {
       return estimateTokenCount(text);
     }
     
@@ -372,8 +373,8 @@ export class TokenWorkerPool {
   }
   
   async countTokensBatch(texts: string[]): Promise<number[]> {
-    // Fast path for recycling state
-    if (this.isRecycling) {
+    // Fast path for recycling state or lock
+    if (this.isRecycling || this.recyclingLock) {
       return texts.map(text => estimateTokenCount(text));
     }
     
@@ -423,7 +424,16 @@ export class TokenWorkerPool {
   }
   
   private async recycleWorkers() {
-    // Set recycling flag to prevent new jobs
+    // Atomically set both flags to prevent race conditions
+    if (this.recyclingLock) {
+      // Already recycling, wait for completion
+      while (this.recyclingLock) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      return;
+    }
+    
+    this.recyclingLock = true;
     this.isRecycling = true;
     
     try {
@@ -473,8 +483,9 @@ export class TokenWorkerPool {
       
       await this.initializeWorkers();
     } finally {
-      // Always clear recycling flag, even if initialization fails
+      // Always clear both flags atomically, even if initialization fails
       this.isRecycling = false;
+      this.recyclingLock = false;
     }
   }
   
@@ -587,7 +598,8 @@ export class TokenWorkerPool {
       maxQueueSize: this.MAX_QUEUE_SIZE,
       poolSize: this.poolSize,
       availableWorkers: this.getAvailableWorkerCount(),
-      isRecycling: this.isRecycling
+      isRecycling: this.isRecycling,
+      recyclingLock: this.recyclingLock
     };
   }
   
@@ -613,19 +625,22 @@ export class TokenWorkerPool {
         
         return new Promise<{ workerId: number; healthy: boolean; responseTime: number }>((resolve) => {
           let isResolved = false;
-          let cleanupTimeout: ReturnType<typeof setTimeout> | null = null;
+          let healthTimeout: ReturnType<typeof setTimeout> | null = null;
           
-          // Handler function that properly manages cleanup
+          // Simplified cleanup function to avoid complexity
+          const cleanup = () => {
+            if (healthTimeout) {
+              clearTimeout(healthTimeout);
+              healthTimeout = null;
+            }
+            worker.removeEventListener('message', handler);
+          };
+          
+          // Handler function with deterministic cleanup
           const handler = (e: MessageEvent) => {
             if (e.data.id === id && e.data.type === 'HEALTH_RESPONSE' && !isResolved) {
               isResolved = true;
-              
-              // Clear both timeouts
-              if (healthTimeout) clearTimeout(healthTimeout);
-              if (cleanupTimeout) clearTimeout(cleanupTimeout);
-              
-              // Remove listener immediately
-              worker.removeEventListener('message', handler);
+              cleanup();
               
               resolve({
                 workerId: index,
@@ -635,16 +650,11 @@ export class TokenWorkerPool {
             }
           };
           
-          // Health check timeout
-          const healthTimeout = setTimeout(() => {
+          // Single timeout with guaranteed cleanup
+          healthTimeout = setTimeout(() => {
             if (!isResolved) {
               isResolved = true;
-              
-              // Remove listener immediately on timeout
-              worker.removeEventListener('message', handler);
-              
-              // Clear cleanup timeout since we're handling it now
-              if (cleanupTimeout) clearTimeout(cleanupTimeout);
+              cleanup();
               
               resolve({ 
                 workerId: index, 
@@ -653,14 +663,6 @@ export class TokenWorkerPool {
               });
             }
           }, this.HEALTH_CHECK_TIMEOUT);
-          
-          // Failsafe cleanup timeout (should never be needed if logic is correct)
-          cleanupTimeout = setTimeout(() => {
-            if (!isResolved) {
-              console.warn(`Health check cleanup triggered for worker ${index} - this should not happen`);
-              worker.removeEventListener('message', handler);
-            }
-          }, this.HEALTH_CHECK_TIMEOUT + this.HEALTH_CHECK_CLEANUP_BUFFER);
           
           worker.addEventListener('message', handler);
           worker.postMessage({ type: 'HEALTH_CHECK', id });
