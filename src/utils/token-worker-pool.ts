@@ -62,6 +62,9 @@ export class TokenWorkerPool {
   // Graceful degradation tracking
   private workerPermanentlyFailed = new Set<number>();
   
+  // Active operations tracking for abort support
+  private activeOperations = new Map<string, AbortController>();
+  
   constructor(private poolSize = Math.min(navigator.hardwareConcurrency || 4, 8)) {
     this.initializeWorkers();
   }
@@ -392,6 +395,18 @@ export class TokenWorkerPool {
     const item = this.queue.shift();
     if (!item) return;
     
+    // Check if operation was aborted while in queue
+    const operationController = this.activeOperations.get(item.id);
+    if (!operationController || operationController.signal.aborted) {
+      // Already aborted, skip to next
+      if (operationController) {
+        this.activeOperations.delete(item.id);
+      }
+      item.reject(new DOMException('Aborted', 'AbortError'));
+      this.processNextInQueue(workerId);
+      return;
+    }
+    
     this.activeJobs.set(item.id, {
       workerId,
       startTime: Date.now(),
@@ -418,7 +433,7 @@ export class TokenWorkerPool {
     return `${hash}-${text.length}`;
   }
   
-  async countTokens(text: string): Promise<number> {
+  async countTokens(text: string, options?: { signal?: AbortSignal }): Promise<number> {
     // Fast path for terminated, recycling, or no workers
     // Use atomic check to prevent race condition during recycling
     if (this.isTerminated || !this.acceptingJobs || this.workers.length === 0) {
@@ -434,7 +449,7 @@ export class TokenWorkerPool {
     
     // Create new promise for this request
     // Pass true to indicate job acceptance was already verified
-    const promise = this.createCountTokensPromise(text, true);
+    const promise = this.createCountTokensPromise(text, options?.signal, true);
     this.pendingRequests.set(textHash, promise);
     
     // Clean up after completion
@@ -445,7 +460,7 @@ export class TokenWorkerPool {
     return promise;
   }
   
-  private createCountTokensPromise(text: string, jobAcceptanceVerified = false): Promise<number> {
+  private createCountTokensPromise(text: string, signal?: AbortSignal, jobAcceptanceVerified = false): Promise<number> {
     return new Promise((resolve, reject) => {
       // Only check job acceptance if not already verified atomically
       if (!jobAcceptanceVerified && !this.acceptingJobs) {
@@ -461,6 +476,20 @@ export class TokenWorkerPool {
       );
       const id = `count-${Date.now()}-${Math.random()}`;
       
+      // Create internal abort controller for this operation
+      const operationController = new AbortController();
+      this.activeOperations.set(id, operationController);
+      
+      // Chain external signal with internal controller
+      if (signal) {
+        if (signal.aborted) {
+          this.activeOperations.delete(id);
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
+        signal.addEventListener('abort', () => operationController.abort());
+      }
+      
       if (availableWorkerIndex === -1) {
         // Queue for later processing with size limit enforcement
         if (this.queue.length >= this.MAX_QUEUE_SIZE) {
@@ -473,6 +502,19 @@ export class TokenWorkerPool {
             dropped.resolve(estimateTokenCount(dropped.text));
           }
         }
+        
+        // Handle abort for queued items
+        const queueAbortHandler = () => {
+          // Remove from queue if still present
+          const queueIndex = this.queue.findIndex(item => item.id === id);
+          if (queueIndex !== -1) {
+            this.queue.splice(queueIndex, 1);
+            this.activeOperations.delete(id);
+            reject(new DOMException('Aborted', 'AbortError'));
+          }
+        };
+        
+        operationController.signal.addEventListener('abort', queueAbortHandler);
         
         this.queue.push({ id, text, resolve, reject });
       } else {
@@ -500,11 +542,17 @@ export class TokenWorkerPool {
           worker.removeEventListener('message', messageHandler);
           worker.removeEventListener('error', errorHandler);
           
+          // Remove abort listener
+          operationController.signal.removeEventListener('abort', handleAbort);
+          
           // Clean up active job and process next in queue
           if (this.activeJobs.has(id)) {
             this.activeJobs.delete(id);
             this.processNextInQueue(availableWorkerIndex);
           }
+          
+          // Clean up operation tracking
+          this.activeOperations.delete(id);
         };
         
         const handleResult = (result: number) => {
@@ -553,6 +601,16 @@ export class TokenWorkerPool {
           handleResult(estimateTokenCount(text));
         };
         
+        const handleAbort = () => {
+          if (resolved) return;
+          resolved = true;
+          cleanup();
+          reject(new DOMException('Aborted', 'AbortError'));
+        };
+        
+        // Set up abort listener for the operation controller
+        operationController.signal.addEventListener('abort', handleAbort);
+        
         // Set timeout for response
         timeoutId = setTimeout(() => {
           console.warn(`Token counting timeout for worker ${availableWorkerIndex}`);
@@ -577,7 +635,7 @@ export class TokenWorkerPool {
     });
   }
   
-  async countTokensBatch(texts: string[]): Promise<number[]> {
+  async countTokensBatch(texts: string[], options?: { signal?: AbortSignal }): Promise<number[]> {
     // Fast path for recycling state or job acceptance disabled
     if (!this.acceptingJobs) {
       return texts.map(text => estimateTokenCount(text));
@@ -585,7 +643,7 @@ export class TokenWorkerPool {
     
     // For small batches, process in parallel
     if (texts.length <= this.poolSize * 2) {
-      return Promise.all(texts.map(text => this.countTokens(text)));
+      return Promise.all(texts.map(text => this.countTokens(text, options)));
     }
     
     // For large batches, chunk and process
@@ -597,7 +655,7 @@ export class TokenWorkerPool {
     }
     
     const chunkResults = await Promise.all(
-      chunks.map(chunk => Promise.all(chunk.map(text => this.countTokens(text))))
+      chunks.map(chunk => Promise.all(chunk.map(text => this.countTokens(text, options))))
     );
     
     return chunkResults.flat();
@@ -1028,6 +1086,12 @@ export class TokenWorkerPool {
   terminate() {
     this.isTerminated = true;
     this.acceptingJobs = false;
+    
+    // Abort all active operations
+    for (const [id, controller] of this.activeOperations) {
+      controller.abort();
+    }
+    this.activeOperations.clear();
     
     // Clean up all worker listeners before termination
     for (const [index, worker] of this.workers.entries()) {
