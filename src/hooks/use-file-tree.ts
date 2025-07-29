@@ -97,7 +97,7 @@ function useFileTree({
         } as TreeNode;
       }
     });
-  }, [fileTreeSortOrder, filesByPath]);
+  }, [expandedNodes, fileTreeSortOrder, filesByPath]);
 
   // Process files in smaller batches for better responsiveness
   useEffect(() => {
@@ -196,7 +196,7 @@ function useFileTree({
     return () => {
       processingStartedRef.current = false;
     };
-  }, [allFiles, selectedFolder, fileTreeSortOrder, convertToTreeNodes]);
+  }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder, convertToTreeNodes]);
 
   // Effect to handle cleanup on sort order change
   useEffect(() => {

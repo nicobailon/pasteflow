@@ -648,37 +648,49 @@ export class TokenWorkerPool {
         const start = performance.now();
         
         return new Promise<{ workerId: number; healthy: boolean; responseTime: number }>((resolve) => {
-          let isResolved = false;
-          let healthTimeout: ReturnType<typeof setTimeout> | null = null;
-          
-          // Simplified cleanup function to avoid complexity
-          const cleanup = () => {
-            if (healthTimeout) {
-              clearTimeout(healthTimeout);
-              healthTimeout = null;
-            }
-            worker.removeEventListener('message', handler);
+          // Create cleanup state
+          const cleanupState = {
+            isResolved: false,
+            timeoutId: null as NodeJS.Timeout | null,
+            handler: null as ((e: MessageEvent) => void) | null
           };
           
-          // Handler function with deterministic cleanup
-          const handler = (e: MessageEvent) => {
-            if (e.data.id === id && e.data.type === 'HEALTH_RESPONSE' && !isResolved) {
-              isResolved = true;
-              cleanup();
+          // Define cleanup function that ensures all resources are released
+          const performCleanup = () => {
+            if (cleanupState.timeoutId) {
+              clearTimeout(cleanupState.timeoutId);
+              cleanupState.timeoutId = null;
+            }
+            if (cleanupState.handler) {
+              worker.removeEventListener('message', cleanupState.handler);
+              cleanupState.handler = null;
+            }
+          };
+          
+          // Create handler function
+          cleanupState.handler = (e: MessageEvent) => {
+            if (e.data.id === id && e.data.type === 'HEALTH_RESPONSE' && !cleanupState.isResolved) {
+              cleanupState.isResolved = true;
+              const responseTime = performance.now() - start;
+              
+              // Perform cleanup immediately
+              performCleanup();
               
               resolve({
                 workerId: index,
-                healthy: e.data.healthy === true, // Require explicit true from worker
-                responseTime: performance.now() - start
+                healthy: e.data.healthy === true,
+                responseTime
               });
             }
           };
           
-          // Single timeout with guaranteed cleanup
-          healthTimeout = setTimeout(() => {
-            if (!isResolved) {
-              isResolved = true;
-              cleanup();
+          // Set timeout
+          cleanupState.timeoutId = setTimeout(() => {
+            if (!cleanupState.isResolved) {
+              cleanupState.isResolved = true;
+              
+              // Perform cleanup immediately
+              performCleanup();
               
               resolve({ 
                 workerId: index, 
@@ -688,8 +700,21 @@ export class TokenWorkerPool {
             }
           }, this.HEALTH_CHECK_TIMEOUT);
           
-          worker.addEventListener('message', handler);
-          worker.postMessage({ type: 'HEALTH_CHECK', id });
+          // Add listener and send message
+          try {
+            worker.addEventListener('message', cleanupState.handler);
+            worker.postMessage({ type: 'HEALTH_CHECK', id });
+          } catch (error) {
+            // If setup fails, ensure cleanup happens
+            cleanupState.isResolved = true;
+            performCleanup();
+            
+            resolve({
+              workerId: index,
+              healthy: false,
+              responseTime: Number.POSITIVE_INFINITY
+            });
+          }
         });
       })
     );
