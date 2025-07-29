@@ -2,22 +2,24 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Check, Loader2, Pencil, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import useAppState from '../hooks/use-app-state';
 import { useWorkspaceState } from '../hooks/use-workspace-state';
 import { WorkspaceState } from '../types/file-types';
+import type { AppState } from '../hooks/use-app-state';
 
 interface WorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialRenameTarget?: string | null;
   onClearInitialRenameTarget?: () => void;
+  appState: AppState;
 }
 
 const WorkspaceModal = ({ 
   isOpen, 
   onClose, 
   initialRenameTarget, 
-  onClearInitialRenameTarget 
+  onClearInitialRenameTarget,
+  appState
 }: WorkspaceModalProps): JSX.Element => {
   const { 
     saveWorkspace: persistWorkspace, 
@@ -26,7 +28,6 @@ const WorkspaceModal = ({
     renameWorkspace: renamePersistedWorkspace,
     getWorkspaceNames 
   } = useWorkspaceState();
-  const appState = useAppState();
   const [name, setName] = useState("" as string);
   const [newName, setNewName] = useState("" as string);
   const [workspaceNames, setWorkspaceNames] = useState([] as string[]);

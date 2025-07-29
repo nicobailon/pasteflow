@@ -11,6 +11,9 @@ export interface ProcessingStatus {
   total?: number;
 }
 
+// Global tracking to prevent duplicate handler registration
+const HANDLER_KEY = '__pasteflow_electron_handlers_registered';
+
 export const setupElectronHandlers = (
   isElectron: boolean,
   setSelectedFolder: (folder: string | null) => void,
@@ -291,6 +294,15 @@ export const setupElectronHandlers = (
     }
   };
 
+  // Check if handlers are already registered globally
+  if ((window as any)[HANDLER_KEY]) {
+    console.log(`[DEBUG] Handlers already registered globally, skipping registration for handler ID: ${handlerId}`);
+    return () => {};
+  }
+  
+  // Mark handlers as registered globally
+  (window as any)[HANDLER_KEY] = true;
+  
   console.log(`[DEBUG] Registering folder-selected listener with handler ID: ${handlerId}`);
   window.electron.ipcRenderer.on("folder-selected", handleFolderSelected);
   window.electron.ipcRenderer.on("file-list-data", handleFileListData);
@@ -329,6 +341,9 @@ export const setupElectronHandlers = (
     accumulatedFiles = [];
     clearInterval(cleanupInterval);
     window.sessionStorage.removeItem('lastFileListUpdate');
+    
+    // Clear the global registration flag
+    delete (window as any)[HANDLER_KEY];
     
     console.log(`[DEBUG] Removing folder-selected listener for handler ID: ${handlerId}`);
     window.electron.ipcRenderer.removeListener(

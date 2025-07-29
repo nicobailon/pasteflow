@@ -179,6 +179,7 @@ const App = () => {
         <WorkspaceModal
           isOpen={isWorkspaceModalOpen}
           onClose={() => setIsWorkspaceModalOpen(false)}
+          appState={appState}
         />
       </div>
     </ThemeProvider>

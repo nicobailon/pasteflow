@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
+import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
 import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction, SelectedFileWithLines } from '../types/file-types';
 import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } from '../utils/content-formatter';
 import { resetFolderState } from '../utils/file-utils';
@@ -825,35 +826,65 @@ const useAppState = () => {
     fileSelection
   ]);
 
+  // Store refs to get latest values in handlers
+  const sortOrderRef = useRef(sortOrder);
+  const searchTermRef = useRef(searchTerm);
+  const currentWorkspaceRef = useRef(currentWorkspace);
+  // selectedFolderRef already exists above
+  
+  // Update refs when values change
+  useEffect(() => {
+    sortOrderRef.current = sortOrder;
+  }, [sortOrder]);
+  
+  useEffect(() => {
+    searchTermRef.current = searchTerm;
+  }, [searchTerm]);
+  
+  useEffect(() => {
+    currentWorkspaceRef.current = currentWorkspace;
+  }, [currentWorkspace]);
+
   useEffect(() => {
     if (!isElectron) return;
 
-    let cleanup: () => void = () => {};
     try {
-      console.log('[useAppState.setupElectronHandlers] Setting up Electron handlers with currentWorkspace:', currentWorkspace);
-      
-      cleanup = setupElectronHandlers(
-        isElectron,
-        setSelectedFolder,
-        setAllFiles,
-        setProcessingStatus,
-        fileSelection.clearSelectedFiles,
-        handleFiltersAndSort,
-        sortOrder,
-        searchTerm,
-        setIsLoadingCancellable,
-        setAppInitialized,
-        currentWorkspace,
-        setCurrentWorkspace,
-        persistWorkspace,
-        getWorkspaceNames,
-        selectedFolder
-      );
-      
-      // Dispatch a custom event when handlers are set up
-      const event = new CustomEvent('electron-handlers-ready');
-      window.dispatchEvent(event);
-      console.log('[useAppState.setupElectronHandlers] Handlers ready event dispatched');
+      electronHandlerSingleton.setup(() => {
+        console.log('[useAppState.setupElectronHandlers] Setting up Electron handlers');
+        
+        // Create wrapper functions that use refs to get latest values
+        const handleFiltersAndSortWrapper = (files: FileData[], sort: string, filter: string) => {
+          handleFiltersAndSort(files, sortOrderRef.current, searchTermRef.current);
+        };
+        
+        const getCurrentWorkspace = () => currentWorkspaceRef.current;
+        const getSelectedFolder = () => selectedFolderRef.current;
+        
+        const cleanup = setupElectronHandlers(
+          isElectron,
+          setSelectedFolder,
+          setAllFiles,
+          setProcessingStatus,
+          fileSelection.clearSelectedFiles,
+          handleFiltersAndSortWrapper,
+          sortOrderRef.current,
+          searchTermRef.current,
+          setIsLoadingCancellable,
+          setAppInitialized,
+          getCurrentWorkspace(),
+          setCurrentWorkspace,
+          persistWorkspace,
+          getWorkspaceNames,
+          getSelectedFolder()
+        );
+        
+        // Dispatch a custom event when handlers are set up
+        const event = new CustomEvent('electron-handlers-ready');
+        window.dispatchEvent(event);
+        console.log('[useAppState.setupElectronHandlers] Handlers ready event dispatched');
+        
+        return cleanup;
+      });
     } catch (error) {
       console.error("Error setting up Electron handlers:", error);
       setProcessingStatus({
@@ -865,11 +896,15 @@ const useAppState = () => {
       });
     }
     
-    return cleanup;
+    // Note: We intentionally don't cleanup on unmount because React StrictMode
+    // would cause handlers to be registered/unregistered repeatedly.
+    // The handlers will persist for the lifetime of the application.
+    return () => {
+      // Empty cleanup - handlers persist
+    };
     }, [
-      isElectron,
-      sortOrder,
-      searchTerm
+      isElectron
+      // Removed dependencies to ensure this only runs once
     ]);
 
   const saveCurrentWorkspace = useCallback(() => {
@@ -1170,5 +1205,7 @@ const useAppState = () => {
     toggleInstructionSelection,
   };
 };
+
+export type AppState = ReturnType<typeof useAppState>;
 
 export default useAppState;
