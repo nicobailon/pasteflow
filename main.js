@@ -175,6 +175,24 @@ function createWindow() {
     },
   });
 
+  // Set Content Security Policy for Web Workers and WASM
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self';" +
+          "script-src 'self' 'wasm-unsafe-eval' blob:;" +
+          "worker-src 'self' blob:;" +
+          "connect-src 'self';" +
+          "style-src 'self' 'unsafe-inline';" +
+          "img-src 'self' data: blob:;" +
+          "font-src 'self' data:;"
+        ]
+      }
+    });
+  });
+
   // In development, load from Vite dev server
   // In production, load from built files
   const isDev = process.env.NODE_ENV === "development";

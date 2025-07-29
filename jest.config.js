@@ -12,6 +12,9 @@ module.exports = {
     'react-syntax-highlighter/dist/esm/styles/prism': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.js',
     'react-syntax-highlighter': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.js',
   },
+  globals: {
+    URL: URL,
+  },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/dist/'],
   transform: {
@@ -22,6 +25,9 @@ module.exports = {
       }
     }],
   },
+  transformIgnorePatterns: [
+    'node_modules/(?!(.*\\.mjs$))',
+  ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   collectCoverage: true,
   collectCoverageFrom: [

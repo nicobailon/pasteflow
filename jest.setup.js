@@ -48,4 +48,12 @@ const localStorageMock = {
 global.localStorage = localStorageMock;
 
 // Mock for main.tsx
-jest.mock('./src/main.tsx', () => ({}), { virtual: true }); 
+jest.mock('./src/main.tsx', () => ({}), { virtual: true });
+
+// Mock URL constructor for Web Workers
+global.URL = jest.fn().mockImplementation((url, base) => {
+  return { href: url, toString: () => url };
+});
+
+// Mock import.meta
+global.importMeta = { url: 'http://localhost' }; 

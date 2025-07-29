@@ -12,6 +12,8 @@ export interface FileData {
   error?: string;
   fileType?: string;
   excludedByDefault?: boolean;
+  isCountingTokens?: boolean;
+  tokenCountError?: string;
 }
 
 // New interface for selected line ranges
@@ -29,6 +31,8 @@ export interface SelectedFileWithLines {
   isFullFile?: boolean;      // Explicit flag indicating if the whole file is selected
   isContentLoaded?: boolean; // Flag indicating if content has been loaded
   error?: string;           // Error message if loading failed
+  isCountingTokens?: boolean; // Flag indicating if tokens are being counted
+  tokenCountError?: string;  // Error message if token counting failed
 }
 
 export interface TreeNode {

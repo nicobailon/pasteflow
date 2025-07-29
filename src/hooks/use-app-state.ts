@@ -8,6 +8,7 @@ import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } f
 import { resetFolderState } from '../utils/file-utils';
 import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
 import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache';
+import { FeatureControl } from '../utils/feature-flags';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -15,6 +16,7 @@ import useLocalStorage from './use-local-storage';
 import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
+import { useTokenCounter } from './use-token-counter';
 
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
@@ -92,6 +94,10 @@ const useAppState = () => {
   const modalState = useModalState();
   const docState = useDocState();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
+  
+  // Token counter hook - only used when feature is enabled
+  const workerTokensEnabled = FeatureControl.isEnabled();
+  const { countTokens: workerCountTokens, countTokensBatch, isReady: isTokenWorkerReady } = useTokenCounter();
 
   // Refs for state values needed in callbacks to avoid unstable dependencies
   const allFilesRef = useRef(allFiles);
@@ -293,43 +299,135 @@ const useAppState = () => {
     // Check cache first
     const cached = fileContentCache.get(filePath);
     if (cached) {
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
-          f.path === filePath
-            ? { ...f, content: cached.content, tokenCount: cached.tokenCount, isContentLoaded: true }
-            : f
-        )
-      );
-      fileSelection.updateSelectedFile({
-        path: filePath,
-        content: cached.content,
-        tokenCount: cached.tokenCount,
-        isFullFile: true,
-        isContentLoaded: true
-      });
+      // If we have cached content but no token count and workers are enabled, count tokens
+      if (workerTokensEnabled && cached.tokenCount === undefined && cached.content) {
+        setAllFiles((prev: FileData[]) =>
+          prev.map((f: FileData) =>
+            f.path === filePath
+              ? { ...f, content: cached.content, isContentLoaded: true, isCountingTokens: true }
+              : f
+          )
+        );
+        
+        try {
+          const tokenCount = await workerCountTokens(cached.content);
+          fileContentCache.set(filePath, cached.content, tokenCount);
+          
+          setAllFiles((prev: FileData[]) =>
+            prev.map((f: FileData) =>
+              f.path === filePath
+                ? { ...f, content: cached.content, tokenCount, isContentLoaded: true, isCountingTokens: false }
+                : f
+            )
+          );
+          fileSelection.updateSelectedFile({
+            path: filePath,
+            content: cached.content,
+            tokenCount,
+            isFullFile: true,
+            isContentLoaded: true,
+            isCountingTokens: false
+          });
+        } catch (error) {
+          console.error('Error counting tokens with worker:', error);
+          const fallbackCount = estimateTokenCount(cached.content);
+          setAllFiles((prev: FileData[]) =>
+            prev.map((f: FileData) =>
+              f.path === filePath
+                ? { ...f, content: cached.content, tokenCount: fallbackCount, isContentLoaded: true, isCountingTokens: false }
+                : f
+            )
+          );
+        }
+      } else {
+        setAllFiles((prev: FileData[]) =>
+          prev.map((f: FileData) =>
+            f.path === filePath
+              ? { ...f, content: cached.content, tokenCount: cached.tokenCount, isContentLoaded: true }
+              : f
+          )
+        );
+        fileSelection.updateSelectedFile({
+          path: filePath,
+          content: cached.content,
+          tokenCount: cached.tokenCount,
+          isFullFile: true,
+          isContentLoaded: true
+        });
+      }
       return;
     }
 
     // Load from backend if not cached
     const result = await requestFileContent(filePath);
-    if (result.success && result.content !== undefined && result.tokenCount !== undefined) {
-      // Cache the result
-      fileContentCache.set(filePath, result.content, result.tokenCount);
-      
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
-          f.path === filePath
-            ? { ...f, content: result.content, tokenCount: result.tokenCount, isContentLoaded: true }
-            : f
-        )
-      );
-      fileSelection.updateSelectedFile({
-        path: filePath,
-        content: result.content,
-        tokenCount: result.tokenCount,
-        isFullFile: true,
-        isContentLoaded: true
-      });
+    if (result.success && result.content !== undefined) {
+      // Use worker-based token counting if enabled
+      if (workerTokensEnabled && isTokenWorkerReady) {
+        // Set loading state
+        setAllFiles((prev: FileData[]) =>
+          prev.map((f: FileData) =>
+            f.path === filePath
+              ? { ...f, content: result.content, isContentLoaded: true, isCountingTokens: true }
+              : f
+          )
+        );
+        
+        try {
+          // Count tokens using worker
+          const tokenCount = await workerCountTokens(result.content!);
+          
+          // Cache the result with token count
+          fileContentCache.set(filePath, result.content!, tokenCount);
+          
+          setAllFiles((prev: FileData[]) =>
+            prev.map((f: FileData) =>
+              f.path === filePath
+                ? { ...f, content: result.content, tokenCount, isContentLoaded: true, isCountingTokens: false }
+                : f
+            )
+          );
+          fileSelection.updateSelectedFile({
+            path: filePath,
+            content: result.content!,
+            tokenCount,
+            isFullFile: true,
+            isContentLoaded: true,
+            isCountingTokens: false
+          });
+        } catch (error) {
+          console.error('Error counting tokens with worker:', error);
+          // Fall back to estimation
+          const tokenCount = estimateTokenCount(result.content!);
+          fileContentCache.set(filePath, result.content!, tokenCount);
+          
+          setAllFiles((prev: FileData[]) =>
+            prev.map((f: FileData) =>
+              f.path === filePath
+                ? { ...f, content: result.content, tokenCount, isContentLoaded: true, isCountingTokens: false, tokenCountError: 'Worker failed, used estimation' }
+                : f
+            )
+          );
+        }
+      } else {
+        // Use the token count from the backend (legacy behavior)
+        const tokenCount = result.tokenCount !== undefined ? result.tokenCount : estimateTokenCount(result.content!);
+        fileContentCache.set(filePath, result.content!, tokenCount);
+        
+        setAllFiles((prev: FileData[]) =>
+          prev.map((f: FileData) =>
+            f.path === filePath
+              ? { ...f, content: result.content, tokenCount, isContentLoaded: true }
+              : f
+          )
+        );
+        fileSelection.updateSelectedFile({
+          path: filePath,
+          content: result.content!,
+          tokenCount,
+          isFullFile: true,
+          isContentLoaded: true
+        });
+      }
     } else {
       setAllFiles((prev: FileData[]) =>
         prev.map((f: FileData) =>
@@ -337,7 +435,143 @@ const useAppState = () => {
         )
       );
     }
-  }, [allFiles, setAllFiles, fileSelection]);
+  }, [allFiles, setAllFiles, fileSelection, workerTokensEnabled, workerCountTokens, isTokenWorkerReady]);
+
+  // Batch load multiple file contents
+  const loadMultipleFileContents = useCallback(async (filePaths: string[]): Promise<void> => {
+    if (!workerTokensEnabled || !isTokenWorkerReady) {
+      // Fall back to sequential loading with existing method
+      for (const path of filePaths) {
+        await loadFileContent(path);
+      }
+      return;
+    }
+
+    // Set loading states for all files
+    setAllFiles((prev: FileData[]) =>
+      prev.map((f: FileData) =>
+        filePaths.includes(f.path)
+          ? { ...f, isCountingTokens: true }
+          : f
+      )
+    );
+
+    // Load all contents from backend
+    const results = await Promise.all(
+      filePaths.map(path => requestFileContent(path))
+    );
+
+    // Extract successful content loads
+    const successfulLoads = results
+      .map((result, index) => ({
+        path: filePaths[index],
+        content: result.success ? result.content : null,
+        error: result.success ? null : result.error
+      }))
+      .filter(item => item.content !== null);
+
+    if (successfulLoads.length > 0) {
+      try {
+        // Batch count tokens for all successful loads
+        const contents = successfulLoads.map(item => item.content!);
+        const tokenCounts = await countTokensBatch(contents);
+
+        // Create atomic mapping of file paths to token counts
+        const filePathToTokenCount = new Map(
+          successfulLoads.map((item, index) => [item.path, tokenCounts[index]])
+        );
+
+        // Create atomic mapping of file paths to results
+        const filePathToResult = new Map(
+          results.map((result, index) => [filePaths[index], result])
+        );
+
+        // Update state with all results atomically
+        setAllFiles((prev: FileData[]) =>
+          prev.map((f: FileData) => {
+            // Only update files that were part of the original request
+            if (!filePaths.includes(f.path)) return f;
+
+            const result = filePathToResult.get(f.path);
+            const tokenCount = filePathToTokenCount.get(f.path);
+
+            if (result?.success && result.content !== undefined && tokenCount !== undefined) {
+              // Cache the result
+              fileContentCache.set(f.path, result.content, tokenCount);
+
+              // Update file selection state
+              fileSelection.updateSelectedFile({
+                path: f.path,
+                content: result.content,
+                tokenCount,
+                isFullFile: true,
+                isContentLoaded: true,
+                isCountingTokens: false
+              });
+
+              return {
+                ...f,
+                content: result.content,
+                tokenCount,
+                isContentLoaded: true,
+                isCountingTokens: false,
+                error: undefined,
+                tokenCountError: undefined
+              };
+            } else if (result && !result.success) {
+              return {
+                ...f,
+                error: result.error || 'Failed to load content',
+                isContentLoaded: false,
+                isCountingTokens: false,
+                tokenCountError: undefined
+              };
+            } else {
+              // Token counting failed but content loaded successfully
+              return {
+                ...f,
+                tokenCountError: 'Failed to count tokens',
+                isCountingTokens: false
+              };
+            }
+          })
+        );
+      } catch (error) {
+        console.error('Error in batch token counting:', error);
+        // Fall back to individual token counting
+        for (const { path, content } of successfulLoads) {
+          if (content) {
+            const tokenCount = estimateTokenCount(content);
+            fileContentCache.set(path, content, tokenCount);
+            
+            setAllFiles((prev: FileData[]) =>
+              prev.map((f: FileData) =>
+                f.path === path
+                  ? { ...f, content, tokenCount, isContentLoaded: true, isCountingTokens: false }
+                  : f
+              )
+            );
+          }
+        }
+      }
+    }
+
+    // Handle failed loads
+    const failedPaths = results
+      .map((result, index) => ({ result, path: filePaths[index] }))
+      .filter(item => !item.result.success)
+      .map(item => item.path);
+
+    if (failedPaths.length > 0) {
+      setAllFiles((prev: FileData[]) =>
+        prev.map((f: FileData) =>
+          failedPaths.includes(f.path)
+            ? { ...f, error: 'Failed to load content', isContentLoaded: false, isCountingTokens: false }
+            : f
+        )
+      );
+    }
+  }, [workerTokensEnabled, isTokenWorkerReady, loadFileContent, countTokensBatch, setAllFiles, fileSelection]);
 
   // Load expanded nodes state from localStorage
   useEffect(() => {
@@ -901,6 +1135,7 @@ const useAppState = () => {
 
     // Lazy loading
     loadFileContent,
+    loadMultipleFileContents,
 
     // New additions
     totalTokens,
@@ -914,6 +1149,9 @@ const useAppState = () => {
     onDeleteInstruction,
     onUpdateInstruction,
     toggleInstructionSelection,
+    
+    // Feature flags
+    workerTokensEnabled,
   };
 };
 

@@ -22,8 +22,8 @@ const FileCard = ({
   onViewFile,
   loadFileContent
 }: FileCardProps) => {
-  const { name, path: filePath, content, isContentLoaded, tokenCount, error } = file;
-  const { lines, content: selectedContent, isContentLoaded: selectedIsContentLoaded, tokenCount: selectedTokenCount } = selectedFile || {};
+  const { name, path: filePath, content, isContentLoaded, tokenCount, error, isCountingTokens, tokenCountError } = file;
+  const { lines, content: selectedContent, isContentLoaded: selectedIsContentLoaded, tokenCount: selectedTokenCount, isCountingTokens: selectedIsCountingTokens } = selectedFile || {};
   const isSelected = !!selectedFile;
 
   // Trigger content loading if needed when the component mounts or file path changes
@@ -36,6 +36,10 @@ const FileCard = ({
 
   // Get the appropriate token count (selected lines or full file)
   const getDisplayTokenCount = (): string => {
+    // Check if we're currently counting tokens
+    if (isCountingTokens || selectedIsCountingTokens) {
+      return "Counting...";
+    }
     // Use selected file's count if loaded
     if (selectedIsContentLoaded && selectedTokenCount !== undefined) {
       return selectedTokenCount.toLocaleString();
@@ -44,8 +48,8 @@ const FileCard = ({
     if (isContentLoaded && tokenCount !== undefined) {
       return tokenCount.toLocaleString();
     }
-    // Show error if loading failed
-    if (error) {
+    // Show error if loading failed or token counting failed
+    if (error || tokenCountError) {
       return "Error";
     }
     // Show loading indicator if content is not yet loaded and no error
@@ -63,8 +67,11 @@ const FileCard = ({
       case "...": {
         return "Loading...";
       }
+      case "Counting...": {
+        return "Counting tokens...";
+      }
       case "Error": {
-        return "Error loading";
+        return tokenCountError || "Error loading";
       }
       case "N/A": {
         return "N/A tokens";
