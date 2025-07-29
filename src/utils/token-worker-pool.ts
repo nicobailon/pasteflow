@@ -54,6 +54,69 @@ export class TokenWorkerPool {
     this.initializeWorkers();
   }
   
+  /**
+   * Utility method for one-time message handling with timeout and guaranteed cleanup.
+   * Ensures deterministic cleanup of event listeners and timeouts in all cases.
+   */
+  private waitForWorkerMessage<T>(
+    worker: Worker,
+    messageId: string,
+    timeout: number,
+    messageValidator: (event: MessageEvent) => T | null
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let timeoutId: NodeJS.Timeout | null = null;
+      let resolved = false;
+      
+      // Single cleanup function that handles all resources
+      const cleanup = () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        worker.removeEventListener('message', messageHandler);
+        worker.removeEventListener('error', errorHandler);
+      };
+      
+      const messageHandler = (event: MessageEvent) => {
+        if (resolved) return;
+        
+        const result = messageValidator(event);
+        if (result !== null) {
+          resolved = true;
+          cleanup();
+          resolve(result);
+        }
+      };
+      
+      const errorHandler = (error: ErrorEvent) => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        reject(new Error(`Worker error during ${messageId}: ${error.message}`));
+      };
+      
+      // Set up timeout
+      timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(`Timeout waiting for ${messageId}`));
+        }
+      }, timeout);
+      
+      // Add listeners - if this fails, cleanup in catch
+      try {
+        worker.addEventListener('message', messageHandler);
+        worker.addEventListener('error', errorHandler);
+      } catch (error) {
+        resolved = true;
+        cleanup();
+        reject(error);
+      }
+    });
+  }
+  
   private async initializeWorkers() {
     console.log('[Pool] Starting worker initialization...');
     // Progressive enhancement check
@@ -310,64 +373,83 @@ export class TokenWorkerPool {
         
         const worker = this.workers[availableWorkerIndex];
         
-        // Set up cleanup function for proper resource management
-        // Define handlers first
-        let timeoutId: NodeJS.Timeout;
+        // Set up for message handling with guaranteed cleanup
+        let resolved = false;
+        let timeoutId: NodeJS.Timeout | null = null;
         
+        // Single cleanup function that's always called
         const cleanup = () => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
           worker.removeEventListener('message', messageHandler);
           worker.removeEventListener('error', errorHandler);
-          clearTimeout(timeoutId);
           
-          // Clean up active job if still present
+          // Clean up active job and process next in queue
           if (this.activeJobs.has(id)) {
             this.activeJobs.delete(id);
             this.processNextInQueue(availableWorkerIndex);
           }
         };
         
-        const errorHandler = (event: ErrorEvent) => {
-          console.error('Worker crashed:', event);
+        const handleResult = (result: number) => {
+          if (resolved) return;
+          resolved = true;
           cleanup();
-          
-          // Attempt to recover the worker
-          this.recoverWorker(availableWorkerIndex);
-          
-          // Fallback to estimation
-          resolve(estimateTokenCount(text));
+          resolve(result);
         };
         
-        // Set up message handler
         const messageHandler = (event: MessageEvent) => {
-          if (event.data.id === id) {
-            cleanup();
-            
-            if (event.data.type === 'ERROR') {
-              console.warn('Worker error, falling back:', event.data.error);
-              resolve(estimateTokenCount(text));
-            } else if (event.data.type === 'TOKEN_COUNT') {
-              resolve(event.data.fallback ? estimateTokenCount(text) : event.data.result);
-            }
-            
-            const job = this.activeJobs.get(id);
-            if (job) {
-              const duration = Date.now() - job.startTime;
-              this.performanceStats.totalProcessed++;
-              this.performanceStats.totalTime += duration;
-            }
+          if (event.data.id !== id) return;
+          
+          // Update stats before resolving
+          const job = this.activeJobs.get(id);
+          if (job) {
+            const duration = Date.now() - job.startTime;
+            this.performanceStats.totalProcessed++;
+            this.performanceStats.totalTime += duration;
+          }
+          
+          if (event.data.type === 'ERROR') {
+            console.warn('Worker error, falling back:', event.data.error);
+            handleResult(estimateTokenCount(text));
+          } else if (event.data.type === 'TOKEN_COUNT') {
+            handleResult(event.data.fallback ? estimateTokenCount(text) : event.data.result);
           }
         };
         
-        // Add event listeners
-        worker.addEventListener('message', messageHandler);
-        worker.addEventListener('error', errorHandler);
+        const errorHandler = (event: ErrorEvent) => {
+          if (resolved) return;
+          console.error('Worker crashed:', event);
+          
+          // Recover worker asynchronously (don't await)
+          this.recoverWorker(availableWorkerIndex);
+          
+          // Use fallback
+          handleResult(estimateTokenCount(text));
+        };
         
-        // Send the message
-        worker.postMessage({
-          type: 'COUNT_TOKENS',
-          id,
-          payload: { text }
-        });
+        // Set timeout for response
+        timeoutId = setTimeout(() => {
+          console.warn(`Token counting timeout for worker ${availableWorkerIndex}`);
+          handleResult(estimateTokenCount(text));
+        }, 30000); // 30 second timeout for token counting
+        
+        // Add listeners and send message - wrap in try/catch for safety
+        try {
+          worker.addEventListener('message', messageHandler);
+          worker.addEventListener('error', errorHandler);
+          
+          worker.postMessage({
+            type: 'COUNT_TOKENS',
+            id,
+            payload: { text }
+          });
+        } catch (error) {
+          console.error('Failed to send message to worker:', error);
+          handleResult(estimateTokenCount(text));
+        }
       }
     });
   }
@@ -562,32 +644,25 @@ export class TokenWorkerPool {
     });
     
     // Wait for worker to be ready before sending INIT
-    await new Promise<void>((resolve) => {
-      let isResolved = false;
-      
-      const readyHandler = (event: MessageEvent) => {
-        if (event.data.type === 'WORKER_READY' && !isResolved) {
-          isResolved = true;
-          clearTimeout(readyTimeout);
-          worker.removeEventListener('message', readyHandler);
-          console.log(`[Pool] Recovered worker ${workerId} is ready, sending INIT`);
-          this.workerReadyStatus[workerId] = true;
-          worker.postMessage({ type: 'INIT', id: `init-recovery-${workerId}` });
-          resolve();
+    try {
+      await this.waitForWorkerMessage(
+        worker,
+        `recovery-ready-${workerId}`,
+        2000,
+        (event) => {
+          if (event.data.type === 'WORKER_READY') {
+            console.log(`[Pool] Recovered worker ${workerId} is ready, sending INIT`);
+            this.workerReadyStatus[workerId] = true;
+            worker.postMessage({ type: 'INIT', id: `init-recovery-${workerId}` });
+            return true; // Signal success
+          }
+          return null;
         }
-      };
-      
-      const readyTimeout = setTimeout(() => {
-        if (!isResolved) {
-          isResolved = true;
-          worker.removeEventListener('message', readyHandler);
-          console.error(`Worker ${workerId} failed to send READY signal during recovery`);
-          resolve(); // Continue anyway
-        }
-      }, 2000);
-      
-      worker.addEventListener('message', readyHandler);
-    });
+      );
+    } catch (error) {
+      console.error(`Worker ${workerId} failed to send READY signal during recovery:`, error);
+      // Continue anyway
+    }
     
     // Wait for initialization
     await new Promise<void>((resolve) => {
@@ -648,75 +723,36 @@ export class TokenWorkerPool {
         const id = `health-${Date.now()}-${index}`;
         const start = performance.now();
         
-        return new Promise<{ workerId: number; healthy: boolean; responseTime: number }>((resolve) => {
-          // Create cleanup state
-          const cleanupState = {
-            isResolved: false,
-            timeoutId: null as NodeJS.Timeout | null,
-            handler: null as ((e: MessageEvent) => void) | null
+        try {
+          // Send health check message
+          worker.postMessage({ type: 'HEALTH_CHECK', id });
+          
+          // Wait for response using our utility method
+          const result = await this.waitForWorkerMessage(
+            worker,
+            `health-check-${index}`,
+            this.HEALTH_CHECK_TIMEOUT,
+            (event) => {
+              if (event.data.id === id && event.data.type === 'HEALTH_RESPONSE') {
+                return {
+                  workerId: index,
+                  healthy: event.data.healthy === true,
+                  responseTime: performance.now() - start
+                };
+              }
+              return null;
+            }
+          );
+          
+          return result;
+        } catch (error) {
+          // Timeout or error occurred
+          return {
+            workerId: index,
+            healthy: false,
+            responseTime: Number.POSITIVE_INFINITY
           };
-          
-          // Define cleanup function that ensures all resources are released
-          const performCleanup = () => {
-            if (cleanupState.timeoutId) {
-              clearTimeout(cleanupState.timeoutId);
-              cleanupState.timeoutId = null;
-            }
-            if (cleanupState.handler) {
-              worker.removeEventListener('message', cleanupState.handler);
-              cleanupState.handler = null;
-            }
-          };
-          
-          // Create handler function
-          cleanupState.handler = (e: MessageEvent) => {
-            if (e.data.id === id && e.data.type === 'HEALTH_RESPONSE' && !cleanupState.isResolved) {
-              cleanupState.isResolved = true;
-              const responseTime = performance.now() - start;
-              
-              // Perform cleanup immediately
-              performCleanup();
-              
-              resolve({
-                workerId: index,
-                healthy: e.data.healthy === true,
-                responseTime
-              });
-            }
-          };
-          
-          // Set timeout
-          cleanupState.timeoutId = setTimeout(() => {
-            if (!cleanupState.isResolved) {
-              cleanupState.isResolved = true;
-              
-              // Perform cleanup immediately
-              performCleanup();
-              
-              resolve({ 
-                workerId: index, 
-                healthy: false, 
-                responseTime: Number.POSITIVE_INFINITY 
-              });
-            }
-          }, this.HEALTH_CHECK_TIMEOUT);
-          
-          // Add listener and send message
-          try {
-            worker.addEventListener('message', cleanupState.handler);
-            worker.postMessage({ type: 'HEALTH_CHECK', id });
-          } catch {
-            // If setup fails, ensure cleanup happens
-            cleanupState.isResolved = true;
-            performCleanup();
-            
-            resolve({
-              workerId: index,
-              healthy: false,
-              responseTime: Number.POSITIVE_INFINITY
-            });
-          }
-        });
+        }
       })
     );
   }
