@@ -7,10 +7,10 @@ class IPCValidator {
     
     // Rate limiting configuration
     this.rateLimits = {
-      'request-file-list': { windowMs: 60000, maxRequests: 10 },
-      'request-file-content': { windowMs: 60000, maxRequests: 100 },
+      'request-file-list': { windowMs: 60000, maxRequests: 100 },
+      'request-file-content': { windowMs: 60000, maxRequests: 500 },
       'open-docs': { windowMs: 60000, maxRequests: 20 },
-      'open-folder': { windowMs: 60000, maxRequests: 5 }
+      'open-folder': { windowMs: 60000, maxRequests: 20 }
     };
   }
 
