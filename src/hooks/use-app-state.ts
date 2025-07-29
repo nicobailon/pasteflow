@@ -8,7 +8,6 @@ import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } f
 import { resetFolderState } from '../utils/file-utils';
 import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
 import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache';
-import { FeatureControl } from '../utils/feature-flags';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -95,8 +94,7 @@ const useAppState = () => {
   const docState = useDocState();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace, getWorkspaceNames } = useWorkspaceState();
   
-  // Token counter hook - only used when feature is enabled
-  const workerTokensEnabled = FeatureControl.isEnabled();
+  // Token counter hook - always enabled
   const { countTokens: workerCountTokens, countTokensBatch, isReady: isTokenWorkerReady } = useTokenCounter();
 
   // Refs for state values needed in callbacks to avoid unstable dependencies
@@ -323,8 +321,8 @@ const useAppState = () => {
     // Check cache first
     const cached = fileContentCache.get(filePath);
     if (cached) {
-      // If we have cached content but no token count and workers are enabled, count tokens
-      if (workerTokensEnabled && cached.tokenCount === undefined && cached.content) {
+      // If we have cached content but no token count, use workers to count tokens
+      if (cached.tokenCount === undefined && cached.content) {
         setAllFiles((prev: FileData[]) =>
           prev.map((f: FileData) =>
             f.path === filePath
@@ -385,8 +383,8 @@ const useAppState = () => {
     // Load from backend if not cached
     const result = await requestFileContent(filePath);
     if (result.success && result.content !== undefined) {
-      // Use worker-based token counting if enabled
-      if (workerTokensEnabled && isTokenWorkerReady) {
+      // Use worker-based token counting
+      if (isTokenWorkerReady) {
         // Set loading state
         setAllFiles((prev: FileData[]) =>
           prev.map((f: FileData) =>
@@ -433,14 +431,14 @@ const useAppState = () => {
           );
         }
       } else {
-        // Use the token count from the backend (legacy behavior)
-        const tokenCount = result.tokenCount === undefined ? estimateTokenCount(result.content!) : result.tokenCount;
+        // Worker not ready, fall back to estimation
+        const tokenCount = estimateTokenCount(result.content!);
         fileContentCache.set(filePath, result.content!, tokenCount);
         
         setAllFiles((prev: FileData[]) =>
           prev.map((f: FileData) =>
             f.path === filePath
-              ? { ...f, content: result.content, tokenCount, isContentLoaded: true }
+              ? { ...f, content: result.content, tokenCount, isContentLoaded: true, tokenCountError: 'Worker not ready, used estimation' }
               : f
           )
         );
@@ -459,11 +457,11 @@ const useAppState = () => {
         )
       );
     }
-  }, [allFiles, setAllFiles, fileSelection, workerTokensEnabled, workerCountTokens, isTokenWorkerReady, selectedFolder]);
+  }, [allFiles, setAllFiles, fileSelection, workerCountTokens, isTokenWorkerReady, selectedFolder]);
 
   // Batch load multiple file contents
   const loadMultipleFileContents = useCallback(async (filePaths: string[]): Promise<void> => {
-    if (!workerTokensEnabled || !isTokenWorkerReady) {
+    if (!isTokenWorkerReady) {
       // Fall back to sequential loading with existing method
       for (const path of filePaths) {
         await loadFileContent(path);
@@ -595,7 +593,7 @@ const useAppState = () => {
         )
       );
     }
-  }, [workerTokensEnabled, isTokenWorkerReady, loadFileContent, countTokensBatch, setAllFiles, fileSelection]);
+  }, [isTokenWorkerReady, loadFileContent, countTokensBatch, setAllFiles, fileSelection]);
 
   // Load expanded nodes state from localStorage
   useEffect(() => {
@@ -1170,9 +1168,6 @@ const useAppState = () => {
     onDeleteInstruction,
     onUpdateInstruction,
     toggleInstructionSelection,
-    
-    // Feature flags
-    workerTokensEnabled,
   };
 };
 

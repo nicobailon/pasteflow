@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
@@ -10,7 +10,6 @@ import RolePromptsModal from "./components/role-prompts-modal";
 import Sidebar from "./components/sidebar";
 import SystemPromptsModal from "./components/system-prompts-modal";
 import WorkspaceModal from "./components/workspace-modal";
-import { DeveloperSettings } from "./components/developer-settings";
 import { SORT_OPTIONS } from "./constants";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
@@ -19,21 +18,7 @@ const App = () => {
   // Use our main app state hook
   const appState = useAppState();
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
-  const [isDeveloperSettingsOpen, setIsDeveloperSettingsOpen] = useState(false);
   
-  // Add keyboard shortcut for developer settings
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+Shift+D (Mac) or Ctrl+Shift+D (Windows/Linux) for Developer Settings
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'D') {
-        e.preventDefault();
-        setIsDeveloperSettingsOpen(true);
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Process error state
   if (appState.processingStatus.status === "error") {
@@ -195,12 +180,6 @@ const App = () => {
           isOpen={isWorkspaceModalOpen}
           onClose={() => setIsWorkspaceModalOpen(false)}
         />
-        
-        {isDeveloperSettingsOpen && (
-          <DeveloperSettings
-            onClose={() => setIsDeveloperSettingsOpen(false)}
-          />
-        )}
       </div>
     </ThemeProvider>
   );

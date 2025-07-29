@@ -304,9 +304,9 @@ export class TokenWorkerPool {
         const worker = this.workers[availableWorkerIndex];
         
         // Set up cleanup function for proper resource management
+        // Define handlers first
         let timeoutId: NodeJS.Timeout;
         
-        // Define handlers first
         const cleanup = () => {
           worker.removeEventListener('message', messageHandler);
           worker.removeEventListener('error', errorHandler);
@@ -361,13 +361,6 @@ export class TokenWorkerPool {
           id,
           payload: { text }
         });
-        
-        // Set timeout for cleanup
-        timeoutId = setTimeout(() => {
-          cleanup();
-          console.warn(`Token counting timeout for request ${id}`);
-          resolve(estimateTokenCount(text));
-        }, 5000);
       }
     });
   }
