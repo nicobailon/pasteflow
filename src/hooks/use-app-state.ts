@@ -88,6 +88,7 @@ const useAppState = () => {
   const [headerSaveState, setHeaderSaveState] = useState('idle' as 'idle' | 'saving' | 'success');
   const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null);
   const [currentWorkspace, setCurrentWorkspace] = useState(null as string | null);
+  const [isApplyingWorkspace, setIsApplyingWorkspace] = useState(false);
 
   // Integration with specialized hooks
   const fileSelection = useFileSelectionState(allFiles, selectedFolder);
@@ -672,10 +673,15 @@ const useAppState = () => {
 
   // Wrap saveWorkspace in useCallback to avoid recreating it on every render
   const saveWorkspace = useCallback((name: string) => {
+    // Deduplicate selected files before saving
+    const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
+    console.log(`[saveWorkspace] Saving workspace "${name}" with ${uniqueSelectedFiles.length} unique files (from ${fileSelection.selectedFiles.length} total)`);
+    console.log('[saveWorkspace] Files being saved:', uniqueSelectedFiles.map(f => f.path));
+    
     const workspace: WorkspaceState = {
       selectedFolder: selectedFolder,
       expandedNodes: expandedNodes,
-      selectedFiles: fileSelection.selectedFiles,
+      selectedFiles: uniqueSelectedFiles,
       allFiles: allFiles,
       sortOrder: sortOrder,
       searchTerm: searchTerm,
@@ -717,6 +723,22 @@ const useAppState = () => {
     const callStackTrace = new Error('Stack trace for debugging').stack;
     console.log(`[DEBUG] handleFolderChange called: "${selectedFolderRef.current}" -> "${workspaceFolder}"`);
     console.log(`[DEBUG] handleFolderChange call stack:`, callStackTrace);
+    
+    // CRITICAL: Cancel any in-progress file loading
+    if (processingStatus.status === "processing") {
+      console.log(`[handleFolderChange] Cancelling previous file loading before switching to: ${workspaceFolder}`);
+      cancelFileLoading(isElectron, setProcessingStatus);
+    }
+    
+    // Clear file content cache when switching workspaces
+    fileContentCache.clear();
+    
+    // Clear all files to prevent accumulation from previous workspace
+    setAllFiles([]);
+    
+    // Clear selected files when switching workspaces
+    clearSelectedFiles();
+    
     setCurrentWorkspace(workspaceName);
     
     if (workspaceFolder === null) {
@@ -737,12 +759,13 @@ const useAppState = () => {
           directories: 0,
           total: 0
         });
-        window.electron.ipcRenderer.send("request-file-list", workspaceFolder, exclusionPatterns || []);
+        const requestId = Math.random().toString(36).slice(2, 11);
+        window.electron.ipcRenderer.send("request-file-list", workspaceFolder, exclusionPatterns || [], requestId);
       }
     }
     
     setSelectedFolder(workspaceFolder);
-  }, [exclusionPatterns, setProcessingStatus, setSelectedFolder, setCurrentWorkspace, setPendingWorkspaceData]);
+  }, [exclusionPatterns, setProcessingStatus, setSelectedFolder, setCurrentWorkspace, setPendingWorkspaceData, processingStatus.status, isElectron, setAllFiles, clearSelectedFiles]);
 
   const applyExpandedNodes = useCallback((expandedNodesFromWorkspace: Record<string, boolean>) => {
     console.log('[useAppState.applyExpandedNodes] Applying:', expandedNodesFromWorkspace);
@@ -751,11 +774,12 @@ const useAppState = () => {
   }, [setExpandedNodes]);
 
   const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileWithLines[], availableFiles: FileData[]): void => {
-    // Clear existing selections
-    clearSelectedFiles();
+    console.log(`[applySelectedFiles] Called with ${selectedFilesToApply.length} files to apply`);
+    console.log('[applySelectedFiles] Files to apply:', selectedFilesToApply.map(f => f.path));
     
     // Deduplicate input files before applying
     const uniqueFiles = [...new Map(selectedFilesToApply.map(file => [file.path, file])).values()];
+    console.log(`[applySelectedFiles] After deduplication: ${uniqueFiles.length} unique files`);
     
     // Create a map of available files for efficient lookup
     const availableFilesMap = new Map(availableFiles.map(f => [f.path, f]));
@@ -776,13 +800,14 @@ const useAppState = () => {
       })
       .filter((file): file is SelectedFileWithLines => !!file);
 
-    if (filesToSelect.length > 0) {
-      // Batch state updates
-      unstable_batchedUpdates(() => {
-        setSelectionState(filesToSelect);
-      });
-    }
-  }, [clearSelectedFiles, setSelectionState]);
+    console.log(`[applySelectedFiles] Setting ${filesToSelect.length} files after filtering`);
+    
+    // Always call setSelectionState even with empty array to ensure proper clearing
+    // Batch state updates
+    unstable_batchedUpdates(() => {
+      setSelectionState(filesToSelect);
+    });
+  }, [setSelectionState]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
     console.log('[useAppState.applyPrompts] Applying prompts (raw):', promptsToApply);
@@ -828,12 +853,11 @@ const useAppState = () => {
     const folderChanged = currentSelectedFolder !== workspaceFolder;
     const isProcessing = currentProcessingStatus.status === 'processing';
 
-    // Only clear files if folder is changing - otherwise we'll apply the saved selections
-    if (folderChanged) {
-      clearSelectedFiles();
-    }
+    // Don't clear files here - let applySelectedFiles handle it properly
 
     if (folderChanged && !isProcessing) {
+      // Clear all files when folder changes to prevent accumulation
+      setAllFiles([]);
       handleFolderChange(workspaceName, workspaceFolder, workspaceData);
       return;
     } else if (folderChanged && isProcessing) {

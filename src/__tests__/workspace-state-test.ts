@@ -20,15 +20,20 @@ describe('useWorkspaceState hook', () => {
       // Setup
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: { 'src': true },
+        expandedNodes: { 'src': true },
         selectedFiles: [{ path: 'src/file.ts', content: 'test' }],
         selectedFolder: '/test/folder',
         userInstructions: 'test instructions',
-        tokenCounts: { total: 100 },
+        tokenCounts: { 'src/file.ts': 100 },
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0 // Will be overwritten
       };
 
@@ -43,7 +48,7 @@ describe('useWorkspaceState hook', () => {
 
       // Verify
       const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
-      const savedWorkspace = JSON.parse(workspaces['test-workspace']);
+      const savedWorkspace = workspaces['test-workspace'];
       
       expect(savedWorkspace.savedAt).toBe(mockTime);
       expect(savedWorkspace.selectedFolder).toBe('/test/folder');
@@ -57,15 +62,20 @@ describe('useWorkspaceState hook', () => {
       // Setup
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -82,15 +92,20 @@ describe('useWorkspaceState hook', () => {
       // Setup
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -109,11 +124,11 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace first
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: { 'src': true },
+        expandedNodes: { 'src': true },
         selectedFiles: [{ path: 'src/file.ts', content: 'test' }],
         selectedFolder: '/valid/test',
         userInstructions: 'valid test',
-        tokenCounts: { total: 200 },
+        tokenCounts: { 'src/file.ts': 200 },
         customPrompts: {
           systemPrompts: [{ id: '1', title: 'Test Prompt', content: 'Test Content' }],
           rolePrompts: []
@@ -135,7 +150,7 @@ describe('useWorkspaceState hook', () => {
       expect(loadedWorkspace).not.toBeNull();
       expect(loadedWorkspace?.selectedFolder).toBe('/valid/test');
       expect(loadedWorkspace?.userInstructions).toBe('valid test');
-      expect(loadedWorkspace?.tokenCounts.total).toBe(200);
+      expect(loadedWorkspace?.tokenCounts['src/file.ts']).toBe(200);
       expect(loadedWorkspace?.customPrompts.systemPrompts).toHaveLength(1);
       expect(loadedWorkspace?.customPrompts.systemPrompts[0].title).toBe('Test Prompt');
     });
@@ -183,15 +198,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace first
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -217,15 +237,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace and set as current
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -249,15 +274,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace and set as current
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -293,7 +323,7 @@ describe('useWorkspaceState hook', () => {
         selectedFiles: [],
         selectedFolder: '/rename-test',
         userInstructions: 'rename test',
-        tokenCounts: { total: 50 },
+        tokenCounts: { '/rename-test/file.ts': 50 },
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
@@ -332,15 +362,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace and set as current
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 

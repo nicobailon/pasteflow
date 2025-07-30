@@ -245,8 +245,16 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const setSelectionState = useCallback((files: SelectedFileWithLines[]): void => {
     // Deduplicate files by path before setting
     const uniqueFiles = [...new Map(files.map(file => [file.path, file])).values()];
+    console.log(`[setSelectionState] Setting ${uniqueFiles.length} unique files from ${files.length} input files`);
+    console.log('[setSelectionState] Current selected files before:', selectedFiles.length);
+    console.log('[setSelectionState] Files being set:', uniqueFiles.map(f => f.path));
+    
+    // Force a complete replacement by clearing localStorage first
+    localStorage.removeItem(STORAGE_KEYS.SELECTED_FILES);
+    
+    // Then set the new files
     setSelectedFiles(uniqueFiles);
-  }, [setSelectedFiles]);
+  }, [setSelectedFiles, selectedFiles]);
 
   return {
     selectedFiles,

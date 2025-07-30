@@ -213,8 +213,12 @@ const createFolderSelectedHandler = (
           directories: 0
         });
         
-        console.log(`[DEBUG] handleFolderSelected sending request-file-list for: "${newPath}"`);
-        window.electron.ipcRenderer.send("request-file-list", newPath, []);
+        // Generate new request ID
+        currentRequestId = Math.random().toString(36).slice(2, 11);
+        console.log(`[DEBUG] handleFolderSelected sending request-file-list for: "${newPath}" with requestId: ${currentRequestId}`);
+        // Clear accumulated files when starting a new request
+        accumulatedFiles.length = 0;
+        window.electron.ipcRenderer.send("request-file-list", newPath, [], currentRequestId);
       } catch (error) {
         const appError = error instanceof ApplicationError 
           ? error 
@@ -283,11 +287,14 @@ export const setupElectronHandlers = (
   // Keep accumulated files in closure
   let accumulatedFiles: FileData[] = [];
   
+  // Track current request ID to filter out stale responses
+  let currentRequestId: string | null = null;
+  
   const handleFolderSelected = createFolderSelectedHandler(params, accumulatedFiles, handlerId);
   
   // Helper function to process file data based on format
   const processFileData = (
-    data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number } | FileData[]
+    data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number; requestId?: string } | FileData[]
   ): {
     filesArray: FileData[];
     isComplete: boolean;
@@ -312,12 +319,50 @@ export const setupElectronHandlers = (
       };
     }
 
+    // Check if this data is from the current request
+    if ('requestId' in data && data.requestId !== currentRequestId) {
+      console.warn(`[processFileData] Ignoring stale file batch from request ${data.requestId}, current request is ${currentRequestId}`);
+      return {
+        filesArray: [],
+        isComplete: false,
+        processedCount: 0,
+        directoriesCount: 0,
+        totalCount: 0
+      };
+    }
+    
+    // Clear accumulated files on first batch of new request
+    if ('requestId' in data && data.requestId === currentRequestId && data.files && data.files.length > 0) {
+      // Check if this looks like the first batch (small file count and low processed count)
+      if (data.processed && data.processed <= data.files.length && data.processed < 50) {
+        console.log(`[processFileData] First batch of new request ${data.requestId}, clearing accumulated files`);
+        accumulatedFiles.length = 0;
+      }
+    }
+    
     // Progressive loading format
-    const newFiles = (data.files || []).map(file => ({ 
+    let newFiles = (data.files || []).map(file => ({ 
       ...file, 
       isContentLoaded: file.isContentLoaded ?? false,
       isDirectory: file.isDirectory ?? false 
     }));
+    
+    // Validate that files belong to current workspace
+    const currentFolder = params.selectedFolder;
+    if (newFiles.length > 0 && currentFolder) {
+      const validFiles = newFiles.filter(file => {
+        // Normalize paths for comparison (handle Windows vs Unix paths)
+        const normalizedFilePath = file.path.replace(/\\/g, '/');
+        const normalizedFolderPath = currentFolder.replace(/\\/g, '/');
+        return normalizedFilePath.startsWith(normalizedFolderPath);
+      });
+      
+      if (validFiles.length !== newFiles.length) {
+        console.warn(`[processFileData] Filtered out ${newFiles.length - validFiles.length} files from wrong workspace. Current workspace: ${currentFolder}`);
+      }
+      
+      newFiles = validFiles;
+    }
     
     if (data.isComplete && newFiles.length === 0) {
       // This is the final signal - use accumulated files
@@ -497,7 +542,8 @@ export const requestFileList = (
       status: "processing",
       message: "Requesting file list...",
     });
-    window.electron.ipcRenderer.send("request-file-list", selectedFolder, exclusionPatterns);
+    const requestId = Math.random().toString(36).slice(2, 11);
+    window.electron.ipcRenderer.send("request-file-list", selectedFolder, exclusionPatterns, requestId);
     return true;
   }
   return false;

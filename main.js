@@ -10,6 +10,8 @@ const { ipcValidator } = require("./src/validation/ipc-validator.js");
 let ignore;
 // Global cancellation flag for file loading
 let fileLoadingCancelled = false;
+// Track current request ID to ignore stale file batches
+let currentRequestId = null;
 
 // Track current workspace paths for security validation
 let currentWorkspacePaths = [];
@@ -463,7 +465,7 @@ function processDirectory(dirPath, folderPath, depth, ignoreFilter) {
 }
 
 // Handle file list request
-ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []) => {
+ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = [], requestId = null) => {
   // SECURITY: Validate input parameters
   const validation = ipcValidator.validate('request-file-list', { folderPath, exclusionPatterns }, event);
   
@@ -477,6 +479,10 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
   }
   
   const { folderPath: validatedFolderPath, exclusionPatterns: validatedPatterns } = validation.data;
+  
+  // Update current request ID
+  currentRequestId = requestId;
+  console.log(`Starting new file list request with ID: ${requestId}`);
   
   try {
     console.log("Received request for file list in:", validatedFolderPath);
@@ -523,7 +529,8 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
         files: serializableFiles,
         isComplete,
         processed: allFiles.length,
-        directories: processedDirs.size
+        directories: processedDirs.size,
+        requestId: currentRequestId
       });
     };
 
@@ -641,6 +648,7 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 ipcMain.on("cancel-file-loading", () => {
   console.log("Received request to cancel file loading");
   fileLoadingCancelled = true;
+  currentRequestId = null; // Clear request ID when canceling
 });
 
 // Check if a file should be excluded by default, using glob matching
