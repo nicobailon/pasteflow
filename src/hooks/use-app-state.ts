@@ -716,9 +716,6 @@ const useAppState = () => {
 
   // Helper functions for workspace data application
   const handleFolderChange = useCallback((workspaceName: string, workspaceFolder: string | null, workspaceData: WorkspaceState) => {
-    const callStackTrace = new Error('Stack trace for debugging').stack;
-    console.log(`[DEBUG] handleFolderChange called: "${selectedFolderRef.current}" -> "${workspaceFolder}"`);
-    console.log(`[DEBUG] handleFolderChange call stack:`, callStackTrace);
     
     // CRITICAL: Cancel any in-progress file loading
     if (processingStatus.status === "processing") {
@@ -738,15 +735,12 @@ const useAppState = () => {
     setCurrentWorkspace(workspaceName);
     
     if (workspaceFolder === null) {
-      console.log(`[useAppState.handleFolderChange] Resetting folder state`);
       handleResetFolderStateRef.current();
       setPendingWorkspaceData(null);
     } else {
       const { selectedFolder: _selectedFolder, ...restOfData } = workspaceData;
-      console.log(`[useAppState.handleFolderChange] Setting pending workspace data:`, restOfData);
       setPendingWorkspaceData(restOfData);
       
-      console.log(`[DEBUG] handleFolderChange sending request-file-list for: "${workspaceFolder}"`);
       if (window.electron?.ipcRenderer) {
         setProcessingStatus({
           status: "processing",
@@ -1027,7 +1021,6 @@ const useAppState = () => {
   // Define the event handler using useCallback outside the effect
   const handleWorkspaceLoadedEvent = useCallback((event: CustomEvent) => {
     if (event.detail?.name && event.detail?.workspace) {
-      console.log(`[useAppState.workspaceLoadedListener] Received 'workspaceLoaded' event for: ${event.detail.name}. Applying data.`);
       // Apply the workspace data, including the name
       applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
@@ -1036,14 +1029,25 @@ const useAppState = () => {
     }
   }, [applyWorkspaceData]);
 
+  // Handler for direct folder opening (not from workspace loading)
+  const handleDirectFolderOpenedEvent = useCallback((event: CustomEvent) => {
+    if (event.detail?.name && event.detail?.workspace) {
+      // Apply the workspace data, including the name
+      applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
+      sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
+    } else {
+      console.warn("[useAppState.directFolderOpenedListener] Received 'directFolderOpened' event with missing/invalid detail.", event.detail);
+    }
+  }, [applyWorkspaceData]);
+
   useEffect(() => {
     window.addEventListener('workspaceLoaded', handleWorkspaceLoadedEvent as EventListener);
-    console.log("[useAppState] Added workspaceLoaded event listener.");
+    window.addEventListener('directFolderOpened', handleDirectFolderOpenedEvent as EventListener);
     return () => {
       window.removeEventListener('workspaceLoaded', handleWorkspaceLoadedEvent as EventListener);
-      console.log("[useAppState] Removed workspaceLoaded event listener.");
+      window.removeEventListener('directFolderOpened', handleDirectFolderOpenedEvent as EventListener);
     };
-  }, [handleWorkspaceLoadedEvent]);
+  }, [handleWorkspaceLoadedEvent, handleDirectFolderOpenedEvent]);
 
   useEffect(() => {
     console.log('[useAppState.applyPendingEffect] Effect triggered with:', {
@@ -1078,11 +1082,9 @@ const useAppState = () => {
     };
 
     window.addEventListener('createNewWorkspace', handleCreateNewWorkspaceEvent as EventListener);
-    console.log("[useAppState] Added createNewWorkspace event listener.");
     
     return () => {
       window.removeEventListener('createNewWorkspace', handleCreateNewWorkspaceEvent as EventListener);
-      console.log("[useAppState] Removed createNewWorkspace event listener.");
     };
   }, []);
 

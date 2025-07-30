@@ -55,6 +55,7 @@ const Sidebar = ({
     searchTerm,
     fileTreeSortOrder: currentSortOption
   });
+  
 
   // Min and max width constraints
   const MIN_SIDEBAR_WIDTH = 200;
@@ -291,7 +292,6 @@ const Sidebar = ({
    * @param {string} sortOption - The selected sort option
    */
   const handleFileTreeSortChange = useCallback((sortOption: string) => {
-    console.log(`Sort option selected: ${sortOption}`);
     setCurrentSortOption(sortOption);
     onFileTreeSortChange(sortOption);
   }, [onFileTreeSortChange]);

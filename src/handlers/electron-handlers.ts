@@ -98,23 +98,15 @@ const handleWorkspaceUpdate = (
   persistWorkspace: (name: string, state: WorkspaceState) => void,
   setCurrentWorkspace: (name: string | null) => void,
   handlerId: string
-): void => {
+): string | null => {
   // Check if we're opening the same folder that's already open
   if (selectedFolder === newPath) {
     console.log('[electron-handler] Same folder selected, no workspace change needed:', newPath);
-    return;
+    return currentWorkspace;
   }
 
   const existingWorkspaceNames = getWorkspaceNames();
   const newWorkspaceName = generateUniqueWorkspaceName(existingWorkspaceNames, newPath);
-  
-  if (currentWorkspace === null) {
-    console.log(`[DEBUG] Handler ${handlerId} - No active workspace. Creating new workspace:`, newWorkspaceName);
-    console.log(`[DEBUG] Handler ${handlerId} - Existing workspace names:`, existingWorkspaceNames);
-  } else {
-    console.log(`[DEBUG] Handler ${handlerId} - Creating new workspace "${newWorkspaceName}" for different folder:`, newPath);
-    console.log(`[DEBUG] Handler ${handlerId} - Current workspace: ${currentWorkspace}, Existing names:`, existingWorkspaceNames);
-  }
 
   const initialWorkspaceState = createInitialWorkspaceState(newPath);
   persistWorkspace(newWorkspaceName, initialWorkspaceState);
@@ -124,6 +116,8 @@ const handleWorkspaceUpdate = (
     ? `Workspace "${newWorkspaceName}" created and activated.`
     : `New workspace "${newWorkspaceName}" created and activated.`;
   console.log(`[electron-handler] ${message}`);
+  
+  return newWorkspaceName;
 };
 
 // Helper function to set up periodic cleanup
@@ -177,8 +171,6 @@ const createFolderSelectedHandler = (
   let folderSelectionTimeout: NodeJS.Timeout | null = null;
 
   return (folderPath: string) => {
-    console.log(`[DEBUG] handleFolderSelected called with handler ID: ${handlerId}, path: ${folderPath}`);
-    
     if (folderSelectionTimeout) {
       clearTimeout(folderSelectionTimeout);
     }
@@ -195,7 +187,7 @@ const createFolderSelectedHandler = (
         
         accumulatedFiles.length = 0; // Clear accumulated files
 
-        handleWorkspaceUpdate(
+        const workspaceName = handleWorkspaceUpdate(
           newPath,
           params.selectedFolder,
           params.currentWorkspace,
@@ -205,21 +197,36 @@ const createFolderSelectedHandler = (
           handlerId
         );
 
-        params.setSelectedFolder(newPath);
-        params.clearSelectedFiles();
-        params.setProcessingStatus({
-          status: "processing",
-          message: "Requesting file list...",
-          processed: 0,
-          directories: 0
-        });
-        
-        // Generate new request ID
-        currentRequestId.value = Math.random().toString(36).slice(2, 11);
-        console.log(`[DEBUG] handleFolderSelected sending request-file-list for: "${newPath}" with requestId: ${currentRequestId.value}`);
-        // Clear accumulated files when starting a new request
-        accumulatedFiles.length = 0;
-        window.electron.ipcRenderer.send("request-file-list", newPath, [], currentRequestId.value);
+        if (workspaceName) {
+          // Create minimal workspace data for the folder opening
+          const minimalWorkspaceData = createInitialWorkspaceState(newPath);
+
+          // Dispatch a specific event for direct folder opening to avoid conflicts with workspace loading
+          console.log(`[handleFolderSelected] Dispatching directFolderOpened event for: ${workspaceName}`);
+          window.dispatchEvent(new CustomEvent('directFolderOpened', { 
+            detail: { 
+              name: workspaceName, 
+              workspace: minimalWorkspaceData 
+            } 
+          }));
+        } else {
+          // This should rarely happen, but as a fallback use the old behavior
+          console.warn('[handleFolderSelected] No workspace name returned, falling back to direct handling');
+          params.setSelectedFolder(newPath);
+          params.clearSelectedFiles();
+          params.setProcessingStatus({
+            status: "processing",
+            message: "Requesting file list...",
+            processed: 0,
+            directories: 0
+          });
+          
+          // Generate new request ID
+          currentRequestId.value = Math.random().toString(36).slice(2, 11);
+          // Clear accumulated files when starting a new request
+          accumulatedFiles.length = 0;
+          window.electron.ipcRenderer.send("request-file-list", newPath, [], currentRequestId.value);
+        }
       } catch (error) {
         const appError = error instanceof ApplicationError 
           ? error 
@@ -283,7 +290,6 @@ export const setupElectronHandlers = (
   };
   
   const handlerId = Math.random().toString(36).slice(2, 11);
-  console.log(`[DEBUG] Creating handleFolderSelected handler with ID: ${handlerId}`);
 
   // Keep accumulated files in closure
   let accumulatedFiles: FileData[] = [];
@@ -421,6 +427,17 @@ export const setupElectronHandlers = (
 
       const { filesArray, isComplete, processedCount, directoriesCount, totalCount } = processFileData(data, currentRequestId);
 
+      console.log('[handleFileListData] Setting files:', {
+        filesCount: filesArray.length,
+        isComplete,
+        processedCount,
+        directoriesCount,
+        totalCount,
+        hasRequestId: 'requestId' in data,
+        requestId: 'requestId' in data && typeof data === 'object' && 'requestId' in data ? data.requestId : null,
+        currentRequestId: currentRequestId.value
+      });
+      
       params.setAllFiles(filesArray);
       params.applyFiltersAndSort(filesArray, params.sortOrder, params.searchTerm);
 
@@ -461,17 +478,16 @@ export const setupElectronHandlers = (
   const handleProcessingStatus = createProcessingStatusHandler(params);
 
   // Check if handlers are already registered globally
-  if ((window as any)[HANDLER_KEY]) {
-    console.log(`[DEBUG] Handlers already registered globally, skipping registration for handler ID: ${handlerId}`);
+  const globalWindow = window as Window & { [HANDLER_KEY]: boolean };
+  if (globalWindow[HANDLER_KEY]) {
     return () => {};
   }
   
   // Mark handlers as registered globally
-  (window as any)[HANDLER_KEY] = true;
+  globalWindow[HANDLER_KEY] = true;
   
   // Register IPC handlers
   const registerHandlers = () => {
-    console.log(`[DEBUG] Registering folder-selected listener with handler ID: ${handlerId}`);
     window.electron.ipcRenderer.on("folder-selected", handleFolderSelected);
     window.electron.ipcRenderer.on("file-list-data", handleFileListData);
     window.electron.ipcRenderer.on("file-processing-status", handleProcessingStatus);
@@ -482,16 +498,13 @@ export const setupElectronHandlers = (
 
   // Return cleanup function
   return () => {
-    console.log(`[DEBUG] Cleaning up handler with ID: ${handlerId}`);
-    
     // Clean up resources
     accumulatedFiles.length = 0;
     clearInterval(cleanupInterval);
     window.sessionStorage.removeItem('lastFileListUpdate');
-    delete (window as any)[HANDLER_KEY];
+    delete globalWindow[HANDLER_KEY];
     
     // Remove IPC listeners
-    console.log(`[DEBUG] Removing folder-selected listener for handler ID: ${handlerId}`);
     window.electron.ipcRenderer.removeListener("folder-selected", handleFolderSelected);
     window.electron.ipcRenderer.removeListener("file-list-data", handleFileListData);
     window.electron.ipcRenderer.removeListener("file-processing-status", handleProcessingStatus);
@@ -503,7 +516,6 @@ export const setupElectronHandlers = (
  */
 export const openFolderDialog = (isElectron: boolean, setProcessingStatus: (status: ProcessingStatus) => void) => {
   if (isElectron) {
-    console.log("[DEBUG] openFolderDialog called - sending open-folder IPC event");
     setProcessingStatus({ status: "idle", message: "Select a folder..." });
     window.electron.ipcRenderer.send("open-folder");
 
