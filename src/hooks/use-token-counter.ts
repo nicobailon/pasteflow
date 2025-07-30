@@ -84,6 +84,29 @@ function scheduleCleanup() {
   }, 5000); // 5 second delay for cleanup
 }
 
+// Window/process cleanup handlers for edge cases
+if (typeof window !== 'undefined') {
+  // Handle window unload
+  const handleUnload = () => {
+    if (globalWorkerPool) {
+      console.log('[useTokenCounter] Window unload detected, cleaning up pool');
+      cleanupGlobalPool(true);
+    }
+  };
+  
+  window.addEventListener('beforeunload', handleUnload);
+  window.addEventListener('pagehide', handleUnload);
+  
+  // Handle errors that might leave pool in bad state
+  window.addEventListener('error', (event) => {
+    if (event.error && event.error.message && 
+        (event.error.message.includes('Worker') || event.error.message.includes('WebAssembly'))) {
+      console.error('[useTokenCounter] Critical error detected, checking pool health');
+      verifyPoolHealth();
+    }
+  });
+}
+
 // Helper function to update activity time
 function updateActivityTime() {
   lastActivityTime = Date.now();
@@ -133,6 +156,9 @@ function cleanupGlobalPool(forceResetRefCount = true) {
   // Stop memory monitoring
   stopMemoryMonitoring();
   
+  // Stop orphan check
+  stopOrphanCheck();
+  
   // Reset counters as a safety measure only when force cleanup
   if (forceResetRefCount && refCount !== 0) {
     console.warn(`[useTokenCounter] Reference count mismatch during cleanup: ${refCount}`);
@@ -145,6 +171,11 @@ let memoryMonitorInterval: NodeJS.Timeout | null = null;
 
 function startMemoryMonitoring() {
   if (memoryMonitorInterval || typeof performance === 'undefined') return;
+  
+  // Skip memory monitoring in test environment
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+    return;
+  }
   
   memoryMonitorInterval = setInterval(() => {
     if (checkMemoryPressure()) {
@@ -180,7 +211,71 @@ function verifyPoolHealth(): boolean {
     return false;
   }
   
+  // Check if pool is in a bad state
+  if (typeof globalWorkerPool.getStatus === 'function') {
+    const status = globalWorkerPool.getStatus();
+    if (status.isTerminated || (status.activeWorkers === 0 && refCount > 0)) {
+      console.error('[useTokenCounter] Pool in bad state, recreating');
+      const oldPool = globalWorkerPool;
+      globalWorkerPool = null;
+      
+      try {
+        if (oldPool && typeof oldPool.terminate === 'function') {
+          oldPool.terminate();
+        }
+      } catch (e) {
+        console.error('[useTokenCounter] Error terminating bad pool:', e);
+      }
+      
+      return false;
+    }
+  }
+  
   return true;
+}
+
+// Periodic orphan cleanup check
+let orphanCheckInterval: NodeJS.Timeout | null = null;
+
+function startOrphanCheck() {
+  if (orphanCheckInterval) return;
+  
+  // Skip orphan check in test environment to avoid interference
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+    return;
+  }
+  
+  // Don't start orphan check immediately, wait for one interval first
+  orphanCheckInterval = setInterval(() => {
+    // Only run if we think there are no components but pool exists
+    if (refCount === 0 && globalWorkerPool) {
+      const timeSinceActivity = Date.now() - lastActivityTime;
+      
+      // If truly orphaned (no activity for 2 minutes and no refs)
+      // This gives enough time for components to remount
+      if (timeSinceActivity > 120000) {
+        console.warn('[useTokenCounter] Orphaned pool detected, forcing cleanup');
+        cleanupGlobalPool(true);
+        
+        // Stop checking after cleanup
+        if (orphanCheckInterval) {
+          clearInterval(orphanCheckInterval);
+          orphanCheckInterval = null;
+        }
+      }
+    } else if (refCount > 0 && orphanCheckInterval) {
+      // Stop checking if we have active references
+      clearInterval(orphanCheckInterval);
+      orphanCheckInterval = null;
+    }
+  }, 120000); // Check every 2 minutes to avoid false positives
+}
+
+function stopOrphanCheck() {
+  if (orphanCheckInterval) {
+    clearInterval(orphanCheckInterval);
+    orphanCheckInterval = null;
+  }
 }
 
 export function useTokenCounter() {
@@ -226,6 +321,8 @@ export function useTokenCounter() {
       }
       // Start memory monitoring when pool is created
       startMemoryMonitoring();
+      // Start orphan check for edge case cleanup
+      startOrphanCheck();
     }
     
     workerPoolRef.current = globalWorkerPool;
@@ -293,6 +390,9 @@ export function useTokenCounter() {
         globalWorkerPool.monitorWorkerMemory();
       }
       workerPoolRef.current = globalWorkerPool;
+      // Restart monitoring for the new pool
+      startMemoryMonitoring();
+      startOrphanCheck();
     }
     
     // Check if worker pool is available

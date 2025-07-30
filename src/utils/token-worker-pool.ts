@@ -183,29 +183,62 @@ export class TokenWorkerPool {
     return new Promise<T>((resolve, reject) => {
       let timeoutId: NodeJS.Timeout | null = null;
       let resolved = false;
+      let cleanupExecuted = false;
+      
+      // Create bound handlers to ensure we can remove the exact same reference
+      let messageHandler: ((event: MessageEvent) => void) | null = null;
+      let errorHandler: ((error: ErrorEvent) => void) | null = null;
       
       // Single cleanup function that handles all resources
       const cleanup = () => {
+        if (cleanupExecuted) return;
+        cleanupExecuted = true;
+        
         if (timeoutId) {
           clearTimeout(timeoutId);
           timeoutId = null;
         }
-        worker.removeEventListener('message', messageHandler);
-        worker.removeEventListener('error', errorHandler);
-      };
-      
-      const messageHandler = (event: MessageEvent) => {
-        if (resolved) return;
         
-        const result = messageValidator(event);
-        if (result !== null) {
-          resolved = true;
-          cleanup();
-          resolve(result);
+        // Remove listeners only if they were added
+        if (messageHandler) {
+          try {
+            worker.removeEventListener('message', messageHandler);
+          } catch (e) {
+            // Worker might be terminated, ignore
+          }
+          messageHandler = null;
+        }
+        
+        if (errorHandler) {
+          try {
+            worker.removeEventListener('error', errorHandler);
+          } catch (e) {
+            // Worker might be terminated, ignore
+          }
+          errorHandler = null;
         }
       };
       
-      const errorHandler = (error: ErrorEvent) => {
+      // Create handlers
+      messageHandler = (event: MessageEvent) => {
+        if (resolved) return;
+        
+        try {
+          const result = messageValidator(event);
+          if (result !== null) {
+            resolved = true;
+            cleanup();
+            resolve(result);
+          }
+        } catch (error) {
+          // Handle validator errors gracefully
+          resolved = true;
+          cleanup();
+          reject(new Error(`Message validation error for ${messageId}: ${error}`));
+        }
+      };
+      
+      errorHandler = (error: ErrorEvent) => {
         if (resolved) return;
         resolved = true;
         cleanup();
@@ -696,10 +729,15 @@ export class TokenWorkerPool {
       return;
     }
     
-    // Stop accepting new jobs BEFORE setting recycling flags
+    // Atomically stop accepting new jobs and set recycling state
+    // Using a single atomic operation to prevent race conditions
+    const previousAcceptingState = this.acceptingJobs;
     this.acceptingJobs = false;
     this.recyclingLock = true;
     this.isRecycling = true;
+    
+    // Double-check that no new jobs were added during state transition
+    const jobCountAtStart = this.activeJobs.size;
     
     try {
       // Process any queued items with fallback
@@ -719,6 +757,11 @@ export class TokenWorkerPool {
       let lastJobCount = this.activeJobs.size;
       let stableIterations = 0;
       const requiredStableIterations = 3; // Require 3 consecutive checks with no new jobs
+      
+      // Verify no jobs were added during initial state change
+      if (this.activeJobs.size > jobCountAtStart) {
+        console.error(`Race condition detected: jobs added during recycling initialization (${jobCountAtStart} -> ${this.activeJobs.size})`);
+      }
       
       while (this.activeJobs.size > 0 && Date.now() - startWait < maxWaitTime) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -746,8 +789,16 @@ export class TokenWorkerPool {
         // Create a copy of active jobs to avoid modification during iteration
         const stuckJobs = new Map(this.activeJobs);
         
-        // Clear all active jobs
+        // Clear all active jobs atomically
         this.activeJobs.clear();
+        
+        // Cancel any active operations
+        for (const [jobId, controller] of this.activeOperations) {
+          if (!controller.signal.aborted) {
+            controller.abort();
+          }
+        }
+        this.activeOperations.clear();
         
         // Resolve stuck jobs with estimation
         for (const [jobId, job] of stuckJobs) {
@@ -771,8 +822,11 @@ export class TokenWorkerPool {
       // Always clear flags atomically, even if initialization fails
       this.isRecycling = false;
       this.recyclingLock = false;
-      // Re-enable job acceptance only after recycling is complete
-      this.acceptingJobs = true;
+      // Only restore job acceptance if it was previously enabled
+      // This prevents enabling jobs if the pool was terminated during recycling
+      if (!this.isTerminated && previousAcceptingState) {
+        this.acceptingJobs = true;
+      }
     }
   }
   
@@ -930,6 +984,22 @@ export class TokenWorkerPool {
       isRecycling: this.isRecycling,
       recyclingLock: this.recyclingLock,
       acceptingJobs: this.acceptingJobs
+    };
+  }
+  
+  getStatus() {
+    const activeWorkers = this.workerStatus.filter((status, index) => 
+      status && !this.workerPermanentlyFailed.has(index)
+    ).length;
+    
+    return {
+      isTerminated: this.isTerminated,
+      isRecycling: this.isRecycling,
+      acceptingJobs: this.acceptingJobs,
+      activeWorkers,
+      totalWorkers: this.workers.length,
+      activeJobs: this.activeJobs.size,
+      queuedJobs: this.queue.length
     };
   }
   
