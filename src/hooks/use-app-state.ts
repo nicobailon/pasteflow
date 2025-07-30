@@ -10,6 +10,7 @@ import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } f
 import { resetFolderState } from '../utils/file-utils';
 import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
 import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache';
+import { mapFileTreeSortToContentSort } from '../utils/sort-utils';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -180,6 +181,13 @@ const useAppState = () => {
     setSortOrder(newSort);
     handleFiltersAndSort(allFiles, newSort, searchTerm);
     setSortDropdownOpen(false); // Close dropdown after selection
+  }, [allFiles, searchTerm, setSortOrder, handleFiltersAndSort]);
+
+  // Add the new handler for file tree sort changes
+  const handleFileTreeSortChange = useCallback((fileTreeSort: string) => {
+    const mappedSort = mapFileTreeSortToContentSort(fileTreeSort);
+    setSortOrder(mappedSort);
+    handleFiltersAndSort(allFiles, mappedSort, searchTerm);
   }, [allFiles, searchTerm, setSortOrder, handleFiltersAndSort]);
 
   // Handle search change
@@ -1222,6 +1230,7 @@ const useAppState = () => {
     openFolder,
     handleCancelLoading,
     handleSortChange,
+    handleFileTreeSortChange,
     handleSearchChange,
     toggleSortDropdown,
     setUserInstructions,

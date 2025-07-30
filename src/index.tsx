@@ -79,7 +79,7 @@ const App = () => {
             expandedNodes={appState.expandedNodes}
             toggleExpanded={appState.toggleExpanded}
             resetFolderState={appState.handleResetFolderState}
-            onFileTreeSortChange={() => {}}
+            onFileTreeSortChange={appState.handleFileTreeSortChange}
             toggleFilterModal={appState.toggleFilterModal}
             refreshFileTree={appState.handleRefreshFileTree}
             onViewFile={appState.openFileViewModal}

@@ -5,34 +5,7 @@ import { FileData, FileTreeMode, RolePrompt, SelectedFileWithLines, SystemPrompt
 
 import { extname, generateAsciiFileTree, getAllDirectories, getRelativePath, normalizePath } from "./path-utils";
 import { validateLineSelections, extractContentForLines } from './workspace-utils';
-
-/**
- * Helper function to sort files according to the current sort order
- */
-const sortFilesByOrder = (files: FileData[], sortOrder: string): FileData[] => {
-  const [sortKey, sortDir] = sortOrder.split("-");
-  return [...files].sort((a: FileData, b: FileData) => {
-    let comparison = 0;
-
-    switch (sortKey) {
-      case "name": {
-        comparison = a.name.localeCompare(b.name);
-        break;
-      }
-      case "tokens": {
-        comparison = (a.tokenCount || 0) - (b.tokenCount || 0);
-        break;
-      }
-      case "size": {
-        comparison = a.size - b.size;
-        break;
-      }
-      // No default
-    }
-
-    return sortDir === "asc" ? comparison : -comparison;
-  });
-};
+import { sortFilesByOrder } from './sort-utils';
 
 /**
  * Generate file tree items based on the current mode

@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, Filter, Folder, FolderOpen, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { STORAGE_KEYS } from '../constants';
 import useFileTree from "../hooks/use-file-tree";
 import { SidebarProps, TreeNode } from "../types/file-types";
 
@@ -44,7 +45,7 @@ const Sidebar = ({
   
   // Get the current file tree sort order from localStorage
   const [currentSortOption, setCurrentSortOption] = useState(
-    localStorage.getItem('pasteflow-file-tree-sort-order') || 'default'
+    localStorage.getItem(STORAGE_KEYS.FILE_TREE_SORT_ORDER) || 'default'
   );
 
   // Use the custom hook for file tree management
@@ -311,7 +312,7 @@ const Sidebar = ({
   const handleRefreshFileTree = useCallback(() => {
     // Reset sort to "Developer" option
     setCurrentSortOption('default');
-    localStorage.setItem('pasteflow-file-tree-sort-order', 'default');
+    localStorage.setItem(STORAGE_KEYS.FILE_TREE_SORT_ORDER, 'default');
     
     // Deselect all files
     deselectAllFiles();
