@@ -209,8 +209,8 @@ describe('Concurrent Workspace Operations', () => {
 
       expect(capturedEvent).not.toBeNull();
       if (capturedEvent) {
-        expect(capturedEvent.detail.renamed).toEqual({ oldName: 'original', newName: 'renamed' });
-        expect(capturedEvent.detail.wasCurrent).toBe(true);
+        expect((capturedEvent as CustomEvent<WorkspaceChangeEventDetail>).detail.renamed).toEqual({ oldName: 'original', newName: 'renamed' });
+        expect((capturedEvent as CustomEvent<WorkspaceChangeEventDetail>).detail.wasCurrent).toBe(true);
       }
     });
   });

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { FileData, LineRange, SelectedFileWithLines } from '../types/file-types';
@@ -11,27 +11,72 @@ import useLocalStorage from './use-local-storage';
  * @param {FileData[]} allFiles - Array of all files
  * @returns {Object} File selection state and functions
  */
-const useFileSelectionState = (allFiles: FileData[]) => {
+const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: string | null) => {
   const [selectedFiles, setSelectedFiles] = useLocalStorage<SelectedFileWithLines[]>(
     STORAGE_KEYS.SELECTED_FILES,
     []
   );
 
+  // Immediate cleanup on mount if workspace is provided
+  useEffect(() => {
+    if (currentWorkspacePath && selectedFiles.length > 0) {
+      const validFiles = selectedFiles.filter(file => file.path.startsWith(currentWorkspacePath));
+      if (validFiles.length < selectedFiles.length) {
+        console.log(`[FileSelection] Cleaning up ${selectedFiles.length - validFiles.length} stale files on mount`);
+        setSelectedFiles(validFiles);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
+
+  // Clean up files outside current workspace
+  const cleanupStaleSelections = useCallback(() => {
+    if (currentWorkspacePath) {
+      setSelectedFiles(prev => {
+        const filtered = prev.filter(file => file.path.startsWith(currentWorkspacePath));
+        if (filtered.length < prev.length) {
+          console.log(`Removed ${prev.length - filtered.length} files outside current workspace`);
+        }
+        return filtered;
+      });
+    }
+  }, [currentWorkspacePath, setSelectedFiles]);
+
   // Function to update a selected file with line selections
-  const updateSelectedFile = useCallback((updatedFile: SelectedFileWithLines) => {
+  const updateSelectedFile = useCallback((updatedFile: SelectedFileWithLines): void => {
     setSelectedFiles(prev => {
-      // Check if this file is already in the selection
       const existingIndex = prev.findIndex(f => f.path === updatedFile.path);
       
       if (existingIndex >= 0) {
-        // Update existing file
+        // Get the existing file to preserve line selections if not explicitly changed
+        const existingFile = prev[existingIndex];
+        
+        // Update existing file, but preserve line selections if not explicitly changed
         const newSelection = [...prev];
-        newSelection[existingIndex] = updatedFile;
+        
+        // If the update doesn't include line data but the existing file has line data,
+        // and the update is setting isFullFile to true, preserve the line data
+        if (!updatedFile.lines && existingFile.lines && updatedFile.isFullFile) {
+          newSelection[existingIndex] = {
+            ...updatedFile,
+            lines: existingFile.lines,
+            isFullFile: false  // Keep it as partial file selection
+          };
+        } else {
+          newSelection[existingIndex] = updatedFile;
+        }
+        
         return newSelection;
-      } else {
-        // Add new file to selection
-        return [...prev, updatedFile];
       }
+      
+      // Prevent adding duplicates
+      if (prev.some(f => f.path === updatedFile.path)) {
+        console.warn(`Prevented duplicate in updateSelectedFile: ${updatedFile.path}`);
+        return prev;
+      }
+      
+      // Add new file
+      return [...prev, updatedFile];
     });
   }, [setSelectedFiles]);
 
@@ -43,12 +88,23 @@ const useFileSelectionState = (allFiles: FileData[]) => {
   // Toggle file selection
   const toggleFileSelection = useCallback((filePath: string): void => {
     setSelectedFiles((prev) => {
+      // Use functional update to ensure we have latest state
       const existingIndex = prev.findIndex((f) => f.path === filePath);
+      
       if (existingIndex >= 0) {
+        // File exists - remove it
         return prev.filter((f) => f.path !== filePath);
       }
+      
+      // Double-check to prevent race condition duplicates
+      if (prev.some(f => f.path === filePath)) {
+        console.warn(`Prevented duplicate addition of file: ${filePath}`);
+        return prev;
+      }
+      
       const fileData = allFiles.find((f) => f.path === filePath);
       if (!fileData) return prev;
+      
       const newFile: SelectedFileWithLines = {
         path: filePath,
         isFullFile: true,
@@ -56,7 +112,7 @@ const useFileSelectionState = (allFiles: FileData[]) => {
         content: fileData.content,
         tokenCount: fileData.tokenCount
       };
-      // Note: loadFileContent will be provided as a prop when this hook is used
+      
       return [...prev, newFile];
     });
   }, [allFiles, setSelectedFiles]);
@@ -186,9 +242,19 @@ const useFileSelectionState = (allFiles: FileData[]) => {
   const getSelectionState = () => selectedFiles;
 
   // Set the selection state from a workspace
-  const setSelectionState = (state: SelectedFileWithLines[]) => {
-    setSelectedFiles(state);
-  };
+  const setSelectionState = useCallback((files: SelectedFileWithLines[]): void => {
+    // Deduplicate files by path before setting
+    const uniqueFiles = [...new Map(files.map(file => [file.path, file])).values()];
+    console.log(`[setSelectionState] Setting ${uniqueFiles.length} unique files from ${files.length} input files`);
+    console.log('[setSelectionState] Current selected files before:', selectedFiles.length);
+    console.log('[setSelectionState] Files being set:', uniqueFiles.map(f => f.path));
+    
+    // Force a complete replacement by clearing localStorage first
+    localStorage.removeItem(STORAGE_KEYS.SELECTED_FILES);
+    
+    // Then set the new files
+    setSelectedFiles(uniqueFiles);
+  }, [setSelectedFiles, selectedFiles]);
 
   return {
     selectedFiles,
@@ -202,7 +268,8 @@ const useFileSelectionState = (allFiles: FileData[]) => {
     deselectAllFiles,
     clearSelectedFiles,
     getSelectionState,
-    setSelectionState
+    setSelectionState,
+    cleanupStaleSelections
   };
 };
 

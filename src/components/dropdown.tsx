@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 export interface DropdownOption {
   value: string;
@@ -24,7 +24,11 @@ interface DropdownProps {
   closeOnChange?: boolean;
 }
 
-const Dropdown = ({
+export interface DropdownRef {
+  close: () => void;
+}
+
+const Dropdown = forwardRef<DropdownRef, DropdownProps>(({
   options,
   value,
   onChange,
@@ -39,10 +43,14 @@ const Dropdown = ({
   renderCustomOption,
   position = "left",
   closeOnChange = true,
-}: DropdownProps): JSX.Element => {
+}, ref) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
   const menuRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    close: () => setIsOpen(false)
+  }), []);
 
   const handleToggle = useCallback(() => {
     setIsOpen((isCurrentlyOpen: boolean) => !isCurrentlyOpen);
@@ -105,6 +113,7 @@ const Dropdown = ({
       
       {isOpen && (
         <div 
+          ref={menuRef}
           className={`dropdown-menu ${menuClassName}`}
           style={position === "right" ? { right: 0, left: "auto" } : {}}
           role="menu"
@@ -159,6 +168,8 @@ const Dropdown = ({
       )}
     </div>
   );
-};
+});
+
+Dropdown.displayName = 'Dropdown';
 
 export default Dropdown; 

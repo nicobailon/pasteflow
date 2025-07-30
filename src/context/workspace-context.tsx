@@ -1,4 +1,5 @@
-import React, { createContext, useContext } from 'react';
+import { createContext, useContext } from 'react';
+import type { Dispatch, SetStateAction, ReactNode, FC } from 'react';
 
 import { WorkspaceState } from '../types/file-types';
 
@@ -10,8 +11,8 @@ export interface WorkspaceStateType {
 }
 
 export interface WorkspaceContextType extends WorkspaceStateType {
-  setCurrentWorkspace: React.Dispatch<React.SetStateAction<string | null>>;
-  setPendingWorkspaceData: React.Dispatch<React.SetStateAction<PendingWorkspaceData | null>>;
+  setCurrentWorkspace: Dispatch<SetStateAction<string | null>>;
+  setPendingWorkspaceData: Dispatch<SetStateAction<PendingWorkspaceData | null>>;
   saveWorkspace: (name: string) => void;
   loadWorkspace: (name: string) => void;
   saveCurrentWorkspace: () => void;
@@ -21,12 +22,12 @@ export interface WorkspaceContextType extends WorkspaceStateType {
 export const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 interface WorkspaceProviderProps {
-  children: React.ReactNode;
+  children: ReactNode;
   currentWorkspace?: string | null;
   pendingWorkspaceData?: PendingWorkspaceData | null;
 }
 
-export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({
+export const WorkspaceProvider: FC<WorkspaceProviderProps> = ({
   children,
   currentWorkspace = null,
   pendingWorkspaceData = null,

@@ -1,11 +1,12 @@
 import { Archive, Check, Folder, Loader2, Save } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { FileTreeMode } from '../types/file-types';
+import type { AppState } from '../hooks/use-app-state';
 
 import FileTreeToggle from './file-tree-toggle';
 import ThemeToggle from './theme-toggle';
-import WorkspaceDropdown from './workspace-dropdown';
+import WorkspaceDropdown, { WorkspaceDropdownRef } from './workspace-dropdown';
 import WorkspaceModal from './workspace-modal';
 
 interface AppHeaderProps {
@@ -17,6 +18,7 @@ interface AppHeaderProps {
   currentWorkspace?: string | null;
   saveCurrentWorkspace?: () => void;
   headerSaveState?: 'idle' | 'saving' | 'success';
+  appState?: AppState; // Will be passed through to WorkspaceModal
 }
 
 const AppHeader = ({
@@ -27,11 +29,16 @@ const AppHeader = ({
   toggleWorkspaceModal,
   currentWorkspace,
   saveCurrentWorkspace,
-  headerSaveState // Destructure the new prop
+  headerSaveState, // Destructure the new prop
+  appState
 }: AppHeaderProps): JSX.Element => {
   const [localIsWorkspaceModalOpen, setLocalIsWorkspaceModalOpen] = useState(false);
+  const workspaceDropdownRef = useRef<WorkspaceDropdownRef>(null);
   
   const handleWorkspaceToggle = () => {
+    // Close the dropdown when opening modal
+    workspaceDropdownRef.current?.close();
+    
     if (toggleWorkspaceModal) {
       toggleWorkspaceModal();
     } else {
@@ -65,6 +72,7 @@ const AppHeader = ({
         <div className="folder-info">
           <h1 className="app-title">
             <WorkspaceDropdown
+                ref={workspaceDropdownRef}
                 currentWorkspace={currentWorkspace}
                 toggleWorkspaceModal={handleWorkspaceToggle}
                 containerClassName="workspace-dropdown"
@@ -103,12 +111,13 @@ const AppHeader = ({
         )}
         <ThemeToggle />
       </div>
-      {!toggleWorkspaceModal && (
+      {!toggleWorkspaceModal && appState && (
         <WorkspaceModal
           isOpen={localIsWorkspaceModalOpen}
           onClose={() => {
             setLocalIsWorkspaceModalOpen(false);
           }}
+          appState={appState}
         />
       )}
     </header>

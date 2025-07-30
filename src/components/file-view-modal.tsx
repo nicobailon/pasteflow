@@ -71,7 +71,7 @@ const FileViewModal = ({
   // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [initialSelection, setInitialSelection] = useState<LineRange[]>([]);
   // @ts-expect-error - Typed useState hooks are flagged in strict mode
-  const [selectionMode, setSelectionMode] = useState<'entire'|'specific'>('entire');
+  const [selectionMode, setSelectionMode] = useState<'none'|'entire'|'specific'>('none');
   const [shiftKeyPressed, setShiftKeyPressed] = useState(false);
   // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [lastSelectedLine, setLastSelectedLine] = useState<number | null>(null);
@@ -132,32 +132,19 @@ const FileViewModal = ({
   
   // Initialize selected lines based on the selectedFile prop
   useEffect(() => {
-    if (selectedFile) {
-      if (selectedFile.lines && selectedFile.lines.length > 0) {
-        // If file has specific line selection already, use it
-        setSelectedLines([...selectedFile.lines]);
-        setInitialSelection([...selectedFile.lines]);
-        setSelectionMode('specific');
-        setIsDragging(false);
-      } else if (selectedFile.isFullFile) {
-        // If file was explicitly selected as entire file before, keep that mode
-        setSelectedLines([]);
-        setInitialSelection([]);
-        setSelectionMode('entire');
-        setIsDragging(false);
-      } else {
-        // Otherwise, default to specific lines mode
-        setSelectedLines([]);
-        setInitialSelection([]);
-        setSelectionMode('specific');
-        setIsDragging(false);
-      }
+    // Always default to view-only mode when opening the modal
+    setSelectionMode('none');
+    setIsDragging(false);
+    
+    // Store the current selection state for potential use
+    if (selectedFile && selectedFile.lines && selectedFile.lines.length > 0) {
+      // Store specific line selection for if user switches to specific mode
+      setSelectedLines([...selectedFile.lines]);
+      setInitialSelection([...selectedFile.lines]);
     } else {
-      // No file previously selected, default to specific lines mode
+      // No previous line selection
       setSelectedLines([]);
       setInitialSelection([]);
-      setSelectionMode('specific');
-      setIsDragging(false);
     }
   }, [selectedFile]);
   
@@ -994,18 +981,23 @@ const FileViewModal = ({
   ]);
   
   // Toggle selection mode
-  const toggleSelectionMode = (mode: 'entire' | 'specific') => {
+  const toggleSelectionMode = (mode: 'none' | 'entire' | 'specific') => {
     setSelectionMode(mode);
     
-    if (mode === 'entire') {
+    if (mode === 'none') {
+      // View-only mode - clear all selections
+      setSelectedLines([]);
+      setIsDragging(false);
+    } else if (mode === 'entire') {
       // When switching to entire file mode, clear line selections and deactivate selection
       setSelectedLines([]);
     } else if (mode === 'specific') {
       // When entering specific line mode, automatically activate selection mode
       setIsDragging(false);
       
-      if (selectedFile && selectedFile.lines) {
-        setSelectedLines([...selectedFile.lines]);
+      // Restore initial selection if available
+      if (initialSelection.length > 0) {
+        setSelectedLines([...initialSelection]);
       }
     }
   };
@@ -1046,7 +1038,7 @@ const FileViewModal = ({
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal-content file-view-modal">
+        <Dialog.Content className="modal-content file-view-modal" aria-describedby={undefined}>
           <div className="file-view-modal-header">
             <Dialog.Title asChild>
               <h2>{file?.name || 'File Viewer'}</h2>
@@ -1066,10 +1058,18 @@ const FileViewModal = ({
               <label>
                 <input
                   type="radio"
+                  checked={selectionMode === 'none'}
+                  onChange={() => toggleSelectionMode('none')}
+                />
+                <span>View only</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
                   checked={selectionMode === 'entire'}
                   onChange={() => toggleSelectionMode('entire')}
                 />
-                <span>Entire file</span>
+                <span>Select entire file</span>
               </label>
               <label>
                 <input
@@ -1077,7 +1077,7 @@ const FileViewModal = ({
                   checked={selectionMode === 'specific'}
                   onChange={() => toggleSelectionMode('specific')}
                 />
-                <span>Specific lines</span>
+                <span>Select specific lines</span>
               </label>
             </div>
             
@@ -1116,7 +1116,9 @@ const FileViewModal = ({
           
           <div className="file-view-modal-selection-info">
             <div className="selection-status">
-              {selectionMode === 'entire' ? (
+              {selectionMode === 'none' ? (
+                <span>Viewing file (no selection)</span>
+              ) : selectionMode === 'entire' ? (
                 <span>Selecting entire file</span>
               ) : (
                 <>
@@ -1201,6 +1203,12 @@ const FileViewModal = ({
                 onClick={() => {
                   if (!file) return;
                   
+                  if (selectionMode === 'none') {
+                    // Just close without updating selection
+                    onClose();
+                    return;
+                  }
+                  
                   const selectedContent = getSelectedContent();
                   const tokenCount = calculateTokenCount(selectedContent);
                   
@@ -1215,9 +1223,9 @@ const FileViewModal = ({
                   
                   onClose();
                 }}
-                title="Apply Selection"
+                title={selectionMode === 'none' ? 'Close' : 'Apply Selection'}
               >
-                Apply
+                {selectionMode === 'none' ? 'Close' : 'Apply'}
               </button>
             </div>
           </div>

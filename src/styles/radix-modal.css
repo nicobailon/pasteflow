@@ -69,6 +69,15 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
+/* Workspace modal */
+.workspace-modal {
+  width: 500px;
+  max-width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Modal Header */
 .modal-header {
   display: flex;

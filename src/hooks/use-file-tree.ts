@@ -32,6 +32,16 @@ function useFileTree({
   searchTerm,
   fileTreeSortOrder = 'default'
 }: UseFileTreeProps): UseFileTreeResult {
+  // Create a map for quick file lookups by path
+  const filesByPath = useMemo((): Map<string, FileData> => {
+    const map = new Map<string, FileData>();
+    for (const file of allFiles) {
+      if (file.path) {
+        map.set(file.path, file);
+      }
+    }
+    return map;
+  }, [allFiles]);
   const [isTreeBuildingComplete, setIsTreeBuildingComplete] = useState(false);
   const [fileTree, setFileTree] = useState([] as TreeNode[]);
   
@@ -57,11 +67,14 @@ function useFileTree({
       const item = node[key];
 
       if (item.isFile) {
+        // Get the latest file data from the map
+        const latestFileData = filesByPath.get(item.path) || item.fileData;
         return {
           ...item,
           type: 'file',
           level,
-          id: item.path || `file-${Math.random().toString(36).slice(2, 11)}`
+          id: item.path || `file-${Math.random().toString(36).slice(2, 11)}`,
+          fileData: latestFileData
         } as TreeNode;
       } else {
         const children = item.children ? 
@@ -84,7 +97,7 @@ function useFileTree({
         } as TreeNode;
       }
     });
-  }, [expandedNodes, fileTreeSortOrder]);
+  }, [expandedNodes, fileTreeSortOrder, filesByPath]);
 
   // Process files in smaller batches for better responsiveness
   useEffect(() => {
@@ -183,7 +196,7 @@ function useFileTree({
     return () => {
       processingStartedRef.current = false;
     };
-  }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder]);
+  }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder, convertToTreeNodes]);
 
   // Effect to handle cleanup on sort order change
   useEffect(() => {
@@ -426,12 +439,20 @@ function useFileTree({
 
       for (const node of nodesToFlatten) {
         // Clone the node and update its isExpanded property based on expandedNodes
-        const nodeWithUpdatedExpanded = {
+        let nodeWithUpdatedExpanded = {
           ...node,
           level: baseLevel + (node.level || 0),
           // Determine expansion state *only* from the expandedNodes prop
           isExpanded: node.type === "directory" ? !!expandedNodes[node.id] : undefined
         };
+        
+        // For file nodes, ensure we have the latest file data
+        if (node.type === "file" && node.path) {
+          const latestFileData = filesByPath.get(node.path);
+          if (latestFileData) {
+            nodeWithUpdatedExpanded = { ...nodeWithUpdatedExpanded, fileData: latestFileData };
+          }
+        }
         
         // Add the current node
         result.push(nodeWithUpdatedExpanded);
@@ -446,7 +467,7 @@ function useFileTree({
     };
 
     return flattenNodesRecursively(nodes);
-  }, [expandedNodes]);
+  }, [expandedNodes, filesByPath]);
 
   // Filter the tree based on search term
   const filterTree = useCallback((nodes: TreeNode[], term: string): TreeNode[] => {
@@ -473,6 +494,14 @@ function useFileTree({
     // Define recursive filter function inside to avoid dependency issue
     const filterNodesRecursively = (nodesToFilter: TreeNode[], currentLevel = 0): TreeNode[] => {
       return nodesToFilter.filter(node => nodeMatches(node)).map((node) => {
+        // For file nodes, ensure we have the latest file data
+        if (node.type === "file" && node.path) {
+          const latestFileData = filesByPath.get(node.path);
+          if (latestFileData) {
+            node = { ...node, fileData: latestFileData };
+          }
+        }
+        
         // If it's a directory, also filter its children
         if (node.type === "directory" && node.children) {
           return {
@@ -492,7 +521,7 @@ function useFileTree({
     // Filter the nodes and maintain the same sort order
     const filteredNodes = filterNodesRecursively(nodes);
     return sortTreeNodes(filteredNodes, fileTreeSortOrder);
-  }, [fileTreeSortOrder]);
+  }, [fileTreeSortOrder, filesByPath]);
 
   // The final tree to render, filtered and flattened
   const visibleTree = useMemo(() => {

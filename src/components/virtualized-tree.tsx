@@ -1,7 +1,10 @@
 import { VariableSizeList as List } from 'react-window';
 import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
-import TreeItem from './tree-item';
+import type { ForwardedRef } from 'react';
+
 import { TreeNode } from '../types/file-types';
+
+import TreeItem from './tree-item';
 
 interface VirtualizedTreeProps {
   visibleTree: TreeNode[];
@@ -49,16 +52,17 @@ export interface VirtualizedTreeHandle {
   scrollTo: (scrollTop: number) => void;
 }
 
-const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(({
-  visibleTree,
-  selectedFiles,
-  toggleFileSelection,
-  toggleFolderSelection,
-  toggleExpanded,
-  onViewFile,
-  loadFileContent,
-  height
-}, ref) => {
+const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>((props: VirtualizedTreeProps, ref: ForwardedRef<VirtualizedTreeHandle>) => {
+  const {
+    visibleTree,
+    selectedFiles,
+    toggleFileSelection,
+    toggleFolderSelection,
+    toggleExpanded,
+    onViewFile,
+    loadFileContent,
+    height
+  } = props;
   const listRef = useRef<List>(null);
   const scrollOffsetRef = useRef(0);
   

@@ -1,6 +1,6 @@
 import { Check, ChevronDown, FileText, Settings, User } from 'lucide-react';
 
-import { FileData, RolePrompt, SelectedFileWithLines, SystemPrompt } from '../types/file-types';
+import { FileData, Instruction, RolePrompt, SelectedFileWithLines, SystemPrompt } from '../types/file-types';
 
 import CopyButton from './copy-button';
 import Dropdown from './dropdown';
@@ -21,6 +21,8 @@ interface ContentAreaProps {
   toggleSystemPromptSelection: (prompt: SystemPrompt) => void;
   selectedRolePrompts: RolePrompt[];
   toggleRolePromptSelection: (prompt: RolePrompt) => void;
+  selectedInstructions: Instruction[];
+  toggleInstructionSelection: (instruction: Instruction) => void;
   sortOrder: string;
   handleSortChange: (newSort: string) => void;
   sortDropdownOpen: boolean;
@@ -52,6 +54,8 @@ const ContentArea = ({
   toggleSystemPromptSelection,
   selectedRolePrompts,
   toggleRolePromptSelection,
+  selectedInstructions,
+  toggleInstructionSelection,
   sortOrder,
   handleSortChange,
   sortOptions,
@@ -131,6 +135,9 @@ const ContentArea = ({
             >
               <FileText size={16} />
               <span>Docs</span>
+              {selectedInstructions.length > 0 && (
+                <span className="selected-prompt-indicator"><Check size={12} /> {selectedInstructions.length}</span>
+              )}
             </button>
           </div>
         </div>
@@ -147,6 +154,8 @@ const ContentArea = ({
           toggleSystemPromptSelection={toggleSystemPromptSelection}
           selectedRolePrompts={selectedRolePrompts}
           toggleRolePromptSelection={toggleRolePromptSelection}
+          selectedInstructions={selectedInstructions}
+          toggleInstructionSelection={toggleInstructionSelection}
           loadFileContent={loadFileContent}
         />
       </div>

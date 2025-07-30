@@ -2127,6 +2127,37 @@ input[type="text"].search-input:focus {
   border-left: 3px solid #f39c12;
 }
 
+/* Instruction Card Styling */
+.instruction-card {
+  border-color: #2980b9;
+  background-color: rgba(41, 128, 185, 0.05);
+}
+
+.dark-theme .instruction-card {
+  background-color: rgba(52, 152, 219, 0.1);
+  border-color: #3498db;
+}
+
+.instruction-badge {
+  background-color: #2980b9;
+  color: white;
+}
+
+.dark-theme .instruction-badge {
+  background-color: #3498db;
+}
+
+/* Selected state for instructions in the modal */
+.instruction-item.selected {
+  background-color: rgba(41, 128, 185, 0.1);
+  border-left: 3px solid #2980b9;
+}
+
+.dark-theme .instruction-item.selected {
+  background-color: rgba(52, 152, 219, 0.15);
+  border-left: 3px solid #3498db;
+}
+
 .toggle-selection-button.selected {
   color: white;
 }
@@ -2141,7 +2172,7 @@ input[type="text"].search-input:focus {
   gap: 0.5rem;
 }
 
-.system-prompts-button, .role-prompts-button {
+.system-prompts-button, .role-prompts-button, .docs-button {
   display: flex;
   align-items: center;
   gap: .25rem;
@@ -2155,12 +2186,16 @@ input[type="text"].search-input:focus {
   height: 2rem;
 }
 
-.system-prompts-button:hover, .role-prompts-button:hover {
+.system-prompts-button:hover, .role-prompts-button:hover, .docs-button:hover {
   background-color: var(--hover-color);
 }
 
 .role-prompts-button {
   background-color: rgba(230, 126, 34, 0.1);
+}
+
+.docs-button {
+  background-color: rgba(41, 128, 185, 0.1);
 }
 
 .system-prompts-button:hover {
@@ -2218,10 +2253,14 @@ input[type="text"].search-input:focus {
 }
 
 .no-prompts-message {
-  padding: 12px;
+  padding: 32px 16px;
   text-align: center;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 14px;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-top: 12px;
 }
 
 .system-prompt-item,
@@ -2441,43 +2480,165 @@ input[type="text"].search-input:focus {
 .workspace-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding: 1rem;
+  gap: 12px;
 }
 
 .workspace-subtitle {
-  font-size: 16px;
-  font-weight: 500;
-  margin-top: 1.5rem;
-  margin-bottom: 1rem;
-  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 20px;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .workspace-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  max-height: 300px;
+  gap: 4px;
+  max-height: 400px;
   overflow-y: auto;
+  padding: 4px;
+  background-color: var(--background-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
 }
 
 .workspace-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-radius: 4px;
-  background-color: var(--background-secondary);
-  transition: background-color 0.15s ease;
+  background-color: var(--background-primary);
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
 }
 
 .workspace-item:hover {
   background-color: var(--hover-color);
+  border-color: var(--border-color);
 }
 
 .workspace-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 4px;
+  align-items: center;
+}
+
+.workspace-item .prompt-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-item .prompt-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Save button animation states */
+.save-button {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.save-button.save-saving {
+  background-color: var(--accent-blue);
+  pointer-events: none;
+}
+
+.save-button.save-success {
+  background-color: var(--success-color);
+  pointer-events: none;
+}
+
+.save-button .button-text {
+  transition: opacity 0.2s ease;
+}
+
+.save-button .button-text.hide {
+  opacity: 0;
+}
+
+.save-button .button-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.save-button .button-icon.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* Workspace action buttons */
+.workspace-actions .prompt-action-button {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  height: 28px;
+  min-width: auto;
+}
+
+.workspace-actions .prompt-action-button:first-child {
+  background-color: var(--primary-button-background);
+  color: var(--primary-button-text);
+  padding: 4px 12px;
+}
+
+.workspace-actions .prompt-action-button:first-child:hover {
+  background-color: var(--accent-blue);
+}
+
+.workspace-actions .rename-button,
+.workspace-actions .delete-button {
+  padding: 4px;
+  min-width: 28px;
+}
+
+.workspace-actions .confirm-button {
+  color: var(--success-color);
+}
+
+.workspace-actions .cancel-button {
+  color: var(--error-color);
+}
+
+/* Rename input within workspace item */
+.workspace-item .prompt-title-input {
+  background-color: var(--background-primary);
+  border: 1px solid var(--accent-blue);
+  padding: 4px 8px;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Success check animation */
+.success-check {
+  animation: checkmark 0.3s ease-in-out;
+}
+
+@keyframes checkmark {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 .workspace-dropdown {
@@ -2485,6 +2646,11 @@ input[type="text"].search-input:focus {
   display: inline-flex;
   align-items: center;
   cursor: pointer;
+}
+
+/* Ensure workspace dropdown menu appears above other dropdowns */
+.workspace-dropdown .dropdown-menu {
+  z-index: 1100;
 }
 
 .dropdown-button,

@@ -3,13 +3,15 @@ const path = require("node:path");
 const { Worker } = require("worker_threads");
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
-const { getPathValidator } = require("./src/security/path-validator.js");
+const { getPathValidator } = require("./src/security/path-validator.cjs");
 const { ipcValidator } = require("./src/validation/ipc-validator.js");
 
 // Add handling for the 'ignore' module
 let ignore;
 // Global cancellation flag for file loading
 let fileLoadingCancelled = false;
+// Track current request ID to ignore stale file batches
+let currentRequestId = null;
 
 // Track current workspace paths for security validation
 let currentWorkspacePaths = [];
@@ -175,9 +177,35 @@ function createWindow() {
     },
   });
 
+  // Set Content Security Policy for Web Workers and WASM
+  const isDev = process.env.NODE_ENV === "development";
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const csp = isDev 
+      ? "default-src 'self';" +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: http://localhost:*;" +
+        "worker-src 'self' blob:;" +
+        "connect-src 'self' http://localhost:* ws://localhost:*;" +
+        "style-src 'self' 'unsafe-inline';" +
+        "img-src 'self' data: blob:;" +
+        "font-src 'self' data:;"
+      : "default-src 'self';" +
+        "script-src 'self' 'wasm-unsafe-eval' blob:;" +
+        "worker-src 'self' blob:;" +
+        "connect-src 'self';" +
+        "style-src 'self' 'unsafe-inline';" +
+        "img-src 'self' data: blob:;" +
+        "font-src 'self' data:;";
+    
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp]
+      }
+    });
+  });
+
   // In development, load from Vite dev server
   // In production, load from built files
-  const isDev = process.env.NODE_ENV === "development";
   if (isDev) {
     // Use the URL provided by the dev script, or fall back to default
     const startUrl = process.env.ELECTRON_START_URL || "http://localhost:3000";
@@ -268,13 +296,10 @@ ipcMain.on("open-folder", async (event) => {
       // Update workspace paths for security validation
       currentWorkspacePaths = [pathString];
       getPathValidator(currentWorkspacePaths);
-      
-      console.log("Sending folder-selected event with path:", pathString);
       event.sender.send("folder-selected", pathString);
     } catch (error) {
       console.error("Error sending folder-selected event:", error);
-      // Try a more direct approach as a fallback
-      event.sender.send("folder-selected", String(selectedPath));
+      // Don't send the event again in the catch block to avoid duplicates
     }
   }
 });
@@ -440,7 +465,7 @@ function processDirectory(dirPath, folderPath, depth, ignoreFilter) {
 }
 
 // Handle file list request
-ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []) => {
+ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = [], requestId = null) => {
   // SECURITY: Validate input parameters
   const validation = ipcValidator.validate('request-file-list', { folderPath, exclusionPatterns }, event);
   
@@ -455,9 +480,19 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
   
   const { folderPath: validatedFolderPath, exclusionPatterns: validatedPatterns } = validation.data;
   
+  // Update current request ID
+  currentRequestId = requestId;
+  console.log(`Starting new file list request with ID: ${requestId}`);
+  
   try {
     console.log("Received request for file list in:", validatedFolderPath);
     console.log("Exclusion patterns:", validatedPatterns);
+    
+    // Update workspace paths for security validation when loading files
+    // This ensures the path validator knows about the current workspace
+    currentWorkspacePaths = [validatedFolderPath];
+    getPathValidator(currentWorkspacePaths);
+    
     fileLoadingCancelled = false;
 
     event.sender.send("file-processing-status", {
@@ -494,7 +529,8 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
         files: serializableFiles,
         isComplete,
         processed: allFiles.length,
-        directories: processedDirs.size
+        directories: processedDirs.size,
+        requestId: currentRequestId
       });
     };
 
@@ -612,6 +648,7 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 ipcMain.on("cancel-file-loading", () => {
   console.log("Received request to cancel file loading");
   fileLoadingCancelled = true;
+  currentRequestId = null; // Clear request ID when canceling
 });
 
 // Check if a file should be excluded by default, using glob matching
@@ -670,6 +707,14 @@ ipcMain.on('open-docs', (event, docName) => {
 // Add request-file-content handler for lazy loading file content
 ipcMain.handle('request-file-content', async (event, filePath) => {
   // SECURITY: Validate path to prevent path traversal attacks
+  // If no workspace paths are set, this might be a file request before folder selection
+  // In this case, we should reject the request for security
+  if (!currentWorkspacePaths || currentWorkspacePaths.length === 0) {
+    console.warn('No workspace paths set - file access denied for security');
+    return { success: false, error: 'No workspace selected', reason: 'NO_WORKSPACE' };
+  }
+  
+  
   const validator = getPathValidator(currentWorkspacePaths);
   const validation = validator.validatePath(filePath);
   

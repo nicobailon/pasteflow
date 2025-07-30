@@ -17,9 +17,11 @@ class PathValidator {
       '/home/*/.*',
       'C:\\Users\\*\\.*',
       // Common sensitive directories
-      path.resolve(process.env.HOME || '', '.ssh'),
-      path.resolve(process.env.HOME || '', '.aws'),
-      path.resolve(process.env.HOME || '', '.config'),
+      ...(typeof process !== 'undefined' && process.env && process.env.HOME ? [
+        path.resolve(process.env.HOME, '.ssh'),
+        path.resolve(process.env.HOME, '.aws'),
+        path.resolve(process.env.HOME, '.config'),
+      ] : []),
     ]);
   }
 
@@ -65,8 +67,10 @@ class PathValidator {
   matchesPattern(filepath, pattern) {
     // Simple glob-like pattern matching for basic wildcards
     if (pattern.includes('*')) {
+      // Escape dots first to ensure they're treated as literal dots
       const regexPattern = pattern
-        .replace(/\*/g, '[^/\\\\]*')
+        .replace(/\./g, '\\.')  // Escape dots to match literal dots
+        .replace(/\*/g, '[^/\\\\]*')  // Replace * with "any chars except path separators"
         .replace(/\//g, path.sep === '\\' ? '\\\\' : '/')
         .replace(/\\/g, '\\\\');
       

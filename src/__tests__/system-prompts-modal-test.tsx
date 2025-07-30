@@ -1,5 +1,4 @@
-import React from 'react';
-import { render, fireEvent, screen, within } from '@testing-library/react';
+import { render, fireEvent, screen } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
 import { SystemPrompt } from '../types/file-types';
@@ -10,22 +9,22 @@ import { mockDateNow } from './test-helpers';
 jest.mock('@radix-ui/react-dialog', () => {
   return {
     __esModule: true,
-    Root: ({ open, onOpenChange, children }: any) => {
+    Root: ({ open, children }: { open: boolean; onOpenChange?: (open: boolean) => void; children: React.ReactNode }) => {
       if (!open) return null;
       return <div data-testid="dialog-root">{children}</div>;
     },
-    Portal: ({ children }: any) => <div data-testid="dialog-portal">{children}</div>,
+    Portal: ({ children }: { children: React.ReactNode }) => <div data-testid="dialog-portal">{children}</div>,
     Overlay: () => <div data-testid="dialog-overlay" />,
-    Content: ({ children, className }: any) => (
+    Content: ({ children, className }: { children: React.ReactNode; className?: string }) => (
       <div data-testid="modal" aria-modal="true" className={className}>
         {children}
       </div>
     ),
-    Title: ({ asChild, children }: any) => (
+    Title: ({ asChild, children }: { asChild?: boolean; children: React.ReactNode }) => (
       <div data-testid="dialog-title">{asChild ? children : <h2>{children}</h2>}</div>
     ),
-    Description: ({ children }: any) => <div data-testid="dialog-description">{children}</div>,
-    Close: ({ asChild, children }: any) => (
+    Description: ({ children }: { children: React.ReactNode }) => <div data-testid="dialog-description">{children}</div>,
+    Close: ({ asChild, children }: { asChild?: boolean; children: React.ReactNode }) => (
       <div data-testid="dialog-close">{asChild ? children : <button>{children}</button>}</div>
     )
   };
@@ -245,7 +244,7 @@ describe('SystemPromptsModal Component', () => {
     expect(promptItems).toHaveLength(2);
     
     // Find and hover over the prompt item to show actions
-    const firstPromptItem = promptItems[0].closest('.system-prompt-item');
+    // const firstPromptItem = promptItems[0].closest('.system-prompt-item');
     
     // Find the delete button in the actions div (using testid)
     const deleteButtons = screen.getAllByTestId('trash-icon');

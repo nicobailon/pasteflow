@@ -2,22 +2,24 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Check, Loader2, Pencil, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import useAppState from '../hooks/use-app-state';
 import { useWorkspaceState } from '../hooks/use-workspace-state';
 import { WorkspaceState } from '../types/file-types';
+import type { AppState } from '../hooks/use-app-state';
 
 interface WorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialRenameTarget?: string | null;
   onClearInitialRenameTarget?: () => void;
+  appState: AppState;
 }
 
 const WorkspaceModal = ({ 
   isOpen, 
   onClose, 
   initialRenameTarget, 
-  onClearInitialRenameTarget 
+  onClearInitialRenameTarget,
+  appState
 }: WorkspaceModalProps): JSX.Element => {
   const { 
     saveWorkspace: persistWorkspace, 
@@ -26,7 +28,6 @@ const WorkspaceModal = ({
     renameWorkspace: renamePersistedWorkspace,
     getWorkspaceNames 
   } = useWorkspaceState();
-  const appState = useAppState();
   const [name, setName] = useState("" as string);
   const [newName, setNewName] = useState("" as string);
   const [workspaceNames, setWorkspaceNames] = useState([] as string[]);
@@ -264,7 +265,7 @@ const WorkspaceModal = ({
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal-content notes-app-layout">
+        <Dialog.Content className="modal-content workspace-modal" aria-describedby={undefined}>
           <div className="modal-header">
             <Dialog.Title asChild>
               <h2>Manage Workspaces</h2>
@@ -299,9 +300,9 @@ const WorkspaceModal = ({
                  {saveState === 'saving' && (
                   <Loader2 size={16} className="button-icon spin" />
                 )}
-                {/* {saveState === 'success' && ( */}
-                {/*  <Check size={16} className="button-icon success-check" /> */}
-                {/* )} */} {/* Temporarily commented out for testing */}
+                {saveState === 'success' && (
+                  <Check size={16} className="button-icon success-check" />
+                )}
               </button>
               
               <h3 className="workspace-subtitle">Saved Workspaces</h3>

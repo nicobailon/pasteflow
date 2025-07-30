@@ -1,4 +1,5 @@
 import { createContext, useCallback, useEffect, useMemo } from 'react';
+import type { Dispatch, SetStateAction, ReactNode } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { openFolderDialog, cancelFileLoading } from '../handlers/electron-handlers';
@@ -28,12 +29,12 @@ export interface FileSystemState {
 
 export interface FileSystemContextType extends FileSystemState {
   setSelectedFolder: (folder: string | null) => void;
-  setAllFiles: React.Dispatch<React.SetStateAction<FileData[]>>;
-  setDisplayedFiles: React.Dispatch<React.SetStateAction<FileData[]>>;
-  setProcessingStatus: React.Dispatch<React.SetStateAction<FileSystemState['processingStatus']>>;
+  setAllFiles: Dispatch<SetStateAction<FileData[]>>;
+  setDisplayedFiles: Dispatch<SetStateAction<FileData[]>>;
+  setProcessingStatus: Dispatch<SetStateAction<FileSystemState['processingStatus']>>;
   setExclusionPatterns: (patterns: string[]) => void;
-  setIsLoadingCancellable: React.Dispatch<React.SetStateAction<boolean>>;
-  setAppInitialized: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsLoadingCancellable: Dispatch<SetStateAction<boolean>>;
+  setAppInitialized: Dispatch<SetStateAction<boolean>>;
   openFolder: () => void;
   handleCancelLoading: () => void;
   handleRefreshFileTree: () => void;
@@ -73,19 +74,19 @@ const defaultContextValue: FileSystemContextType = {
 export const FileSystemContext = createContext(defaultContextValue);
 
 interface FileSystemProviderProps {
-  children: React.ReactNode;
+  children: ReactNode;
   allFiles?: FileData[];
   displayedFiles?: FileData[];
   processingStatus?: FileSystemState['processingStatus'];
   exclusionPatterns?: string[];
   isLoadingCancellable?: boolean;
   appInitialized?: boolean;
-  setAllFiles?: React.Dispatch<React.SetStateAction<FileData[]>>;
-  setDisplayedFiles?: React.Dispatch<React.SetStateAction<FileData[]>>;
-  setProcessingStatus?: React.Dispatch<React.SetStateAction<FileSystemState['processingStatus']>>;
+  setAllFiles?: Dispatch<SetStateAction<FileData[]>>;
+  setDisplayedFiles?: Dispatch<SetStateAction<FileData[]>>;
+  setProcessingStatus?: Dispatch<SetStateAction<FileSystemState['processingStatus']>>;
   setExclusionPatterns?: (patterns: string[]) => void;
-  setIsLoadingCancellable?: React.Dispatch<React.SetStateAction<boolean>>;
-  setAppInitialized?: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsLoadingCancellable?: Dispatch<SetStateAction<boolean>>;
+  setAppInitialized?: Dispatch<SetStateAction<boolean>>;
   clearSelectedFiles?: () => void;
 }
 

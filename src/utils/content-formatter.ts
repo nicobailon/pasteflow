@@ -1,38 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { FileData, FileTreeMode, RolePrompt, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
+import { FileData, FileTreeMode, Instruction, RolePrompt, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
 
 import { extname, generateAsciiFileTree, getAllDirectories, getRelativePath, normalizePath } from "./path-utils";
 import { validateLineSelections, extractContentForLines } from './workspace-utils';
-
-/**
- * Helper function to sort files according to the current sort order
- */
-const sortFilesByOrder = (files: FileData[], sortOrder: string): FileData[] => {
-  const [sortKey, sortDir] = sortOrder.split("-");
-  return [...files].sort((a: FileData, b: FileData) => {
-    let comparison = 0;
-
-    switch (sortKey) {
-      case "name": {
-        comparison = a.name.localeCompare(b.name);
-        break;
-      }
-      case "tokens": {
-        comparison = (a.tokenCount || 0) - (b.tokenCount || 0);
-        break;
-      }
-      case "size": {
-        comparison = a.size - b.size;
-        break;
-      }
-      // No default
-    }
-
-    return sortDir === "asc" ? comparison : -comparison;
-  });
-};
+import { sortFilesByOrder } from './sort-utils';
 
 /**
  * Generate file tree items based on the current mode
@@ -258,6 +231,7 @@ export const getSelectedFilesContentWithoutInstructions = (
  * @param {string | null} selectedFolder - Selected folder path
  * @param {SystemPrompt[]} selectedSystemPrompts - Array of selected system prompts
  * @param {RolePrompt[]} selectedRolePrompts - Array of selected role prompts
+ * @param {Instruction[]} selectedInstructions - Array of selected instructions
  * @param {string} userInstructions - User instructions to append
  * @returns {string} A formatted string with selected files' content and optional prompts.
  */
@@ -269,6 +243,7 @@ export const getSelectedFilesContent = (
   selectedFolder: string | null,
   selectedSystemPrompts: SystemPrompt[],
   selectedRolePrompts: RolePrompt[],
+  selectedInstructions: Instruction[],
   userInstructions: string
 ): string => {
   // Get base content without instructions
@@ -295,6 +270,14 @@ export const getSelectedFilesContent = (
       .map(prompt => prompt.content)
       .join('\n\n');
     result = `${rolePromptsText}\n\n${result}`;
+  }
+
+  // Add instructions (docs) if any are selected
+  if (selectedInstructions.length > 0) {
+    const instructionsText = selectedInstructions
+      .map(instruction => instruction.content)
+      .join('\n\n');
+    result = `${instructionsText}\n\n${result}`;
   }
 
   // Add user instructions if provided

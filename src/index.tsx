@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
@@ -7,7 +7,7 @@ import FileViewModal from "./components/file-view-modal";
 import FilterModal from "./components/filter-modal";
 import ProcessingIndicator from "./components/processing-indicator";
 import RolePromptsModal from "./components/role-prompts-modal";
-import Sidebar from "./components/sidebar";
+import Sidebar, { SidebarRef } from "./components/sidebar";
 import SystemPromptsModal from "./components/system-prompts-modal";
 import WorkspaceModal from "./components/workspace-modal";
 import { SORT_OPTIONS } from "./constants";
@@ -18,6 +18,17 @@ const App = () => {
   // Use our main app state hook
   const appState = useAppState();
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
+  const sidebarRef = useRef<SidebarRef>(null);
+  
+  // Helper to close all dropdowns when opening modals
+  const closeAllDropdowns = () => {
+    sidebarRef.current?.closeSortDropdown();
+    // Close content area sort dropdown if it's open
+    if (appState.sortDropdownOpen) {
+      appState.toggleSortDropdown();
+    }
+  };
+  
 
   // Process error state
   if (appState.processingStatus.status === "error") {
@@ -43,10 +54,14 @@ const App = () => {
           fileTreeMode={appState.fileTreeMode}
           setFileTreeMode={appState.setFileTreeMode}
           tokenCounts={appState.fileTreeTokenCounts()}
-          toggleWorkspaceModal={() => setIsWorkspaceModalOpen(true)}
+          toggleWorkspaceModal={() => {
+            closeAllDropdowns();
+            setIsWorkspaceModalOpen(true);
+          }}
           currentWorkspace={appState.currentWorkspace}
           saveCurrentWorkspace={appState.saveCurrentWorkspace}
           headerSaveState={appState.headerSaveState}
+          appState={appState}
         />
 
         {/* Processing indicator overlay */}
@@ -64,6 +79,7 @@ const App = () => {
 
         <div className="main-content">
           <Sidebar
+            ref={sidebarRef}
             selectedFolder={appState.selectedFolder}
             openFolder={appState.openFolder}
             allFiles={appState.allFiles}
@@ -77,7 +93,7 @@ const App = () => {
             expandedNodes={appState.expandedNodes}
             toggleExpanded={appState.toggleExpanded}
             resetFolderState={appState.handleResetFolderState}
-            onFileTreeSortChange={() => {}}
+            onFileTreeSortChange={appState.handleFileTreeSortChange}
             toggleFilterModal={appState.toggleFilterModal}
             refreshFileTree={appState.handleRefreshFileTree}
             onViewFile={appState.openFileViewModal}
@@ -97,6 +113,8 @@ const App = () => {
             toggleSystemPromptSelection={appState.toggleSystemPromptSelection}
             selectedRolePrompts={appState.selectedRolePrompts}
             toggleRolePromptSelection={appState.toggleRolePromptSelection}
+            selectedInstructions={appState.selectedInstructions}
+            toggleInstructionSelection={appState.toggleInstructionSelection}
             sortOrder={appState.sortOrder}
             handleSortChange={appState.handleSortChange}
             sortDropdownOpen={appState.sortDropdownOpen}
@@ -178,6 +196,7 @@ const App = () => {
         <WorkspaceModal
           isOpen={isWorkspaceModalOpen}
           onClose={() => setIsWorkspaceModalOpen(false)}
+          appState={appState}
         />
       </div>
     </ThemeProvider>

@@ -1,4 +1,4 @@
-import * as path from 'path';
+import { normalizePath } from '../utils/path-utils';
 
 export interface ValidationResult {
   valid: boolean;
@@ -11,7 +11,7 @@ export class PathValidator {
   private blockedPaths: Set<string>;
   
   constructor(workspacePaths: string[]) {
-    this.allowedBasePaths = new Set(workspacePaths.map(p => path.resolve(p)));
+    this.allowedBasePaths = new Set(workspacePaths.map(p => normalizePath(p)));
     this.blockedPaths = new Set([
       '/etc',
       '/sys', 
@@ -25,10 +25,7 @@ export class PathValidator {
       '/Users/*/.*',
       '/home/*/.*',
       'C:\\Users\\*\\.*',
-      // Common sensitive directories
-      path.resolve(process.env.HOME || '', '.ssh'),
-      path.resolve(process.env.HOME || '', '.aws'),
-      path.resolve(process.env.HOME || '', '.config'),
+      // Common sensitive directories - skip in browser environment
     ]);
   }
 
@@ -43,11 +40,14 @@ export class PathValidator {
       return { valid: false, reason: 'PATH_TRAVERSAL_DETECTED' };
     }
 
-    // Resolve the path to prevent bypasses
+    // Normalize the path to prevent bypasses
     let resolved: string;
     try {
-      resolved = path.resolve(inputPath);
-    } catch (error) {
+      resolved = normalizePath(inputPath);
+      if (!resolved) {
+        return { valid: false, reason: 'PATH_RESOLUTION_FAILED' };
+      }
+    } catch {
       return { valid: false, reason: 'PATH_RESOLUTION_FAILED' };
     }
 
@@ -60,8 +60,8 @@ export class PathValidator {
 
     // Verify within allowed workspaces
     if (this.allowedBasePaths.size > 0) {
-      const isInWorkspace = Array.from(this.allowedBasePaths)
-        .some(basePath => resolved.startsWith(basePath + path.sep) || resolved === basePath);
+      const isInWorkspace = [...this.allowedBasePaths]
+        .some(basePath => resolved.startsWith(basePath + '/') || resolved === basePath);
       
       if (!isInWorkspace) {
         return { valid: false, reason: 'OUTSIDE_WORKSPACE' };
@@ -74,9 +74,11 @@ export class PathValidator {
   private matchesPattern(filepath: string, pattern: string): boolean {
     // Simple glob-like pattern matching for basic wildcards
     if (pattern.includes('*')) {
+      // Escape dots first to ensure they're treated as literal dots
       const regexPattern = pattern
-        .replace(/\*/g, '[^/\\\\]*')
-        .replace(/\//g, path.sep === '\\' ? '\\\\' : '/')
+        .replace(/\./g, '\\.')  // Escape dots to match literal dots
+        .replace(/\*/g, '[^/\\\\]*')  // Replace * with "any chars except path separators"
+        .replace(/\//g, '/')
         .replace(/\\/g, '\\\\');
       
       try {
@@ -90,7 +92,7 @@ export class PathValidator {
   }
 
   updateWorkspacePaths(workspacePaths: string[]): void {
-    this.allowedBasePaths = new Set(workspacePaths.map(p => path.resolve(p)));
+    this.allowedBasePaths = new Set(workspacePaths.map(p => normalizePath(p)));
   }
 }
 

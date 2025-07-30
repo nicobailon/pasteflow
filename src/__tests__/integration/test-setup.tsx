@@ -1,4 +1,4 @@
-import * as React from 'react';
+import { ReactElement } from 'react';
 import { render as rtlRender, RenderOptions } from '@testing-library/react';
 import { ThemeProvider } from '../../context/theme-context';
 
@@ -7,10 +7,10 @@ type CustomRenderOptions = Omit<RenderOptions, 'wrapper'>;
 
 // Custom render function that includes all providers
 function customRender(
-  ui: React.ReactElement,
+  ui: ReactElement,
   options?: CustomRenderOptions
 ) {
-  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
     <ThemeProvider>
       {children as JSX.Element}
     </ThemeProvider>

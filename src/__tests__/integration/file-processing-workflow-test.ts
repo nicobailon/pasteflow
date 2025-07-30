@@ -1,8 +1,7 @@
 import { processFileContent } from '../../utils/content-formatter';
 import { countTokens } from '../../utils/token-counter';
-import { estimateTokenCount } from '../../utils/token-utils';
-import { validateLineSelections, validateWorkspaceSelections } from '../../utils/workspace-utils';
-import { FileData, SelectedFileWithLines, WorkspaceState, LineRange } from '../../types/file-types';
+import { validateWorkspaceSelections } from '../../utils/workspace-utils';
+import { FileData, SelectedFileWithLines, WorkspaceState } from '../../types/file-types';
 
 // Simple filter function for this test
 const filterFiles = (files: FileData[], patterns: string[]): FileData[] => {

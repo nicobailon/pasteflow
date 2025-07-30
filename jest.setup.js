@@ -48,4 +48,13 @@ const localStorageMock = {
 global.localStorage = localStorageMock;
 
 // Mock for main.tsx
-jest.mock('./src/main.tsx', () => ({}), { virtual: true }); 
+jest.mock('./src/main.tsx', () => ({}), { virtual: true });
+
+// Note: Worker mocking is handled in individual test files
+// to avoid conflicts with different test requirements
+
+// Mock import.meta for ESM modules
+global.importMeta = { url: 'http://localhost/test' };
+
+// Alternative: If using the manual mock approach
+// jest.mock('./src/utils/token-worker-pool'); 

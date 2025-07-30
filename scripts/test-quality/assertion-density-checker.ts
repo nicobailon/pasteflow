@@ -1,6 +1,7 @@
 #!/usr/bin/env npx tsx
 
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
+
 import { glob } from 'glob';
 
 interface AssertionViolation {
@@ -24,7 +25,7 @@ function analyzeTestFile(filePath: string): AssertionViolation[] {
   const violations: AssertionViolation[] = [];
   
   // Find all test blocks
-  const testRegex = /(?:it|test)\s*\(\s*['"`]([^'"`]+)['"`]\s*,\s*(?:async\s+)?\(\s*\)\s*=>\s*\{([\s\S]*?)\}\s*\);/g;
+  const testRegex = /(?:it|test)\s*\(\s*["'`]([^"'`]+)["'`]\s*,\s*(?:async\s+)?\(\s*\)\s*=>\s*{([\S\s]*?)}\s*\);/g;
   let match;
   
   while ((match = testRegex.exec(content)) !== null) {
@@ -33,7 +34,7 @@ function analyzeTestFile(filePath: string): AssertionViolation[] {
     const assertionCount = countAssertionsInTest(testBody);
     
     if (assertionCount < 2) {
-      const lineNumber = content.substring(0, match.index).split('\n').length;
+      const lineNumber = content.slice(0, Math.max(0, match.index)).split('\n').length;
       violations.push({
         file: filePath.replace(process.cwd(), '.'),
         testName,
@@ -57,15 +58,19 @@ async function checkAssertionDensity() {
   
   if (allViolations.length > 0) {
     console.error('❌ Assertion density violations found:');
-    allViolations.forEach(v => {
+    for (const v of allViolations) {
       console.error(`\n${v.file}:${v.lineNumber}`);
       console.error(`  Test: "${v.testName}"`);
       console.error(`  Assertions: ${v.assertionCount} (minimum: 2)`);
-    });
+    }
     process.exit(1);
   }
   
   console.log('✅ All tests meet assertion density requirements');
 }
 
-checkAssertionDensity().catch(console.error);
+try {
+  await checkAssertionDensity();
+} catch (error) {
+  console.error(error);
+}

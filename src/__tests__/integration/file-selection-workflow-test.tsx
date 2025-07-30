@@ -4,8 +4,7 @@ import { render } from './test-setup';
 import App from '../../index';
 import { createTempTestDirectory, cleanupTempDirectory } from '../test-helpers';
 
-// Define precise types for IPC channels and their payloads
-type IpcChannel = 'open-folder' | 'request-file-list' | 'cancel-file-loading' | 'request-file-content';
+// Define precise types for IPC event channels
 type IpcEventChannel = 'folder-selected' | 'file-list-data' | 'file-loading-progress' | 'file-loading-complete' | 'file-loading-error';
 
 // Mock IPC handlers storage
@@ -14,12 +13,12 @@ const ipcHandlers = new Map<string, Array<(...args: unknown[]) => void>>();
 // Mock window.electron.ipcRenderer with proper types
 const mockIpcRenderer = {
   send: jest.fn(),
-  on: jest.fn((channel: IpcEventChannel, handler: (...args: unknown[]) => void) => {
+  on: jest.fn((channel: string, handler: (...args: unknown[]) => void) => {
     const handlers = ipcHandlers.get(channel) || [];
     handlers.push(handler);
     ipcHandlers.set(channel, handlers);
   }),
-  removeListener: jest.fn((channel: IpcEventChannel, handler: (...args: unknown[]) => void) => {
+  removeListener: jest.fn((channel: string, handler: (...args: unknown[]) => void) => {
     const handlers = ipcHandlers.get(channel) || [];
     const index = handlers.indexOf(handler);
     if (index > -1) {
@@ -27,7 +26,7 @@ const mockIpcRenderer = {
       ipcHandlers.set(channel, handlers);
     }
   }),
-  invoke: jest.fn((channel: string, ...args: unknown[]) => Promise.resolve())
+  invoke: jest.fn((_channel: string, ..._args: unknown[]) => Promise.resolve())
 } as const;
 
 // Update the existing window.electron from jest.setup.js
@@ -96,7 +95,7 @@ describe('Complete File Selection Workflow Integration', () => {
     console.log('Found Select Folder button');
     
     // Mock the open-folder flow
-    mockIpcRenderer.send.mockImplementation((channel: string, ...args: unknown[]) => {
+    mockIpcRenderer.send.mockImplementation((channel: string, ..._args: unknown[]) => {
       if (channel === 'open-folder') {
         // Simulate folder selection
         setTimeout(() => {

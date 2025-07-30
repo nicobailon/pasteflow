@@ -71,7 +71,8 @@ export class MemoryAwareFileCache {
   }
 
   set(filePath: string, content: string, tokenCount: number): boolean {
-    const sizeBytes = Buffer.byteLength(content, 'utf8');
+    // Use TextEncoder for browser compatibility instead of Buffer
+    const sizeBytes = new TextEncoder().encode(content).length;
     
     // Check individual file size limit
     if (sizeBytes > this.config.maxFileSizeMB * 1024 * 1024) {
@@ -83,12 +84,10 @@ export class MemoryAwareFileCache {
     const spaceNeeded = this.totalMemoryUsage + sizeBytes;
     const maxMemoryBytes = this.config.maxMemoryMB * 1024 * 1024;
     
-    if (spaceNeeded > maxMemoryBytes || this.cache.size >= this.config.maxEntries) {
-      if (!this.makeSpace(sizeBytes)) {
+    if ((spaceNeeded > maxMemoryBytes || this.cache.size >= this.config.maxEntries) && !this.makeSpace(sizeBytes)) {
         console.warn(`Could not make space for file: ${filePath}`);
         return false;
       }
-    }
 
     // Remove existing entry if updating
     if (this.cache.has(filePath)) {
@@ -128,7 +127,7 @@ export class MemoryAwareFileCache {
     }
 
     // Get entries sorted by eviction priority (lowest priority first)
-    const entries = Array.from(this.cache.entries())
+    const entries = [...this.cache.entries()]
       .map(([key, entry]) => ({
         key,
         entry,
@@ -219,7 +218,7 @@ export class MemoryAwareFileCache {
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
   // Configuration methods

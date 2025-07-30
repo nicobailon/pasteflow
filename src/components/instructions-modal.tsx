@@ -61,7 +61,7 @@ const InstructionsModal = ({
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal-content instructions-modal notes-app-layout">
+        <Dialog.Content className="modal-content instructions-modal notes-app-layout" aria-describedby={undefined}>
           <div className="modal-header">
             <Dialog.Title asChild>
               <h2>Instructions</h2>

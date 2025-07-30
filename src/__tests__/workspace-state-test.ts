@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react-hooks';
+import { renderHook, act } from '@testing-library/react';
 import { STORAGE_KEYS } from '../constants';
 import { useWorkspaceState } from '../hooks/use-workspace-state';
 import { setupMockLocalStorage, mockDateNow } from './test-helpers';
@@ -7,8 +7,6 @@ import { WorkspaceState } from '../types/file-types';
 describe('useWorkspaceState hook', () => {
   beforeEach(() => {
     setupMockLocalStorage();
-    // Mock window.dispatchEvent
-    window.dispatchEvent = jest.fn();
   });
 
   afterEach(() => {
@@ -20,15 +18,20 @@ describe('useWorkspaceState hook', () => {
       // Setup
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: { 'src': true },
+        expandedNodes: { 'src': true },
         selectedFiles: [{ path: 'src/file.ts', content: 'test' }],
         selectedFolder: '/test/folder',
         userInstructions: 'test instructions',
-        tokenCounts: { total: 100 },
+        tokenCounts: { 'src/file.ts': 100 },
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0 // Will be overwritten
       };
 
@@ -43,11 +46,20 @@ describe('useWorkspaceState hook', () => {
 
       // Verify
       const workspaces = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
-      const savedWorkspace = JSON.parse(workspaces['test-workspace']);
+      const savedWorkspace = workspaces['test-workspace'];
       
-      expect(savedWorkspace.savedAt).toBe(mockTime);
-      expect(savedWorkspace.selectedFolder).toBe('/test/folder');
-      expect(savedWorkspace.userInstructions).toBe('test instructions');
+      expect(savedWorkspace).toMatchObject({
+        selectedFolder: '/test/folder',
+        userInstructions: 'test instructions',
+        expandedNodes: { 'src': true },
+        selectedFiles: [{ path: 'src/file.ts', content: 'test' }],
+        tokenCounts: { 'src/file.ts': 100 },
+        savedAt: mockTime
+      });
+      expect(savedWorkspace.customPrompts).toEqual({
+        systemPrompts: [],
+        rolePrompts: []
+      });
 
       // Cleanup
       cleanupDateMock();
@@ -57,15 +69,20 @@ describe('useWorkspaceState hook', () => {
       // Setup
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -78,29 +95,44 @@ describe('useWorkspaceState hook', () => {
       expect(localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE)).toBe('current-test');
     });
 
-    test('should dispatch workspacesChanged event', () => {
+    test('should notify other components when workspace changes', () => {
       // Setup
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
+
+      // Setup real event listener
+      const eventReceived = jest.fn();
+      window.addEventListener('workspacesChanged', eventReceived);
 
       // Execute
       act(() => {
         result.current.saveWorkspace('event-test', workspaceData);
       });
 
-      // Verify event was dispatched
-      expect(window.dispatchEvent).toHaveBeenCalled();
+      // Verify event was actually received
+      expect(eventReceived).toHaveBeenCalledTimes(1);
+      expect(eventReceived).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'workspacesChanged' })
+      );
+
+      // Cleanup
+      window.removeEventListener('workspacesChanged', eventReceived);
     });
   });
 
@@ -109,13 +141,13 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace first
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: { 'src': true },
+        expandedNodes: { 'src': true },
         selectedFiles: [{ path: 'src/file.ts', content: 'test' }],
         selectedFolder: '/valid/test',
         userInstructions: 'valid test',
-        tokenCounts: { total: 200 },
+        tokenCounts: { 'src/file.ts': 200 },
         customPrompts: {
-          systemPrompts: [{ id: '1', title: 'Test Prompt', content: 'Test Content' }],
+          systemPrompts: [{ id: '1', name: 'Test Prompt', content: 'Test Content' }],
           rolePrompts: []
         },
         savedAt: 1617235200000
@@ -135,9 +167,9 @@ describe('useWorkspaceState hook', () => {
       expect(loadedWorkspace).not.toBeNull();
       expect(loadedWorkspace?.selectedFolder).toBe('/valid/test');
       expect(loadedWorkspace?.userInstructions).toBe('valid test');
-      expect(loadedWorkspace?.tokenCounts.total).toBe(200);
+      expect(loadedWorkspace?.tokenCounts['src/file.ts']).toBe(200);
       expect(loadedWorkspace?.customPrompts.systemPrompts).toHaveLength(1);
-      expect(loadedWorkspace?.customPrompts.systemPrompts[0].title).toBe('Test Prompt');
+      expect(loadedWorkspace?.customPrompts.systemPrompts[0].name).toBe('Test Prompt');
     });
 
     test('should return null when workspace not found', () => {
@@ -183,15 +215,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace first
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -201,7 +238,8 @@ describe('useWorkspaceState hook', () => {
 
       // Verify it exists
       const workspacesBeforeDelete = JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}');
-      expect(workspacesBeforeDelete['to-delete']).toBeDefined();
+      expect(workspacesBeforeDelete['to-delete']).toHaveProperty('selectedFolder', '/test');
+      expect(workspacesBeforeDelete['to-delete']).toHaveProperty('savedAt', expect.any(Number));
 
       // Execute
       act(() => {
@@ -217,15 +255,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace and set as current
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -249,15 +292,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace and set as current
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -265,22 +313,26 @@ describe('useWorkspaceState hook', () => {
         result.current.saveWorkspace('event-delete-test', workspaceData);
       });
 
-      // Clear previous calls
-      (window.dispatchEvent as jest.Mock).mockClear();
+      // Setup real event listener
+      const eventReceived = jest.fn();
+      window.addEventListener('workspacesChanged', eventReceived);
 
       // Execute
       act(() => {
         result.current.deleteWorkspace('event-delete-test');
       });
 
-      // Verify event was dispatched with correct details
-      expect(window.dispatchEvent).toHaveBeenCalledTimes(1);
-      const eventCall = (window.dispatchEvent as jest.Mock).mock.calls[0][0];
-      expect(eventCall.type).toBe('workspacesChanged');
-      expect(eventCall.detail).toEqual({
+      // Verify event was received with correct details
+      expect(eventReceived).toHaveBeenCalledTimes(1);
+      const event = eventReceived.mock.calls[0][0];
+      expect(event.type).toBe('workspacesChanged');
+      expect(event.detail).toEqual({
         deleted: 'event-delete-test',
         wasCurrent: true
       });
+
+      // Cleanup
+      window.removeEventListener('workspacesChanged', eventReceived);
     });
   });
 
@@ -289,15 +341,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace first
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/rename-test',
         userInstructions: 'rename test',
-        tokenCounts: { total: 50 },
+        tokenCounts: { '/rename-test/file.ts': 50 },
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -332,15 +389,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save a workspace and set as current
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -364,15 +426,20 @@ describe('useWorkspaceState hook', () => {
       // Setup - save two workspaces
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test1',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
 
@@ -404,15 +471,20 @@ describe('useWorkspaceState hook', () => {
       
       // Create workspaces with different timestamps
       const baseWorkspace: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 0
       };
       
@@ -452,15 +524,20 @@ describe('useWorkspaceState hook', () => {
       const { result } = renderHook(() => useWorkspaceState());
       
       const workspaceData: WorkspaceState = {
-        fileTreeState: {},
+        expandedNodes: {},
         selectedFiles: [],
         selectedFolder: '/test',
         userInstructions: '',
-        tokenCounts: { total: 0 },
+        tokenCounts: {},
         customPrompts: {
           systemPrompts: [],
           rolePrompts: []
         },
+        allFiles: [],
+        sortOrder: 'name-asc',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
         savedAt: 1000
       };
       

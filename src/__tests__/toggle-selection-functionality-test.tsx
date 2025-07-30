@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
@@ -9,7 +9,7 @@ import { setupMockLocalStorage } from './test-helpers';
 // Custom FileList component for testing
 function TestFileList({ initialFiles = [] as SelectedFileWithLines[] }: { initialFiles?: SelectedFileWithLines[] }) {
   // Initialize state without using generic type parameter
-  const [selectedFiles, setSelectedFiles] = React.useState(initialFiles);
+  const [selectedFiles, setSelectedFiles] = useState(initialFiles);
   
   const toggleFileSelection = (path: string) => {
     const isSelected = selectedFiles.some((file: SelectedFileWithLines) => file.path === path);
@@ -134,6 +134,7 @@ describe('Toggle Selection Functionality', () => {
     {
       name: 'test-file.js',
       path: 'test-file.js',
+      isDirectory: false,
       content: 'const test = "Hello";\nconst world = "World";\nconsole.log(test, world);\n',
       size: 100,
       tokenCount: 20,

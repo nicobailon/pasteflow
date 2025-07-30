@@ -1,4 +1,5 @@
-import React, { createContext, useContext } from 'react';
+import { createContext, useContext } from 'react';
+import type { Dispatch, SetStateAction, ReactNode, FC } from 'react';
 
 import { FileTreeMode } from '../types/file-types';
 
@@ -17,11 +18,11 @@ export interface UIStateContextType extends UIState {
   setSortOrder: (order: string) => void;
   setSearchTerm: (term: string) => void;
   setFileTreeMode: (mode: FileTreeMode) => void;
-  setExpandedNodes: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-  setSortDropdownOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setExpandedNodes: Dispatch<SetStateAction<Record<string, boolean>>>;
+  setSortDropdownOpen: Dispatch<SetStateAction<boolean>>;
   setUserInstructions: (instructions: string) => void;
-  setInstructionsTokenCount: React.Dispatch<React.SetStateAction<number>>;
-  setHeaderSaveState: React.Dispatch<React.SetStateAction<'idle' | 'saving' | 'success'>>;
+  setInstructionsTokenCount: Dispatch<SetStateAction<number>>;
+  setHeaderSaveState: Dispatch<SetStateAction<'idle' | 'saving' | 'success'>>;
   handleSortChange: (newSort: string) => void;
   handleSearchChange: (newSearch: string) => void;
   toggleSortDropdown: () => void;
@@ -31,7 +32,7 @@ export interface UIStateContextType extends UIState {
 export const UIStateContext = createContext<UIStateContextType | undefined>(undefined);
 
 interface UIStateProviderProps {
-  children: React.ReactNode;
+  children: ReactNode;
   sortOrder?: string;
   searchTerm?: string;
   fileTreeMode?: FileTreeMode;
@@ -42,7 +43,7 @@ interface UIStateProviderProps {
   headerSaveState?: 'idle' | 'saving' | 'success';
 }
 
-export const UIStateProvider: React.FC<UIStateProviderProps> = ({
+export const UIStateProvider: FC<UIStateProviderProps> = ({
   children,
   sortOrder = 'tokens-desc',
   searchTerm = '',

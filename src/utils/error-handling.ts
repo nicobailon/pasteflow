@@ -53,7 +53,7 @@ export function getErrorMessage(error: unknown): string {
 
 export function getRecoverySuggestions(errorCode: string): RecoverySuggestion[] {
   switch (errorCode) {
-    case ERROR_CODES.PATH_VALIDATION_FAILED:
+    case ERROR_CODES.PATH_VALIDATION_FAILED: {
       return [
         {
           title: 'Check Path',
@@ -66,8 +66,9 @@ export function getRecoverySuggestions(errorCode: string): RecoverySuggestion[] 
           severity: 'info'
         }
       ];
+    }
 
-    case ERROR_CODES.FILE_LOADING_FAILED:
+    case ERROR_CODES.FILE_LOADING_FAILED: {
       return [
         {
           title: 'Try Again',
@@ -80,8 +81,9 @@ export function getRecoverySuggestions(errorCode: string): RecoverySuggestion[] 
           severity: 'warning'
         }
       ];
+    }
 
-    case ERROR_CODES.MEMORY_LIMIT_EXCEEDED:
+    case ERROR_CODES.MEMORY_LIMIT_EXCEEDED: {
       return [
         {
           title: 'Too Many Files',
@@ -94,8 +96,9 @@ export function getRecoverySuggestions(errorCode: string): RecoverySuggestion[] 
           severity: 'info'
         }
       ];
+    }
 
-    case ERROR_CODES.WORKSPACE_SAVE_FAILED:
+    case ERROR_CODES.WORKSPACE_SAVE_FAILED: {
       return [
         {
           title: 'Storage Full',
@@ -108,8 +111,9 @@ export function getRecoverySuggestions(errorCode: string): RecoverySuggestion[] 
           severity: 'info'
         }
       ];
+    }
 
-    default:
+    default: {
       return [
         {
           title: 'Restart Application',
@@ -117,6 +121,7 @@ export function getRecoverySuggestions(errorCode: string): RecoverySuggestion[] 
           severity: 'info'
         }
       ];
+    }
   }
 }
 

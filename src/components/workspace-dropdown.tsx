@@ -1,9 +1,9 @@
 import { ChevronDown } from 'lucide-react';
-import React, { useCallback } from 'react';
+import React, { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
 
-import Dropdown from './dropdown';
+import Dropdown, { DropdownRef } from './dropdown';
 
 interface WorkspaceDropdownProps {
   currentWorkspace: string | null | undefined;
@@ -13,13 +13,22 @@ interface WorkspaceDropdownProps {
   buttonClassName?: string;
 }
 
-const WorkspaceDropdown = ({
+export interface WorkspaceDropdownRef {
+  close: () => void;
+}
+
+const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProps>(({
   currentWorkspace,
   toggleWorkspaceModal,
   containerClassName = "workspace-dropdown", // Default class
   buttonClassName = "dropdown-header" // Default class
-}: WorkspaceDropdownProps): JSX.Element | null => {
+}, ref) => {
   const { getWorkspaceNames, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
+  const dropdownRef = useRef<DropdownRef>(null);
+
+  useImperativeHandle(ref, () => ({
+    close: () => dropdownRef.current?.close()
+  }), []);
 
   const handleSelectAndLoadWorkspace = (name: string) => {
     try {
@@ -74,6 +83,7 @@ const WorkspaceDropdown = ({
 
   return (
     <Dropdown
+      ref={dropdownRef}
       options={getWorkspaceOptions()}
       value={currentWorkspace || ''} // Ensure value is always a string
       onChange={handleWorkspaceDropdownChange}
@@ -85,6 +95,8 @@ const WorkspaceDropdown = ({
       closeOnChange={true} // Close dropdown after selection
     />
   );
-};
+});
+
+WorkspaceDropdown.displayName = 'WorkspaceDropdown';
 
 export default WorkspaceDropdown;

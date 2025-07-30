@@ -28,6 +28,7 @@ describe('TreeItem Component', () => {
     fileData: {
       name: 'example.js',
       path: '/path/to/example.js',
+      isDirectory: false,
       content: 'console.log("Hello World");',
       tokenCount: 100,
       size: 1024,
@@ -44,6 +45,7 @@ describe('TreeItem Component', () => {
     fileData: {
       name: 'binary.bin',
       path: '/path/to/binary.bin',
+      isDirectory: false,
       content: '',
       tokenCount: 0,
       size: 1024,
@@ -91,7 +93,7 @@ describe('TreeItem Component', () => {
         />
       );
       
-      const chevron = screen.getByTestId('chevron-icon').closest('.tree-item-toggle');
+      const chevron = screen.getByTestId('chevron-right-icon').closest('.tree-item-toggle');
       if (chevron) {
         fireEvent.click(chevron);
         
@@ -121,7 +123,7 @@ describe('TreeItem Component', () => {
       }
     });
     
-    it('calls toggleFileSelection when clicking on file item', () => {
+    it('does not call toggleFileSelection when clicking on file item (only checkbox should)', () => {
       render(
         <TreeItem
           node={fileNode}
@@ -137,8 +139,8 @@ describe('TreeItem Component', () => {
       if (fileItem) {
         fireEvent.click(fileItem);
         
-        expect(toggleFileSelection).toHaveBeenCalledWith('/path/to/example.js');
-        expect(toggleFileSelection).toHaveBeenCalledTimes(1);
+        // File selection should NOT be toggled when clicking the item
+        expect(toggleFileSelection).not.toHaveBeenCalled();
       }
     });
     
@@ -184,7 +186,7 @@ describe('TreeItem Component', () => {
       }
     });
     
-    it('responds correctly when checking/unchecking file checkbox', () => {
+    it('responds correctly when checking/unchecking file checkbox', async () => {
       // Mock the event handler implementation directly in TreeItem
       // by using a Test Double pattern
       const { rerender } = render(
@@ -217,6 +219,10 @@ describe('TreeItem Component', () => {
       // Test clicking the checkbox via fireEvent
       fireEvent.click(checkbox);
       
+      // Wait for debounce to complete
+      const DEBOUNCE_DELAY = 100; // Match component's debounce delay
+      await new Promise(resolve => setTimeout(resolve, DEBOUNCE_DELAY + 50));
+      
       // Verify toggleFileSelection was called
       expect(toggleFileSelection).toHaveBeenCalledWith('/path/to/example.js');
     });
@@ -245,7 +251,7 @@ describe('TreeItem Component', () => {
       expect(toggleFolderSelection).toHaveBeenCalled();
     });
     
-    it('stops event propagation when clicking checkbox', () => {
+    it('checkbox clicks trigger file selection without viewing the file', async () => {
       render(
         <TreeItem
           node={fileNode}
@@ -259,16 +265,19 @@ describe('TreeItem Component', () => {
       
       const checkbox = screen.getByRole('checkbox');
       
-      // Mock a click event with a spy on stopPropagation
-      const mockStopPropagation = jest.fn();
-      const mockEvent = { stopPropagation: mockStopPropagation };
+      // Click the checkbox
+      fireEvent.click(checkbox);
       
-      // Simulate the click while providing the mocked event
-      checkbox.addEventListener('click', jest.fn().mockImplementation(e => mockStopPropagation()));
-      fireEvent.click(checkbox, mockEvent);
+      // Wait for debounce to complete
+      const DEBOUNCE_DELAY = 100;
+      await new Promise(resolve => setTimeout(resolve, DEBOUNCE_DELAY + 50));
       
-      // Verify stopPropagation was called
-      expect(mockStopPropagation).toHaveBeenCalled();
+      // Verify file selection was toggled
+      expect(toggleFileSelection).toHaveBeenCalledWith('/path/to/example.js');
+      expect(toggleFileSelection).toHaveBeenCalledTimes(1);
+      
+      // Verify file view was NOT triggered (important behavior)
+      expect(onViewFile).not.toHaveBeenCalled();
     });
   });
   
@@ -306,7 +315,7 @@ describe('TreeItem Component', () => {
       
       expect(screen.getByText('src')).toBeInTheDocument();
       expect(screen.getByTestId('folder-icon')).toBeInTheDocument();
-      expect(screen.getByTestId('chevron-icon')).toBeInTheDocument();
+      expect(screen.getByTestId('chevron-right-icon')).toBeInTheDocument();
       expect(screen.queryByTestId('eye-icon')).not.toBeInTheDocument();
     });
     
@@ -322,7 +331,7 @@ describe('TreeItem Component', () => {
         />
       );
       
-      const toggleElement = screen.getByTestId('chevron-icon').closest('.tree-item-toggle');
+      const toggleElement = screen.getByTestId('chevron-right-icon').closest('.tree-item-toggle');
       if (toggleElement) {
         expect(toggleElement).toHaveClass('expanded');
         expect(toggleElement).toHaveAttribute('aria-label', 'Collapse folder');
