@@ -113,6 +113,8 @@ const App = () => {
             toggleSystemPromptSelection={appState.toggleSystemPromptSelection}
             selectedRolePrompts={appState.selectedRolePrompts}
             toggleRolePromptSelection={appState.toggleRolePromptSelection}
+            selectedInstructions={appState.selectedInstructions}
+            toggleInstructionSelection={appState.toggleInstructionSelection}
             sortOrder={appState.sortOrder}
             handleSortChange={appState.handleSortChange}
             sortDropdownOpen={appState.sortDropdownOpen}

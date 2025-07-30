@@ -89,6 +89,8 @@ export interface FileListProps {
   toggleSystemPromptSelection?: (prompt: SystemPrompt) => void;
   selectedRolePrompts?: RolePrompt[];
   toggleRolePromptSelection?: (prompt: RolePrompt) => void;
+  selectedInstructions?: Instruction[];
+  toggleInstructionSelection?: (instruction: Instruction) => void;
   loadFileContent: (filePath: string) => Promise<void>; // Added loadFileContent property
 }
 

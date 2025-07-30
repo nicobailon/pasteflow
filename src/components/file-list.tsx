@@ -3,6 +3,7 @@ import { FolderOpen } from "lucide-react";
 import { FileData, FileListProps, LineRange, SelectedFileWithLines } from "../types/file-types";
 
 import FileCard from "./file-card";
+import InstructionCard from "./instruction-card";
 import RolePromptCard from "./role-prompt-card";
 import SystemPromptCard from "./system-prompt-card";
 
@@ -28,6 +29,8 @@ const FileList = ({
   toggleSystemPromptSelection,
   selectedRolePrompts = [],
   toggleRolePromptSelection,
+  selectedInstructions = [],
+  toggleInstructionSelection,
   loadFileContent,
 }: FileListProps) => {
   // Create a Map for faster lookups
@@ -88,8 +91,8 @@ const FileList = ({
     }
   }
 
-  // Calculate if we have any items to display (files, system prompts, or role prompts)
-  const hasItemsToDisplay = expandedCards.length > 0 || selectedSystemPrompts.length > 0 || selectedRolePrompts.length > 0;
+  // Calculate if we have any items to display (files, system prompts, role prompts, or instructions)
+  const hasItemsToDisplay = expandedCards.length > 0 || selectedSystemPrompts.length > 0 || selectedRolePrompts.length > 0 || selectedInstructions.length > 0;
 
   return (
     <div className="file-list-container">
@@ -110,6 +113,15 @@ const FileList = ({
               key={`role-prompt-${prompt.id}`}
               prompt={prompt}
               toggleSelection={toggleRolePromptSelection || (() => {})}
+            />
+          ))}
+          
+          {/* Display instructions below role prompts */}
+          {selectedInstructions.map((instruction) => (
+            <InstructionCard
+              key={`instruction-${instruction.id}`}
+              instruction={instruction}
+              toggleSelection={toggleInstructionSelection || (() => {})}
             />
           ))}
           

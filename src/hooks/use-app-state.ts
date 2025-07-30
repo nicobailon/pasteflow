@@ -121,6 +121,10 @@ const useAppState = () => {
   // Update instructions token count when user instructions change
   const [userInstructions, setUserInstructions] = useState('');
   const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
+  
+  // Instructions (docs) state
+  const [instructions, setInstructions] = useState(() => [] as Instruction[]);
+  const [selectedInstructions, setSelectedInstructions] = useState(() => [] as Instruction[]);
 
   const handleResetFolderState = useCallback(() => {
     resetFolderState(
@@ -276,6 +280,7 @@ const useAppState = () => {
       selectedFolder,
       promptState.selectedSystemPrompts,
       promptState.selectedRolePrompts,
+      selectedInstructions,
       userInstructions
     );
   }, [
@@ -286,6 +291,7 @@ const useAppState = () => {
     selectedFolder,
     promptState.selectedSystemPrompts,
     promptState.selectedRolePrompts,
+    selectedInstructions,
     userInstructions
   ]);
 
@@ -1166,10 +1172,6 @@ const useAppState = () => {
       exclusionPatterns
     };
   }, [expandedNodes, sortOrder, searchTerm, fileTreeMode, exclusionPatterns, fileSelection.selectedFiles]);
-
-
-  const [instructions, setInstructions] = useState(() => [] as Instruction[]);
-  const [selectedInstructions, setSelectedInstructions] = useState(() => [] as Instruction[]);
 
   const onAddInstruction = useCallback((instruction: Instruction) => {
     setInstructions((prev: Instruction[]) => [...prev, instruction]);
