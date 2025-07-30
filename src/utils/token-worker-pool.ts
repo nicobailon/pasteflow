@@ -613,7 +613,7 @@ export class TokenWorkerPool {
     operationController.signal.addEventListener('abort', queueAbortHandler);
   }
   
-  private createActiveJob(jobId: string, workerId: number, text: string, resolve: (count: number) => void): ActiveJob {
+  private createActiveJob(workerId: number, text: string, resolve: (count: number) => void): ActiveJob {
     return {
       workerId,
       startTime: Date.now(),
@@ -631,7 +631,7 @@ export class TokenWorkerPool {
     reject: (reason: Error) => void,
     operationController: AbortController
   ): void {
-    const job = this.createActiveJob(jobId, workerId, text, resolve);
+    const job = this.createActiveJob(workerId, text, resolve);
     this.activeJobs.set(jobId, job);
     
     const worker = this.workers[workerId];
