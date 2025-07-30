@@ -17,10 +17,6 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const HEALTH_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 
 // Activity tracking
-interface ComponentTracker {
-  readonly id: symbol;
-}
-const activeComponents = new WeakSet<ComponentTracker>();
 let cleanupCoordinatorTimer: NodeJS.Timeout | null = null;
 
 // Page visibility tracking
@@ -59,7 +55,7 @@ function checkMemoryPressure(): boolean {
 function hasActiveComponents(): boolean {
   // Check various conditions to determine if cleanup is safe
   return refCount > 0 || 
-         (Date.now() - lastActivityTime < 10000) || // Recent activity in last 10s
+         (Date.now() - lastActivityTime < 10_000) || // Recent activity in last 10s
          isPageVisible;
 }
 
@@ -188,7 +184,7 @@ function startMemoryMonitoring() {
         memoryMonitorInterval = null;
       }
     }
-  }, 30000); // Check every 30 seconds
+  }, 30_000); // Check every 30 seconds
 }
 
 function stopMemoryMonitoring() {
@@ -223,8 +219,8 @@ function verifyPoolHealth(): boolean {
         if (oldPool && typeof oldPool.terminate === 'function') {
           oldPool.terminate();
         }
-      } catch (e) {
-        console.error('[useTokenCounter] Error terminating bad pool:', e);
+      } catch (error) {
+        console.error('[useTokenCounter] Error terminating bad pool:', error);
       }
       
       return false;
@@ -253,7 +249,7 @@ function startOrphanCheck() {
       
       // If truly orphaned (no activity for 2 minutes and no refs)
       // This gives enough time for components to remount
-      if (timeSinceActivity > 120000) {
+      if (timeSinceActivity > 120_000) {
         console.warn('[useTokenCounter] Orphaned pool detected, forcing cleanup');
         cleanupGlobalPool(true);
         
@@ -268,7 +264,7 @@ function startOrphanCheck() {
       clearInterval(orphanCheckInterval);
       orphanCheckInterval = null;
     }
-  }, 120000); // Check every 2 minutes to avoid false positives
+  }, 120_000); // Check every 2 minutes to avoid false positives
 }
 
 function stopOrphanCheck() {
@@ -279,21 +275,14 @@ function stopOrphanCheck() {
 }
 
 export function useTokenCounter() {
-  const workerPoolRef = useRef<TokenWorkerPool | null>(null);
-  const fallbackCountRef = useRef<number>(0);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  
-  // Component identity for tracking
-  const componentTracker = useRef<ComponentTracker>({ id: Symbol('token-counter-component') });
+  const workerPoolRef = useRef(null as TokenWorkerPool | null);
+  const fallbackCountRef = useRef(0);
+  const abortControllerRef = useRef(null as AbortController | null);
   
   useEffect(() => {
     // Create abort controller for this component instance
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
-    
-    // Track component with WeakSet
-    const tracker = componentTracker.current;
-    activeComponents.add(tracker);
     
     // Use singleton instance with reference counting
     refCount++;
@@ -339,8 +328,7 @@ export function useTokenCounter() {
       
       clearInterval(healthCheckInterval);
       
-      // Remove component from tracking
-      activeComponents.delete(tracker);
+      // Cleanup complete
       
       refCount--;
       console.log(`[useTokenCounter] Cleanup - Reference count: ${refCount}`);

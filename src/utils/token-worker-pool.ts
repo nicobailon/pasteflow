@@ -15,6 +15,12 @@ interface ActiveJob {
   resolve: (count: number) => void;
 }
 
+interface WorkerHandlers {
+  messageHandler: (event: MessageEvent) => void;
+  errorHandler: (event: ErrorEvent) => void;
+  cleanup: () => void;
+}
+
 export class TokenWorkerPool {
   private workers: Worker[] = [];
   private queue: QueueItem[] = [];
@@ -25,6 +31,7 @@ export class TokenWorkerPool {
   private isRecycling = false;
   private recyclingLock = false;
   private acceptingJobs = true;
+  private preparingForShutdown = false;
   
   // Store event listeners for cleanup
   private workerListeners = new Map<number, {
@@ -203,7 +210,7 @@ export class TokenWorkerPool {
         if (messageHandler) {
           try {
             worker.removeEventListener('message', messageHandler);
-          } catch (e) {
+          } catch {
             // Worker might be terminated, ignore
           }
           messageHandler = null;
@@ -212,7 +219,7 @@ export class TokenWorkerPool {
         if (errorHandler) {
           try {
             worker.removeEventListener('error', errorHandler);
-          } catch (e) {
+          } catch {
             // Worker might be terminated, ignore
           }
           errorHandler = null;
@@ -423,7 +430,7 @@ export class TokenWorkerPool {
   }
   
   private processNextInQueue(workerId: number) {
-    if (this.queue.length === 0 || !this.acceptingJobs) return;
+    if (this.queue.length === 0 || !this.acceptingJobs || this.preparingForShutdown) return;
     
     const item = this.queue.shift();
     if (!item) return;
@@ -469,7 +476,7 @@ export class TokenWorkerPool {
   async countTokens(text: string, options?: { signal?: AbortSignal }): Promise<number> {
     // Fast path for terminated, recycling, or no workers
     // Use atomic check to prevent race condition during recycling
-    if (this.isTerminated || !this.acceptingJobs || this.workers.length === 0) {
+    if (this.isTerminated || !this.acceptingJobs || this.preparingForShutdown || this.workers.length === 0) {
       return estimateTokenCount(text);
     }
     
@@ -493,184 +500,255 @@ export class TokenWorkerPool {
     return promise;
   }
   
+  private shouldFallbackToEstimation(jobAcceptanceVerified: boolean): boolean {
+    return !jobAcceptanceVerified && (!this.acceptingJobs || this.preparingForShutdown);
+  }
+  
+  private findAvailableWorker(): number {
+    return this.workerStatus.findIndex(
+      (status, index) => this.isWorkerAvailable(status, index)
+    );
+  }
+  
+  private isWorkerAvailable(status: boolean, index: number): boolean {
+    return status && 
+      !this.isWorkerBusy(index) &&
+      !this.workerPermanentlyFailed.has(index);
+  }
+  
+  private generateJobId(): string {
+    return `count-${Date.now()}-${Math.random()}`;
+  }
+  
+  private createOperationController(id: string): AbortController {
+    const operationController = new AbortController();
+    this.activeOperations.set(id, operationController);
+    return operationController;
+  }
+  
+  private setupAbortHandling(
+    id: string, 
+    signal: AbortSignal | undefined,
+    operationController: AbortController,
+    reject: (reason: any) => void
+  ): void {
+    if (!signal) return;
+    
+    if (signal.aborted) {
+      this.activeOperations.delete(id);
+      reject(new DOMException('Aborted', 'AbortError'));
+      throw new Error('Signal already aborted');
+    }
+    
+    signal.addEventListener('abort', () => operationController.abort());
+  }
+  
   private createCountTokensPromise(text: string, signal?: AbortSignal, jobAcceptanceVerified = false): Promise<number> {
     return new Promise((resolve, reject) => {
-      // Only check job acceptance if not already verified atomically
-      if (!jobAcceptanceVerified && !this.acceptingJobs) {
+      // Early exit
+      if (this.shouldFallbackToEstimation(jobAcceptanceVerified)) {
         resolve(estimateTokenCount(text));
         return;
       }
       
-      // Find available worker (excluding permanently failed ones)
-      const availableWorkerIndex = this.workerStatus.findIndex(
-        (status, index) => status && 
-          ![...this.activeJobs.values()].some(job => job.workerId === index) &&
-          !this.workerPermanentlyFailed.has(index)
-      );
-      const id = `count-${Date.now()}-${Math.random()}`;
+      const jobId = this.generateJobId();
+      const operationController = this.createOperationController(jobId);
       
-      // Create internal abort controller for this operation
-      const operationController = new AbortController();
-      this.activeOperations.set(id, operationController);
-      
-      // Chain external signal with internal controller
-      if (signal) {
-        if (signal.aborted) {
-          this.activeOperations.delete(id);
-          reject(new DOMException('Aborted', 'AbortError'));
-          return;
-        }
-        signal.addEventListener('abort', () => operationController.abort());
+      try {
+        this.setupAbortHandling(jobId, signal, operationController, reject);
+      } catch {
+        return; // Already rejected in setupAbortHandling
       }
       
-      if (availableWorkerIndex === -1) {
-        // Queue for later processing with size limit enforcement
-        if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-          // Drop oldest request (FIFO) and warn
-          const dropped = this.queue.shift();
-          if (dropped) {
-            this.droppedRequests++;
-            console.warn(`Queue size limit reached (${this.MAX_QUEUE_SIZE}), dropping oldest request`);
-            // Resolve dropped request with estimation
-            dropped.resolve(estimateTokenCount(dropped.text));
-          }
-        }
-        
-        // Handle abort for queued items
-        const queueAbortHandler = () => {
-          // Remove from queue if still present
-          const queueIndex = this.queue.findIndex(item => item.id === id);
-          if (queueIndex !== -1) {
-            this.queue.splice(queueIndex, 1);
-            this.activeOperations.delete(id);
-            reject(new DOMException('Aborted', 'AbortError'));
-          }
-        };
-        
-        operationController.signal.addEventListener('abort', queueAbortHandler);
-        
-        this.queue.push({ id, text, resolve, reject });
+      const availableWorkerId = this.findAvailableWorker();
+      
+      if (availableWorkerId === -1) {
+        this.handleQueuedJob(jobId, text, resolve, reject, operationController);
       } else {
-        // Direct processing
-        this.activeJobs.set(id, {
-          workerId: availableWorkerIndex,
-          startTime: Date.now(),
-          size: text.length,
-          text: text,
-          resolve: resolve
-        });
-        
-        const worker = this.workers[availableWorkerIndex];
-        
-        // Set up for message handling with guaranteed cleanup
-        let resolved = false;
-        let timeoutId: NodeJS.Timeout | null = null;
-        
-        // Single cleanup function that's always called
-        const cleanup = () => {
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutId = null;
-          }
-          worker.removeEventListener('message', messageHandler);
-          worker.removeEventListener('error', errorHandler);
-          
-          // Remove abort listener
-          operationController.signal.removeEventListener('abort', handleAbort);
-          
-          // Clean up active job and process next in queue
-          if (this.activeJobs.has(id)) {
-            this.activeJobs.delete(id);
-            this.processNextInQueue(availableWorkerIndex);
-          }
-          
-          // Clean up operation tracking
-          this.activeOperations.delete(id);
-        };
-        
-        const handleResult = (result: number) => {
-          if (resolved) return;
-          resolved = true;
-          cleanup();
-          resolve(result);
-        };
-        
-        const messageHandler = (event: MessageEvent) => {
-          if (event.data.id !== id) return;
-          
-          // Update stats before resolving
-          const job = this.activeJobs.get(id);
-          if (job) {
-            const duration = Date.now() - job.startTime;
-            this.performanceStats.totalProcessed++;
-            this.performanceStats.totalTime += duration;
-          }
-          
-          if (event.data.type === 'ERROR') {
-            console.warn('Worker error, falling back:', event.data.error);
-            handleResult(estimateTokenCount(text));
-          } else if (event.data.type === 'TOKEN_COUNT') {
-            handleResult(event.data.fallback ? estimateTokenCount(text) : event.data.result);
-          }
-        };
-        
-        const errorHandler = (event: ErrorEvent) => {
-          if (resolved) return;
-          console.error('Worker crashed:', event);
-          
-          // Check if we should attempt recovery
-          if (this.shouldRecoverWorker(availableWorkerIndex)) {
-            // Recover worker asynchronously (don't await)
-            this.recoverWorker(availableWorkerIndex).catch(error => {
-              console.error(`Failed to recover worker ${availableWorkerIndex}:`, error);
-              this.markWorkerAsFailed(availableWorkerIndex);
-            });
-          } else {
-            // Too many failures, mark as permanently failed
-            this.markWorkerAsFailed(availableWorkerIndex);
-          }
-          
-          // Use fallback immediately
-          handleResult(estimateTokenCount(text));
-        };
-        
-        const handleAbort = () => {
-          if (resolved) return;
-          resolved = true;
-          cleanup();
-          reject(new DOMException('Aborted', 'AbortError'));
-        };
-        
-        // Set up abort listener for the operation controller
-        operationController.signal.addEventListener('abort', handleAbort);
-        
-        // Set timeout for response
-        timeoutId = setTimeout(() => {
-          console.warn(`Token counting timeout for worker ${availableWorkerIndex}`);
-          handleResult(estimateTokenCount(text));
-        }, 30_000); // 30 second timeout for token counting
-        
-        // Add listeners and send message - wrap in try/catch for safety
-        try {
-          worker.addEventListener('message', messageHandler);
-          worker.addEventListener('error', errorHandler);
-          
-          worker.postMessage({
-            type: 'COUNT_TOKENS',
-            id,
-            payload: { text }
-          });
-        } catch (error) {
-          console.error('Failed to send message to worker:', error);
-          handleResult(estimateTokenCount(text));
-        }
+        this.processJobWithWorker(
+          jobId, availableWorkerId, text, resolve, reject, operationController
+        );
       }
     });
   }
   
+  private enqueueJob(id: string, text: string, resolve: (count: number) => void, reject: (error: Error) => void): void {
+    this.enforceQueueSizeLimit();
+    this.queue.push({ id, text, resolve, reject });
+  }
+  
+  private enforceQueueSizeLimit(): void {
+    if (this.queue.length >= this.MAX_QUEUE_SIZE) {
+      const dropped = this.queue.shift();
+      if (dropped) {
+        this.handleDroppedJob(dropped);
+      }
+    }
+  }
+  
+  private handleDroppedJob(job: QueueItem): void {
+    this.droppedRequests++;
+    console.warn(`Queue size limit reached (${this.MAX_QUEUE_SIZE}), dropping oldest request`);
+    job.resolve(estimateTokenCount(job.text));
+  }
+  
+  private handleQueuedJob(
+    id: string, 
+    text: string, 
+    resolve: (count: number) => void, 
+    reject: (error: Error) => void,
+    operationController: AbortController
+  ): void {
+    this.enqueueJob(id, text, resolve, reject);
+    
+    const queueAbortHandler = () => {
+      const queueIndex = this.queue.findIndex(item => item.id === id);
+      if (queueIndex !== -1) {
+        this.queue.splice(queueIndex, 1);
+        this.activeOperations.delete(id);
+        reject(new DOMException('Aborted', 'AbortError'));
+      }
+    };
+    
+    operationController.signal.addEventListener('abort', queueAbortHandler);
+  }
+  
+  private createActiveJob(jobId: string, workerId: number, text: string, resolve: (count: number) => void): ActiveJob {
+    return {
+      workerId,
+      startTime: Date.now(),
+      size: text.length,
+      text: text,
+      resolve: resolve
+    };
+  }
+  
+  private processJobWithWorker(
+    jobId: string,
+    workerId: number,
+    text: string,
+    resolve: (value: number) => void,
+    reject: (reason: Error) => void,
+    operationController: AbortController
+  ): void {
+    const job = this.createActiveJob(jobId, workerId, text, resolve);
+    this.activeJobs.set(jobId, job);
+    
+    const worker = this.workers[workerId];
+    const handlers = this.createWorkerHandlers(jobId, workerId, text, resolve, reject, operationController);
+    
+    this.setupWorkerListeners(worker, handlers, operationController.signal);
+    this.sendWorkerMessage(worker, jobId, text, () => handlers.cleanup());
+  }
+  
+  private createWorkerHandlers(
+    jobId: string,
+    workerId: number,
+    text: string,
+    resolve: (value: number) => void,
+    reject: (reason: Error) => void,
+    operationController: AbortController
+  ): WorkerHandlers {
+    let resolved = false;
+    let timeoutId: NodeJS.Timeout | null = null;
+    const worker = this.workers[workerId];
+    
+    const cleanup = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      worker.removeEventListener('message', messageHandler);
+      worker.removeEventListener('error', errorHandler);
+      operationController.signal.removeEventListener('abort', handleAbort);
+      
+      if (this.activeJobs.has(jobId)) {
+        this.activeJobs.delete(jobId);
+        this.processNextInQueue(workerId);
+      }
+      
+      this.activeOperations.delete(jobId);
+    };
+    
+    const handleResult = (result: number) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve(result);
+    };
+    
+    const messageHandler = (event: MessageEvent) => {
+      if (event.data.id !== jobId) return;
+      
+      const job = this.activeJobs.get(jobId);
+      if (job) {
+        const duration = Date.now() - job.startTime;
+        this.performanceStats.totalProcessed++;
+        this.performanceStats.totalTime += duration;
+      }
+      
+      if (event.data.type === 'ERROR') {
+        console.warn('Worker error, falling back:', event.data.error);
+        handleResult(estimateTokenCount(text));
+      } else if (event.data.type === 'TOKEN_COUNT') {
+        handleResult(event.data.fallback ? estimateTokenCount(text) : event.data.result);
+      }
+    };
+    
+    const errorHandler = (event: ErrorEvent) => {
+      if (resolved) return;
+      console.error('Worker crashed:', event);
+      
+      if (this.shouldRecoverWorker(workerId)) {
+        this.recoverWorker(workerId).catch(error => {
+          console.error(`Failed to recover worker ${workerId}:`, error);
+          this.markWorkerAsFailed(workerId);
+        });
+      } else {
+        this.markWorkerAsFailed(workerId);
+      }
+      
+      handleResult(estimateTokenCount(text));
+    };
+    
+    const handleAbort = () => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    
+    timeoutId = setTimeout(() => {
+      console.warn(`Token counting timeout for worker ${workerId}`);
+      handleResult(estimateTokenCount(text));
+    }, 30_000);
+    
+    return { messageHandler, errorHandler, cleanup };
+  }
+  
+  private setupWorkerListeners(worker: Worker, handlers: WorkerHandlers, signal: AbortSignal): void {
+    const { messageHandler, errorHandler, cleanup } = handlers;
+    worker.addEventListener('message', messageHandler);
+    worker.addEventListener('error', errorHandler);
+    signal.addEventListener('abort', () => cleanup());
+  }
+  
+  private sendWorkerMessage(worker: Worker, jobId: string, text: string, onError: () => void): void {
+    try {
+      worker.postMessage({
+        type: 'COUNT_TOKENS',
+        id: jobId,
+        payload: { text }
+      });
+    } catch (error) {
+      console.error('Failed to send message to worker:', error);
+      onError();
+    }
+  }
+  
   async countTokensBatch(texts: string[], options?: { signal?: AbortSignal }): Promise<number[]> {
     // Fast path for recycling state or job acceptance disabled
-    if (!this.acceptingJobs) {
+    if (!this.acceptingJobs || this.preparingForShutdown) {
       return texts.map(text => estimateTokenCount(text));
     }
     
@@ -719,114 +797,140 @@ export class TokenWorkerPool {
     return this.recycleWorkers();
   }
   
-  private async recycleWorkers() {
-    // Atomically set both flags to prevent race conditions
+  private async acquireRecyclingLock(): Promise<void> {
     if (this.recyclingLock) {
-      // Already recycling, wait for completion
-      while (this.recyclingLock) {
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
-      return;
+      await this.waitForRecyclingCompletion();
     }
-    
-    // Atomically stop accepting new jobs and set recycling state
-    // Using a single atomic operation to prevent race conditions
+  }
+  
+  private async waitForRecyclingCompletion(): Promise<void> {
+    while (this.recyclingLock) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+  
+  private enterShutdownState(): boolean {
     const previousAcceptingState = this.acceptingJobs;
+    this.preparingForShutdown = true;
     this.acceptingJobs = false;
     this.recyclingLock = true;
     this.isRecycling = true;
+    return previousAcceptingState;
+  }
+  
+  private exitShutdownState(acceptingJobs: boolean): void {
+    this.preparingForShutdown = false;
+    this.isRecycling = false;
+    this.recyclingLock = false;
+    if (!this.isTerminated && acceptingJobs) {
+      this.acceptingJobs = true;
+    }
+  }
+  
+  private async drainQueue(): Promise<void> {
+    while (this.queue.length > 0) {
+      const item = this.queue.shift();
+      if (item) {
+        item.resolve(estimateTokenCount(item.text));
+      }
+    }
+  }
+  
+  private async waitForActiveJobs(maxWaitTime: number): Promise<void> {
+    const startWait = Date.now();
+    let lastJobCount = this.activeJobs.size;
+    let stableIterations = 0;
+    const requiredStableIterations = 3;
     
-    // Double-check that no new jobs were added during state transition
+    while (this.activeJobs.size > 0 && Date.now() - startWait < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (this.activeJobs.size === lastJobCount) {
+        stableIterations++;
+      } else {
+        console.warn(`New job detected during recycling: ${this.activeJobs.size} jobs (was ${lastJobCount})`);
+        stableIterations = 0;
+        lastJobCount = this.activeJobs.size;
+      }
+      
+      if (stableIterations >= requiredStableIterations && this.activeJobs.size === 0) {
+        break;
+      }
+    }
+    
+    if (this.activeJobs.size > 0) {
+      await this.forceResolveActiveJobs();
+    }
+  }
+  
+  private async forceResolveActiveJobs(): Promise<void> {
+    console.warn(`Force clearing ${this.activeJobs.size} stuck jobs during recycling`);
+    
+    const stuckJobs = new Map(this.activeJobs);
+    this.activeJobs.clear();
+    
+    for (const [_jobId, controller] of this.activeOperations) {
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
+    }
+    this.activeOperations.clear();
+    
+    for (const [jobId, job] of stuckJobs) {
+      try {
+        job.resolve(estimateTokenCount(job.text));
+      } catch (error) {
+        console.error(`Failed to resolve stuck job ${jobId}:`, error);
+      }
+    }
+  }
+  
+  private async performFinalSafetyCheck(): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    
+    if (this.activeJobs.size > 0) {
+      console.error(`CRITICAL: ${this.activeJobs.size} jobs were added after shutdown preparation!`);
+      const finalJobs = new Map(this.activeJobs);
+      this.activeJobs.clear();
+      for (const [jobId, job] of finalJobs) {
+        try {
+          job.resolve(estimateTokenCount(job.text));
+        } catch (error) {
+          console.error(`Failed to resolve final job ${jobId}:`, error);
+        }
+      }
+    }
+  }
+  
+  private async terminateAllWorkers(): Promise<void> {
+    this.terminate();
+    this.workers = [];
+    this.workerStatus = [];
+    this.workerReadyStatus = [];
+    this.isTerminated = false;
+  }
+  
+  private async recycleWorkers() {
+    await this.acquireRecyclingLock();
+    if (this.recyclingLock) return;
+    
+    const previousAcceptingState = this.enterShutdownState();
     const jobCountAtStart = this.activeJobs.size;
     
     try {
-      // Process any queued items with fallback
-      while (this.queue.length > 0) {
-        const item = this.queue.shift();
-        if (item) {
-          // Use estimation fallback for queued items during recycling
-          item.resolve(estimateTokenCount(item.text));
-        }
-      }
-      
-      // Wait for active jobs to complete with timeout
-      const maxWaitTime = 10_000; // 10 seconds max wait
-      const startWait = Date.now();
-      
-      // Create a snapshot of active job count to detect if new jobs are added
-      let lastJobCount = this.activeJobs.size;
-      let stableIterations = 0;
-      const requiredStableIterations = 3; // Require 3 consecutive checks with no new jobs
+      await this.drainQueue();
       
       // Verify no jobs were added during initial state change
       if (this.activeJobs.size > jobCountAtStart) {
         console.error(`Race condition detected: jobs added during recycling initialization (${jobCountAtStart} -> ${this.activeJobs.size})`);
       }
       
-      while (this.activeJobs.size > 0 && Date.now() - startWait < maxWaitTime) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Check if job count is stable
-        if (this.activeJobs.size === lastJobCount) {
-          stableIterations++;
-        } else {
-          // New job was added (shouldn't happen with acceptingJobs=false, but defensive)
-          console.warn(`New job detected during recycling: ${this.activeJobs.size} jobs (was ${lastJobCount})`);
-          stableIterations = 0;
-          lastJobCount = this.activeJobs.size;
-        }
-        
-        // If we've had stable job count for required iterations, we can proceed
-        if (stableIterations >= requiredStableIterations && this.activeJobs.size === 0) {
-          break;
-        }
-      }
-      
-      // Force resolve any remaining active jobs with estimation
-      if (this.activeJobs.size > 0) {
-        console.warn(`Force clearing ${this.activeJobs.size} stuck jobs during recycling`);
-        
-        // Create a copy of active jobs to avoid modification during iteration
-        const stuckJobs = new Map(this.activeJobs);
-        
-        // Clear all active jobs atomically
-        this.activeJobs.clear();
-        
-        // Cancel any active operations
-        for (const [jobId, controller] of this.activeOperations) {
-          if (!controller.signal.aborted) {
-            controller.abort();
-          }
-        }
-        this.activeOperations.clear();
-        
-        // Resolve stuck jobs with estimation
-        for (const [jobId, job] of stuckJobs) {
-          try {
-            job.resolve(estimateTokenCount(job.text));
-          } catch (error) {
-            console.error(`Failed to resolve stuck job ${jobId}:`, error);
-          }
-        }
-      }
-      
-      // Terminate and recreate workers
-      this.terminate();
-      this.workers = [];
-      this.workerStatus = [];
-      this.workerReadyStatus = [];
-      this.isTerminated = false;
-      
+      await this.waitForActiveJobs(10_000); // 10 seconds max wait
+      await this.performFinalSafetyCheck();
+      await this.terminateAllWorkers();
       await this.initializeWorkers();
     } finally {
-      // Always clear flags atomically, even if initialization fails
-      this.isRecycling = false;
-      this.recyclingLock = false;
-      // Only restore job acceptance if it was previously enabled
-      // This prevents enabling jobs if the pool was terminated during recycling
-      if (!this.isTerminated && previousAcceptingState) {
-        this.acceptingJobs = true;
-      }
+      this.exitShutdownState(previousAcceptingState);
     }
   }
   
@@ -837,9 +941,9 @@ export class TokenWorkerPool {
       return;
     }
     
-    // Check if pool is being recycled
-    if (this.isRecycling || this.recyclingLock || !this.acceptingJobs) {
-      console.log(`Skipping recovery for worker ${workerId} - pool is recycling`);
+    // Check if pool is being recycled or preparing for shutdown
+    if (this.isRecycling || this.recyclingLock || !this.acceptingJobs || this.preparingForShutdown) {
+      console.log(`Skipping recovery for worker ${workerId} - pool is recycling or shutting down`);
       return;
     }
     
@@ -995,6 +1099,7 @@ export class TokenWorkerPool {
     return {
       isTerminated: this.isTerminated,
       isRecycling: this.isRecycling,
+      preparingForShutdown: this.preparingForShutdown,
       acceptingJobs: this.acceptingJobs,
       activeWorkers,
       totalWorkers: this.workers.length,
@@ -1155,10 +1260,11 @@ export class TokenWorkerPool {
   
   terminate() {
     this.isTerminated = true;
+    this.preparingForShutdown = true;
     this.acceptingJobs = false;
     
     // Abort all active operations
-    for (const [id, controller] of this.activeOperations) {
+    for (const [_id, controller] of this.activeOperations) {
       controller.abort();
     }
     this.activeOperations.clear();

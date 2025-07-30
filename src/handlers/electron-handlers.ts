@@ -171,7 +171,8 @@ interface HandlerParams {
 const createFolderSelectedHandler = (
   params: HandlerParams,
   accumulatedFiles: FileData[],
-  handlerId: string
+  handlerId: string,
+  currentRequestId: { value: string | null }
 ) => {
   let folderSelectionTimeout: NodeJS.Timeout | null = null;
 
@@ -214,11 +215,11 @@ const createFolderSelectedHandler = (
         });
         
         // Generate new request ID
-        currentRequestId = Math.random().toString(36).slice(2, 11);
-        console.log(`[DEBUG] handleFolderSelected sending request-file-list for: "${newPath}" with requestId: ${currentRequestId}`);
+        currentRequestId.value = Math.random().toString(36).slice(2, 11);
+        console.log(`[DEBUG] handleFolderSelected sending request-file-list for: "${newPath}" with requestId: ${currentRequestId.value}`);
         // Clear accumulated files when starting a new request
         accumulatedFiles.length = 0;
-        window.electron.ipcRenderer.send("request-file-list", newPath, [], currentRequestId);
+        window.electron.ipcRenderer.send("request-file-list", newPath, [], currentRequestId.value);
       } catch (error) {
         const appError = error instanceof ApplicationError 
           ? error 
@@ -288,13 +289,14 @@ export const setupElectronHandlers = (
   let accumulatedFiles: FileData[] = [];
   
   // Track current request ID to filter out stale responses
-  let currentRequestId: string | null = null;
+  const currentRequestId = { value: null as string | null };
   
-  const handleFolderSelected = createFolderSelectedHandler(params, accumulatedFiles, handlerId);
+  const handleFolderSelected = createFolderSelectedHandler(params, accumulatedFiles, handlerId, currentRequestId);
   
   // Helper function to process file data based on format
   const processFileData = (
-    data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number; requestId?: string } | FileData[]
+    data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number; requestId?: string } | FileData[],
+    currentRequestId: { value: string | null }
   ): {
     filesArray: FileData[];
     isComplete: boolean;
@@ -320,8 +322,8 @@ export const setupElectronHandlers = (
     }
 
     // Check if this data is from the current request
-    if ('requestId' in data && data.requestId !== currentRequestId) {
-      console.warn(`[processFileData] Ignoring stale file batch from request ${data.requestId}, current request is ${currentRequestId}`);
+    if ('requestId' in data && data.requestId !== currentRequestId.value) {
+      console.warn(`[processFileData] Ignoring stale file batch from request ${data.requestId}, current request is ${currentRequestId.value}`);
       return {
         filesArray: [],
         isComplete: false,
@@ -332,7 +334,7 @@ export const setupElectronHandlers = (
     }
     
     // Clear accumulated files on first batch of new request
-    if ('requestId' in data && data.requestId === currentRequestId && data.files && data.files.length > 0) {
+    if ('requestId' in data && data.requestId === currentRequestId.value && data.files && data.files.length > 0) {
       // Check if this looks like the first batch (small file count and low processed count)
       if (data.processed && data.processed <= data.files.length && data.processed < 50) {
         console.log(`[processFileData] First batch of new request ${data.requestId}, clearing accumulated files`);
@@ -411,12 +413,13 @@ export const setupElectronHandlers = (
   // Create the file list data handler factory
   const createFileListDataHandler = (
     params: HandlerParams,
-    accumulatedFiles: FileData[]
+    accumulatedFiles: FileData[],
+    currentRequestId: { value: string | null }
   ) => {
     return (data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number } | FileData[]) => {
       window.sessionStorage.setItem('lastFileListUpdate', Date.now().toString());
 
-      const { filesArray, isComplete, processedCount, directoriesCount, totalCount } = processFileData(data);
+      const { filesArray, isComplete, processedCount, directoriesCount, totalCount } = processFileData(data, currentRequestId);
 
       params.setAllFiles(filesArray);
       params.applyFiltersAndSort(filesArray, params.sortOrder, params.searchTerm);
@@ -439,7 +442,7 @@ export const setupElectronHandlers = (
     };
   };
 
-  const handleFileListData = createFileListDataHandler(params, accumulatedFiles);
+  const handleFileListData = createFileListDataHandler(params, accumulatedFiles, currentRequestId);
 
   // Create the processing status handler factory
   const createProcessingStatusHandler = (params: HandlerParams) => {

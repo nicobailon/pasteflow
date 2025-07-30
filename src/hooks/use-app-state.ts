@@ -88,7 +88,6 @@ const useAppState = () => {
   const [headerSaveState, setHeaderSaveState] = useState('idle' as 'idle' | 'saving' | 'success');
   const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null);
   const [currentWorkspace, setCurrentWorkspace] = useState(null as string | null);
-  const [isApplyingWorkspace, setIsApplyingWorkspace] = useState(false);
 
   // Integration with specialized hooks
   const fileSelection = useFileSelectionState(allFiles, selectedFolder);
@@ -101,10 +100,7 @@ const useAppState = () => {
   const clearSelectedFiles = fileSelection.clearSelectedFiles;
   const setSelectionState = fileSelection.setSelectionState;
   const cleanupStaleSelections = fileSelection.cleanupStaleSelections;
-  const setSelectedFiles = fileSelection.setSelectedFiles;
   const selectedFiles = fileSelection.selectedFiles;
-  const updateSelectedFile = fileSelection.updateSelectedFile;
-  const toggleFileSelection = fileSelection.toggleFileSelection;
   
   // Token counter hook - always enabled
   const { countTokens: workerCountTokens, countTokensBatch, isReady: isTokenWorkerReady } = useTokenCounter();
@@ -585,11 +581,11 @@ const useAppState = () => {
 
     if (successful.length > 0) {
       try {
-        const contents = successful.map(item => item.content);
+        const contents = successful.map((item: { path: string; content: string }) => item.content);
         const tokenCounts = await countTokensBatch(contents);
 
         const filePathToTokenCount = new Map(
-          successful.map((item, index) => [item.path, tokenCounts[index]])
+          successful.map((item: { path: string; content: string }, index: number) => [item.path, tokenCounts[index]])
         );
 
         const filePathToResult = new Map(
@@ -606,7 +602,7 @@ const useAppState = () => {
     if (failed.length > 0) {
       setAllFiles((prev: FileData[]) =>
         prev.map((f: FileData) =>
-          failed.some(item => item.path === f.path)
+          failed.some((item: { path: string; error: string }) => item.path === f.path)
             ? { ...f, error: 'Failed to load content', isContentLoaded: false, isCountingTokens: false }
             : f
         )
@@ -882,8 +878,7 @@ const useAppState = () => {
     handleFolderChange,
     applyExpandedNodes,
     applySelectedFiles,
-    applyPrompts,
-    clearSelectedFiles
+    applyPrompts
   ]);
 
   // Store refs to get latest values in handlers
