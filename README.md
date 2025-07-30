@@ -48,8 +48,6 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
   - Selected: Include only the selected files in the tree
   - Selected with Roots: Include selected files with their parent directories
   - Complete: Include the entire directory structure
-- **Apply XML Changes**: Apply code changes to your project directly from XML formatted instructions
-- **Copy with XML Prompt**: Copy selected files with XML formatting instructions for LLMs to generate structured changes
 - **One-Click Copy**: Easily copy file contents with a dedicated copy button for each file
   - Works across all browsers and environments with a robust fallback mechanism
   - Provides visual feedback when content is copied
@@ -208,31 +206,6 @@ Code signing ensures users can install and run the application without security 
 - `docs/` - Documentation
   - `excluded-files.md` - Documentation for the file exclusion feature
 
-## XML Changes Feature
-
-The Apply XML Changes feature allows you to apply code changes to your project directly from XML formatted instructions. This is particularly useful when working with LLMs like ChatGPT that can generate structured changes to your codebase.
-
-### XML Format
-
-```xml
-<changed_files>
-  <file>
-    <file_summary>Brief description of what changed</file_summary>
-    <file_operation>CREATE|UPDATE|DELETE</file_operation>
-    <file_path>relative/path/to/file.ext</file_path>
-    <file_code>
-      // The complete new content for the file (for CREATE or UPDATE operations)
-    </file_code>
-  </file>
-  <!-- Add more file elements as needed for additional changes -->
-</changed_files>
-```
-
-### Operations
-
-- **CREATE**: Create a new file
-- **UPDATE**: Update an existing file
-- **DELETE**: Delete a file
 
 ## Libraries Used
 
@@ -245,7 +218,6 @@ The Apply XML Changes feature allows you to apply code changes to your project d
 - Jest - Testing framework (dev)
 - @testing-library/react - React testing utilities (dev)
 - prettier - Code formatting (dev)
-- @xmldom/xmldom - XML parsing for the Apply Changes feature
 
 ## Customization
 
