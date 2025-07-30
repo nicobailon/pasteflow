@@ -1,12 +1,12 @@
 import { ChevronDown, ChevronUp, Filter, Folder, FolderOpen, RefreshCw, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 import { STORAGE_KEYS } from '../constants';
 import useFileTree from "../hooks/use-file-tree";
 import { SidebarProps, TreeNode } from "../types/file-types";
 
 import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
-import Dropdown, { DropdownOption } from './dropdown';
+import Dropdown, { DropdownOption, DropdownRef } from './dropdown';
 import SearchBar from "./search-bar";
 
 // Custom type for resize events
@@ -15,7 +15,11 @@ type ResizeMouseEvent = {
   clientX: number;
 };
 
-const Sidebar = ({
+export interface SidebarRef {
+  closeSortDropdown: () => void;
+}
+
+const Sidebar = forwardRef<SidebarRef, SidebarProps>(({
   selectedFolder,
   openFolder,
   allFiles,
@@ -35,13 +39,14 @@ const Sidebar = ({
   onViewFile,
   processingStatus,
   loadFileContent,
-}: SidebarProps) => {
+}: SidebarProps, ref) => {
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
   const [treeHeight, setTreeHeight] = useState(600);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const virtualListRef = useRef<VirtualizedTreeHandle>(null);
+  const sortDropdownRef = useRef<DropdownRef>(null);
   
   // Get the current file tree sort order from localStorage
   const [currentSortOption, setCurrentSortOption] = useState(
@@ -57,6 +62,10 @@ const Sidebar = ({
     fileTreeSortOrder: currentSortOption
   });
   
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    closeSortDropdown: () => sortDropdownRef.current?.close()
+  }), []);
 
   // Min and max width constraints
   const MIN_SIDEBAR_WIDTH = 200;
@@ -302,6 +311,8 @@ const Sidebar = ({
    * Delegates to the parent component's toggleFilterModal function.
    */
   const handleToggleFilterModal = useCallback(() => {
+    // Close the sort dropdown before opening modal
+    sortDropdownRef.current?.close();
     toggleFilterModal();
   }, [toggleFilterModal]);
   
@@ -339,6 +350,7 @@ const Sidebar = ({
     <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
       <div className="sidebar-buttons">
         <Dropdown
+          ref={sortDropdownRef}
           options={sortOptions}
           value={currentSortOption}
           onChange={handleFileTreeSortChange}
@@ -457,6 +469,8 @@ const Sidebar = ({
       ></button>
     </div>
   );
-};
+});
+
+Sidebar.displayName = 'Sidebar';
 
 export default Sidebar;

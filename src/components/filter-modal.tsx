@@ -129,7 +129,7 @@ const FilterModal = ({
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal-content filter-modal">
+        <Dialog.Content className="modal-content filter-modal" aria-describedby={undefined}>
           <div className="modal-header">
             <Dialog.Title asChild>
               <h2>File Exclusion Filters</h2>

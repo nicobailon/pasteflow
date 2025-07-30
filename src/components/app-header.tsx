@@ -1,12 +1,12 @@
 import { Archive, Check, Folder, Loader2, Save } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { FileTreeMode } from '../types/file-types';
 import type { AppState } from '../hooks/use-app-state';
 
 import FileTreeToggle from './file-tree-toggle';
 import ThemeToggle from './theme-toggle';
-import WorkspaceDropdown from './workspace-dropdown';
+import WorkspaceDropdown, { WorkspaceDropdownRef } from './workspace-dropdown';
 import WorkspaceModal from './workspace-modal';
 
 interface AppHeaderProps {
@@ -33,8 +33,12 @@ const AppHeader = ({
   appState
 }: AppHeaderProps): JSX.Element => {
   const [localIsWorkspaceModalOpen, setLocalIsWorkspaceModalOpen] = useState(false);
+  const workspaceDropdownRef = useRef<WorkspaceDropdownRef>(null);
   
   const handleWorkspaceToggle = () => {
+    // Close the dropdown when opening modal
+    workspaceDropdownRef.current?.close();
+    
     if (toggleWorkspaceModal) {
       toggleWorkspaceModal();
     } else {
@@ -68,6 +72,7 @@ const AppHeader = ({
         <div className="folder-info">
           <h1 className="app-title">
             <WorkspaceDropdown
+                ref={workspaceDropdownRef}
                 currentWorkspace={currentWorkspace}
                 toggleWorkspaceModal={handleWorkspaceToggle}
                 containerClassName="workspace-dropdown"

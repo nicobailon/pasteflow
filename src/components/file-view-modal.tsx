@@ -1038,7 +1038,7 @@ const FileViewModal = ({
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal-content file-view-modal">
+        <Dialog.Content className="modal-content file-view-modal" aria-describedby={undefined}>
           <div className="file-view-modal-header">
             <Dialog.Title asChild>
               <h2>{file?.name || 'File Viewer'}</h2>
