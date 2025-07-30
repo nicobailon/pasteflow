@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { unstable_batchedUpdates } from 'react-dom';
 
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers } from '../handlers/electron-handlers';
@@ -749,12 +750,18 @@ const useAppState = () => {
     localStorage.setItem(STORAGE_KEYS.EXPANDED_NODES, JSON.stringify(expandedNodesFromWorkspace || {}));
   }, [setExpandedNodes]);
 
-  const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileWithLines[], availableFiles: FileData[]) => {
+  const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileWithLines[], availableFiles: FileData[]): void => {
+    // Clear existing selections
+    clearSelectedFiles();
+    
+    // Deduplicate input files before applying
+    const uniqueFiles = [...new Map(selectedFilesToApply.map(file => [file.path, file])).values()];
+    
     // Create a map of available files for efficient lookup
     const availableFilesMap = new Map(availableFiles.map(f => [f.path, f]));
 
     // Filter the saved selections and restore them with proper line selection data
-    const filesToSelect = (selectedFilesToApply || [])
+    const filesToSelect = uniqueFiles
       .map(savedFile => {
         const availableFile = availableFilesMap.get(savedFile.path);
         if (!availableFile) return null;
@@ -769,10 +776,11 @@ const useAppState = () => {
       })
       .filter((file): file is SelectedFileWithLines => !!file);
 
-    clearSelectedFiles();
     if (filesToSelect.length > 0) {
-      // Use setSelectionState to restore the SelectedFileWithLines objects with line data
-      setSelectionState(filesToSelect);
+      // Batch state updates
+      unstable_batchedUpdates(() => {
+        setSelectionState(filesToSelect);
+      });
     }
   }, [clearSelectedFiles, setSelectionState]);
 

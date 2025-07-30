@@ -1,5 +1,7 @@
 import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
-import { useEffect, useRef, useState, memo, FC } from "react";
+import { useEffect, useRef, useState, memo, FC, useMemo, useCallback } from "react";
+
+import { debounce } from "../utils/debounce";
 
 import { TreeItemProps, TreeNode, SelectedFileWithLines } from "../types/file-types";
 
@@ -499,11 +501,25 @@ const TreeItem = memo(({
     }
   };
 
-  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleTreeItemActions.handleCheckboxChange(
-      e, type, toggleFileSelection, toggleFolderSelection, path, loadFileContent
-    );
-  };
+  // Create debounced toggle function
+  const debouncedToggle = useMemo(
+    () => debounce((filePath: string) => {
+      toggleFileSelection(filePath);
+      if (!state.isContentLoaded && type === "file" && loadFileContent) {
+        loadFileContent(filePath);
+      }
+    }, 100),
+    [toggleFileSelection, loadFileContent, state.isContentLoaded, type]
+  );
+
+  const handleCheckboxChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
+    e.stopPropagation();
+    if (type === "file") {
+      debouncedToggle(path);
+    } else if (type === "directory") {
+      toggleFolderSelection(path, e.target.checked);
+    }
+  }, [type, path, debouncedToggle, toggleFolderSelection]);
 
   const handleToggle = (e: React.MouseEvent | React.KeyboardEvent) => {
     handleTreeItemActions.handleToggle(e, toggleExpanded, id);

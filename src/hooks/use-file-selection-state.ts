@@ -43,9 +43,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   }, [currentWorkspacePath, setSelectedFiles]);
 
   // Function to update a selected file with line selections
-  const updateSelectedFile = useCallback((updatedFile: SelectedFileWithLines) => {
+  const updateSelectedFile = useCallback((updatedFile: SelectedFileWithLines): void => {
     setSelectedFiles(prev => {
-      // Check if this file is already in the selection
       const existingIndex = prev.findIndex(f => f.path === updatedFile.path);
       
       if (existingIndex >= 0) {
@@ -68,10 +67,16 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         }
         
         return newSelection;
-      } else {
-        // Add new file to selection
-        return [...prev, updatedFile];
       }
+      
+      // Prevent adding duplicates
+      if (prev.some(f => f.path === updatedFile.path)) {
+        console.warn(`Prevented duplicate in updateSelectedFile: ${updatedFile.path}`);
+        return prev;
+      }
+      
+      // Add new file
+      return [...prev, updatedFile];
     });
   }, [setSelectedFiles]);
 
@@ -83,12 +88,23 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   // Toggle file selection
   const toggleFileSelection = useCallback((filePath: string): void => {
     setSelectedFiles((prev) => {
+      // Use functional update to ensure we have latest state
       const existingIndex = prev.findIndex((f) => f.path === filePath);
+      
       if (existingIndex >= 0) {
+        // File exists - remove it
         return prev.filter((f) => f.path !== filePath);
       }
+      
+      // Double-check to prevent race condition duplicates
+      if (prev.some(f => f.path === filePath)) {
+        console.warn(`Prevented duplicate addition of file: ${filePath}`);
+        return prev;
+      }
+      
       const fileData = allFiles.find((f) => f.path === filePath);
       if (!fileData) return prev;
+      
       const newFile: SelectedFileWithLines = {
         path: filePath,
         isFullFile: true,
@@ -96,7 +112,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         content: fileData.content,
         tokenCount: fileData.tokenCount
       };
-      // Note: loadFileContent will be provided as a prop when this hook is used
+      
       return [...prev, newFile];
     });
   }, [allFiles, setSelectedFiles]);
@@ -226,9 +242,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const getSelectionState = () => selectedFiles;
 
   // Set the selection state from a workspace
-  const setSelectionState = (state: SelectedFileWithLines[]) => {
-    setSelectedFiles(state);
-  };
+  const setSelectionState = useCallback((files: SelectedFileWithLines[]): void => {
+    // Deduplicate files by path before setting
+    const uniqueFiles = [...new Map(files.map(file => [file.path, file])).values()];
+    setSelectedFiles(uniqueFiles);
+  }, [setSelectedFiles]);
 
   return {
     selectedFiles,
