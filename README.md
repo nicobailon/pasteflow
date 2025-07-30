@@ -18,11 +18,12 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
   - Store commonly used instructions as system prompts
   - Select multiple system prompts to include with your code
   - Track token usage of system prompts
-- **Advanced Sorting Options**: Sort files by name, size, token count, extension, or date with the following capabilities:
+- **Advanced Sorting Options**: Sort files by name, size, token count, or extension with the following capabilities:
   - Priority-based sorting for directories and files
   - Natural sorting for filenames
   - Option to sort directories first
   - Multiple sorting criteria in a single view
+  - Note: Date sorting is planned but not yet implemented
 - **File Tree Refresh**: Quickly refresh the file tree to reflect changes made outside the app, perfect for when you:
   - Make changes to files using external editors
   - Add or delete files through other applications
@@ -48,8 +49,6 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
   - Selected: Include only the selected files in the tree
   - Selected with Roots: Include selected files with their parent directories
   - Complete: Include the entire directory structure
-- **Apply XML Changes**: Apply code changes to your project directly from XML formatted instructions
-- **Copy with XML Prompt**: Copy selected files with XML formatting instructions for LLMs to generate structured changes
 - **One-Click Copy**: Easily copy file contents with a dedicated copy button for each file
   - Works across all browsers and environments with a robust fallback mechanism
   - Provides visual feedback when content is copied
@@ -63,7 +62,7 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
   - Visual feedback during file tree building and processing operations
   - Concurrent handling of multiple loading states
 - **Token Estimation for Prompts**: Detailed token counting for all content components
-  - Real-time token estimation for user instructions
+  - Token counting for system prompts
   - Dynamic token counts for different file tree modes
   - Accurate representation of context consumption for AI models
 - **Batch Processing**: Directory contents are processed in batches to prevent UI freezing
@@ -74,27 +73,6 @@ Originally forked from PasteFlow, this enhanced version eliminates friction in t
   - Clears all selections, files, and application state
   - Returns to welcome screen with a fresh start
   - Perfect for switching between projects
-
-## Features in Latest Updates
-
-- **Lazy Content Loading**: Implemented on-demand file content loading to significantly improve performance with large codebases
-- **Enhanced Binary Detection**: Improved detection of binary files using both extension analysis and content inspection
-- **GitIgnore-based File Filtering**: Added smart file exclusion based on common .gitignore patterns
-- **Batch Directory Processing**: Implemented batch processing of directories to improve UI responsiveness
-- **Loading Indicators**: Added visual feedback for file loading operations
-- **Cancellation Support**: Added support for cancelling file loading operations when switching contexts
-- **Workspace Reset**: Added ability to reset to a blank workspace state
-- **System Prompts**: Added ability to create and manage reusable system prompts that can be included with code selections
-- **Enhanced Selection Control**: Added the ability to toggle specific line ranges within selected files
-- **Improved Token Counting**: Enhanced token calculations to include system prompts in the total count
-- **Enhanced Clipboard Compatibility**: Added fallback mechanism to ensure the copy functionality works across all environments, including those without navigator.clipboard support
-- **Advanced Pattern Validation**: Improved validation in the FilterModal for complex exclusion patterns to prevent performance issues
-- **Optimized Cache Management**: Enhanced cache invalidation in the file tree management to ensure consistent performance during sorting operations
-- **Code Optimization**: Replaced console logging with proper null operations for cleaner code execution
-- **Dependency Classification**: Properly categorized dependencies for development versus runtime to optimize bundle size
-- **Path Utilities Refactoring**: Introduced new path utilities for consistent path normalization and relative path calculations
-- **Sidebar Loading Enhancement**: Consolidated processing status and tree building completion states for smoother user experience
-- **Token Estimation Improvements**: Added comprehensive token estimation for user instructions and different file tree modes
 
 ## Installation
 
@@ -121,7 +99,7 @@ npm install
 
 ```
 npm run build-electron
-npm run dist
+npm run package
 ```
 
 ## Development
@@ -173,7 +151,12 @@ To build the application for production:
 npm run build-electron
 
 # Create platform-specific distributables
-npm run dist
+npm run package
+
+# Or for specific platforms:
+npm run package:mac    # macOS
+npm run package:win    # Windows
+npm run package:linux  # Linux
 ```
 
 ### Code Signing
@@ -188,64 +171,60 @@ Code signing ensures users can install and run the application without security 
 ## Project Structure
 
 - `src/` - React application source code
-  - `components/` - React components
-    - `CopyButton/` - Component for copying content to clipboard
-    - `FilterModal/` - Component for managing file exclusion patterns
-    - `FileTreeToggle/` - Component for file tree structure options
+  - `components/` - React components (kebab-case files)
+    - `copy-button.tsx` - Component for copying content to clipboard
+    - `filter-modal.tsx` - Component for managing file exclusion patterns
+    - `file-tree-toggle.tsx` - Component for file tree structure options
+    - `sidebar.tsx`, `content-area.tsx`, `file-card.tsx` - Core UI components
+  - `hooks/` - Custom React hooks
+    - `use-app-state.ts` - Central application state management
+    - `use-file-tree.ts` - File tree management and sorting
+    - `use-local-storage.ts` - Enhanced localStorage hook with type safety
+    - `use-file-selection-state.ts` - File selection with line ranges
+    - `use-workspace-state.ts` - Workspace persistence
   - `types/` - TypeScript type definitions
   - `styles/` - CSS styles
   - `utils/` - Utility functions
-    - `useFileTree/` - Custom hook for file tree management and sorting
-    - `useLocalStorage/` - Enhanced localStorage hook with type safety
-    - `pathUtils/` - Utilities for path handling and normalization
-    - `file-processing.ts` - File processing and binary detection utilities
-    - `ignore-utils.ts` - GitIgnore pattern handling utilities
-    - `ui-utils.ts` - UI state management utilities
+    - `path-utils.ts` - Path handling and normalization
+    - `file-processing.ts` - File processing and binary detection
+    - `ignore-utils.ts` - GitIgnore pattern handling
+    - `ui-utils.ts` - UI state management
+    - `token-utils.ts` - Token counting utilities
+    - `sort-utils.ts` - File sorting algorithms
+  - `handlers/` - Electron IPC handlers
+  - `context/` - React context providers
+  - `security/` - Path validation utilities
+  - `workers/` - Web workers for token counting
+  - `constants/` - Application constants
   - `__tests__/` - Unit tests
 - `main.js` - Electron main process
 - `build.js` - Build script for production
 - `excluded-files.js` - Configuration for files to exclude by default
-- `docs/` - Documentation
-  - `excluded-files.md` - Documentation for the file exclusion feature
 
-## XML Changes Feature
-
-The Apply XML Changes feature allows you to apply code changes to your project directly from XML formatted instructions. This is particularly useful when working with LLMs like ChatGPT that can generate structured changes to your codebase.
-
-### XML Format
-
-```xml
-<changed_files>
-  <file>
-    <file_summary>Brief description of what changed</file_summary>
-    <file_operation>CREATE|UPDATE|DELETE</file_operation>
-    <file_path>relative/path/to/file.ext</file_path>
-    <file_code>
-      // The complete new content for the file (for CREATE or UPDATE operations)
-    </file_code>
-  </file>
-  <!-- Add more file elements as needed for additional changes -->
-</changed_files>
-```
-
-### Operations
-
-- **CREATE**: Create a new file
-- **UPDATE**: Update an existing file
-- **DELETE**: Delete a file
 
 ## Libraries Used
 
-- Electron - Desktop application framework
-- React - UI library
-- TypeScript - Type safety
-- Vite - Build tool and development server
-- tiktoken - Token counting for LLM context estimation
-- ignore - .gitignore-style pattern matching for file exclusions
-- Jest - Testing framework (dev)
-- @testing-library/react - React testing utilities (dev)
-- prettier - Code formatting (dev)
-- @xmldom/xmldom - XML parsing for the Apply Changes feature
+### Runtime Dependencies
+- React (^18.2.0) - UI library
+- React DOM (^18.2.0) - React rendering
+- tiktoken (^1.0.20) - Token counting for LLM context estimation
+- ignore (^7.0.3) - .gitignore-style pattern matching for file exclusions
+- @xmldom/xmldom (^0.9.6) - XML parsing for diff application
+- gpt-3-encoder (^1.1.4) - Additional token counting support
+- jotai (^2.12.3) - State management
+- lucide-react (^0.477.0) - Icon library
+- react-syntax-highlighter (^15.6.1) - Code syntax highlighting
+- react-window (^1.8.11) - Virtualization for performance
+
+### Development Dependencies
+- Electron (^34.3.0) - Desktop application framework
+- TypeScript (^5.3.3) - Type safety
+- Vite (^5.0.8) - Build tool and development server
+- Jest (^29.7.0) - Testing framework
+- @testing-library/react (^14.2.1) - React testing utilities
+- prettier (^2.8.8) - Code formatting
+- electron-builder (^24.13.3) - Application packaging
+- eslint - Code linting and quality
 
 ## Customization
 
@@ -298,6 +277,36 @@ This is caused by dependencies not being properly included in the package. To fi
 
 3. Install the new version
 
+### Common Issues
+
+#### "Cannot find module 'tiktoken'" error
+
+Similar to the 'ignore' module error, tiktoken may fail to load. Follow the same fix-dependencies process:
+
+```
+node scripts/fix-dependencies.js
+npm run build-electron && npm run package
+```
+
+#### Verifying Build Integrity
+
+If you encounter packaging or module loading issues:
+
+```
+# Verify the build is correctly packaged
+npm run verify-build
+
+# Test the local build
+npm run test-build
+```
+
+#### Platform-Specific Paths
+
+The module loading errors may show different paths depending on your platform:
+- **macOS**: `/Applications/PasteFlow.app/Contents/Resources/app.asar/main.js`
+- **Windows**: `C:\Program Files\PasteFlow\resources\app.asar\main.js`
+- **Linux**: `/opt/PasteFlow/resources/app.asar/main.js`
+
 ### Other Issues
 
-For assistance with other issues, please contact our support team.
+For assistance with other issues, please open an issue on the GitHub repository.
