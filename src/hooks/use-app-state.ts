@@ -327,15 +327,9 @@ const useAppState = () => {
       )
     );
     
-    if (isLoading) {
-      fileSelection.updateSelectedFile({
-        path: filePath,
-        isFullFile: true,
-        isContentLoaded: false,
-        isCountingTokens: true
-      });
-    }
-  }, [setAllFiles, fileSelection]);
+    // Removed automatic file selection when loading content
+    // Files should only be selected via explicit user action (checkbox or Apply in modal)
+  }, [setAllFiles]);
 
   // Helper function to process token counting
   const processFileTokens = useCallback(async (
@@ -382,14 +376,20 @@ const useAppState = () => {
       )
     );
     
-    fileSelection.updateSelectedFile({
-      path: filePath,
-      content,
-      tokenCount,
-      isFullFile: true,
-      isContentLoaded: true,
-      isCountingTokens: false
-    });
+    // Only update selected file if it's already in the selection
+    // This prevents auto-selecting files when just viewing them
+    const existingSelectedFile = fileSelection.findSelectedFile(filePath);
+    if (existingSelectedFile) {
+      fileSelection.updateSelectedFile({
+        path: filePath,
+        content,
+        tokenCount,
+        isFullFile: existingSelectedFile.isFullFile,
+        lines: existingSelectedFile.lines,
+        isContentLoaded: true,
+        isCountingTokens: false
+      });
+    }
   }, [setAllFiles, fileSelection]);
 
   // Helper function to handle cached content
@@ -507,14 +507,20 @@ const useAppState = () => {
 
         if (result?.success && result.content !== undefined && tokenCount !== undefined) {
           fileContentCache.set(f.path, result.content, tokenCount);
-          fileSelection.updateSelectedFile({
-            path: f.path,
-            content: result.content,
-            tokenCount,
-            isFullFile: true,
-            isContentLoaded: true,
-            isCountingTokens: false
-          });
+          
+          // Only update selected file if it's already in the selection
+          const existingSelectedFile = fileSelection.findSelectedFile(f.path);
+          if (existingSelectedFile) {
+            fileSelection.updateSelectedFile({
+              path: f.path,
+              content: result.content,
+              tokenCount,
+              isFullFile: existingSelectedFile.isFullFile,
+              lines: existingSelectedFile.lines,
+              isContentLoaded: true,
+              isCountingTokens: false
+            });
+          }
 
           return {
             ...f,

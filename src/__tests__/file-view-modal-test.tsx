@@ -1,61 +1,13 @@
+import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-
 import '@testing-library/jest-dom';
 import { FileData, FileViewModalProps, SelectedFileWithLines } from '../types/file-types';
-
-// Mock the Radix Dialog components
-jest.mock('@radix-ui/react-dialog', () => {
-  const mockOnOpenChange = jest.fn();
-  
-  return {
-    __esModule: true,
-    Root: ({ open, onOpenChange, children }: any) => {
-      // Store the onOpenChange callback for use in the Close component
-      if (onOpenChange) {
-        mockOnOpenChange.mockImplementation(onOpenChange);
-      }
-      if (!open) return null;
-      return <div data-testid="dialog-root">{children}</div>;
-    },
-    Portal: ({ children }: any) => <div data-testid="dialog-portal">{children}</div>,
-    Overlay: () => <div data-testid="dialog-overlay" />,
-    Content: ({ children, className }: any) => (
-      <div data-testid="modal" aria-modal="true" className={className}>
-        {children}
-      </div>
-    ),
-    Title: ({ asChild, children }: any) => (
-      <div data-testid="dialog-title">{asChild ? children : <h2>{children}</h2>}</div>
-    ),
-    Description: ({ children }: any) => <div data-testid="dialog-description">{children}</div>,
-    Close: ({ asChild, children }: any) => (
-      <div data-testid="dialog-close" onClick={() => mockOnOpenChange(false)}>
-        {asChild ? children : <button>{children}</button>}
-      </div>
-    )
-  };
-});
+import FileViewModal from '../components/file-view-modal';
 
 // Mock the ThemeContext
 jest.mock('../context/theme-context', () => ({
   useTheme: () => ({ currentTheme: 'light' }),
 }));
-
-// Mock SyntaxHighlighter
-jest.mock('react-syntax-highlighter', () => ({
-  Prism: ({ children }: any) => <pre data-testid="syntax-highlighter">{children}</pre>,
-}));
-
-// Mock styles
-jest.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
-  oneDark: {},
-  oneLight: {},
-}));
-
-// Using shared lucide-react mock from jest.config.js
-
-// Now import FileViewModal after mocking
-import FileViewModal from '../components/file-view-modal';
 
 describe('FileViewModal Component', () => {
   // Test data
@@ -95,29 +47,36 @@ describe('FileViewModal Component', () => {
   it('renders correctly when open', () => {
     render(<FileViewModal {...defaultProps} />);
     
-    expect(screen.getByTestId('modal')).toBeInTheDocument();
+    // Check for modal presence by looking for the dialog
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
     // File name should be in the title
     expect(screen.getByText('test.js')).toBeInTheDocument();
     // File content should be displayed
     expect(screen.getByText(/const test = "Hello World";/)).toBeInTheDocument();
-    // Apply and Cancel buttons should be present
-    expect(screen.getByText('Apply')).toBeInTheDocument();
+    // In view-only mode (default), the button says "Close" instead of "Apply"
+    expect(screen.getByText('Close')).toBeInTheDocument();
     expect(screen.getByText('Cancel')).toBeInTheDocument();
   });
   
   it('does not render when closed', () => {
     render(<FileViewModal {...{ ...defaultProps, isOpen: false }} />);
     
-    expect(screen.queryByTestId('modal')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // Verify no content is rendered when modal is closed
+    expect(screen.queryByText('test.js')).not.toBeInTheDocument();
   });
   
   it('calls onClose when close button is clicked', () => {
     render(<FileViewModal {...defaultProps} />);
     
-    const closeButton = screen.getByText('×');
-    fireEvent.click(closeButton);
+    // Get the close button in the header (not the apply button)
+    const buttons = screen.getAllByTitle('Close');
+    // The first button with title "Close" is the X button in the header
+    fireEvent.click(buttons[0]);
     
     expect(mockOnClose).toHaveBeenCalledTimes(1);
+    // Verify other handlers were not called
+    expect(mockOnUpdateSelectedFile).not.toHaveBeenCalled();
   });
   
   it('calls onClose when cancel button is clicked', () => {
@@ -127,38 +86,45 @@ describe('FileViewModal Component', () => {
     fireEvent.click(cancelButton);
     
     expect(mockOnClose).toHaveBeenCalledTimes(1);
+    // Verify onUpdateSelectedFile was not called when canceling
+    expect(mockOnUpdateSelectedFile).not.toHaveBeenCalled();
   });
   
-  it('defaults to entire file selection mode', () => {
+  it('defaults to view only mode when no file is selected', () => {
     render(<FileViewModal {...defaultProps} />);
     
-    // Find the radio button for entire file mode (default)
-    const entireFileRadio = screen.getByRole('radio', { name: /entire file/i });
-    expect(entireFileRadio).toBeInTheDocument();
-    expect(entireFileRadio).toHaveAttribute('checked');
+    // Find the radio button for view only mode (default)
+    const viewOnlyRadio = screen.getByRole('radio', { name: /view only/i });
+    expect(viewOnlyRadio).toBeInTheDocument();
+    expect(viewOnlyRadio).toBeChecked();
     
-    // Check that the specific lines radio exists but is not checked
-    const specificLinesRadio = screen.getByRole('radio', { name: /specific lines/i });
+    // Check that the other radios exist but are not checked
+    const entireFileRadio = screen.getByRole('radio', { name: /select entire file/i });
+    expect(entireFileRadio).toBeInTheDocument();
+    expect(entireFileRadio).not.toBeChecked();
+    
+    const specificLinesRadio = screen.getByRole('radio', { name: /select specific lines/i });
     expect(specificLinesRadio).toBeInTheDocument();
-    expect(specificLinesRadio).not.toHaveAttribute('checked');
+    expect(specificLinesRadio).not.toBeChecked();
     
     // Verify selection mode labels are present
-    expect(screen.getByText('Entire file')).toBeInTheDocument();
-    expect(screen.getByText('Specific lines')).toBeInTheDocument();
+    expect(screen.getByText('View only')).toBeInTheDocument();
+    expect(screen.getByText('Select entire file')).toBeInTheDocument();
+    expect(screen.getByText('Select specific lines')).toBeInTheDocument();
     
-    // Verify selection display shows entire file
-    expect(screen.getByText('Selection: Entire file')).toBeInTheDocument();
+    // Verify selection display shows view only mode
+    expect(screen.getByText('Viewing file (no selection)')).toBeInTheDocument();
   });
   
   it('switches to specific lines mode when radio is clicked', () => {
     render(<FileViewModal {...defaultProps} />);
     
-    // Initially in entire file mode by default
-    const entireFileRadio = screen.getByRole('radio', { name: /entire file/i });
-    expect(entireFileRadio).toHaveAttribute('checked');
+    // Initially in view only mode by default
+    const viewOnlyRadio = screen.getByRole('radio', { name: /view only/i });
+    expect(viewOnlyRadio).toBeChecked();
     
-    // Selection should initially show entire file
-    expect(screen.getByText('Selection: Entire file')).toBeInTheDocument();
+    // Selection should initially show view only
+    expect(screen.getByText('Viewing file (no selection)')).toBeInTheDocument();
     
     // Click to switch to specific lines mode
     const specificLinesRadio = screen.getByRole('radio', { name: /specific lines/i });
@@ -180,7 +146,7 @@ describe('FileViewModal Component', () => {
     render(<FileViewModal {...defaultProps} />);
     
     // Switch to specific lines mode
-    const specificLinesRadio = screen.getByLabelText('Specific lines');
+    const specificLinesRadio = screen.getByRole('radio', { name: /select specific lines/i });
     fireEvent.click(specificLinesRadio);
     
     // Now should see the selection tools
@@ -205,26 +171,23 @@ describe('FileViewModal Component', () => {
       expect.objectContaining({
         path: '/path/to/test.js',
         content: testFile.content,
-        isFullFile: true
+        isFullFile: true,
+        tokenCount: expect.any(Number)
       })
     );
     
     // Check that onClose was called
     expect(mockOnClose).toHaveBeenCalled();
     
-    // Verify token count is calculated correctly
-    expect(mockOnUpdateSelectedFile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tokenCount: expect.any(Number)
-      })
-    );
+    // Verify the handler was called exactly once
+    expect(mockOnUpdateSelectedFile).toHaveBeenCalledTimes(1);
   });
   
   it('selects all lines when "Select All" button is clicked', () => {
     render(<FileViewModal {...defaultProps} />);
     
     // Switch to specific lines mode
-    const specificLinesRadio = screen.getByLabelText('Specific lines');
+    const specificLinesRadio = screen.getByRole('radio', { name: /select specific lines/i });
     fireEvent.click(specificLinesRadio);
     
     // Click "Select All" button
@@ -252,7 +215,7 @@ describe('FileViewModal Component', () => {
     render(<FileViewModal {...defaultProps} />);
     
     // Switch to specific lines mode
-    const specificLinesRadio = screen.getByLabelText('Specific lines');
+    const specificLinesRadio = screen.getByRole('radio', { name: /select specific lines/i });
     fireEvent.click(specificLinesRadio);
     
     // Select all lines first
@@ -281,9 +244,13 @@ describe('FileViewModal Component', () => {
     
     render(<FileViewModal {...defaultProps} selectedFile={selectedFile} />);
     
-    // Should be in specific lines mode
-    const specificLinesRadio = screen.getByRole('radio', { name: /specific lines/i });
-    expect(specificLinesRadio).toBeChecked();
+    // Should start in view only mode even with pre-selected lines
+    const viewOnlyRadio = screen.getByRole('radio', { name: /view only/i });
+    expect(viewOnlyRadio).toBeChecked();
+    
+    // Switch to specific lines mode to see the pre-selected lines
+    const specificLinesRadio = screen.getByRole('radio', { name: /select specific lines/i });
+    fireEvent.click(specificLinesRadio);
     
     // Should show the selected lines in the selection display
     expect(screen.getByText('Selection: Lines 2-3')).toBeInTheDocument();
@@ -313,9 +280,14 @@ describe('FileViewModal Component', () => {
     
     render(<FileViewModal {...defaultProps} selectedFile={selectedFile} />);
     
-    // Should be in entire file mode
-    const entireFileRadio = screen.getByLabelText('Entire file');
-    expect(entireFileRadio).toHaveAttribute('checked');
+    // Should start in view only mode by default
+    const viewOnlyRadio = screen.getByRole('radio', { name: /view only/i });
+    expect(viewOnlyRadio).toBeChecked();
+    
+    // But when we switch to entire file mode, it should be selected
+    const entireFileRadio = screen.getByRole('radio', { name: /select entire file/i });
+    fireEvent.click(entireFileRadio);
+    expect(entireFileRadio).toBeChecked();
   });
   
   it('shows "Reset" button when there was a previous selection', () => {
@@ -328,6 +300,10 @@ describe('FileViewModal Component', () => {
     };
     
     render(<FileViewModal {...defaultProps} selectedFile={selectedFile} />);
+    
+    // First switch to specific lines mode to see the Reset button
+    const specificLinesRadio = screen.getByRole('radio', { name: /select specific lines/i });
+    fireEvent.click(specificLinesRadio);
     
     // Should show Reset button
     expect(screen.getByText('Reset')).toBeInTheDocument();
@@ -360,13 +336,13 @@ describe('FileViewModal Component', () => {
     );
     
     // Should render without errors
-    expect(screen.getByTestId('modal')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
     
-    // Apply button should still work (we'll just check that it doesn't error)
-    const applyButton = screen.getByText('Apply');
-    fireEvent.click(applyButton);
+    // In view-only mode, the button says "Close"
+    const closeButton = screen.getByText('Close');
+    fireEvent.click(closeButton);
     
-    // Verify it was called
-    expect(mockOnUpdateSelectedFile).toHaveBeenCalled();
+    // Verify onClose was called
+    expect(mockOnClose).toHaveBeenCalled();
   });
 }); 

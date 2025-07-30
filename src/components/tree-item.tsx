@@ -1,5 +1,5 @@
 import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
-import { useEffect, useRef, useState, memo, FC, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, memo, useMemo, useCallback } from "react";
 
 import { debounce } from "../utils/debounce";
 
@@ -85,17 +85,13 @@ const handleTreeItemActions = {
   
   handleItemClick: (
     type: "file" | "directory", 
-    isDisabled: boolean, 
     toggleExpanded: (id: string) => void, 
-    toggleFileSelection: (path: string) => void, 
-    id: string, 
-    path: string
+    id: string
   ) => {
     if (type === "directory") {
       toggleExpanded(id);
-    } else if (type === "file" && !isDisabled) {
-      toggleFileSelection(path);
     }
+    // Removed automatic file selection - files should only be selected via checkbox
   },
   
   handleFileNameClick: (
@@ -106,6 +102,7 @@ const handleTreeItemActions = {
     path: string
   ) => {
     e.stopPropagation();
+    e.preventDefault();
     if (type === "file" && !isDisabled && onViewFile) {
       onViewFile(path);
     }
@@ -138,7 +135,7 @@ interface TreeItemToggleProps {
   onToggle: (e: React.MouseEvent | React.KeyboardEvent) => void;
 }
 
-const TreeItemToggle: FC<TreeItemToggleProps> = ({ isExpanded, onToggle }) => (
+const TreeItemToggle = ({ isExpanded, onToggle }: TreeItemToggleProps) => (
   <div
     className={`tree-item-toggle ${isExpanded ? "expanded" : ""}`}
     onClick={onToggle}
@@ -164,13 +161,13 @@ interface TreeItemCheckboxProps {
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-const TreeItemCheckbox: FC<TreeItemCheckboxProps> = ({ 
+const TreeItemCheckbox = ({ 
   checked, 
   indeterminate, 
   disabled, 
   onChange 
-}) => {
-  const checkboxRef = useRef<HTMLInputElement>(null);
+}: TreeItemCheckboxProps) => {
+  const checkboxRef = useRef(null as HTMLInputElement | null);
   
   useEffect(() => {
     if (checkboxRef.current) {
@@ -200,7 +197,7 @@ interface TreeItemIconProps {
   isExpanded?: boolean;
 }
 
-const TreeItemIcon: FC<TreeItemIconProps> = ({ type, isExpanded }) => {
+const TreeItemIcon = ({ type, isExpanded }: TreeItemIconProps) => {
   const icon = type === "directory" 
     ? (isExpanded ? <FolderOpen size={16} /> : <Folder size={16} />)
     : <File size={16} />;
@@ -218,14 +215,14 @@ interface TreeItemContentProps {
   onNameClick?: (e: React.MouseEvent | React.KeyboardEvent) => void;
 }
 
-const TreeItemContent: FC<TreeItemContentProps> = ({
+const TreeItemContent = ({
   name,
   type,
   isDisabled,
   isPartiallySelected,
   selectedFile,
   onNameClick
-}) => {
+}: TreeItemContentProps) => {
   const getItemClassName = () => {
     return `tree-item-name ${type === "file" && !isDisabled ? "clickable" : ""}`;
   };
@@ -275,14 +272,14 @@ interface TreeItemMetadataProps {
   tokenCount?: number;
 }
 
-const TreeItemMetadata: FC<TreeItemMetadataProps> = ({
+const TreeItemMetadata = ({
   type,
   isLoading,
   isDisabled,
   isExcludedByDefault,
   fileData,
   tokenCount
-}) => {
+}: TreeItemMetadataProps) => {
   const getTokenCountDisplay = () => {
     if (isLoading || fileData?.isCountingTokens) return "Counting...";
     if (tokenCount) return `(~${tokenCount.toLocaleString()})`;
@@ -490,7 +487,7 @@ const TreeItem = memo(({
 
   const handleTreeItemClick = () => {
     handleTreeItemActions.handleItemClick(
-      type, state.isDisabled, toggleExpanded, toggleFileSelection, id, path
+      type, toggleExpanded, id
     );
   };
 
@@ -503,13 +500,15 @@ const TreeItem = memo(({
 
   // Create debounced toggle function
   const debouncedToggle = useMemo(
-    () => debounce((filePath: string) => {
-      toggleFileSelection(filePath);
-      if (!state.isContentLoaded && type === "file" && loadFileContent) {
-        loadFileContent(filePath);
+    () => debounce((filePath: unknown) => {
+      if (typeof filePath === 'string') {
+        toggleFileSelection(filePath);
+        if (!fileData?.isContentLoaded && type === "file" && loadFileContent) {
+          loadFileContent(filePath);
+        }
       }
     }, 100),
-    [toggleFileSelection, loadFileContent, state.isContentLoaded, type]
+    [toggleFileSelection, loadFileContent, fileData?.isContentLoaded, type]
   );
 
   const handleCheckboxChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
@@ -537,8 +536,8 @@ const TreeItem = memo(({
     <div
       className={getTreeItemClassNames()}
       style={{ marginLeft: `${level * 16}px` }}
-      onClick={handleTreeItemClick}
-      onKeyDown={handleTreeItemKeyDown}
+      onClick={type === "directory" ? handleTreeItemClick : (e) => e.stopPropagation()}
+      onKeyDown={type === "directory" ? handleTreeItemKeyDown : (e) => e.stopPropagation()}
       role="button"
       tabIndex={0}
     >
