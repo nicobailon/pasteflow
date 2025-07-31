@@ -1,4 +1,4 @@
-import { FileData, FileTreeMode, RolePrompt, SelectedFileWithLines, SystemPrompt } from "../types/file-types";
+import { FileData, FileTreeMode, RolePrompt, SelectedFileReference, SystemPrompt } from "../types/file-types";
 
 import { generateAsciiFileTree, getAllDirectories, normalizePath } from "./path-utils";
 
@@ -54,11 +54,27 @@ const calculateSelectedLinesTokens = (fileData: FileData, lines: { start: number
  * @param {SelectedFileWithLines[]} selectedFiles - Array of selected files
  * @returns {number} The sum of token counts from all selected files.
  */
-export const calculateTotalTokens = (selectedFiles: SelectedFileWithLines[]): number => {
+export const calculateTotalTokens = (selectedFiles: SelectedFileReference[], allFiles: FileData[]): number => {
+  const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
   let total = 0;
-  for (const file of selectedFiles) {
-    if (file.isContentLoaded && file.tokenCount !== undefined) {
-      total += file.tokenCount;
+  
+  for (const selectedFile of selectedFiles) {
+    const fileData = allFilesMap.get(selectedFile.path);
+    if (fileData && fileData.isContentLoaded && fileData.tokenCount !== undefined) {
+      // If the selection has specific line ranges, we need to calculate token count for those lines
+      if (selectedFile.lines && selectedFile.lines.length > 0) {
+        // This is a simplified calculation - in reality you might want to 
+        // count tokens for the specific line ranges
+        const lines = fileData.content?.split('\n') || [];
+        let selectedContent = '';
+        for (const range of selectedFile.lines) {
+          selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
+        }
+        total += estimateTokenCount(selectedContent);
+      } else {
+        // Full file selected
+        total += fileData.tokenCount;
+      }
     }
   }
   return total;
@@ -73,7 +89,7 @@ export const calculateTotalTokens = (selectedFiles: SelectedFileWithLines[]): nu
  */
 export const calculateFileTreeTokens = (
   allFiles: FileData[],
-  selectedFiles: SelectedFileWithLines[],
+  selectedFiles: SelectedFileReference[],
   selectedFolder: string | null
 ): Record<FileTreeMode, number> => {
   const tokenCounts: Record<FileTreeMode, number> = {
@@ -141,7 +157,7 @@ export const calculateFileTreeTokens = (
  */
 export const getFileTreeModeTokens = (
   allFiles: FileData[],
-  selectedFiles: SelectedFileWithLines[],
+  selectedFiles: SelectedFileReference[],
   selectedFolder: string | null,
   fileTreeMode: FileTreeMode
 ): number => {

@@ -35,6 +35,12 @@ export interface SelectedFileWithLines {
   tokenCountError?: string;  // Error message if token counting failed
 }
 
+// Simplified interface for selected files - single source of truth approach
+export interface SelectedFileReference {
+  path: string;
+  lines?: LineRange[];       // Undefined or empty array means entire file
+}
+
 export interface TreeNode {
   id: string;
   name: string;
@@ -50,7 +56,7 @@ export interface SidebarProps {
   selectedFolder: string | null;
   openFolder: () => void;
   allFiles: FileData[];
-  selectedFiles: SelectedFileWithLines[]; // Updated type
+  selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
   searchTerm: string;
@@ -76,7 +82,7 @@ export interface SidebarProps {
 
 export interface FileListProps {
   files: FileData[];
-  selectedFiles: SelectedFileWithLines[]; // Updated type
+  selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleSelection?: (filePath: string, lineRange?: LineRange) => void;
   openFolder: () => void;
@@ -104,7 +110,7 @@ export interface FileCardProps {
 
 export interface TreeItemProps {
   node: TreeNode;
-  selectedFiles: SelectedFileWithLines[]; // Updated type
+  selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
   toggleExpanded: (path: string) => void;
@@ -155,7 +161,7 @@ export interface FileViewModalProps {
   filePath: string;
   allFiles: FileData[];
   selectedFile: SelectedFileWithLines | undefined;
-  onUpdateSelectedFile: (selectedFile: SelectedFileWithLines) => void;
+  onUpdateSelectedFile: (path: string, lines?: LineRange[]) => void;
   loadFileContent: (filePath: string) => Promise<void>;
 }
 
@@ -228,7 +234,7 @@ export interface InstructionsModalProps {
 export interface WorkspaceState {
   selectedFolder: string | null;
   allFiles: FileData[];
-  selectedFiles: SelectedFileWithLines[];
+  selectedFiles: SelectedFileReference[];
   expandedNodes: Record<string, boolean>;
   sortOrder: string;
   searchTerm: string;

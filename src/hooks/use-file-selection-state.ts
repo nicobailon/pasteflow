@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
-import { FileData, LineRange, SelectedFileWithLines } from '../types/file-types';
+import { FileData, LineRange, SelectedFileReference } from '../types/file-types';
 
 import useLocalStorage from './use-local-storage';
 
@@ -12,7 +12,7 @@ import useLocalStorage from './use-local-storage';
  * @returns {Object} File selection state and functions
  */
 const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: string | null) => {
-  const [selectedFiles, setSelectedFiles] = useLocalStorage<SelectedFileWithLines[]>(
+  const [selectedFiles, setSelectedFiles] = useLocalStorage<SelectedFileReference[]>(
     STORAGE_KEYS.SELECTED_FILES,
     []
   );
@@ -39,44 +39,29 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   }, [currentWorkspacePath, setSelectedFiles]);
 
   // Function to update a selected file with line selections
-  const updateSelectedFile = useCallback((updatedFile: SelectedFileWithLines): void => {
+  const updateSelectedFile = useCallback((path: string, lines?: LineRange[]): void => {
     setSelectedFiles(prev => {
-      const existingIndex = prev.findIndex(f => f.path === updatedFile.path);
+      const existingIndex = prev.findIndex(f => f.path === path);
       
       if (existingIndex >= 0) {
-        // Get the existing file to preserve line selections if not explicitly changed
-        const existingFile = prev[existingIndex];
-        
-        // Update existing file, but preserve line selections if not explicitly changed
+        // Update existing file
         const newSelection = [...prev];
-        
-        // If the update doesn't include line data but the existing file has line data,
-        // and the update is setting isFullFile to true, preserve the line data
-        if (!updatedFile.lines && existingFile.lines && updatedFile.isFullFile) {
-          newSelection[existingIndex] = {
-            ...updatedFile,
-            lines: existingFile.lines,
-            isFullFile: false  // Keep it as partial file selection
-          };
-        } else {
-          newSelection[existingIndex] = updatedFile;
-        }
-        
+        newSelection[existingIndex] = { path, lines };
         return newSelection;
       }
       
       // Prevent adding duplicates
-      if (prev.some(f => f.path === updatedFile.path)) {
+      if (prev.some(f => f.path === path)) {
         return prev;
       }
       
       // Add new file
-      return [...prev, updatedFile];
+      return [...prev, { path, lines }];
     });
   }, [setSelectedFiles]);
 
   // Function to find a selected file by path
-  const findSelectedFile = useCallback((filePath: string): SelectedFileWithLines | undefined => {
+  const findSelectedFile = useCallback((filePath: string): SelectedFileReference | undefined => {
     return selectedFiles.find(f => f.path === filePath);
   }, [selectedFiles]);
 
@@ -99,12 +84,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       const fileData = allFiles.find((f) => f.path === filePath);
       if (!fileData) return prev;
       
-      const newFile: SelectedFileWithLines = {
-        path: filePath,
-        isFullFile: true,
-        isContentLoaded: fileData.isContentLoaded ?? false,
-        content: fileData.content,
-        tokenCount: fileData.tokenCount
+      const newFile: SelectedFileReference = {
+        path: filePath
+        // lines undefined means entire file
       };
       
       return [...prev, newFile];
@@ -113,7 +95,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
   // Toggle selection for a specific line range within a file
   const toggleSelection = useCallback((filePath: string, lineRange?: LineRange) => {
-    setSelectedFiles((prev: SelectedFileWithLines[]) => {
+    setSelectedFiles((prev: SelectedFileReference[]) => {
       // Find the file in the current selection
       const existingIndex = prev.findIndex(f => f.path === filePath);
       
@@ -124,9 +106,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       
       const selectedFile = prev[existingIndex];
       
-      // If no line range is provided or the file is a full file selection, remove the entire file
-      if (!lineRange || selectedFile.isFullFile) {
-        return prev.filter((f: SelectedFileWithLines) => f.path !== filePath);
+      // If no line range is provided or the file has no specific lines (full file), remove the entire file
+      if (!lineRange || !selectedFile.lines) {
+        return prev.filter((f: SelectedFileReference) => f.path !== filePath);
       }
       
       // If line range is provided, only remove that specific range
@@ -136,13 +118,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       
       // If no more lines are selected, remove the entire file
       if (updatedLines.length === 0) {
-        return prev.filter((f: SelectedFileWithLines) => f.path !== filePath);
+        return prev.filter((f: SelectedFileReference) => f.path !== filePath);
       }
       
       // Otherwise, update the file with the remaining line ranges
       const newSelection = [...prev];
       newSelection[existingIndex] = {
-        ...selectedFile,
+        path: selectedFile.path,
         lines: updatedLines
       };
       
@@ -159,7 +141,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
     if (isSelected) {
       // Add all files from this folder that aren't already selected
-      setSelectedFiles((prev: SelectedFileWithLines[]) => {
+      setSelectedFiles((prev: SelectedFileReference[]) => {
         // Convert to Map for faster lookups
         const prevMap = new Map(prev.map(f => [f.path, f]));
         
@@ -167,10 +149,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         for (const file of filesInFolder) {
           if (!prevMap.has(file.path)) {
             prevMap.set(file.path, {
-              path: file.path,
-              content: file.content,
-              tokenCount: file.tokenCount,
-              isFullFile: true
+              path: file.path
+              // lines undefined means entire file
             });
           }
         }
@@ -180,7 +160,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       });
     } else {
       // Remove all files from this folder
-      setSelectedFiles((prev: SelectedFileWithLines[]) => {
+      setSelectedFiles((prev: SelectedFileReference[]) => {
         // Create a Set of paths to remove for faster lookups
         const folderPathsSet = new Set(filesInFolder.map((file: FileData) => file.path));
         
@@ -195,13 +175,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     const selectablePaths = displayedFiles
       .filter((file: FileData) => !file.isBinary && !file.isSkipped)
       .map((file: FileData) => ({
-        path: file.path,
-        content: file.content,
-        tokenCount: file.tokenCount,
-        isFullFile: true
+        path: file.path
+        // lines undefined means entire file
       }));
 
-    setSelectedFiles((prev: SelectedFileWithLines[]) => {
+    setSelectedFiles((prev: SelectedFileReference[]) => {
       // Convert to Map for faster lookups
       const prevMap = new Map(prev.map(f => [f.path, f]));
       
@@ -222,8 +200,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     // Convert displayed paths to a Set for faster lookups
     const displayedPathsSet = new Set(displayedFiles.map((file: FileData) => file.path));
     
-    setSelectedFiles((prev: SelectedFileWithLines[]) =>
-      prev.filter((f: SelectedFileWithLines) => !displayedPathsSet.has(f.path))
+    setSelectedFiles((prev: SelectedFileReference[]) =>
+      prev.filter((f: SelectedFileReference) => !displayedPathsSet.has(f.path))
     );
   }, [setSelectedFiles]);
 
@@ -236,7 +214,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const getSelectionState = () => selectedFiles;
 
   // Set the selection state from a workspace
-  const setSelectionState = useCallback((files: SelectedFileWithLines[]): void => {
+  const setSelectionState = useCallback((files: SelectedFileReference[]): void => {
     // Deduplicate files by path before setting
     const uniqueFiles = [...new Map(files.map(file => [file.path, file])).values()];
     

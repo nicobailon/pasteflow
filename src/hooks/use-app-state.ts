@@ -218,10 +218,28 @@ const useAppState = () => {
 
   // Handle token calculations
   const calculateTotalTokens = useCallback(() => {
-    return fileSelection.selectedFiles.reduce((total, file) => {
-      return total + (file.tokenCount || 0);
+    const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
+    
+    return fileSelection.selectedFiles.reduce((total, selectedFile) => {
+      const fileData = allFilesMap.get(selectedFile.path);
+      if (fileData && fileData.tokenCount) {
+        // If the selection has specific line ranges, estimate token count for those
+        if (selectedFile.lines && selectedFile.lines.length > 0 && fileData.content) {
+          const lines = fileData.content.split('\n');
+          let selectedContent = '';
+          for (const range of selectedFile.lines) {
+            selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
+          }
+          // Simple estimation: ~4 characters per token
+          return total + Math.ceil(selectedContent.length / 4);
+        } else {
+          // Full file selected
+          return total + fileData.tokenCount;
+        }
+      }
+      return total;
     }, 0);
-  }, [fileSelection.selectedFiles]);
+  }, [fileSelection.selectedFiles, allFiles]);
 
   // Open folder dialog
   const openFolder = useCallback(() => {
@@ -394,15 +412,7 @@ const useAppState = () => {
     // This prevents auto-selecting files when just viewing them
     const existingSelectedFile = fileSelection.findSelectedFile(filePath);
     if (existingSelectedFile) {
-      fileSelection.updateSelectedFile({
-        path: filePath,
-        content,
-        tokenCount,
-        isFullFile: existingSelectedFile.isFullFile,
-        lines: existingSelectedFile.lines,
-        isContentLoaded: true,
-        isCountingTokens: false
-      });
+      fileSelection.updateSelectedFile(filePath, existingSelectedFile.lines);
     }
   }, [setAllFiles, fileSelection]);
 
@@ -525,15 +535,7 @@ const useAppState = () => {
           // Only update selected file if it's already in the selection
           const existingSelectedFile = fileSelection.findSelectedFile(f.path);
           if (existingSelectedFile) {
-            fileSelection.updateSelectedFile({
-              path: f.path,
-              content: result.content,
-              tokenCount,
-              isFullFile: existingSelectedFile.isFullFile,
-              lines: existingSelectedFile.lines,
-              isContentLoaded: true,
-              isCountingTokens: false
-            });
+            fileSelection.updateSelectedFile(f.path, existingSelectedFile.lines);
           }
 
           return {
@@ -703,8 +705,10 @@ const useAppState = () => {
       userInstructions: userInstructions,
       tokenCounts: (() => {
         const acc: { [filePath: string]: number } = {};
-        for (const file of fileSelection.selectedFiles) {
-          acc[file.path] = file.tokenCount || 0;
+        const allFilesMap = new Map(allFiles.map(f => [f.path, f]));
+        for (const selectedFile of fileSelection.selectedFiles) {
+          const fileData = allFilesMap.get(selectedFile.path);
+          acc[selectedFile.path] = fileData?.tokenCount || 0;
         }
         return acc;
       })(),

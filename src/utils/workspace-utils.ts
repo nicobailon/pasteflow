@@ -1,4 +1,4 @@
-import { WorkspaceState, SelectedFileWithLines, LineRange , 
+import { WorkspaceState, SelectedFileReference, SelectedFileWithLines, LineRange , 
   LineSelectionValidationResult, 
   FileData,
   LineSelectionChangeEvent,
@@ -23,8 +23,8 @@ export const deserializeWorkspace = (data: string): WorkspaceState => {
   // Ensure line ranges are properly reconstructed
   const workspaceState: WorkspaceState = {
     ...parsed,
-    selectedFiles: parsed.selectedFiles.map((file: SelectedFileWithLines) => ({
-      ...file,
+    selectedFiles: parsed.selectedFiles.map((file: SelectedFileReference) => ({
+      path: file.path,
       lines: file.lines?.map((range: LineRange) => ({
         start: range.start,
         end: range.end
@@ -161,7 +161,7 @@ export function validateWorkspaceSelections(
         : fileData.content,
       tokenCount: calculateTokenCount(fileData.content)
     };
-  }).filter(Boolean) as SelectedFileWithLines[];
+  }).filter(Boolean) as SelectedFileReference[];
 
   return {
     validatedWorkspace: {

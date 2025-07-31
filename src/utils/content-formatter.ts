@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { FileData, FileTreeMode, Instruction, RolePrompt, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
+import { FileData, FileTreeMode, Instruction, RolePrompt, SelectedFileReference, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
 
 import { extname, generateAsciiFileTree, getAllDirectories, getRelativePath, normalizePath } from "./path-utils";
 import { validateLineSelections, extractContentForLines } from './workspace-utils';
@@ -155,13 +155,16 @@ export function processFileContent(
  */
 export const getSelectedFilesContentWithoutInstructions = (
   allFiles: FileData[],
-  selectedFiles: SelectedFileWithLines[],
+  selectedFiles: SelectedFileReference[],
   sortOrder: string,
   fileTreeMode: FileTreeMode,
   selectedFolder: string | null
 ): string => {
   // Create a Map from selectedFiles for faster lookups
   const selectedFilesMap = new Map(selectedFiles.map(file => [file.path, file]));
+  
+  // Create a Map from allFiles for quick content lookup
+  const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
   
   // Sort selected files according to current sort order
   const filteredFiles = allFiles.filter((file: FileData) => selectedFilesMap.has(file.path));
@@ -186,12 +189,25 @@ export const getSelectedFilesContentWithoutInstructions = (
   }
   
   for (const file of sortedSelected) {
-    const selectedFileInfo = selectedFilesMap.get(file.path);
-    if (!selectedFileInfo?.isContentLoaded || selectedFileInfo.content === undefined) {
+    const selectedFileRef = selectedFilesMap.get(file.path);
+    const fileData = allFilesMap.get(file.path);
+    
+    if (!fileData || !fileData.isContentLoaded || fileData.content === undefined) {
       console.warn(`Content not loaded for ${file.path} when formatting. Skipping.`);
       continue;
     }
-    const { content, partial } = processFileContent(selectedFileInfo.content, selectedFileInfo);
+    
+    // Create a SelectedFileWithLines object for processFileContent
+    const selectedFileInfo: SelectedFileWithLines = {
+      path: file.path,
+      lines: selectedFileRef?.lines,
+      content: fileData.content,
+      tokenCount: fileData.tokenCount,
+      isFullFile: !selectedFileRef?.lines,
+      isContentLoaded: fileData.isContentLoaded
+    };
+    
+    const { content, partial } = processFileContent(fileData.content, selectedFileInfo);
     let relativePath = file.path;
 
     if (selectedFolder) {
@@ -237,7 +253,7 @@ export const getSelectedFilesContentWithoutInstructions = (
  */
 export const getSelectedFilesContent = (
   allFiles: FileData[],
-  selectedFiles: SelectedFileWithLines[],
+  selectedFiles: SelectedFileReference[],
   sortOrder: string,
   fileTreeMode: FileTreeMode,
   selectedFolder: string | null,

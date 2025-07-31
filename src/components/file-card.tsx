@@ -22,7 +22,7 @@ const FileCard = ({
   onViewFile,
   loadFileContent
 }: FileCardProps) => {
-  const { name, path: filePath, content, isContentLoaded, tokenCount, error, isCountingTokens, tokenCountError } = file;
+  const { name, path: filePath, isContentLoaded, tokenCount, error, isCountingTokens, tokenCountError } = file;
   const { lines, content: selectedContent, isContentLoaded: selectedIsContentLoaded, tokenCount: selectedTokenCount, isCountingTokens: selectedIsCountingTokens } = selectedFile || {};
   const isSelected = !!selectedFile;
 
@@ -118,7 +118,7 @@ const FileCard = ({
             <Eye size={16} />
           </button>
         )}
-        <CopyButton text={selectedContent || (isContentLoaded ? content || "" : "")} className="file-card-action">
+        <CopyButton text={selectedContent || ""} className="file-card-action">
           {""}
         </CopyButton>
         <button

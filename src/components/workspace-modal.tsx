@@ -217,8 +217,10 @@ const WorkspaceModal = ({
       exclusionPatterns: appState.exclusionPatterns || [],
       tokenCounts: (() => {
         const acc: { [filePath: string]: number } = {};
-        for (const file of appState.selectedFiles) {
-          acc[file.path] = file.tokenCount || 0;
+        const allFilesMap = new Map(appState.allFiles.map(f => [f.path, f]));
+        for (const selectedFile of appState.selectedFiles) {
+          const fileData = allFilesMap.get(selectedFile.path);
+          acc[selectedFile.path] = fileData?.tokenCount || 0;
         }
         return acc;
       })(),
