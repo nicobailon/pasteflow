@@ -58,16 +58,13 @@ export const useWorkspaceSelection = ({
       : `Are you sure you want to delete ${count} workspaces? This cannot be undone.`;
 
     if (window.confirm(message)) {
-      console.log(`[useWorkspaceSelection.handleBulkDelete] User confirmed deletion of ${count} workspaces.`);
       for (const wsName of selectedWorkspaces) {
         onDelete(wsName);
       }
       setSelectedWorkspaces(new Set());
       setSelectAllChecked(false);
       onRefresh();
-      console.log(`[useWorkspaceSelection.handleBulkDelete] Bulk deletion complete.`);
     } else {
-      console.log(`[useWorkspaceSelection.handleBulkDelete] Bulk deletion cancelled by user.`);
     }
   }, [selectedWorkspaces, onDelete, onRefresh]);
 

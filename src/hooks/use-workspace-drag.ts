@@ -34,11 +34,9 @@ export const useWorkspaceDrag = ({
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleDragStart = useCallback((e: DragEvent, index: number) => {
-    console.log('[useWorkspaceDrag] Drag start:', { index, sortMode });
     // If not in manual mode, switch to it and preserve current order
     if (sortMode !== 'manual') {
       const currentOrder = getSortedWorkspaces();
-      console.log('[useWorkspaceDrag] Switching to manual mode with order:', currentOrder);
       setWorkspaceManualOrder(currentOrder);
       setWorkspaceSortMode('manual');
       onReorder(currentOrder);
@@ -88,17 +86,15 @@ export const useWorkspaceDrag = ({
     e.preventDefault();
     e.stopPropagation();
     if (draggedIndex === null || draggedIndex === index) return;
-    console.log('[useWorkspaceDrag] Drag over item:', { index, draggedIndex });
     setDragOverIndex(index);
   }, [draggedIndex]);
   
-  const handleDragEnter = useCallback((e: DragEvent, _index: number) => {
+  const handleDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
   }, []);
 
   const handleDrop = useCallback((e: DragEvent, dropIndex: number) => {
-    console.log('[useWorkspaceDrag] handleDrop called with index:', dropIndex);
     e.preventDefault();
     if (draggedIndex === null) return;
     
@@ -118,29 +114,18 @@ export const useWorkspaceDrag = ({
     }
     
     const sortedNames = getSortedWorkspaces();
-    console.log('[useWorkspaceDrag] Drop:', {
-      draggedIndex,
-      targetIndex,
-      sortedNames,
-      draggedItem: sortedNames[draggedIndex],
-      targetItem: sortedNames[targetIndex]
-    });
     
     const newOrder = moveWorkspace(sortedNames, draggedIndex, targetIndex);
-    console.log('[useWorkspaceDrag] New order:', newOrder);
     
     // Update both state and localStorage
-    console.log('[useWorkspaceDrag] Setting manual order state:', newOrder);
     setWorkspaceManualOrder(newOrder);
     onReorder(newOrder);
-    console.log('[useWorkspaceDrag] Manual order saved to localStorage');
     
     setDraggedIndex(null);
     setDragOverIndex(null);
   }, [draggedIndex, dragOverIndex, getSortedWorkspaces, onReorder]);
 
-  const handleDragEnd = useCallback((_e: DragEvent) => {
-    console.log('[useWorkspaceDrag] Drag end called, dragOverIndex:', dragOverIndex);
+  const handleDragEnd = useCallback(() => {
     
     // If we have a dragOverIndex, use it to reorder (fallback for when drop doesn't fire)
     if (draggedIndex === null || dragOverIndex === null || draggedIndex === dragOverIndex) {
@@ -156,14 +141,8 @@ export const useWorkspaceDrag = ({
     }
     
     const sortedNames = getSortedWorkspaces();
-    console.log('[useWorkspaceDrag] Reordering in dragEnd:', {
-      draggedIndex,
-      dragOverIndex,
-      sortedNames
-    });
     
     const newOrder = moveWorkspace(sortedNames, draggedIndex, dragOverIndex);
-    console.log('[useWorkspaceDrag] New order in dragEnd:', newOrder);
     
     setWorkspaceManualOrder(newOrder);
     onReorder(newOrder);

@@ -4,6 +4,8 @@ import { render, RenderOptions } from '@testing-library/react';
 import { promises as fs } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
+// Mock ThemeProvider to avoid localStorage and window.matchMedia errors in tests
+jest.mock('../context/theme-context', () => require('./__mocks__/theme-context'));
 import { ThemeProvider } from '../context/theme-context';
 import { FileData, SelectedFileWithLines } from '../types/file-types';
 
