@@ -7,9 +7,15 @@ import { mockDateNow } from './test-helpers';
 
 // Mock the Radix Dialog components
 jest.mock('@radix-ui/react-dialog', () => {
+  const React = require('react');
+  
+  // Store the onOpenChange callback
+  let dialogOnOpenChange: ((open: boolean) => void) | undefined;
+  
   return {
     __esModule: true,
-    Root: ({ open, children }: { open: boolean; onOpenChange?: (open: boolean) => void; children: React.ReactNode }) => {
+    Root: ({ open, onOpenChange, children }: { open: boolean; onOpenChange?: (open: boolean) => void; children: React.ReactNode }) => {
+      dialogOnOpenChange = onOpenChange;
       if (!open) return null;
       return <div data-testid="dialog-root">{children}</div>;
     },
@@ -24,9 +30,28 @@ jest.mock('@radix-ui/react-dialog', () => {
       <div data-testid="dialog-title">{asChild ? children : <h2>{children}</h2>}</div>
     ),
     Description: ({ children }: { children: React.ReactNode }) => <div data-testid="dialog-description">{children}</div>,
-    Close: ({ asChild, children }: { asChild?: boolean; children: React.ReactNode }) => (
-      <div data-testid="dialog-close">{asChild ? children : <button>{children}</button>}</div>
-    )
+    Close: ({ asChild, children }: { asChild?: boolean; children: React.ReactNode }) => {
+      if (asChild) {
+        // Clone the child element and add onClick handler
+        return React.cloneElement(children as React.ReactElement, {
+          onClick: (e: React.MouseEvent) => {
+            // Call original onClick if it exists
+            const originalOnClick = (children as React.ReactElement).props?.onClick;
+            if (originalOnClick) originalOnClick(e);
+            // Trigger dialog close
+            if (dialogOnOpenChange) dialogOnOpenChange(false);
+          }
+        });
+      }
+      return (
+        <button 
+          data-testid="dialog-close"
+          onClick={() => dialogOnOpenChange && dialogOnOpenChange(false)}
+        >
+          {children}
+        </button>
+      );
+    }
   };
 });
 
@@ -89,8 +114,9 @@ describe('SystemPromptsModal Component', () => {
     expect(screen.getByText('Test Prompt 1')).toBeInTheDocument();
     expect(screen.getByText('Test Prompt 2')).toBeInTheDocument();
     
-    // Check close button exists
-    const closeButton = screen.getByTestId('dialog-close').querySelector('button');
+    // Check close button exists - it has class 'close-button'
+    const buttons = screen.getAllByRole('button');
+    const closeButton = buttons.find(button => button.className === 'close-button');
     expect(closeButton).toBeInTheDocument();
     
     // Check form for adding new prompts exists
@@ -133,8 +159,11 @@ describe('SystemPromptsModal Component', () => {
       />
     );
     
-    // Click close button
-    const closeButton = screen.getByTestId('dialog-close').querySelector('button');
+    // Find the close button with class 'close-button'
+    const buttons = screen.getAllByRole('button');
+    const closeButton = buttons.find(button => button.className === 'close-button');
+    
+    expect(closeButton).toBeInTheDocument();
     fireEvent.click(closeButton!);
     
     // Check if onClose was called
@@ -260,7 +289,7 @@ describe('SystemPromptsModal Component', () => {
     expect(mockOnDeletePrompt).toHaveBeenCalledWith('1');
   });
   
-  it('shows edit form when edit button is clicked', () => {
+  it('shows edit form when clicking on a prompt', () => {
     render(
       <SystemPromptsModal
         isOpen={true}
@@ -278,9 +307,12 @@ describe('SystemPromptsModal Component', () => {
     // Initially, we should see the "Add New System Prompt" form
     expect(screen.getByText('Add New System Prompt')).toBeInTheDocument();
     
-    // Find and click the edit button for the first prompt
-    const editButtons = screen.getAllByTestId('pencil-icon');
-    fireEvent.click(editButtons[0]);
+    // Click on the first prompt item to start editing
+    const promptItems = screen.getAllByRole('button');
+    const firstPrompt = promptItems.find(item => 
+      item.textContent?.includes('Test Prompt 1')
+    );
+    fireEvent.click(firstPrompt!);
     
     // Now we should see the edit form
     expect(screen.getByText('Edit System Prompt')).toBeInTheDocument();
@@ -308,9 +340,12 @@ describe('SystemPromptsModal Component', () => {
       />
     );
     
-    // Get into edit mode
-    const editButtons = screen.getAllByTestId('pencil-icon');
-    fireEvent.click(editButtons[0]);
+    // Click on prompt to edit
+    const promptItems = screen.getAllByRole('button');
+    const firstPrompt = promptItems.find(item => 
+      item.textContent?.includes('Test Prompt 1')
+    );
+    fireEvent.click(firstPrompt!);
     
     // Edit the prompt data
     const titleInput = screen.getByPlaceholderText('Enter prompt name');
@@ -350,9 +385,12 @@ describe('SystemPromptsModal Component', () => {
       />
     );
     
-    // Find and click the edit button for the first prompt
-    const editButtons = screen.getAllByTestId('pencil-icon');
-    fireEvent.click(editButtons[0]);
+    // Click on prompt to start editing
+    const promptItems = screen.getAllByRole('button');
+    const firstPrompt = promptItems.find(item => 
+      item.textContent?.includes('Test Prompt 1')
+    );
+    fireEvent.click(firstPrompt!);
     
     // Now we should see the edit form
     expect(screen.getByText('Edit System Prompt')).toBeInTheDocument();
@@ -368,7 +406,7 @@ describe('SystemPromptsModal Component', () => {
     expect(mockOnUpdatePrompt).not.toHaveBeenCalled();
   });
   
-  it('toggles selection when a prompt is clicked', () => {
+  it('toggles selection when selection button is clicked', () => {
     render(
       <SystemPromptsModal
         isOpen={true}
@@ -383,11 +421,9 @@ describe('SystemPromptsModal Component', () => {
       />
     );
     
-    // Find all prompt items
-    const promptItems = screen.getAllByText(/Test Prompt/);
-    
-    // Click the second prompt item (which is not selected)
-    fireEvent.click(promptItems[1]);
+    // Find the toggle button for the second prompt (first is already selected)
+    const toggleButtons = screen.getAllByTestId('circle-plus-icon');
+    fireEvent.click(toggleButtons[0]); // Second prompt's toggle
     
     // Check if toggleSystemPromptSelection was called with the correct prompt
     expect(mockToggleSystemPromptSelection).toHaveBeenCalledTimes(1);
@@ -430,9 +466,12 @@ describe('SystemPromptsModal Component', () => {
       />
     );
     
-    // Get into edit mode
-    const editButtons = screen.getAllByTestId('pencil-icon');
-    fireEvent.click(editButtons[0]);
+    // Click on prompt to edit
+    const promptItems = screen.getAllByRole('button');
+    const firstPrompt = promptItems.find(item => 
+      item.textContent?.includes('Test Prompt 1')
+    );
+    fireEvent.click(firstPrompt!);
     
     // Clear the input fields
     const titleInput = screen.getByPlaceholderText('Enter prompt name');
