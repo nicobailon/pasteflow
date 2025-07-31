@@ -212,7 +212,7 @@ export function measurePerformance<T extends object>(
 }
 
 // Hook for React component performance monitoring
-export function usePerformanceMonitor(componentName: string): PerformanceMonitor {
+export function usePerformanceMonitor(_componentName: string): PerformanceMonitor {
   const monitor = new PerformanceMonitor();
   
   // Log report on unmount in development

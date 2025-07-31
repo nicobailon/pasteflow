@@ -118,7 +118,7 @@ const FileCard = ({
             <Eye size={16} />
           </button>
         )}
-        <CopyButton text={selectedContent || (isContentLoaded ? content : "")} className="file-card-action">
+        <CopyButton text={selectedContent || (isContentLoaded ? content || "" : "")} className="file-card-action">
           {""}
         </CopyButton>
         <button

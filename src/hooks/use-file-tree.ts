@@ -52,7 +52,7 @@ function useFileTree({
   const processingStartedRef = useRef(false);
   
   // Reference to store the complete file map
-  const fileMapRef = useRef({});
+  const fileMapRef = useRef<Record<string, any>>({});
   
   // Convert the nested object structure to the TreeNode array format
   // Now with deferred sorting

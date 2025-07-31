@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react';
-import React, { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
 import { STORAGE_KEYS } from '../constants';
@@ -24,12 +24,8 @@ export interface WorkspaceDropdownRef {
   close: () => void;
 }
 
-const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProps>(({
-  currentWorkspace,
-  toggleWorkspaceModal,
-  containerClassName = "workspace-dropdown", // Default class
-  buttonClassName = "dropdown-header" // Default class
-}, ref) => {
+const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProps>(
+  ({ currentWorkspace, toggleWorkspaceModal, containerClassName = "workspace-dropdown", buttonClassName = "dropdown-header" }, ref) => {
   const { getWorkspaceNames, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
   const dropdownRef = useRef<DropdownRef>(null);
 
@@ -62,7 +58,7 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
     const workspaces = JSON.parse(workspacesString);
     
     const workspaceInfos: WorkspaceInfo[] = [...displayNames].map(name => {
-      const data = workspaces[name];
+      const data = workspaces[name as string];
       let savedAt = 0;
       if (typeof data === 'string') {
         try {
@@ -74,7 +70,7 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
       } else if (data && typeof data === 'object') {
         savedAt = data.savedAt || 0;
       }
-      return { name, savedAt };
+      return { name: name as string, savedAt };
     });
     
     // Sort according to the current sort mode

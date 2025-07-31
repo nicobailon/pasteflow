@@ -64,27 +64,19 @@ const FileViewModal = ({
   loadFileContent,
 }: FileViewModalProps): JSX.Element => {
   const { currentTheme } = useTheme();
-  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [file, setFile] = useState<FileData | null>(null);
-  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [selectedLines, setSelectedLines] = useState<LineRange[]>([]);
-  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [initialSelection, setInitialSelection] = useState<LineRange[]>([]);
-  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [selectionMode, setSelectionMode] = useState<'none'|'entire'|'specific'>('none');
   const [shiftKeyPressed, setShiftKeyPressed] = useState(false);
-  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [lastSelectedLine, setLastSelectedLine] = useState<number | null>(null);
-  // @ts-expect-error - Typed useRef hook is flagged in strict mode
   const containerRef = useRef<HTMLDivElement>(null);
   // Track total token count
   const [totalTokenCount, setTotalTokenCount] = useState(0);
   
   // Track mouse state for drag selection
   const [isDragging, setIsDragging] = useState(false);
-  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [dragStartLine, setDragStartLine] = useState<number | null>(null);
-  // @ts-expect-error - Typed useState hooks are flagged in strict mode
   const [dragCurrentLine, setDragCurrentLine] = useState<number | null>(null);
   
   // Calculate token count from selected content - with memoization
@@ -1156,7 +1148,6 @@ const FileViewModal = ({
               <div 
                 className="syntax-highlighter-wrapper"
               >
-                {/* @ts-expect-error - SyntaxHighlighter props typing issue */}
                 <SyntaxHighlighter
                   language={getLanguageFromPath(file.path)}
                   style={currentTheme === 'dark' ? oneDark : oneLight}
@@ -1171,7 +1162,7 @@ const FileViewModal = ({
                     overflow: 'auto'
                   }}
                 >
-                  {file.content}
+                  {file.content || ''}
                 </SyntaxHighlighter>
               </div>
             ) : (

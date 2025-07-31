@@ -96,7 +96,6 @@ const handleWorkspaceUpdate = (
   getWorkspaceNames: () => string[],
   persistWorkspace: (name: string, state: WorkspaceState) => void,
   setCurrentWorkspace: (name: string | null) => void,
-  handlerId: string
 ): string | null => {
   // Check if we're opening the same folder that's already open
   if (selectedFolder === newPath) {
@@ -157,7 +156,7 @@ interface HandlerParams {
 const createFolderSelectedHandler = (
   params: HandlerParams,
   accumulatedFiles: FileData[],
-  handlerId: string,
+  _handlerId: string,
   currentRequestId: { value: string | null }
 ) => {
   let folderSelectionTimeout: NodeJS.Timeout | null = null;
@@ -184,8 +183,7 @@ const createFolderSelectedHandler = (
           params.currentWorkspace,
           params.getWorkspaceNames,
           params.persistWorkspace,
-          params.setCurrentWorkspace,
-          handlerId
+          params.setCurrentWorkspace
         );
 
         if (workspaceName) {
@@ -454,7 +452,10 @@ export const setupElectronHandlers = (
   const handleProcessingStatus = createProcessingStatusHandler(params);
 
   // Check if handlers are already registered globally
-  const globalWindow = window as Window & { [HANDLER_KEY]: boolean };
+  interface ExtendedWindow extends Window {
+    [HANDLER_KEY]?: boolean;
+  }
+  const globalWindow = window as ExtendedWindow;
   if (globalWindow[HANDLER_KEY]) {
     return () => {};
   }

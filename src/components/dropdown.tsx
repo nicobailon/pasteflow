@@ -1,5 +1,6 @@
 import { ChevronDown } from "lucide-react";
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import * as React from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 export interface DropdownOption {
   value: string;
@@ -28,25 +29,29 @@ export interface DropdownRef {
   close: () => void;
 }
 
-const Dropdown = forwardRef<DropdownRef, DropdownProps>(({
-  options,
-  value,
-  onChange,
-  buttonLabel = "Sort",
-  buttonIcon = <ChevronDown size={16} />,
-  buttonClassName = "",
-  containerClassName = "",
-  menuClassName = "",
-  itemClassName = "",
-  activeItemClassName = "",
-  showCheckmark = true,
-  renderCustomOption,
-  position = "left",
-  closeOnChange = true,
-}, ref) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef(null);
-  const menuRef = useRef(null);
+const Dropdown = forwardRef<DropdownRef, DropdownProps>(
+  (
+    {
+      options,
+      value,
+      onChange,
+      buttonLabel = "Sort",
+      buttonIcon = <ChevronDown size={16} />,
+      buttonClassName = "",
+      containerClassName = "",
+      menuClassName = "",
+      itemClassName = "",
+      activeItemClassName = "",
+      showCheckmark = true,
+      renderCustomOption,
+      position = "left",
+      closeOnChange = true,
+    },
+    ref
+  ) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
 
   useImperativeHandle(ref, () => ({
     close: () => setIsOpen(false)
@@ -63,7 +68,7 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(({
     }
   }, [onChange, closeOnChange]);
 
-  const handleKeyDown = useCallback((event: any, value?: string) => {
+  const handleKeyDown = useCallback((event: React.KeyboardEvent, value?: string) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       if (value === undefined) {
@@ -79,7 +84,7 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(({
   // Close the dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      if (menuRef.current && event.target instanceof Node && !menuRef.current.contains(event.target)) {
         setIsOpen(false);
       }
     };

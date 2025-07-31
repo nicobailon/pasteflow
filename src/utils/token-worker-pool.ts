@@ -379,7 +379,7 @@ export class TokenWorkerPool {
   }
   
   private handleWorkerMessage(workerId: number, event: MessageEvent) {
-    const { type, id, success, healthy } = event.data;
+    const { type, id, success } = event.data;
     
     
     switch (type) {

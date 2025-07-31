@@ -1,12 +1,12 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, GripVertical, Loader2, Pencil, X } from "lucide-react";
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
 import { WorkspaceState } from '../types/file-types';
 import type { AppState } from '../hooks/use-app-state';
 import { STORAGE_KEYS } from '../constants';
-import { WORKSPACE_ITEM, WORKSPACE_DRAG_SCROLL, WORKSPACE_TRANSFORMS } from '../constants/workspace-drag-constants';
+import { WORKSPACE_DRAG_SCROLL, WORKSPACE_TRANSFORMS } from '../constants/workspace-drag-constants';
 import { safeJsonParse } from '../utils/local-storage-utils';
 import { 
   getWorkspaceSortMode, 
@@ -41,10 +41,10 @@ const WorkspaceModal = ({
     renameWorkspace: renamePersistedWorkspace,
     getWorkspaceNames 
   } = useWorkspaceState();
-  const [name, setName] = useState("" as string);
-  const [newName, setNewName] = useState("" as string);
-  const [workspaceNames, setWorkspaceNames] = useState([] as string[]);
-  const [renamingWsName, setRenamingWsName] = useState(null as string | null);
+  const [name, setName] = useState("");
+  const [newName, setNewName] = useState("");
+  const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
+  const [renamingWsName, setRenamingWsName] = useState<string | null>(null);
   const [saveState, setSaveState] = useState('idle');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
@@ -104,7 +104,7 @@ const WorkspaceModal = ({
   }, [getSortedWorkspaces]);
 
   const handleToggleWorkspace = useCallback((workspaceName: string) => {
-    setSelectedWorkspaces((prev) => {
+    setSelectedWorkspaces((prev: Set<string>) => {
       const newSet = new Set(prev);
       if (newSet.has(workspaceName)) {
         newSet.delete(workspaceName);
@@ -163,7 +163,7 @@ const WorkspaceModal = ({
     setNewName('');
   };
   
-  const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
+  const handleDragStart = useCallback((e: DragEvent, index: number) => {
     console.log('[WorkspaceModal] Drag start:', { index, sortMode });
     // If not in manual mode, switch to it and preserve current order
     if (sortMode !== 'manual') {
@@ -178,7 +178,7 @@ const WorkspaceModal = ({
     e.dataTransfer.effectAllowed = 'move';
   }, [sortMode, getSortedWorkspaces]);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     
@@ -215,7 +215,7 @@ const WorkspaceModal = ({
     }
   }, []);
   
-  const handleDragOverItem = useCallback((e: React.DragEvent, index: number) => {
+  const handleDragOverItem = useCallback((e: DragEvent, index: number) => {
     e.preventDefault();
     e.stopPropagation();
     if (draggedIndex === null || draggedIndex === index) return;
@@ -223,12 +223,12 @@ const WorkspaceModal = ({
     setDragOverIndex(index);
   }, [draggedIndex]);
   
-  const handleDragEnter = useCallback((e: React.DragEvent, index: number) => {
+  const handleDragEnter = useCallback((e: DragEvent, _index: number) => {
     e.preventDefault();
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent, dropIndex: number) => {
+  const handleDrop = useCallback((e: DragEvent, dropIndex: number) => {
     console.log('[WorkspaceModal] handleDrop called with index:', dropIndex);
     e.preventDefault();
     if (draggedIndex === null) return;
@@ -240,7 +240,7 @@ const WorkspaceModal = ({
     }
     
     // Use dragOverIndex if we have it, otherwise use dropIndex
-    const targetIndex = dragOverIndex !== null ? dragOverIndex : dropIndex;
+    const targetIndex = dragOverIndex === null ? dropIndex : dragOverIndex;
     
     if (draggedIndex === targetIndex) {
       setDraggedIndex(null);
@@ -270,24 +270,34 @@ const WorkspaceModal = ({
     setDragOverIndex(null);
   }, [draggedIndex, dragOverIndex, getSortedWorkspaces]);
 
-  const handleDragEnd = useCallback((e: React.DragEvent) => {
+  const handleDragEnd = useCallback((_e: DragEvent) => {
     console.log('[WorkspaceModal] Drag end called, dragOverIndex:', dragOverIndex);
     
     // If we have a dragOverIndex, use it to reorder (fallback for when drop doesn't fire)
-    if (draggedIndex !== null && dragOverIndex !== null && draggedIndex !== dragOverIndex) {
-      const sortedNames = getSortedWorkspaces();
-      console.log('[WorkspaceModal] Reordering in dragEnd:', {
-        draggedIndex,
-        dragOverIndex,
-        sortedNames
-      });
+    if (draggedIndex === null || dragOverIndex === null || draggedIndex === dragOverIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
       
-      const newOrder = moveWorkspace(sortedNames, draggedIndex, dragOverIndex);
-      console.log('[WorkspaceModal] New order in dragEnd:', newOrder);
-      
-      setManualOrder(newOrder);
-      setWorkspaceManualOrder(newOrder);
+      // Clear any active scroll interval
+      if (scrollIntervalRef.current) {
+        clearInterval(scrollIntervalRef.current);
+        scrollIntervalRef.current = null;
+      }
+      return;
     }
+    
+    const sortedNames = getSortedWorkspaces();
+    console.log('[WorkspaceModal] Reordering in dragEnd:', {
+      draggedIndex,
+      dragOverIndex,
+      sortedNames
+    });
+    
+    const newOrder = moveWorkspace(sortedNames, draggedIndex, dragOverIndex);
+    console.log('[WorkspaceModal] New order in dragEnd:', newOrder);
+    
+    setManualOrder(newOrder);
+    setWorkspaceManualOrder(newOrder);
     
     setDraggedIndex(null);
     setDragOverIndex(null);
@@ -299,7 +309,7 @@ const WorkspaceModal = ({
     }
   }, [draggedIndex, dragOverIndex, getSortedWorkspaces]);
   
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: DragEvent) => {
     // Only stop scrolling if we're leaving the container itself
     if (e.currentTarget === e.target) {
       if (scrollIntervalRef.current) {
@@ -320,15 +330,15 @@ const WorkspaceModal = ({
       setSelectAllChecked(false); // Reset select all
 
       // Check if we need to start in rename mode
-      if (initialRenameTarget && onClearInitialRenameTarget) {
-        console.log(`[WorkspaceModal] Modal opened with initial rename target: ${initialRenameTarget}`);
-        // Need a slight delay or ensure the list is rendered before starting rename
-        // Using setTimeout to ensure the component has rendered and state updates are processed
-        setTimeout(() => {
-            handleRenameStart(initialRenameTarget);
-            onClearInitialRenameTarget(); // Clear the target in the parent state
-        }, 0); 
-      }
+      if (!initialRenameTarget || !onClearInitialRenameTarget) return;
+      
+      console.log(`[WorkspaceModal] Modal opened with initial rename target: ${initialRenameTarget}`);
+      // Need a slight delay or ensure the list is rendered before starting rename
+      // Using setTimeout to ensure the component has rendered and state updates are processed
+      setTimeout(() => {
+          handleRenameStart(initialRenameTarget);
+          onClearInitialRenameTarget(); // Clear the target in the parent state
+      }, 0);
     }
   }, [isOpen, refreshWorkspaceList, initialRenameTarget, onClearInitialRenameTarget]); // Added dependencies
 

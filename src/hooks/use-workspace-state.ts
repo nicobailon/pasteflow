@@ -3,7 +3,9 @@ import { useCallback } from 'react';
 import { STORAGE_KEYS } from '../constants';
 import { WorkspaceState } from '../types/file-types';
 import { getPathValidator } from '../security/path-validator';
-import { safeJsonParse, safeSetItem } from '../utils/local-storage-utils';
+import { safeJsonParse } from '../utils/local-storage-utils';
+
+type WorkspacesRecord = Record<string, WorkspaceState | string>;
 
 export const useWorkspaceState = () => {
   const saveWorkspace = useCallback((name: string, workspace: WorkspaceState) => {
@@ -24,7 +26,7 @@ export const useWorkspaceState = () => {
         };
       }
       
-      const workspaces = safeJsonParse(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
+      const workspaces = safeJsonParse<WorkspacesRecord>(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
       // Add timestamp before saving
       const workspaceWithTimestamp = { ...workspace, savedAt: Date.now() };
       workspaces[name] = workspaceWithTimestamp;
@@ -45,7 +47,7 @@ export const useWorkspaceState = () => {
         return null;
       }
 
-      const workspaces = safeJsonParse(workspacesString, {});
+      const workspaces = safeJsonParse<WorkspacesRecord>(workspacesString, {});
       if (!workspaces[name]) {
         localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
         return null;
@@ -85,7 +87,7 @@ export const useWorkspaceState = () => {
 
   const deleteWorkspace = useCallback((name: string) => {
     try {
-      const workspaces = safeJsonParse(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
+      const workspaces = safeJsonParse<WorkspacesRecord>(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
       let wasCurrent = false;
 
       if (workspaces[name]) {
@@ -108,7 +110,7 @@ export const useWorkspaceState = () => {
       return false;
     }
     try {
-      const workspaces = safeJsonParse(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
+      const workspaces = safeJsonParse<WorkspacesRecord>(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
 
       if (!workspaces[oldName]) {
         return false;
@@ -141,23 +143,28 @@ export const useWorkspaceState = () => {
   const getWorkspaceNames = useCallback((): string[] => {
     try {
       const workspacesString = localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}';
-      const workspaces = safeJsonParse(workspacesString, {});
+      const workspaces = safeJsonParse<WorkspacesRecord>(workspacesString, {});
 
       // Get entries, parse data, sort by savedAt (descending), return names
       // Extract just the names
       return Object.entries(workspaces)
         .map(([name, dataValue]) => {
           try {
-            let data: WorkspaceState;
+            let data: WorkspaceState | null;
             if (typeof dataValue === 'string') {
               // Handle legacy double-serialized data
-              data = safeJsonParse(dataValue, null);
+              data = safeJsonParse<WorkspaceState | null>(dataValue, null);
             } else if (typeof dataValue === 'object' && dataValue !== null) {
               // Handle new direct object storage
               data = dataValue as WorkspaceState;
             } else {
               return { name, savedAt: 0 }; // Treat as oldest if invalid
             }
+            
+            if (!data) {
+              return { name, savedAt: 0 }; // Treat as oldest if data is null
+            }
+            
             // Use savedAt, default to 0 if missing for older workspaces
             return { name, savedAt: data.savedAt || 0 }; 
           } catch (parseError) {

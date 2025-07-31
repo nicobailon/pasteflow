@@ -19,27 +19,28 @@ export interface SidebarRef {
   closeSortDropdown: () => void;
 }
 
-const Sidebar = forwardRef<SidebarRef, SidebarProps>(({
-  selectedFolder,
-  openFolder,
-  allFiles,
-  selectedFiles,
-  toggleFileSelection,
-  toggleFolderSelection,
-  searchTerm,
-  onSearchChange,
-  selectAllFiles,
-  deselectAllFiles,
-  expandedNodes,
-  toggleExpanded,
-  resetFolderState,
-  onFileTreeSortChange = () => {/* Default handler - no operation */},
-  toggleFilterModal = () => {/* Default handler - no operation */},
-  refreshFileTree = () => {/* Default handler - no operation */},
-  onViewFile,
-  processingStatus,
-  loadFileContent,
-}: SidebarProps, ref) => {
+const Sidebar = forwardRef<SidebarRef, SidebarProps>(
+  ({
+    selectedFolder,
+    openFolder,
+    allFiles,
+    selectedFiles,
+    toggleFileSelection,
+    toggleFolderSelection,
+    searchTerm,
+    onSearchChange,
+    selectAllFiles,
+    deselectAllFiles,
+    expandedNodes,
+    toggleExpanded,
+    resetFolderState,
+    onFileTreeSortChange = () => {/* Default handler - no operation */},
+    toggleFilterModal = () => {/* Default handler - no operation */},
+    refreshFileTree = () => {/* Default handler - no operation */},
+    onViewFile,
+    processingStatus,
+    loadFileContent,
+  }: SidebarProps, ref) => {
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
@@ -72,10 +73,25 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(({
   const MAX_SIDEBAR_WIDTH = 500;
 
   const [isTreeLoading, setIsTreeLoading] = useState(false);
-  const loadingTimerRef = useRef(null); // Use untyped ref
+  const loadingTimerRef = useRef<number | null>(null);
   
   // Consolidated loading state that takes into account both processing status and tree building
   const showLoadingIndicator = isTreeLoading || !isTreeBuildingComplete;
+  
+  // Wrapper functions to adapt prop signatures for VirtualizedTree
+  const handleToggleFolderSelection = useCallback((path: string) => {
+    // VirtualizedTree expects single param, but SidebarProps has two params
+    // We'll determine selection state based on current state
+    const isCurrentlySelected = selectedFiles.some(file => file.path.startsWith(path + '/'));
+    toggleFolderSelection(path, !isCurrentlySelected);
+  }, [selectedFiles, toggleFolderSelection]);
+  
+  const handleLoadFileContent = useCallback(async (path: string): Promise<void> => {
+    // VirtualizedTree expects Promise<void>
+    if (loadFileContent) {
+      await loadFileContent(path);
+    }
+  }, [loadFileContent]);
   
   /**
    * Initiates the sidebar resizing operation.
@@ -442,10 +458,10 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(({
                     visibleTree={visibleTree}
                     selectedFiles={selectedFiles}
                     toggleFileSelection={toggleFileSelection}
-                    toggleFolderSelection={toggleFolderSelection}
+                    toggleFolderSelection={handleToggleFolderSelection}
                     toggleExpanded={toggleExpanded}
                     onViewFile={onViewFile}
-                    loadFileContent={loadFileContent}
+                    loadFileContent={handleLoadFileContent}
                     height={treeHeight}
                   />
                 ) : (
