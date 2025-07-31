@@ -10,7 +10,9 @@ export const STORAGE_KEYS = {
   ROLE_PROMPTS: 'pasteflow.role_prompts',
   DOCS: 'pasteflow.docs',
   WORKSPACES: 'pasteflow.workspaces',
-  CURRENT_WORKSPACE: 'pasteflow.current_workspace'
+  CURRENT_WORKSPACE: 'pasteflow.current_workspace',
+  WORKSPACE_SORT_MODE: 'pasteflow.workspace_sort_mode',
+  WORKSPACE_MANUAL_ORDER: 'pasteflow.workspace_manual_order'
 };
 
 export const SORT_OPTIONS = [

@@ -9,6 +9,8 @@ export const STORAGE_KEYS = {
   SYSTEM_PROMPTS: "pasteflow-system-prompts",
   ROLE_PROMPTS: "pasteflow-role-prompts",
   WORKSPACES: "pasteflow-workspaces",
+  WORKSPACE_SORT_MODE: "pasteflow-workspace-sort-mode",
+  WORKSPACE_MANUAL_ORDER: "pasteflow-workspace-manual-order",
 };
 
 // Sort options for the dropdown
