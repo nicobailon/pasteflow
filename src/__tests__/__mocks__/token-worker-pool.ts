@@ -234,8 +234,10 @@ export class TokenWorkerPool {
   terminate() {
     this.isTerminated = true;
     this.workers.forEach(worker => worker.terminate());
+    // Complete pending jobs with estimation instead of rejecting
     this.queue.forEach(job => {
-      job.reject(new Error('Worker pool terminated'));
+      const estimation = Math.ceil(job.text.length / 4);
+      job.resolve(estimation);
     });
     this.queue.length = 0;
     this.activeJobs.clear();

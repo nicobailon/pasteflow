@@ -1,7 +1,14 @@
 import { ChevronDown } from 'lucide-react';
-import React, { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
+import { STORAGE_KEYS } from '../constants';
+import { 
+  getWorkspaceSortMode, 
+  getWorkspaceManualOrder, 
+  sortWorkspaces,
+  WorkspaceInfo
+} from '../utils/workspace-sorting';
 
 import Dropdown, { DropdownRef } from './dropdown';
 
@@ -17,12 +24,8 @@ export interface WorkspaceDropdownRef {
   close: () => void;
 }
 
-const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProps>(({
-  currentWorkspace,
-  toggleWorkspaceModal,
-  containerClassName = "workspace-dropdown", // Default class
-  buttonClassName = "dropdown-header" // Default class
-}, ref) => {
+const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProps>(
+  ({ currentWorkspace, toggleWorkspaceModal, containerClassName = "workspace-dropdown", buttonClassName = "dropdown-header" }, ref) => {
   const { getWorkspaceNames, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
   const dropdownRef = useRef<DropdownRef>(null);
 
@@ -49,7 +52,31 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
     if (currentWorkspace) {
       displayNames.add(currentWorkspace);
     }
-    const sortedNames = [...displayNames].sort();
+    
+    // Get workspace info with timestamps for sorting
+    const workspacesString = localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}';
+    const workspaces = JSON.parse(workspacesString);
+    
+    const workspaceInfos: WorkspaceInfo[] = [...displayNames].map(name => {
+      const data = workspaces[name as string];
+      let savedAt = 0;
+      if (typeof data === 'string') {
+        try {
+          const parsed = JSON.parse(data);
+          savedAt = parsed.savedAt || 0;
+        } catch {
+          // Ignore parse errors
+        }
+      } else if (data && typeof data === 'object') {
+        savedAt = data.savedAt || 0;
+      }
+      return { name: name as string, savedAt };
+    });
+    
+    // Sort according to the current sort mode
+    const sortMode = getWorkspaceSortMode();
+    const manualOrder = getWorkspaceManualOrder();
+    const sortedNames = sortWorkspaces(workspaceInfos, sortMode, manualOrder);
 
     const options = sortedNames.map((name) => ({ value: name, label: name }));
 

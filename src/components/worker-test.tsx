@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
 import { useTokenCounter } from '../hooks/use-token-counter';
 
@@ -8,7 +8,7 @@ export const WorkerTest = () => {
   const { countTokens, countTokensBatch, getPerformanceStats, isReady } = useTokenCounter();
 
   const addResult = (result: string) => {
-    setTestResults((prev: string[]) => [...prev, `[${new Date().toISOString()}] ${result}`]);
+    setTestResults(prev => [...prev, `[${new Date().toISOString()}] ${result}`]);
   };
 
   const runTests = useCallback(async () => {
@@ -49,7 +49,7 @@ export const WorkerTest = () => {
       const start4 = performance.now();
       const batchCounts = await countTokensBatch(batchTexts);
       const time4 = performance.now() - start4;
-      addResult(`Batch processing (${batchTexts.length} texts): ${batchCounts.reduce((a: number, b: number) => a + b, 0)} total tokens in ${time4.toFixed(2)}ms`);
+      addResult(`Batch processing (${batchTexts.length} texts): ${batchCounts.reduce((a, b) => a + b, 0)} total tokens in ${time4.toFixed(2)}ms`);
 
       // Test 5: Concurrent requests
       const concurrentPromises = Array.from({length: 5}).fill(null).map((_, i) => 
@@ -114,7 +114,7 @@ export const WorkerTest = () => {
         {testResults.length === 0 ? (
           <div style={{ color: '#666' }}>Test results will appear here...</div>
         ) : (
-          testResults.map((result: string, index: number) => (
+          testResults.map((result, index) => (
             <div key={index} style={{ marginBottom: '4px' }}>
               {result}
             </div>

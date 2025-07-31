@@ -78,18 +78,19 @@ const formatSelectedLines = (selectedFile?: { path: string; lines?: { start: num
 
 // Handle specific item actions independently to reduce complexity
 const handleTreeItemActions = {
-  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (id: string) => void, id: string) => {
+  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string) => void, path: string, currentIsExpanded?: boolean) => {
     e.stopPropagation();
-    toggleExpanded(id);
+    e.preventDefault(); // Also prevent default to avoid any bubbling issues
+    toggleExpanded(path);
   },
   
   handleItemClick: (
     type: "file" | "directory", 
-    toggleExpanded: (id: string) => void, 
-    id: string
+    toggleExpanded: (path: string) => void, 
+    path: string
   ) => {
     if (type === "directory") {
-      toggleExpanded(id);
+      toggleExpanded(path);
     }
     // Removed automatic file selection - files should only be selected via checkbox
   },
@@ -473,7 +474,7 @@ const TreeItem = memo(({
   onViewFile,
   loadFileContent
 }: TreeItemProps) => {
-  const { id, name, path, type, level, isExpanded, fileData } = node;
+  const { name, path, type, level, isExpanded, fileData } = node;
   const state = useTreeItemState(node, selectedFiles, loadFileContent);
 
   const getTreeItemClassNames = () => {
@@ -487,15 +488,8 @@ const TreeItem = memo(({
 
   const handleTreeItemClick = () => {
     handleTreeItemActions.handleItemClick(
-      type, toggleExpanded, id
+      type, toggleExpanded, path
     );
-  };
-
-  const handleTreeItemKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleTreeItemClick();
-    }
   };
 
   // Create debounced toggle function
@@ -520,9 +514,10 @@ const TreeItem = memo(({
     }
   }, [type, path, debouncedToggle, toggleFolderSelection]);
 
-  const handleToggle = (e: React.MouseEvent | React.KeyboardEvent) => {
-    handleTreeItemActions.handleToggle(e, toggleExpanded, id);
-  };
+  const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
+    // Pass both the path and current expanded state
+    handleTreeItemActions.handleToggle(e, toggleExpanded, path, isExpanded);
+  }, [toggleExpanded, path, name, isExpanded]);
 
   const handleNameClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     handleTreeItemActions.handleFileNameClick(e, type, state.isDisabled, onViewFile, path);
@@ -536,8 +531,32 @@ const TreeItem = memo(({
     <div
       className={getTreeItemClassNames()}
       style={{ marginLeft: `${level * 16}px` }}
-      onClick={type === "directory" ? handleTreeItemClick : (e) => e.stopPropagation()}
-      onKeyDown={type === "directory" ? handleTreeItemKeyDown : (e) => e.stopPropagation()}
+      onClick={(e) => {
+        // Stop propagation for all clicks to prevent bubbling issues
+        e.stopPropagation();
+        
+        // Only handle directory clicks if the click target is the tree-item div itself
+        // or one of its non-interactive children
+        if (type === "directory") {
+          const target = e.target as HTMLElement;
+          const isInteractiveElement = 
+            target.closest('.tree-item-toggle') ||
+            target.closest('.tree-item-checkbox-container') ||
+            target.closest('.tree-item-view-btn') ||
+            target.closest('.tree-item-name.clickable');
+          
+          if (!isInteractiveElement) {
+            handleTreeItemClick();
+          }
+        }
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (type === "directory" && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          handleTreeItemClick();
+        }
+      }}
       role="button"
       tabIndex={0}
     >

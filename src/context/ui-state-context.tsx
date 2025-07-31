@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext } from 'react';
 import type { Dispatch, SetStateAction, ReactNode, FC } from 'react';
 
 import { FileTreeMode } from '../types/file-types';
@@ -47,12 +47,12 @@ export const UIStateProvider: FC<UIStateProviderProps> = ({
   children,
   sortOrder = 'tokens-desc',
   searchTerm = '',
-  fileTreeMode = 'none',
+  fileTreeMode = 'none' as FileTreeMode,
   expandedNodes = {},
   sortDropdownOpen = false,
   userInstructions = '',
   instructionsTokenCount = 0,
-  headerSaveState = 'idle',
+  headerSaveState = 'idle' as const,
 }) => {
   const value: UIStateContextType = {
     sortOrder,
@@ -82,12 +82,4 @@ export const UIStateProvider: FC<UIStateProviderProps> = ({
       {children}
     </UIStateContext.Provider>
   );
-};
-
-export const useUIState = (): UIStateContextType => {
-  const context = useContext(UIStateContext);
-  if (context === undefined) {
-    throw new Error('useUIState must be used within a UIStateProvider');
-  }
-  return context;
 };

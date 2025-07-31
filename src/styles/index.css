@@ -602,7 +602,7 @@ input[type="search"]:focus {
 }
 
 /* Add checked state styling */
-.tree-item-checkbox:checked + .custom-checkbox::after {
+.tree-item-checkbox:checked + .custom-checkbox {
   background-color: var(--primary-color);
   border-color: var(--primary-color);
 }
@@ -633,7 +633,7 @@ input[type="search"]:focus {
 }
 
 /* Add hover state for the checkbox */
-.tree-item-checkbox-container:hover::after {
+.tree-item-checkbox-container:hover .custom-checkbox {
   border-color: var(--primary-color);
 }
 
@@ -2486,8 +2486,7 @@ input[type="text"].search-input:focus {
 .workspace-subtitle {
   font-size: 14px;
   font-weight: 600;
-  margin-top: 20px;
-  margin-bottom: 12px;
+  margin: 0;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -2514,6 +2513,60 @@ input[type="text"].search-input:focus {
   background-color: var(--background-primary);
   transition: all 0.15s ease;
   border: 1px solid transparent;
+  position: relative;
+}
+
+.workspace-item.draggable {
+  cursor: grab;
+}
+
+.workspace-item.draggable:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.workspace-item.dragging {
+  opacity: var(--workspace-drag-opacity);
+  cursor: grabbing;
+  z-index: 1000;
+}
+
+.workspace-item.drag-over {
+  position: relative;
+}
+
+.workspace-item.drag-over::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--accent-primary);
+  box-shadow: 0 0 4px var(--accent-primary);
+  animation: pulse 0.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+.drag-handle {
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  margin-right: 8px;
+  cursor: grab;
+  user-select: none;
+}
+
+.drag-handle:hover {
+  opacity: 1;
+}
+
+.workspace-item.dragging .drag-handle {
+  cursor: grabbing;
 }
 
 .workspace-item:hover {
@@ -2622,6 +2675,123 @@ input[type="text"].search-input:focus {
   padding: 4px 8px;
   font-size: 14px;
   margin: 0;
+}
+
+/* Workspace checkbox styles */
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  margin-top: 20px;
+}
+
+.workspace-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.workspace-sort-selector {
+  display: flex;
+  align-items: center;
+}
+
+.workspace-sort-dropdown {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.workspace-sort-dropdown:hover {
+  border-color: var(--border-primary);
+}
+
+.workspace-sort-dropdown:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.workspace-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-all-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.workspace-select-all .workspace-checkbox-container {
+  margin-right: 8px;
+}
+
+.workspace-checkbox-container {
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+  position: relative;
+  width: 14px;
+  height: 14px;
+}
+
+/* Bulk actions bar */
+.bulk-actions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background-color: var(--background-tertiary);
+  border-radius: 4px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.selected-count {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.bulk-action-button {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  background-color: var(--background-primary);
+  color: var(--text-primary);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bulk-action-button:hover {
+  background-color: var(--hover-color);
+  border-color: var(--accent-blue);
+}
+
+.bulk-action-button.delete {
+  color: var(--error-color);
+  border-color: var(--error-color);
+}
+
+.bulk-action-button.delete:hover {
+  background-color: var(--error-color);
+  color: white;
 }
 
 /* Success check animation */

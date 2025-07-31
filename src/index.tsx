@@ -13,6 +13,10 @@ import WorkspaceModal from "./components/workspace-modal";
 import { SORT_OPTIONS } from "./constants";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
+import { migrateLocalStorageKeys } from "./utils/storage-migration";
+
+// Run localStorage migration on app startup
+migrateLocalStorageKeys();
 
 const App = () => {
   // Use our main app state hook

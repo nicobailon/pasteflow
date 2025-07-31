@@ -112,7 +112,6 @@ export const refreshFileTree = (
   clearSelectedFiles: () => void
 ): void => {
   if (isElectron && selectedFolder) {
-    console.log("Refreshing file tree with filters:", exclusionPatterns);
     setProcessingStatus({
       status: "processing",
       message: "Refreshing file list...",

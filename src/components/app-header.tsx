@@ -33,7 +33,7 @@ const AppHeader = ({
   appState
 }: AppHeaderProps): JSX.Element => {
   const [localIsWorkspaceModalOpen, setLocalIsWorkspaceModalOpen] = useState(false);
-  const workspaceDropdownRef = useRef<WorkspaceDropdownRef>(null);
+  const workspaceDropdownRef = useRef<WorkspaceDropdownRef | null>(null);
   
   const handleWorkspaceToggle = () => {
     // Close the dropdown when opening modal

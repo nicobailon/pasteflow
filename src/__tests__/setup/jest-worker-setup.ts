@@ -120,8 +120,10 @@ export function setupWorkerEnvironment(): void {
     return worker;
   });
 
-  // Add static methods and properties to match Worker interface
-  MockWorkerConstructor.prototype = Worker.prototype;
+  // Add static methods and properties to match Worker interface if Worker exists
+  if (typeof Worker !== 'undefined') {
+    MockWorkerConstructor.prototype = Worker.prototype;
+  }
   
   Object.defineProperty(global, 'Worker', {
     writable: true,

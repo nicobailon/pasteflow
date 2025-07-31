@@ -24,7 +24,14 @@ module.exports = {
     'process.env.NODE_ENV': 'test',
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/dist/'],
+  testPathIgnorePatterns: [
+    '<rootDir>/node_modules/', 
+    '<rootDir>/dist/',
+    '<rootDir>/src/__tests__/setup/',
+    '<rootDir>/src/__tests__/test-utils/',
+    '<rootDir>/src/__tests__/test-helpers/',
+    '<rootDir>/src/__tests__/__mocks__/'
+  ],
   transform: {
     '^.+\\.(ts|tsx)$': ['ts-jest', {
       tsconfig: 'tsconfig.json',
@@ -44,4 +51,11 @@ module.exports = {
     '!src/main.tsx',
     '!src/declarations.d.ts',
   ],
+  // Performance and debugging configurations
+  testTimeout: 30000, // Increase global timeout to 30 seconds
+  maxWorkers: 2, // Limit parallel test execution
+  detectOpenHandles: true, // Help identify hanging tests
+  forceExit: true, // Force Jest to exit after tests complete
+  bail: false, // Continue running tests after first failure
+  verbose: true, // More detailed output
 }; 

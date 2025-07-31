@@ -18,7 +18,7 @@ const RolePromptCard = ({
   prompt,
   toggleSelection
 }: RolePromptCardProps) => {
-  const { title, content } = prompt;
+  const { name, content } = prompt;
   
   const tokenCount = estimateTokenCount(content);
 
@@ -28,7 +28,7 @@ const RolePromptCard = ({
         <div className="file-card-icon">
           <User size={16} />
         </div>
-        <div className="file-card-name monospace">{title}</div>
+        <div className="file-card-name monospace">{name}</div>
       </div>
       <div className="file-card-line-badge role-prompt-badge">
         Role Prompt

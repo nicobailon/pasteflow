@@ -10,7 +10,9 @@ export const STORAGE_KEYS = {
   ROLE_PROMPTS: 'pasteflow.role_prompts',
   DOCS: 'pasteflow.docs',
   WORKSPACES: 'pasteflow.workspaces',
-  CURRENT_WORKSPACE: 'pasteflow.current_workspace'
+  CURRENT_WORKSPACE: 'pasteflow.current_workspace',
+  WORKSPACE_SORT_MODE: 'pasteflow.workspace_sort_mode',
+  WORKSPACE_MANUAL_ORDER: 'pasteflow.workspace_manual_order'
 };
 
 export const SORT_OPTIONS = [
@@ -20,4 +22,26 @@ export const SORT_OPTIONS = [
   { value: "tokens-desc", label: "Tokens (Highest First)" },
   { value: "size-asc", label: "Size (Smallest First)" },
   { value: "size-desc", label: "Size (Largest First)" }
+];
+
+export const DEFAULT_EXCLUSION_PATTERNS = [
+  "**/node_modules/",
+  "**/.npm/",
+  "**/__pycache__/",
+  "**/.pytest_cache/",
+  "**/.mypy_cache/",
+  "**/.gradle/",
+  "**/.nuget/",
+  "**/.cargo/",
+  "**/.stack-work/",
+  "**/.ccache/",
+  "**/.idea/",
+  "**/.vscode/",
+  "**/*.swp",
+  "**/*~",
+  "**/*.tmp",
+  "**/*.temp",
+  "**/*.bak",
+  "**/*.meta",
+  "**/package-lock.json",
 ]; 

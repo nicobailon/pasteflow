@@ -26,7 +26,7 @@ export const ThemeProvider = ({ children }: ThemeProviderProps): JSX.Element => 
     return savedTheme && ["light", "dark", "system"].includes(savedTheme) ? savedTheme : "system";
   });
   
-  const [currentTheme, setCurrentTheme] = useState("light");
+  const [currentTheme, setCurrentTheme] = useState<"light" | "dark">("light");
 
   // Function to set theme and save to localStorage
   const setTheme = (newTheme: ThemeType) => {

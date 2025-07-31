@@ -1,7 +1,4 @@
 // Type declarations for external modules
-declare module "react";
-declare module "react-dom/client";
-declare module "react/jsx-runtime";
 declare module "electron";
 declare module "tiktoken";
 declare module "ignore";
@@ -34,22 +31,6 @@ interface Element {
   dataset: DOMStringMap;
 }
 
-// React TypeScript event types
-declare namespace React {
-  interface KeyboardEvent<T = Element> extends SyntheticEvent<T> {
-    altKey: boolean;
-    charCode: number;
-    ctrlKey: boolean;
-    key: string;
-    keyCode: number;
-    locale: string;
-    metaKey: boolean;
-    repeat: boolean;
-    shiftKey: boolean;
-    which: number;
-    getModifierState(key: string): boolean;
-  }
-}
 
 // Electron API declaration
 interface Window {

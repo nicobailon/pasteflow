@@ -22,7 +22,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (currentWorkspacePath && selectedFiles.length > 0) {
       const validFiles = selectedFiles.filter(file => file.path.startsWith(currentWorkspacePath));
       if (validFiles.length < selectedFiles.length) {
-        console.log(`[FileSelection] Cleaning up ${selectedFiles.length - validFiles.length} stale files on mount`);
         setSelectedFiles(validFiles);
       }
     }
@@ -34,9 +33,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (currentWorkspacePath) {
       setSelectedFiles(prev => {
         const filtered = prev.filter(file => file.path.startsWith(currentWorkspacePath));
-        if (filtered.length < prev.length) {
-          console.log(`Removed ${prev.length - filtered.length} files outside current workspace`);
-        }
         return filtered;
       });
     }
@@ -71,7 +67,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       
       // Prevent adding duplicates
       if (prev.some(f => f.path === updatedFile.path)) {
-        console.warn(`Prevented duplicate in updateSelectedFile: ${updatedFile.path}`);
         return prev;
       }
       
@@ -98,7 +93,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       
       // Double-check to prevent race condition duplicates
       if (prev.some(f => f.path === filePath)) {
-        console.warn(`Prevented duplicate addition of file: ${filePath}`);
         return prev;
       }
       
@@ -245,9 +239,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const setSelectionState = useCallback((files: SelectedFileWithLines[]): void => {
     // Deduplicate files by path before setting
     const uniqueFiles = [...new Map(files.map(file => [file.path, file])).values()];
-    console.log(`[setSelectionState] Setting ${uniqueFiles.length} unique files from ${files.length} input files`);
-    console.log('[setSelectionState] Current selected files before:', selectedFiles.length);
-    console.log('[setSelectionState] Files being set:', uniqueFiles.map(f => f.path));
     
     // Force a complete replacement by clearing localStorage first
     localStorage.removeItem(STORAGE_KEYS.SELECTED_FILES);

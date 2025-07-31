@@ -60,8 +60,8 @@ const FileList = ({
           error: selectedFile.error || file.error
         },
         selectedFilePath: file.path,
-        content: selectedFile.content || file.content,
-        tokenCount: selectedFile.tokenCount || file.tokenCount,
+        content: selectedFile.content || file.content || '',
+        tokenCount: selectedFile.tokenCount || file.tokenCount || 0,
         isFullFile: !!selectedFile.isFullFile
       });
     } 

@@ -219,12 +219,10 @@ function createWindow() {
           mainWindow.webContents.closeDevTools();
         }
         mainWindow.webContents.openDevTools({ mode: "detach" });
-        console.log(`Loading from dev server at ${startUrl}`);
       });
     }, 1000);
   } else {
     const indexPath = path.join(__dirname, "dist", "index.html");
-    console.log(`Loading from built files at ${indexPath}`);
 
     // Use loadURL with file protocol for better path resolution
     const indexUrl = `file://${indexPath}`;
@@ -322,7 +320,6 @@ function loadGitignore(rootDir, userExclusionPatterns = []) {
   
   // Add user-defined exclusion patterns
   if (userExclusionPatterns && userExclusionPatterns.length > 0) {
-    console.log("Adding user exclusion patterns:", userExclusionPatterns);
     ig.add(userExclusionPatterns);
   }
 
@@ -482,11 +479,8 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
   
   // Update current request ID
   currentRequestId = requestId;
-  console.log(`Starting new file list request with ID: ${requestId}`);
   
   try {
-    console.log("Received request for file list in:", validatedFolderPath);
-    console.log("Exclusion patterns:", validatedPatterns);
     
     // Update workspace paths for security validation when loading files
     // This ensures the path validator knows about the current workspace
@@ -629,8 +623,6 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 
       // Send final complete signal
       sendBatch([], true); // Empty batch with complete flag
-      
-      console.log(`File scanning complete. Found ${allFiles.length} files in ${processedDirs.size} directories`);
     };
 
     // Start processing
@@ -646,7 +638,6 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 
 // Add handler for cancel request
 ipcMain.on("cancel-file-loading", () => {
-  console.log("Received request to cancel file loading");
   fileLoadingCancelled = true;
   currentRequestId = null; // Clear request ID when canceling
 });
