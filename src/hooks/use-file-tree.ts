@@ -54,6 +54,24 @@ function useFileTree({
   // Reference to store the complete file map
   const fileMapRef = useRef<Record<string, any>>({});
   
+  // Stable refs to avoid infinite loops
+  const expandedNodesRef = useRef(expandedNodes);
+  const fileTreeSortOrderRef = useRef(fileTreeSortOrder);
+  const filesByPathRef = useRef(filesByPath);
+  
+  // Update refs when props change
+  useEffect(() => {
+    expandedNodesRef.current = expandedNodes;
+  }, [expandedNodes]);
+  
+  useEffect(() => {
+    fileTreeSortOrderRef.current = fileTreeSortOrder;
+  }, [fileTreeSortOrder]);
+  
+  useEffect(() => {
+    filesByPathRef.current = filesByPath;
+  }, [filesByPath]);
+  
   // Convert the nested object structure to the TreeNode array format
   // Now with deferred sorting
   const convertToTreeNodes = useCallback((
@@ -68,7 +86,7 @@ function useFileTree({
 
       if (item.isFile) {
         // Get the latest file data from the map
-        const latestFileData = filesByPath.get(item.path) || item.fileData;
+        const latestFileData = filesByPathRef.current.get(item.path) || item.fileData;
         return {
           ...item,
           type: 'file',
@@ -80,11 +98,11 @@ function useFileTree({
         const children = item.children ? 
           convertToTreeNodes(item.children, level + 1, shouldSort) : [];
         
-        const isExpanded = expandedNodes[item.path] ?? (level < 2);
+        const isExpanded = expandedNodesRef.current[item.path] ?? (level < 2);
         
         // Only sort children if explicitly requested and the node is expanded
         const sortedChildren = (shouldSort && isExpanded) ? 
-          sortTreeNodes(children, fileTreeSortOrder) : 
+          sortTreeNodes(children, fileTreeSortOrderRef.current) : 
           children;
 
         return {
@@ -97,7 +115,7 @@ function useFileTree({
         } as TreeNode;
       }
     });
-  }, [expandedNodes, fileTreeSortOrder, filesByPath]);
+  }, []);
 
   // Process files in smaller batches for better responsiveness
   useEffect(() => {
@@ -151,9 +169,15 @@ function useFileTree({
                 path: dirPath,
                 children: {},
                 isDirectory: true,
-                isExpanded: expandedNodes[dirPath] ?? (i < 2)
+                isExpanded: expandedNodesRef.current[dirPath] ?? (i < 2)
               };
             }
+            
+            // Ensure children exists before accessing
+            if (!current[part].children) {
+              current[part].children = {};
+            }
+            
             current = current[part].children;
           } else {
             const filePath = selectedFolder
@@ -196,7 +220,7 @@ function useFileTree({
     return () => {
       processingStartedRef.current = false;
     };
-  }, [allFiles, selectedFolder, expandedNodes, fileTreeSortOrder, convertToTreeNodes]);
+  }, [allFiles, selectedFolder]);
 
   // Effect to handle cleanup on sort order change
   useEffect(() => {
@@ -211,7 +235,7 @@ function useFileTree({
         setFileTree(sortedTree);
       }
     }
-  }, [fileTreeSortOrder, convertToTreeNodes]);
+  }, [fileTreeSortOrder]);
 
   // Function to sort tree nodes based on sort order
   const sortTreeNodes = (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
@@ -434,21 +458,32 @@ function useFileTree({
   // Flatten the tree for rendering with proper indentation
   const flattenTree = useCallback((nodes: TreeNode[]): TreeNode[] => {
     // Define recursive flatten function inside to avoid dependency issue
-    const flattenNodesRecursively = (nodesToFlatten: TreeNode[], baseLevel = 0): TreeNode[] => {
+    const flattenNodesRecursively = (nodesToFlatten: TreeNode[]): TreeNode[] => {
       let result: TreeNode[] = [];
 
       for (const node of nodesToFlatten) {
         // Clone the node and update its isExpanded property based on expandedNodes
+        const expandedFromState = expandedNodes[node.path];
+        const defaultIsExpanded = node.isExpanded ?? false; // Default expanded state from tree building
+        
+        // IMPORTANT: We need to check if this path has EVER been toggled
+        // If it hasn't been toggled (undefined in expandedNodes), use the default state
+        // If it has been toggled, use the toggled state regardless of default
+        const finalIsExpanded = node.type === "directory" ? 
+          (expandedFromState === undefined ? defaultIsExpanded : expandedFromState) : 
+          undefined;
+          
+        
         let nodeWithUpdatedExpanded = {
           ...node,
-          level: baseLevel + (node.level || 0),
-          // Determine expansion state *only* from the expandedNodes prop
-          isExpanded: node.type === "directory" ? !!expandedNodes[node.id] : undefined
+          // Don't modify the level - it's already set correctly when building the tree
+          // Determine expansion state from expandedNodes prop, preserving the node's default if not explicitly set
+          isExpanded: finalIsExpanded
         };
         
         // For file nodes, ensure we have the latest file data
         if (node.type === "file" && node.path) {
-          const latestFileData = filesByPath.get(node.path);
+          const latestFileData = filesByPathRef.current.get(node.path);
           if (latestFileData) {
             nodeWithUpdatedExpanded = { ...nodeWithUpdatedExpanded, fileData: latestFileData };
           }
@@ -459,7 +494,7 @@ function useFileTree({
 
         // If it's a directory and it's expanded, add its children
         if (nodeWithUpdatedExpanded.type === "directory" && nodeWithUpdatedExpanded.isExpanded && nodeWithUpdatedExpanded.children) {
-          result = [...result, ...flattenNodesRecursively(nodeWithUpdatedExpanded.children, baseLevel + 1)];
+          result = [...result, ...flattenNodesRecursively(nodeWithUpdatedExpanded.children)];
         }
       }
 
@@ -467,7 +502,7 @@ function useFileTree({
     };
 
     return flattenNodesRecursively(nodes);
-  }, [expandedNodes, filesByPath]);
+  }, [expandedNodes])
 
   // Filter the tree based on search term
   const filterTree = useCallback((nodes: TreeNode[], term: string): TreeNode[] => {
@@ -492,11 +527,11 @@ function useFileTree({
     };
 
     // Define recursive filter function inside to avoid dependency issue
-    const filterNodesRecursively = (nodesToFilter: TreeNode[], currentLevel = 0): TreeNode[] => {
+    const filterNodesRecursively = (nodesToFilter: TreeNode[]): TreeNode[] => {
       return nodesToFilter.filter(node => nodeMatches(node)).map((node) => {
         // For file nodes, ensure we have the latest file data
         if (node.type === "file" && node.path) {
-          const latestFileData = filesByPath.get(node.path);
+          const latestFileData = filesByPathRef.current.get(node.path);
           if (latestFileData) {
             node = { ...node, fileData: latestFileData };
           }
@@ -506,22 +541,18 @@ function useFileTree({
         if (node.type === "directory" && node.children) {
           return {
             ...node,
-            level: node.level || currentLevel,
-            children: sortTreeNodes(filterNodesRecursively(node.children, currentLevel + 1), fileTreeSortOrder),
+            children: sortTreeNodes(filterNodesRecursively(node.children), fileTreeSortOrderRef.current),
             isExpanded: true, // Auto-expand directories when searching
           };
         }
-        return {
-          ...node,
-          level: node.level || currentLevel
-        };
+        return node;
       });
     };
 
     // Filter the nodes and maintain the same sort order
     const filteredNodes = filterNodesRecursively(nodes);
-    return sortTreeNodes(filteredNodes, fileTreeSortOrder);
-  }, [fileTreeSortOrder, filesByPath]);
+    return sortTreeNodes(filteredNodes, fileTreeSortOrderRef.current);
+  }, []);
 
   // The final tree to render, filtered and flattened
   const visibleTree = useMemo(() => {
@@ -532,7 +563,7 @@ function useFileTree({
     
     // Only apply filtering and sorting when needed
     return flattenTree(filterTree(fileTree, searchTerm));
-  }, [fileTree, searchTerm, isTreeBuildingComplete, filterTree, flattenTree]);
+  }, [fileTree, searchTerm, isTreeBuildingComplete, filterTree, flattenTree, expandedNodes]);
 
   return {
     fileTree,

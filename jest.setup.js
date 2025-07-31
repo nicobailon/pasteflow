@@ -50,11 +50,14 @@ global.localStorage = localStorageMock;
 // Mock for main.tsx
 jest.mock('./src/main.tsx', () => ({}), { virtual: true });
 
-// Note: Worker mocking is handled in individual test files
-// to avoid conflicts with different test requirements
+// Import and configure worker environment
+const { setupWorkerEnvironment, configureWorkerMocks } = require('./src/__tests__/setup/jest-worker-setup');
 
-// Mock import.meta for ESM modules
-global.importMeta = { url: 'http://localhost/test' };
-
-// Alternative: If using the manual mock approach
-// jest.mock('./src/utils/token-worker-pool'); 
+// Setup with faster defaults for testing
+setupWorkerEnvironment();
+configureWorkerMocks({
+  autoRespond: true,
+  responseDelay: 1, // Reduce from 10ms to 1ms
+  initDelay: 1,     // Reduce from 5ms to 1ms
+  failureRate: 0
+}); 

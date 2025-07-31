@@ -250,8 +250,10 @@ const useAppState = () => {
   // Toggle expand/collapse state changes
   const toggleExpanded = useCallback((nodeId: string) => {
     setExpandedNodes((prev: Record<string, boolean>) => {
-      const currentState = prev[nodeId];
-      const newValue = currentState === undefined ? false : !currentState;
+      // If the node is not in expandedNodes, we need to set it to false
+      // because it was expanded by default and user wants to collapse it
+      // If it's already in expandedNodes, just toggle it
+      const newValue = prev[nodeId] === undefined ? false : !prev[nodeId];
       
       const newState = {
         ...prev,

@@ -58,7 +58,7 @@ export interface SidebarProps {
   selectAllFiles: () => void;
   deselectAllFiles: () => void;
   expandedNodes: Record<string, boolean>;
-  toggleExpanded: (nodeId: string) => void;
+  toggleExpanded: (path: string) => void;
   resetFolderState?: () => void;
   onFileTreeSortChange?: (sortOrder: string) => void;
   toggleFilterModal?: () => void;
@@ -107,7 +107,7 @@ export interface TreeItemProps {
   selectedFiles: SelectedFileWithLines[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
-  toggleExpanded: (nodeId: string) => void;
+  toggleExpanded: (path: string) => void;
   expandedNodes?: Record<string, boolean>;
   onViewFile?: (filePath: string) => void; // New prop
   loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property

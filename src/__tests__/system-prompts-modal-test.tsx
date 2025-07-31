@@ -40,12 +40,12 @@ describe('SystemPromptsModal Component', () => {
   const mockSystemPrompts: SystemPrompt[] = [
     {
       id: '1',
-      title: 'Test Prompt 1',
+      name: 'Test Prompt 1',
       content: 'This is a test system prompt content 1'
     },
     {
       id: '2',
-      title: 'Test Prompt 2',
+      name: 'Test Prompt 2',
       content: 'This is a test system prompt content 2'
     }
   ];
@@ -90,11 +90,12 @@ describe('SystemPromptsModal Component', () => {
     expect(screen.getByText('Test Prompt 2')).toBeInTheDocument();
     
     // Check close button exists
-    expect(screen.getByText('×')).toBeInTheDocument();
+    const closeButton = screen.getByTestId('dialog-close').querySelector('button');
+    expect(closeButton).toBeInTheDocument();
     
     // Check form for adding new prompts exists
     expect(screen.getByText('Add New System Prompt')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Enter prompt title')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Enter prompt name')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Enter prompt content')).toBeInTheDocument();
   });
   
@@ -133,7 +134,8 @@ describe('SystemPromptsModal Component', () => {
     );
     
     // Click close button
-    fireEvent.click(screen.getByText('×'));
+    const closeButton = screen.getByTestId('dialog-close').querySelector('button');
+    fireEvent.click(closeButton!);
     
     // Check if onClose was called
     expect(mockOnClose).toHaveBeenCalledTimes(1);
@@ -158,7 +160,7 @@ describe('SystemPromptsModal Component', () => {
     );
     
     // Enter title and content
-    const titleInput = screen.getByPlaceholderText('Enter prompt title');
+    const titleInput = screen.getByPlaceholderText('Enter prompt name');
     const contentInput = screen.getByPlaceholderText('Enter prompt content');
     
     fireEvent.change(titleInput, { target: { value: 'New Prompt Title' } });
@@ -172,7 +174,7 @@ describe('SystemPromptsModal Component', () => {
     expect(mockOnAddPrompt).toHaveBeenCalledTimes(1);
     expect(mockOnAddPrompt).toHaveBeenCalledWith({
       id: '12345',
-      title: 'New Prompt Title',
+      name: 'New Prompt Title',
       content: 'New Prompt Content'
     });
     
@@ -196,7 +198,7 @@ describe('SystemPromptsModal Component', () => {
     );
     
     // Enter only title (no content)
-    const titleInput = screen.getByPlaceholderText('Enter prompt title');
+    const titleInput = screen.getByPlaceholderText('Enter prompt name');
     fireEvent.change(titleInput, { target: { value: 'New Prompt Title' } });
     
     // Add button should be disabled
@@ -284,7 +286,7 @@ describe('SystemPromptsModal Component', () => {
     expect(screen.getByText('Edit System Prompt')).toBeInTheDocument();
     
     // Check if the form is pre-filled with the prompt data
-    const titleInput = screen.getByPlaceholderText('Enter prompt title');
+    const titleInput = screen.getByPlaceholderText('Enter prompt name');
     const contentInput = screen.getByPlaceholderText('Enter prompt content');
     
     expect(titleInput).toHaveValue('Test Prompt 1');
@@ -311,7 +313,7 @@ describe('SystemPromptsModal Component', () => {
     fireEvent.click(editButtons[0]);
     
     // Edit the prompt data
-    const titleInput = screen.getByPlaceholderText('Enter prompt title');
+    const titleInput = screen.getByPlaceholderText('Enter prompt name');
     const contentInput = screen.getByPlaceholderText('Enter prompt content');
     
     fireEvent.change(titleInput, { target: { value: 'Updated Prompt Title' } });
@@ -325,7 +327,7 @@ describe('SystemPromptsModal Component', () => {
     expect(mockOnUpdatePrompt).toHaveBeenCalledTimes(1);
     expect(mockOnUpdatePrompt).toHaveBeenCalledWith({
       id: '1',
-      title: 'Updated Prompt Title',
+      name: 'Updated Prompt Title',
       content: 'Updated Prompt Content'
     });
     
@@ -433,7 +435,7 @@ describe('SystemPromptsModal Component', () => {
     fireEvent.click(editButtons[0]);
     
     // Clear the input fields
-    const titleInput = screen.getByPlaceholderText('Enter prompt title');
+    const titleInput = screen.getByPlaceholderText('Enter prompt name');
     const contentInput = screen.getByPlaceholderText('Enter prompt content');
     
     fireEvent.change(titleInput, { target: { value: '' } });
@@ -468,7 +470,7 @@ describe('SystemPromptsModal Component', () => {
     const longContent = 'B'.repeat(1000);
     
     // Enter long title and content
-    const titleInput = screen.getByPlaceholderText('Enter prompt title');
+    const titleInput = screen.getByPlaceholderText('Enter prompt name');
     const contentInput = screen.getByPlaceholderText('Enter prompt content');
     
     fireEvent.change(titleInput, { target: { value: longTitle } });
@@ -488,7 +490,7 @@ describe('SystemPromptsModal Component', () => {
     expect(mockOnAddPrompt).toHaveBeenCalledTimes(1);
     expect(mockOnAddPrompt).toHaveBeenCalledWith({
       id: '12345',
-      title: longTitle,
+      name: longTitle,
       content: longContent
     });
     

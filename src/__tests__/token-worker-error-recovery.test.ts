@@ -2,19 +2,19 @@ import { TokenWorkerPool } from '../utils/token-worker-pool';
 import { estimateTokenCount } from '../utils/token-utils';
 
 // Mock Worker API
-const mockWorkers: any[] = [];
+const mockWorkers: MockWorker[] = [];
 const originalWorker = global.Worker;
 
 class MockWorker {
   onmessage: ((event: MessageEvent) => void) | null = null;
-  listeners = new Map<string, Set<(event: any) => void>>();
+  listeners = new Map<string, Set<(event: Event) => void>>();
   terminated = false;
   
   constructor() {
     mockWorkers.push(this);
   }
   
-  postMessage(data: any) {
+  postMessage(data: unknown) {
     if (this.terminated) {
       throw new Error('Worker has been terminated');
     }
@@ -22,31 +22,34 @@ class MockWorker {
     // Simulate async message handling
     setTimeout(() => {
       if (this.onmessage) {
+        const message = data as { type: string; id?: string; payload?: { text: string } };
         // Handle different message types
-        switch (data.type) {
+        switch (message.type) {
           case 'INIT':
-            this.onmessage({ data: { type: 'INIT_COMPLETE', id: data.id, success: true } } as MessageEvent);
+            this.onmessage({ data: { type: 'INIT_COMPLETE', id: message.id, success: true } } as MessageEvent);
             break;
           case 'HEALTH_CHECK':
-            this.onmessage({ data: { type: 'HEALTH_RESPONSE', id: data.id, healthy: true } } as MessageEvent);
+            this.onmessage({ data: { type: 'HEALTH_RESPONSE', id: message.id, healthy: true } } as MessageEvent);
             break;
           case 'COUNT_TOKENS':
             // Simulate token counting
-            this.onmessage({ 
-              data: { 
-                type: 'TOKEN_COUNT', 
-                id: data.id, 
-                result: Math.floor(data.payload.text.length / 4),
-                fallback: false 
-              } 
-            } as MessageEvent);
+            if (message.payload?.text) {
+              this.onmessage({ 
+                data: { 
+                  type: 'TOKEN_COUNT', 
+                  id: message.id, 
+                  result: Math.floor(message.payload.text.length / 4),
+                  fallback: false 
+                } 
+              } as MessageEvent);
+            }
             break;
         }
       }
     }, 10);
   }
   
-  addEventListener(event: string, handler: (event: any) => void) {
+  addEventListener(event: string, handler: (event: Event) => void) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
@@ -59,7 +62,7 @@ class MockWorker {
     }
   }
   
-  removeEventListener(event: string, handler: (event: any) => void) {
+  removeEventListener(event: string, handler: (event: Event) => void) {
     this.listeners.get(event)?.delete(handler);
   }
   
@@ -80,11 +83,11 @@ class MockWorker {
 
 beforeEach(() => {
   mockWorkers.length = 0;
-  (global as any).Worker = MockWorker;
+  (global as unknown as { Worker: typeof Worker }).Worker = MockWorker as unknown as typeof Worker;
 });
 
 afterEach(() => {
-  (global as any).Worker = originalWorker;
+  (global as unknown as { Worker: typeof Worker }).Worker = originalWorker;
 });
 
 describe('Token Worker Error Recovery', () => {

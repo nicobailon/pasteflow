@@ -1,5 +1,5 @@
 import { VariableSizeList as List } from 'react-window';
-import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
+import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect, useMemo, memo } from 'react';
 
 import { TreeNode } from '../types/file-types';
 
@@ -10,7 +10,7 @@ interface VirtualizedTreeProps {
   selectedFiles: { path: string; lines?: { start: number; end: number }[] }[];
   toggleFileSelection: (path: string) => void;
   toggleFolderSelection: (path: string) => void;
-  toggleExpanded: (nodeId: string) => void;
+  toggleExpanded: (path: string) => void;
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
   height: number;
@@ -21,19 +21,27 @@ interface ItemData {
   selectedFiles: { path: string; lines?: { start: number; end: number }[] }[];
   toggleFileSelection: (path: string) => void;
   toggleFolderSelection: (path: string) => void;
-  toggleExpanded: (nodeId: string) => void;
+  toggleExpanded: (path: string) => void;
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
 }
 
 const ITEM_HEIGHT = 32;
 
-const Row = ({ index, style, data }: { index: number; style: React.CSSProperties; data: ItemData }) => {
+const Row = memo(({ index, style, data }: { index: number; style: React.CSSProperties; data: ItemData }) => {
   const node = data.nodes[index];
+  
+  // Guard against invalid index
+  if (!node) {
+    console.error('Invalid node at index:', index, 'Total nodes:', data.nodes.length);
+    return null;
+  }
+  
   
   return (
     <div style={style}>
       <TreeItem
+        key={node.path}  // Add key to ensure proper component identity
         node={node}
         selectedFiles={data.selectedFiles}
         toggleFileSelection={data.toggleFileSelection}
@@ -44,7 +52,9 @@ const Row = ({ index, style, data }: { index: number; style: React.CSSProperties
       />
     </div>
   );
-};
+});
+
+Row.displayName = 'Row';
 
 export interface VirtualizedTreeHandle {
   scrollToItem: (index: number, align?: "start" | "center" | "end" | "auto") => void;
@@ -74,8 +84,13 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
     }
   }), []);
   
-  // Save scroll position when tree changes
+  // Save scroll position when tree changes and reset item cache
   useEffect(() => {
+    // Reset the item cache when tree structure changes
+    if (listRef.current) {
+      listRef.current.resetAfterIndex(0);
+    }
+    
     const currentScrollOffset = scrollOffsetRef.current;
     if (currentScrollOffset > 0 && listRef.current) {
       requestAnimationFrame(() => {
@@ -86,7 +101,7 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
   
   const getItemSize = useCallback(() => ITEM_HEIGHT, []);
   
-  const itemData: ItemData = {
+  const itemData: ItemData = useMemo(() => ({
     nodes: visibleTree,
     selectedFiles,
     toggleFileSelection,
@@ -94,7 +109,7 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
     toggleExpanded,
     onViewFile,
     loadFileContent
-  };
+  }), [visibleTree, selectedFiles, toggleFileSelection, toggleFolderSelection, toggleExpanded, onViewFile, loadFileContent]);
   
   const handleScroll = useCallback(({ scrollOffset }: { scrollOffset: number }) => {
     scrollOffsetRef.current = scrollOffset;

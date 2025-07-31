@@ -40,8 +40,8 @@ export class MockTokenWorkerPool {
     this.shouldFail = fail;
   }
 
-  setFallbackToEstimation(fallback: boolean): void {
-    this.fallbackToEstimation = fallback;
+  setFallbackToEstimation(_fallback: boolean): void {
+    // Mock implementation - parameter is ignored
   }
 
   getQueueSize(): number {

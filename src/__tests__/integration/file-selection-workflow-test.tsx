@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { render } from './test-setup';
 import App from '../../index';
 import { createTempTestDirectory, cleanupTempDirectory } from '../test-helpers';
+import { DEFAULT_EXCLUSION_PATTERNS } from '../../constants';
 
 // Define precise types for IPC event channels
 type IpcEventChannel = 'folder-selected' | 'file-list-data' | 'file-loading-progress' | 'file-loading-complete' | 'file-loading-error';
@@ -184,7 +185,7 @@ describe('Complete File Selection Workflow Integration', () => {
     
     // Wait for folder selection to process
     await waitFor(() => {
-      expect(mockIpcRenderer.send).toHaveBeenCalledWith('request-file-list', tempDir, []);
+      expect(mockIpcRenderer.send).toHaveBeenCalledWith('request-file-list', tempDir, DEFAULT_EXCLUSION_PATTERNS);
     });
 
     // Wait for files to be displayed
