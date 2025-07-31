@@ -1,532 +1,457 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useState } from 'react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
+import App from '../index';
+import { STORAGE_KEYS } from '../constants';
+import { setupMockLocalStorage } from './test-helpers';
 import { SystemPrompt } from '../types/file-types';
 
-import { setupMockLocalStorage } from './test-helpers';
-
-// Mock necessary components that are not the focus of testing
-jest.mock('../components/Sidebar', () => {
-  return {
-    __esModule: true,
-    default: () => <div data-testid="sidebar-mock" />
-  };
-});
-
-jest.mock('../components/FileList', () => {
-  return {
-    __esModule: true,
-    default: ({ selectedSystemPrompts, toggleSystemPromptSelection }: any) => (
-      <div data-testid="file-list-mock">
-        <span data-testid="selected-prompts-count">{selectedSystemPrompts.length}</span>
-        {selectedSystemPrompts.map((prompt: SystemPrompt) => (
-          <div key={prompt.id} data-testid={`selected-prompt-${prompt.id}`}>
-            {prompt.name}
-            <button 
-              data-testid={`toggle-prompt-${prompt.id}`}
-              onClick={() => toggleSystemPromptSelection(prompt)}
-            >
-              Toggle
-            </button>
-          </div>
-        ))}
-      </div>
-    )
-  };
-});
-
-jest.mock('../components/CopyButton', () => {
-  return {
-    __esModule: true,
-    default: ({ text, className, children }: any) => (
-      <button className={className} data-testid="copy-button" data-copy-text={text}>
-        {children}
-      </button>
-    )
-  };
-});
-
-jest.mock('../components/FileViewModal', () => {
-  return {
-    __esModule: true,
-    default: () => <div data-testid="file-view-modal-mock" />
-  };
-});
-
-jest.mock('../components/SystemPromptsModal', () => {
-  return {
-    __esModule: true,
-    default: ({ 
-      isOpen, 
-      onClose, 
-      systemPrompts, 
-      onAddPrompt, 
-      onDeletePrompt, 
-      onUpdatePrompt,
-      toggleSystemPromptSelection,
-      selectedSystemPrompts
-    }: any) => (
-      isOpen ? (
-        <div data-testid="system-prompts-modal-mock">
-          <button 
-            data-testid="close-modal-button" 
-            onClick={onClose}
-          >
-            Close
-          </button>
-          <button 
-            data-testid="add-prompt-button" 
-            onClick={() => onAddPrompt({
-              id: 'new-prompt-id',
-              name: 'New Test Prompt',
-              content: 'New test prompt content'
-            })}
-          >
-            Add Prompt
-          </button>
-          {systemPrompts.map((prompt: SystemPrompt) => (
-            <div key={prompt.id} data-testid={`prompt-${prompt.id}`}>
-              {prompt.name}
-              <button 
-                data-testid={`delete-prompt-${prompt.id}`}
-                onClick={() => onDeletePrompt(prompt.id)}
-              >
-                Delete
-              </button>
-              <button 
-                data-testid={`update-prompt-${prompt.id}`}
-                onClick={() => onUpdatePrompt({
-                  ...prompt,
-                  name: `Updated ${prompt.name}`,
-                  content: `Updated ${prompt.content}`
-                })}
-              >
-                Update
-              </button>
-              <button 
-                data-testid={`select-prompt-${prompt.id}`}
-                onClick={() => toggleSystemPromptSelection(prompt)}
-              >
-                {selectedSystemPrompts.some((p: SystemPrompt) => p.id === prompt.id) ? 'Deselect' : 'Select'}
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null
-    )
-  };
-});
-
-// Mock the other required components that are not the focus of testing
-jest.mock('../components/ThemeToggle', () => {
-  return {
-    __esModule: true,
-    default: () => <div data-testid="theme-toggle-mock" />
-  };
-});
-
-jest.mock('../components/FileTreeToggle', () => {
-  return {
-    __esModule: true,
-    default: () => <div data-testid="file-tree-toggle-mock" />
-  };
-});
-
-// Using shared lucide-react mock from jest.config.js
-
-// Provide a basic implementation of the ThemeProvider context
-jest.mock('../context/theme-context', () => ({
-  ThemeProvider: ({ children }: { children: any }) => (
-    <div data-testid="theme-provider-mock">{children}</div>
-  ),
-  useTheme: () => ({ currentTheme: 'light', toggleTheme: jest.fn() })
+// Minimal mocks for external dependencies only
+jest.mock('../handlers/electron-handlers', () => ({
+  openFolder: jest.fn().mockResolvedValue('/test/folder'),
+  openFolderDialog: jest.fn().mockResolvedValue(null),
+  getFilesByPath: jest.fn().mockResolvedValue([]),
+  getDirectoryStats: jest.fn().mockResolvedValue({
+    totalFiles: 0,
+    directoryCount: 0,
+    totalSize: 0,
+    binaryFiles: []
+  }),
+  requestFileContent: jest.fn().mockResolvedValue({
+    content: 'test content',
+    isBinary: false
+  }),
+  cancelFileLoading: jest.fn(),
+  setupElectronHandlers: jest.fn(() => {
+    // Return cleanup function
+    return jest.fn();
+  })
 }));
 
-// Mock API/utility functions
-// Removing treeUtils mocks as the file doesn't exist in the project
+jest.mock('../components/theme-toggle', () => ({
+  __esModule: true,
+  default: () => <div data-testid="theme-toggle-mock" />
+}));
 
-// Custom SystemPromptsTest component for testing
-function SystemPromptsTest({ initialPrompts = [] as SystemPrompt[] }) {
-  const [systemPrompts, setSystemPrompts] = useState(initialPrompts);
-  const [selectedSystemPrompts, setSelectedSystemPrompts] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  const onAddPrompt = (prompt: SystemPrompt) => {
-    const updatedPrompts = [...systemPrompts, prompt];
-    setSystemPrompts(updatedPrompts);
-    window.localStorage.setItem('pasteflow-system-prompts', JSON.stringify(updatedPrompts));
-  };
-  
-  const onUpdatePrompt = (updatedPrompt: SystemPrompt) => {
-    const updatedPrompts = systemPrompts.map((prompt: SystemPrompt) => 
-      prompt.id === updatedPrompt.id ? updatedPrompt : prompt
-    );
-    setSystemPrompts(updatedPrompts);
-    window.localStorage.setItem('pasteflow-system-prompts', JSON.stringify(updatedPrompts));
-    
-    // Also update in the selected prompts if it's selected
-    if (selectedSystemPrompts.some((p: SystemPrompt) => p.id === updatedPrompt.id)) {
-      setSelectedSystemPrompts(selectedSystemPrompts.map((p: SystemPrompt) => 
-        p.id === updatedPrompt.id ? updatedPrompt : p
-      ));
-    }
-  };
-  
-  const onDeletePrompt = (id: string) => {
-    const updatedPrompts = systemPrompts.filter((prompt: SystemPrompt) => prompt.id !== id);
-    setSystemPrompts(updatedPrompts);
-    window.localStorage.setItem('pasteflow-system-prompts', JSON.stringify(updatedPrompts));
-    
-    // Also remove from selected if it's selected
-    if (selectedSystemPrompts.some((p: SystemPrompt) => p.id === id)) {
-      setSelectedSystemPrompts(selectedSystemPrompts.filter((p: SystemPrompt) => p.id !== id));
-    }
-  };
-  
-  const toggleSystemPromptSelection = (prompt: SystemPrompt) => {
-    const isSelected = selectedSystemPrompts.some((p: SystemPrompt) => p.id === prompt.id);
-    
-    if (isSelected) {
-      setSelectedSystemPrompts(selectedSystemPrompts.filter((p: SystemPrompt) => p.id !== prompt.id));
-    } else {
-      setSelectedSystemPrompts([...selectedSystemPrompts, prompt]);
-    }
-  };
-  
-  return (
-    <div>
-      <button 
-        data-testid="system-prompts-button"
-        onClick={() => setIsModalOpen(true)}
-      >
-        <span>System Prompts</span>
-        {selectedSystemPrompts.length > 0 && (
-          <span className="selected-prompt-indicator">{selectedSystemPrompts.length} selected</span>
-        )}
-      </button>
-      
-      <div data-testid="selected-prompts-count">{selectedSystemPrompts.length}</div>
-
-      {isModalOpen && (
-        <div data-testid="system-prompts-modal-mock">
-          <button 
-            data-testid="close-modal-button" 
-            onClick={() => setIsModalOpen(false)}
-          >
-            Close
-          </button>
-          <button 
-            data-testid="add-prompt-button" 
-            onClick={() => onAddPrompt({
-              id: 'new-prompt-id',
-              name: 'New Test Prompt',
-              content: 'New test prompt content'
-            })}
-          >
-            Add Prompt
-          </button>
-          {systemPrompts.map((prompt: SystemPrompt) => (
-            <div key={prompt.id} data-testid={`prompt-${prompt.id}`}>
-              {prompt.name}
-              <button 
-                data-testid={`delete-prompt-${prompt.id}`}
-                onClick={() => onDeletePrompt(prompt.id)}
-              >
-                Delete
-              </button>
-              <button 
-                data-testid={`update-prompt-${prompt.id}`}
-                onClick={() => onUpdatePrompt({
-                  ...prompt,
-                  name: `Updated ${prompt.name}`,
-                  content: `Updated ${prompt.content}`
-                })}
-              >
-                Update
-              </button>
-              <button 
-                data-testid={`select-prompt-${prompt.id}`}
-                onClick={() => toggleSystemPromptSelection(prompt)}
-              >
-                {selectedSystemPrompts.some((p: SystemPrompt) => p.id === prompt.id) ? 'Deselect' : 'Select'}
-              </button>
-            </div>
-          ))}
-          {systemPrompts.length === 0 && (
-            <div>No system prompts yet. Add one to get started.</div>
-          )}
-        </div>
-      )}
-      
-      {selectedSystemPrompts.map((prompt: SystemPrompt) => (
-        <div key={prompt.id} data-testid={`selected-prompt-${prompt.id}`}>
-          {prompt.name}
-          <button 
-            data-testid={`toggle-prompt-${prompt.id}`}
-            onClick={() => toggleSystemPromptSelection(prompt)}
-          >
-            Toggle
-          </button>
-        </div>
-      ))}
-    </div>
-  );
+// Helper function to open system prompts modal
+async function openSystemPromptsModal() {
+  const systemPromptsButton = screen.getByRole('button', { name: /system prompts/i });
+  await userEvent.click(systemPromptsButton);
+  await waitFor(() => {
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
 }
 
-describe('SystemPrompts Functionality', () => {
+// Helper to fill prompt form
+async function fillPromptForm(name: string, content: string) {
+  const nameInput = screen.getByPlaceholderText(/enter prompt name/i);
+  const contentTextarea = screen.getByPlaceholderText(/enter prompt content/i);
+  
+  await userEvent.clear(nameInput);
+  if (name) {
+    await userEvent.type(nameInput, name);
+  }
+  
+  await userEvent.clear(contentTextarea);
+  if (content) {
+    await userEvent.type(contentTextarea, content);
+  }
+}
+
+// Helper to get stored prompts from localStorage
+function getStoredPrompts(): SystemPrompt[] {
+  return JSON.parse(localStorage.getItem(STORAGE_KEYS.SYSTEM_PROMPTS) || '[]');
+}
+
+describe('System Prompts Feature - Real Component Integration', () => {
   beforeEach(() => {
     setupMockLocalStorage();
-    window.localStorage.setItem('pasteflow-system-prompts', JSON.stringify([]));
+    localStorage.clear();
   });
-  
-  it('allows opening the SystemPromptsModal', async () => {
-    render(<SystemPromptsTest />);
-    
-    // Initially the modal should be closed
-    expect(screen.queryByTestId('system-prompts-modal-mock')).not.toBeInTheDocument();
-    
-    // Find and click the system prompts button
-    const systemPromptsButton = screen.getByTestId('system-prompts-button');
-    fireEvent.click(systemPromptsButton);
-    
-    // Now the modal should be open
-    expect(screen.getByTestId('system-prompts-modal-mock')).toBeInTheDocument();
-    
-    // Close the modal
-    const closeButton = screen.getByTestId('close-modal-button');
-    fireEvent.click(closeButton);
-    
-    // The modal should be closed again
-    await waitFor(() => {
-      expect(screen.queryByTestId('system-prompts-modal-mock')).not.toBeInTheDocument();
+
+  describe('Adding System Prompts', () => {
+    it('should allow users to add new system prompts through the UI', async () => {
+      render(<App />);
+      
+      await openSystemPromptsModal();
+      
+      // Verify empty state message
+      expect(screen.getByText(/no system prompts yet/i)).toBeInTheDocument();
+      
+      // Fill in the form
+      await fillPromptForm('API Guidelines', 'You are an API design expert. Follow RESTful principles.');
+      
+      // Submit the form
+      const addButton = screen.getByRole('button', { name: /add prompt/i });
+      expect(addButton).not.toBeDisabled();
+      await userEvent.click(addButton);
+      
+      // Verify prompt appears in the list
+      await waitFor(() => {
+        expect(screen.queryByText(/no system prompts yet/i)).not.toBeInTheDocument();
+        expect(screen.getByText('API Guidelines')).toBeInTheDocument();
+      });
+      
+      // Verify localStorage persistence
+      const stored = getStoredPrompts();
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({
+        name: 'API Guidelines',
+        content: 'You are an API design expert. Follow RESTful principles.'
+      });
+      expect(stored[0].id).toBeDefined();
+      
+      // Verify form is cleared after adding
+      expect(screen.getByPlaceholderText(/enter prompt name/i)).toHaveValue('');
+      expect(screen.getByPlaceholderText(/enter prompt content/i)).toHaveValue('');
+    });
+
+    it('should validate required fields when adding prompts', async () => {
+      render(<App />);
+      
+      await openSystemPromptsModal();
+      
+      // Try to add with empty fields
+      const addButton = screen.getByRole('button', { name: /add prompt/i });
+      expect(addButton).toBeDisabled();
+      
+      // Fill only name
+      await fillPromptForm('Test Name', '');
+      expect(addButton).toBeDisabled();
+      
+      // Clear name and fill only content
+      const nameInput = screen.getByPlaceholderText(/enter prompt name/i);
+      await userEvent.clear(nameInput);
+      await userEvent.type(screen.getByPlaceholderText(/enter prompt content/i), 'Test content');
+      expect(addButton).toBeDisabled();
+      
+      // Fill both fields
+      await userEvent.type(nameInput, 'Complete Prompt');
+      expect(addButton).not.toBeDisabled();
+    });
+
+    it('should handle multiple prompts with unique IDs', async () => {
+      render(<App />);
+      
+      await openSystemPromptsModal();
+      
+      // Add first prompt
+      await fillPromptForm('First Prompt', 'First content');
+      await userEvent.click(screen.getByRole('button', { name: /add prompt/i }));
+      
+      // Add second prompt
+      await fillPromptForm('Second Prompt', 'Second content');
+      await userEvent.click(screen.getByRole('button', { name: /add prompt/i }));
+      
+      // Verify both prompts exist
+      expect(screen.getByText('First Prompt')).toBeInTheDocument();
+      expect(screen.getByText('Second Prompt')).toBeInTheDocument();
+      
+      // Verify unique IDs in storage
+      const stored = getStoredPrompts();
+      expect(stored).toHaveLength(2);
+      expect(stored[0].id).not.toBe(stored[1].id);
     });
   });
-  
-  it('adds a new system prompt', async () => {
-    render(<SystemPromptsTest />);
-    
-    // Open the system prompts modal
-    const systemPromptsButton = screen.getByTestId('system-prompts-button');
-    fireEvent.click(systemPromptsButton);
-    
-    // No prompts should exist initially
-    expect(screen.queryByTestId('prompt-new-prompt-id')).not.toBeInTheDocument();
-    
-    // Add a new prompt
-    const addButton = screen.getByTestId('add-prompt-button');
-    fireEvent.click(addButton);
-    
-    // The new prompt should now be in the list
-    expect(screen.getByTestId('prompt-new-prompt-id')).toBeInTheDocument();
-    expect(screen.getByText('New Test Prompt')).toBeInTheDocument();
-    
-    // Check localStorage was updated
-    const storedPrompts = JSON.parse(window.localStorage.getItem('pasteflow-system-prompts') || '[]');
-    expect(storedPrompts).toHaveLength(1);
-    expect(storedPrompts[0].name).toBe('New Test Prompt');
+
+  describe('Editing System Prompts', () => {
+    it('should allow users to edit existing prompts', async () => {
+      // Pre-populate with a prompt
+      const existingPrompt: SystemPrompt = {
+        id: 'test-1',
+        name: 'Original Name',
+        content: 'Original content for testing'
+      };
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify([existingPrompt]));
+      
+      render(<App />);
+      await openSystemPromptsModal();
+      
+      // Click on the prompt to edit
+      const promptItem = screen.getByText('Original Name').closest('[role="button"]');
+      await userEvent.click(promptItem!);
+      
+      // Verify edit form is populated
+      const nameInput = screen.getByDisplayValue('Original Name');
+      const contentTextarea = screen.getByDisplayValue('Original content for testing');
+      expect(nameInput).toBeInTheDocument();
+      expect(contentTextarea).toBeInTheDocument();
+      
+      // Update the values
+      await userEvent.clear(nameInput);
+      await userEvent.type(nameInput, 'Updated Name');
+      
+      await userEvent.clear(contentTextarea);
+      await userEvent.type(contentTextarea, 'Updated content with more details');
+      
+      // Save the changes
+      const updateButton = screen.getByRole('button', { name: /update prompt/i });
+      await userEvent.click(updateButton);
+      
+      // Verify UI updates
+      expect(screen.getByText('Updated Name')).toBeInTheDocument();
+      expect(screen.queryByText('Original Name')).not.toBeInTheDocument();
+      
+      // Verify localStorage updates
+      const stored = getStoredPrompts();
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({
+        id: 'test-1',
+        name: 'Updated Name',
+        content: 'Updated content with more details'
+      });
+    });
+
+    it('should cancel editing without saving changes', async () => {
+      const existingPrompt: SystemPrompt = {
+        id: 'test-1',
+        name: 'Original Name',
+        content: 'Original content'
+      };
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify([existingPrompt]));
+      
+      render(<App />);
+      await openSystemPromptsModal();
+      
+      // Start editing
+      const promptItem = screen.getByText('Original Name').closest('[role="button"]');
+      await userEvent.click(promptItem!);
+      
+      // Make changes
+      const nameInput = screen.getByDisplayValue('Original Name');
+      await userEvent.clear(nameInput);
+      await userEvent.type(nameInput, 'Changed Name');
+      
+      // Cancel editing
+      const cancelButton = screen.getByRole('button', { name: /cancel/i });
+      await userEvent.click(cancelButton);
+      
+      // Verify changes were not saved
+      expect(screen.getByText('Original Name')).toBeInTheDocument();
+      expect(screen.queryByText('Changed Name')).not.toBeInTheDocument();
+      
+      const stored = getStoredPrompts();
+      expect(stored[0].name).toBe('Original Name');
+    });
   });
-  
-  it('updates an existing system prompt', async () => {
-    // Initialize with a test prompt
-    const initialPrompt: SystemPrompt = {
-      id: 'test-prompt-1',
-      name: 'Test Prompt',
-      content: 'Test prompt content'
-    };
-    
-    render(<SystemPromptsTest initialPrompts={[initialPrompt]} />);
-    
-    // Open the system prompts modal
-    const systemPromptsButton = screen.getByTestId('system-prompts-button');
-    fireEvent.click(systemPromptsButton);
-    
-    // The test prompt should be in the list
-    expect(screen.getByTestId('prompt-test-prompt-1')).toBeInTheDocument();
-    expect(screen.getByText('Test Prompt')).toBeInTheDocument();
-    
-    // Update the prompt
-    const updateButton = screen.getByTestId('update-prompt-test-prompt-1');
-    fireEvent.click(updateButton);
-    
-    // The prompt title should be updated
-    expect(screen.getByText('Updated Test Prompt')).toBeInTheDocument();
-    
-    // Check localStorage was updated
-    const storedPrompts = JSON.parse(window.localStorage.getItem('pasteflow-system-prompts') || '[]');
-    expect(storedPrompts).toHaveLength(1);
-    expect(storedPrompts[0].name).toBe('Updated Test Prompt');
-    expect(storedPrompts[0].content).toBe('Updated Test prompt content');
+
+  describe('Deleting System Prompts', () => {
+    it('should delete prompts and update storage', async () => {
+      const prompts: SystemPrompt[] = [
+        { id: 'test-1', name: 'Prompt 1', content: 'Content 1' },
+        { id: 'test-2', name: 'Prompt 2', content: 'Content 2' },
+        { id: 'test-3', name: 'Prompt 3', content: 'Content 3' }
+      ];
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify(prompts));
+      
+      render(<App />);
+      await openSystemPromptsModal();
+      
+      // Delete the second prompt
+      const prompt2 = screen.getByText('Prompt 2').closest('.system-prompt-item') as HTMLElement;
+      const deleteButton = within(prompt2).getByTitle(/delete this prompt/i);
+      
+      await userEvent.click(deleteButton);
+      
+      // Verify UI update
+      expect(screen.queryByText('Prompt 2')).not.toBeInTheDocument();
+      expect(screen.getByText('Prompt 1')).toBeInTheDocument();
+      expect(screen.getByText('Prompt 3')).toBeInTheDocument();
+      
+      // Verify storage update
+      const stored = getStoredPrompts();
+      expect(stored).toHaveLength(2);
+      expect(stored.map(p => p.name)).toEqual(['Prompt 1', 'Prompt 3']);
+    });
+
+    it('should remove deleted prompts from selection', async () => {
+      const prompt: SystemPrompt = {
+        id: 'test-1',
+        name: 'Selected Prompt',
+        content: 'This prompt is selected'
+      };
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify([prompt]));
+      
+      render(<App />);
+      await openSystemPromptsModal();
+      
+      // Select the prompt
+      const promptItem = screen.getByText('Selected Prompt').closest('.system-prompt-item') as HTMLElement;
+      const selectButton = within(promptItem).getByTitle(/add to selection/i);
+      await userEvent.click(selectButton);
+      
+      // Verify selection indicator appears
+      expect(screen.getByText(/1/)).toBeInTheDocument();
+      
+      // Delete the prompt
+      const deleteButton = within(promptItem).getByTitle(/delete this prompt/i);
+      await userEvent.click(deleteButton);
+      
+      // Verify selection is cleared
+      expect(screen.queryByText(/1/)).not.toBeInTheDocument();
+    });
   });
-  
-  it('deletes a system prompt', async () => {
-    // Initialize with a test prompt
-    const initialPrompt: SystemPrompt = {
-      id: 'test-prompt-1',
-      name: 'Test Prompt',
-      content: 'Test prompt content'
-    };
-    
-    render(<SystemPromptsTest initialPrompts={[initialPrompt]} />);
-    
-    // Open the system prompts modal
-    const systemPromptsButton = screen.getByTestId('system-prompts-button');
-    fireEvent.click(systemPromptsButton);
-    
-    // The test prompt should be in the list
-    expect(screen.getByTestId('prompt-test-prompt-1')).toBeInTheDocument();
-    
-    // Delete the prompt
-    const deleteButton = screen.getByTestId('delete-prompt-test-prompt-1');
-    fireEvent.click(deleteButton);
-    
-    // The prompt should be removed from the list
-    expect(screen.queryByTestId('prompt-test-prompt-1')).not.toBeInTheDocument();
-    
-    // Check localStorage was updated
-    const storedPrompts = JSON.parse(window.localStorage.getItem('pasteflow-system-prompts') || '[]');
-    expect(storedPrompts).toHaveLength(0);
+
+  describe('Selecting System Prompts', () => {
+    it('should toggle prompt selection and show count', async () => {
+      const prompts: SystemPrompt[] = [
+        { id: 'test-1', name: 'Prompt 1', content: 'Content 1' },
+        { id: 'test-2', name: 'Prompt 2', content: 'Content 2' }
+      ];
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify(prompts));
+      
+      render(<App />);
+      
+      // Verify no selection indicator initially
+      const systemPromptsButton = screen.getByRole('button', { name: /system prompts/i });
+      expect(within(systemPromptsButton).queryByText(/\d+/)).not.toBeInTheDocument();
+      
+      await openSystemPromptsModal();
+      
+      // Select first prompt
+      const prompt1 = screen.getByText('Prompt 1').closest('.system-prompt-item') as HTMLElement;
+      const selectButton1 = within(prompt1).getByTitle(/add to selection/i);
+      await userEvent.click(selectButton1);
+      
+      // Verify selection visual feedback
+      expect(prompt1).toHaveClass('selected');
+      expect(within(prompt1).getByTitle(/remove from selection/i)).toBeInTheDocument();
+      
+      // Select second prompt
+      const prompt2 = screen.getByText('Prompt 2').closest('.system-prompt-item') as HTMLElement;
+      const selectButton2 = within(prompt2).getByTitle(/add to selection/i);
+      await userEvent.click(selectButton2);
+      
+      // Close modal  
+      const modal = screen.getByRole('dialog');
+      const xIcon = within(modal).getByTestId('x-icon');
+      await userEvent.click(xIcon.parentElement!);
+      
+      // Verify selection count in button
+      await waitFor(() => {
+        const button = screen.getByRole('button', { name: /system prompts/i });
+        expect(within(button).getByText('2')).toBeInTheDocument();
+      });
+    });
+
+    it('should persist selection across modal open/close', async () => {
+      const prompts: SystemPrompt[] = [
+        { id: 'test-1', name: 'Persistent Prompt', content: 'Should stay selected' }
+      ];
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify(prompts));
+      
+      render(<App />);
+      await openSystemPromptsModal();
+      
+      // Select the prompt
+      const promptItem = screen.getByText('Persistent Prompt').closest('.system-prompt-item') as HTMLElement;
+      const selectButton = within(promptItem).getByTitle(/add to selection/i);
+      await userEvent.click(selectButton);
+      
+      // Close modal  
+      const modal = screen.getByRole('dialog');
+      const xIcon = within(modal).getByTestId('x-icon');
+      await userEvent.click(xIcon.parentElement!);
+      
+      // Reopen modal
+      await openSystemPromptsModal();
+      
+      // Verify prompt is still selected
+      const reopenedModal = screen.getByRole('dialog');
+      const reopenedPrompt = within(reopenedModal).getByText('Persistent Prompt').closest('.system-prompt-item') as HTMLElement;
+      expect(reopenedPrompt).toHaveClass('selected');
+      expect(within(reopenedPrompt).getByTitle(/remove from selection/i)).toBeInTheDocument();
+    });
+
+    it('should update selected prompts when editing', async () => {
+      const prompt: SystemPrompt = {
+        id: 'test-1',
+        name: 'Original Selected',
+        content: 'Original content'
+      };
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify([prompt]));
+      
+      render(<App />);
+      await openSystemPromptsModal();
+      
+      // Select the prompt
+      const promptItem = screen.getByText('Original Selected').closest('.system-prompt-item') as HTMLElement;
+      const selectButton = within(promptItem).getByTitle(/add to selection/i);
+      await userEvent.click(selectButton);
+      
+      // Edit the prompt
+      await userEvent.click(promptItem);
+      
+      const nameInput = screen.getByDisplayValue('Original Selected');
+      await userEvent.clear(nameInput);
+      await userEvent.type(nameInput, 'Updated Selected');
+      
+      await userEvent.click(screen.getByRole('button', { name: /update prompt/i }));
+      
+      // Verify the updated prompt is still selected
+      const systemPromptsModal = screen.getByRole('dialog');
+      const updatedPrompt = within(systemPromptsModal).getByText('Updated Selected').closest('.system-prompt-item') as HTMLElement;
+      expect(updatedPrompt).toHaveClass('selected');
+    });
   });
-  
-  it('selects and deselects system prompts', async () => {
-    // Initialize with test prompts
-    const initialPrompts: SystemPrompt[] = [
-      {
-        id: 'test-prompt-1',
-        name: 'Test Prompt 1',
-        content: 'Test prompt content 1'
-      },
-      {
-        id: 'test-prompt-2',
-        name: 'Test Prompt 2',
-        content: 'Test prompt content 2'
-      }
-    ];
-    
-    render(<SystemPromptsTest initialPrompts={initialPrompts} />);
-    
-    // Initially no prompts should be selected
-    expect(screen.getByTestId('selected-prompts-count').textContent).toBe('0');
-    
-    // Open the system prompts modal
-    const systemPromptsButton = screen.getByTestId('system-prompts-button');
-    fireEvent.click(systemPromptsButton);
-    
-    // Select the first prompt
-    const selectButton = screen.getByTestId('select-prompt-test-prompt-1');
-    fireEvent.click(selectButton);
-    
-    // The prompt should now be selected
-    expect(screen.getByTestId('selected-prompts-count').textContent).toBe('1');
-    
-    // Select the second prompt
-    const selectButton2 = screen.getByTestId('select-prompt-test-prompt-2');
-    fireEvent.click(selectButton2);
-    
-    // Both prompts should now be selected
-    expect(screen.getByTestId('selected-prompts-count').textContent).toBe('2');
-    
-    // Deselect the first prompt
-    fireEvent.click(selectButton);
-    
-    // Only one prompt should be selected now
-    expect(screen.getByTestId('selected-prompts-count').textContent).toBe('1');
+
+  describe('Preview Functionality', () => {
+    it('should show content preview in prompt list', async () => {
+      const longContent = 'This is a very long content that should be truncated in the preview to ensure good UI display';
+      const prompt: SystemPrompt = {
+        id: 'test-1',
+        name: 'Long Content Prompt',
+        content: longContent
+      };
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify([prompt]));
+      
+      render(<App />);
+      await openSystemPromptsModal();
+      
+      // Verify truncated preview
+      const preview = screen.getByText(/This is a very long content/);
+      expect(preview.textContent).toContain('...');
+      expect(preview.textContent).not.toContain('ensure good UI display');
+      
+      // Verify full content is available when editing
+      const promptItem = screen.getByText('Long Content Prompt').closest('[role="button"]');
+      await userEvent.click(promptItem!);
+      
+      const contentTextarea = screen.getByDisplayValue(longContent);
+      expect(contentTextarea).toBeInTheDocument();
+    });
   });
-  
-  it('updates the selection indicator when prompts are selected', async () => {
-    // Initialize with test prompts
-    const initialPrompts: SystemPrompt[] = [
-      {
-        id: 'test-prompt-1',
-        name: 'Test Prompt 1',
-        content: 'Test prompt content 1'
-      }
-    ];
-    
-    render(<SystemPromptsTest initialPrompts={initialPrompts} />);
-    
-    // Initially the selection indicator should not be visible
-    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
-    
-    // Open the system prompts modal
-    const systemPromptsButton = screen.getByTestId('system-prompts-button');
-    fireEvent.click(systemPromptsButton);
-    
-    // Select the prompt
-    const selectButton = screen.getByTestId('select-prompt-test-prompt-1');
-    fireEvent.click(selectButton);
-    
-    // Close the modal
-    const closeButton = screen.getByTestId('close-modal-button');
-    fireEvent.click(closeButton);
-    
-    // The selection indicator should now be visible
-    expect(screen.getByText('1 selected')).toBeInTheDocument();
+
+  describe('Keyboard Navigation', () => {
+    it('should support keyboard navigation for prompt items', async () => {
+      const prompts: SystemPrompt[] = [
+        { id: 'test-1', name: 'Keyboard Nav Test', content: 'Test content' }
+      ];
+      localStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPTS, JSON.stringify(prompts));
+      
+      render(<App />);
+      await openSystemPromptsModal();
+      
+      // Focus on prompt item
+      const promptItem = screen.getByText('Keyboard Nav Test').closest('[role="button"]') as HTMLElement;
+      promptItem.focus();
+      
+      // Press Enter to edit
+      fireEvent.keyDown(promptItem, { key: 'Enter' });
+      
+      // Verify edit mode is active
+      expect(screen.getByDisplayValue('Keyboard Nav Test')).toBeInTheDocument();
+      
+      // Cancel edit
+      await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
+      
+      // Press Space to edit
+      promptItem.focus();
+      fireEvent.keyDown(promptItem, { key: ' ' });
+      
+      // Verify edit mode is active again
+      expect(screen.getByDisplayValue('Keyboard Nav Test')).toBeInTheDocument();
+    });
   });
-  
-  it('removes a prompt from selection if the prompt is deleted', async () => {
-    // Initialize with a test prompt
-    const initialPrompt: SystemPrompt = {
-      id: 'test-prompt-1',
-      name: 'Test Prompt',
-      content: 'Test prompt content'
-    };
-    
-    render(<SystemPromptsTest initialPrompts={[initialPrompt]} />);
-    
-    // Open the system prompts modal
-    const systemPromptsButton = screen.getByTestId('system-prompts-button');
-    fireEvent.click(systemPromptsButton);
-    
-    // Select the prompt
-    const selectButton = screen.getByTestId('select-prompt-test-prompt-1');
-    fireEvent.click(selectButton);
-    
-    // The prompt should now be selected
-    expect(screen.getByTestId('selected-prompts-count').textContent).toBe('1');
-    
-    // Delete the prompt
-    const deleteButton = screen.getByTestId('delete-prompt-test-prompt-1');
-    fireEvent.click(deleteButton);
-    
-    // The selection should be empty now
-    expect(screen.getByTestId('selected-prompts-count').textContent).toBe('0');
-  });
-  
-  it('updates selection when a selected prompt is updated', async () => {
-    // Initialize with a test prompt
-    const initialPrompt: SystemPrompt = {
-      id: 'test-prompt-1',
-      name: 'Test Prompt',
-      content: 'Test prompt content'
-    };
-    
-    render(<SystemPromptsTest initialPrompts={[initialPrompt]} />);
-    
-    // Open the system prompts modal
-    const systemPromptsButton = screen.getByTestId('system-prompts-button');
-    fireEvent.click(systemPromptsButton);
-    
-    // Select the prompt
-    const selectButton = screen.getByTestId('select-prompt-test-prompt-1');
-    fireEvent.click(selectButton);
-    
-    // Close the modal to see the selected prompt in the FileList
-    const closeButton = screen.getByTestId('close-modal-button');
-    fireEvent.click(closeButton);
-    
-    // Reopen the modal
-    fireEvent.click(systemPromptsButton);
-    
-    // Update the prompt
-    const updateButton = screen.getByTestId('update-prompt-test-prompt-1');
-    fireEvent.click(updateButton);
-    
-    // Close the modal to see the updated prompt in the FileList
-    fireEvent.click(screen.getByTestId('close-modal-button'));
-    
-    // The updated prompt should be selected
-    expect(screen.getByTestId('selected-prompt-test-prompt-1')).toBeInTheDocument();
-    expect(screen.getByText('Updated Test Prompt')).toBeInTheDocument();
-  });
-}); 
+});
