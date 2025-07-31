@@ -1,12 +1,13 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, GripVertical, Loader2, Pencil, X } from "lucide-react";
-import { type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
+import { useWorkspaceDrag } from '../hooks/use-workspace-drag';
+import { useWorkspaceSelection } from '../hooks/use-workspace-selection';
 import { WorkspaceState } from '../types/file-types';
 import type { AppState } from '../hooks/use-app-state';
 import { STORAGE_KEYS } from '../constants';
-import { WORKSPACE_DRAG_SCROLL, WORKSPACE_TRANSFORMS } from '../constants/workspace-drag-constants';
 import { safeJsonParse } from '../utils/local-storage-utils';
 import { 
   getWorkspaceSortMode, 
@@ -14,10 +15,14 @@ import {
   getWorkspaceManualOrder, 
   setWorkspaceManualOrder, 
   sortWorkspaces, 
-  moveWorkspace,
   WorkspaceSortMode,
   WorkspaceInfo
 } from '../utils/workspace-sorting';
+
+import { WorkspaceListItem } from './workspace-list-item';
+import { WorkspaceSaveButton } from './workspace-save-button';
+import { WorkspaceHeader } from './workspace-header';
+import { WorkspaceBulkActions } from './workspace-bulk-actions';
 
 interface WorkspaceModalProps {
   isOpen: boolean;
@@ -45,21 +50,11 @@ const WorkspaceModal = ({
   const [newName, setNewName] = useState("");
   const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
   const [renamingWsName, setRenamingWsName] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState('idle');
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedWorkspaces, setSelectedWorkspaces] = useState<Set<string>>(new Set());
-  const [selectAllChecked, setSelectAllChecked] = useState(false);
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() => getWorkspaceSortMode());
-  const [manualOrder, setManualOrder] = useState<string[]>(() => {
-    const order = getWorkspaceManualOrder();
-    return order;
-  });
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const workspaceListRef = useRef<HTMLDivElement | null>(null);
-  const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [manualOrder, setManualOrder] = useState<string[]>(() => getWorkspaceManualOrder());
 
   const refreshWorkspaceList = useCallback(() => {
     const names = getWorkspaceNames();
@@ -85,8 +80,7 @@ const WorkspaceModal = ({
       return { name, savedAt };
     });
     
-    const sorted = sortWorkspaces(workspaceInfos, sortMode, manualOrder);
-    return sorted;
+    return sortWorkspaces(workspaceInfos, sortMode, manualOrder);
   }, [sortMode, manualOrder]);
 
   const handleSortModeChange = useCallback((newMode: WorkspaceSortMode) => {
@@ -100,53 +94,19 @@ const WorkspaceModal = ({
     setWorkspaceSortMode(newMode);
   }, [getSortedWorkspaces]);
 
-  const handleToggleWorkspace = useCallback((workspaceName: string) => {
-    setSelectedWorkspaces((prev: Set<string>) => {
-      const newSet = new Set(prev);
-      if (newSet.has(workspaceName)) {
-        newSet.delete(workspaceName);
-      } else {
-        newSet.add(workspaceName);
-      }
-      // Update select all state based on selection
-      setSelectAllChecked(newSet.size === workspaceNames.length && workspaceNames.length > 0);
-      return newSet;
-    });
-  }, [workspaceNames]);
-
-  const handleSelectAll = useCallback(() => {
-    if (selectAllChecked) {
-      // Unselect all
-      setSelectedWorkspaces(new Set());
-      setSelectAllChecked(false);
-    } else {
-      // Select all
-      setSelectedWorkspaces(new Set(workspaceNames));
-      setSelectAllChecked(true);
-    }
-  }, [selectAllChecked, workspaceNames]);
-
-  const handleBulkDelete = useCallback(() => {
-    const count = selectedWorkspaces.size;
-    if (count === 0) return;
-
-    const message = count === 1 
-      ? `Are you sure you want to delete 1 workspace? This cannot be undone.`
-      : `Are you sure you want to delete ${count} workspaces? This cannot be undone.`;
-
-    if (window.confirm(message)) {
-      console.log(`[WorkspaceModal.handleBulkDelete] User confirmed deletion of ${count} workspaces.`);
-      for (const wsName of selectedWorkspaces) {
-        deletePersistedWorkspace(wsName);
-      }
-      setSelectedWorkspaces(new Set());
-      setSelectAllChecked(false);
-      refreshWorkspaceList();
-      console.log(`[WorkspaceModal.handleBulkDelete] Bulk deletion complete.`);
-    } else {
-      console.log(`[WorkspaceModal.handleBulkDelete] Bulk deletion cancelled by user.`);
-    }
-  }, [selectedWorkspaces, deletePersistedWorkspace, refreshWorkspaceList]);
+  // Use selection hook
+  const { 
+    selectedWorkspaces, 
+    selectAllChecked, 
+    handleToggleWorkspace, 
+    handleSelectAll, 
+    handleBulkDelete,
+    clearSelection 
+  } = useWorkspaceSelection({
+    workspaceNames,
+    onDelete: deletePersistedWorkspace,
+    onRefresh: refreshWorkspaceList
+  });
   
   const handleRenameStart = (wsName: string) => {
     console.log(`[WorkspaceModal.handleRenameStart] Initiating rename for: ${wsName}`);
@@ -160,161 +120,28 @@ const WorkspaceModal = ({
     setNewName('');
   };
   
-  const handleDragStart = useCallback((e: DragEvent, index: number) => {
-    console.log('[WorkspaceModal] Drag start:', { index, sortMode });
-    // If not in manual mode, switch to it and preserve current order
-    if (sortMode !== 'manual') {
-      const currentOrder = getSortedWorkspaces();
-      console.log('[WorkspaceModal] Switching to manual mode with order:', currentOrder);
-      setManualOrder(currentOrder);
-      setWorkspaceManualOrder(currentOrder);
+  // Use drag hook
+  const {
+    draggedIndex,
+    dragOverIndex,
+    workspaceListRef,
+    handleDragStart,
+    handleDragOver,
+    handleDragOverItem,
+    handleDragEnter,
+    handleDrop,
+    handleDragEnd,
+    handleDragLeave,
+    getItemTransform
+  } = useWorkspaceDrag({
+    sortMode,
+    getSortedWorkspaces,
+    onReorder: (newOrder) => {
+      setManualOrder(newOrder);
       setSortMode('manual');
       setWorkspaceSortMode('manual');
     }
-    setDraggedIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-  }, [sortMode, getSortedWorkspaces]);
-
-  const handleDragOver = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    
-    // Auto-scroll functionality
-    if (!workspaceListRef.current) return;
-    
-    const container = workspaceListRef.current;
-    const containerRect = container.getBoundingClientRect();
-    const mouseY = e.clientY;
-    
-    // Define scroll zones
-    const scrollZoneSize = WORKSPACE_DRAG_SCROLL.ZONE_SIZE;
-    const scrollSpeed = WORKSPACE_DRAG_SCROLL.BASE_SPEED;
-    
-    // Clear any existing scroll interval
-    if (scrollIntervalRef.current) {
-      clearInterval(scrollIntervalRef.current);
-      scrollIntervalRef.current = null;
-    }
-    
-    // Check if we're in the top scroll zone
-    if (mouseY < containerRect.top + scrollZoneSize) {
-      const intensity = 1 - (mouseY - containerRect.top) / scrollZoneSize;
-      scrollIntervalRef.current = setInterval(() => {
-        container.scrollTop -= scrollSpeed * (1 + intensity * WORKSPACE_DRAG_SCROLL.SPEED_MULTIPLIER);
-      }, WORKSPACE_DRAG_SCROLL.INTERVAL_MS);
-    }
-    // Check if we're in the bottom scroll zone
-    else if (mouseY > containerRect.bottom - scrollZoneSize) {
-      const intensity = 1 - (containerRect.bottom - mouseY) / scrollZoneSize;
-      scrollIntervalRef.current = setInterval(() => {
-        container.scrollTop += scrollSpeed * (1 + intensity * WORKSPACE_DRAG_SCROLL.SPEED_MULTIPLIER);
-      }, WORKSPACE_DRAG_SCROLL.INTERVAL_MS);
-    }
-  }, []);
-  
-  const handleDragOverItem = useCallback((e: DragEvent, index: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (draggedIndex === null || draggedIndex === index) return;
-    console.log('[WorkspaceModal] Drag over item:', { index, draggedIndex });
-    setDragOverIndex(index);
-  }, [draggedIndex]);
-  
-  const handleDragEnter = useCallback((e: DragEvent, _index: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-  }, []);
-
-  const handleDrop = useCallback((e: DragEvent, dropIndex: number) => {
-    console.log('[WorkspaceModal] handleDrop called with index:', dropIndex);
-    e.preventDefault();
-    if (draggedIndex === null) return;
-    
-    // Clear any active scroll interval
-    if (scrollIntervalRef.current) {
-      clearInterval(scrollIntervalRef.current);
-      scrollIntervalRef.current = null;
-    }
-    
-    // Use dragOverIndex if we have it, otherwise use dropIndex
-    const targetIndex = dragOverIndex === null ? dropIndex : dragOverIndex;
-    
-    if (draggedIndex === targetIndex) {
-      setDraggedIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-    
-    const sortedNames = getSortedWorkspaces();
-    console.log('[WorkspaceModal] Drop:', {
-      draggedIndex,
-      targetIndex,
-      sortedNames,
-      draggedItem: sortedNames[draggedIndex],
-      targetItem: sortedNames[targetIndex]
-    });
-    
-    const newOrder = moveWorkspace(sortedNames, draggedIndex, targetIndex);
-    console.log('[WorkspaceModal] New order:', newOrder);
-    
-    // Update both state and localStorage
-    console.log('[WorkspaceModal] Setting manual order state:', newOrder);
-    setManualOrder(newOrder);
-    setWorkspaceManualOrder(newOrder);
-    console.log('[WorkspaceModal] Manual order saved to localStorage');
-    
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  }, [draggedIndex, dragOverIndex, getSortedWorkspaces]);
-
-  const handleDragEnd = useCallback((_e: DragEvent) => {
-    console.log('[WorkspaceModal] Drag end called, dragOverIndex:', dragOverIndex);
-    
-    // If we have a dragOverIndex, use it to reorder (fallback for when drop doesn't fire)
-    if (draggedIndex === null || dragOverIndex === null || draggedIndex === dragOverIndex) {
-      setDraggedIndex(null);
-      setDragOverIndex(null);
-      
-      // Clear any active scroll interval
-      if (scrollIntervalRef.current) {
-        clearInterval(scrollIntervalRef.current);
-        scrollIntervalRef.current = null;
-      }
-      return;
-    }
-    
-    const sortedNames = getSortedWorkspaces();
-    console.log('[WorkspaceModal] Reordering in dragEnd:', {
-      draggedIndex,
-      dragOverIndex,
-      sortedNames
-    });
-    
-    const newOrder = moveWorkspace(sortedNames, draggedIndex, dragOverIndex);
-    console.log('[WorkspaceModal] New order in dragEnd:', newOrder);
-    
-    setManualOrder(newOrder);
-    setWorkspaceManualOrder(newOrder);
-    
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-    
-    // Clear any active scroll interval
-    if (scrollIntervalRef.current) {
-      clearInterval(scrollIntervalRef.current);
-      scrollIntervalRef.current = null;
-    }
-  }, [draggedIndex, dragOverIndex, getSortedWorkspaces]);
-  
-  const handleDragLeave = useCallback((e: DragEvent) => {
-    // Only stop scrolling if we're leaving the container itself
-    if (e.currentTarget === e.target) {
-      if (scrollIntervalRef.current) {
-        clearInterval(scrollIntervalRef.current);
-        scrollIntervalRef.current = null;
-      }
-    }
-  }, []);
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -323,8 +150,7 @@ const WorkspaceModal = ({
       setName(''); // Reset save input
       setRenamingWsName(null); // Reset renaming state
       setNewName(''); // Reset rename input
-      setSelectedWorkspaces(new Set()); // Reset selection
-      setSelectAllChecked(false); // Reset select all
+      clearSelection(); // Reset selection
 
       // Check if we need to start in rename mode
       if (!initialRenameTarget || !onClearInitialRenameTarget) return;
@@ -337,14 +163,8 @@ const WorkspaceModal = ({
           onClearInitialRenameTarget(); // Clear the target in the parent state
       }, 0);
     }
-  }, [isOpen, refreshWorkspaceList, initialRenameTarget, onClearInitialRenameTarget]); // Added dependencies
+  }, [isOpen, refreshWorkspaceList, initialRenameTarget, onClearInitialRenameTarget, clearSelection]); // Added dependencies
 
-  useEffect(() => {
-    // Focus the rename input when renaming starts
-    if (renamingWsName && renameInputRef.current) {
-      renameInputRef.current.focus();
-    }
-  }, [renamingWsName]);
 
   // Debug manual order changes
   useEffect(() => {
@@ -356,9 +176,6 @@ const WorkspaceModal = ({
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
-      }
-      if (scrollIntervalRef.current) {
-        clearInterval(scrollIntervalRef.current);
       }
     };
   }, []);
@@ -504,33 +321,6 @@ const WorkspaceModal = ({
     }
   };
 
-  // Function to generate class name for the apply button
-  const getApplyButtonClassName = () => {
-    let className = "apply-button save-button";
-    if (saveState !== 'idle') {
-      className += ` save-${saveState}`;
-    }
-    return className;
-  };
-
-  // Function to generate title for the apply button
-  const getApplyButtonTitle = () => {
-    if (renamingWsName) {
-      return "Complete or cancel the current rename operation first";
-    }
-    if (saveState === 'saving') {
-      return "Saving...";
-    }
-    if (saveState === 'success') {
-      return "Saved!";
-    }
-    return workspaceNames.includes(name.trim()) ? 'Overwrite Workspace' : 'Save Workspace';
-  };
-
-  // Function to determine the button text content
-  const getApplyButtonText = () => {
-    return workspaceNames.includes(name.trim()) ? 'Overwrite Workspace' : 'Save Workspace';
-  };
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
@@ -558,81 +348,29 @@ const WorkspaceModal = ({
                 title={renamingWsName ? "Complete or cancel the current rename operation first" : "Enter workspace name"}
                 ref={nameInputRef}
               />
-              <button 
-                className={getApplyButtonClassName()}
-                onClick={handleSave}
-                disabled={!name.trim() || !!renamingWsName || saveState === 'saving' || saveState === 'success'} // Disable during saving/success/renaming
-                title={getApplyButtonTitle()}
-                style={{ position: 'relative', overflow: 'hidden' }} // Needed for absolute positioning of icon
-              >
-                <span className={`button-text ${saveState === 'idle' ? '' : 'hide'}`}>
-                  {getApplyButtonText()}
-                </span>
-                 {saveState === 'saving' && (
-                  <Loader2 size={16} className="button-icon spin" />
-                )}
-                {saveState === 'success' && (
-                  <Check size={16} className="button-icon success-check" />
-                )}
-              </button>
+              <WorkspaceSaveButton
+                saveState={saveState}
+                workspaceName={name}
+                isRenamingActive={!!renamingWsName}
+                workspaceNames={workspaceNames}
+                disabled={!name.trim() || !!renamingWsName || saveState === 'saving' || saveState === 'success'}
+                onSave={handleSave}
+              />
               
-              <div className="workspace-header">
-                <div className="workspace-header-left">
-                  <h3 className="workspace-subtitle">Saved Workspaces</h3>
-                  {workspaceNames.length > 0 && (
-                    <div className="workspace-sort-selector">
-                      <select
-                        value={sortMode}
-                        onChange={(e) => handleSortModeChange(e.target.value as WorkspaceSortMode)}
-                        className="workspace-sort-dropdown"
-                      >
-                        <option value="recent">Most Recent</option>
-                        <option value="alphabetical">Alphabetical</option>
-                        <option value="manual">Manual Order</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-                {workspaceNames.length > 0 && (
-                  <div className="workspace-select-all">
-                    <div className="workspace-checkbox-container">
-                      <input
-                        type="checkbox"
-                        id="workspace-select-all"
-                        className="tree-item-checkbox"
-                        checked={selectAllChecked}
-                        onChange={handleSelectAll}
-                      />
-                      <label htmlFor="workspace-select-all" className="custom-checkbox" aria-label="Select all workspaces" />
-                    </div>
-                    <label htmlFor="workspace-select-all" className="select-all-label">Select All</label>
-                  </div>
-                )}
-              </div>
+              <WorkspaceHeader
+                workspaceCount={workspaceNames.length}
+                sortMode={sortMode}
+                selectAllChecked={selectAllChecked}
+                onSortModeChange={handleSortModeChange}
+                onSelectAll={handleSelectAll}
+              />
               
               {selectedWorkspaces.size > 0 && (
-                <div className="bulk-actions-bar">
-                  <span className="selected-count">
-                    {selectedWorkspaces.size} workspace{selectedWorkspaces.size === 1 ? '' : 's'} selected
-                  </span>
-                  <div className="bulk-actions">
-                    <button 
-                      className="bulk-action-button delete"
-                      onClick={handleBulkDelete}
-                    >
-                      Delete Selected
-                    </button>
-                    <button 
-                      className="bulk-action-button clear"
-                      onClick={() => {
-                        setSelectedWorkspaces(new Set());
-                        setSelectAllChecked(false);
-                      }}
-                    >
-                      Clear Selection
-                    </button>
-                  </div>
-                </div>
+                <WorkspaceBulkActions
+                  selectedCount={selectedWorkspaces.size}
+                  onDelete={handleBulkDelete}
+                  onClearSelection={clearSelection}
+                />
               )}
               
               {workspaceNames.length === 0 ? (
@@ -652,119 +390,33 @@ const WorkspaceModal = ({
                     const shouldShowGap = isDragOver && draggedIndex !== null && draggedIndex !== index;
                     
                     return (
-                      <div 
-                        key={wsName} 
-                        className={`workspace-item draggable ${isDragging ? 'dragging' : ''} ${shouldShowGap ? 'drag-over' : ''}`}
-                        draggable={renamingWsName !== wsName}
-                        onDragStart={(e) => handleDragStart(e, index)}
-                        onDragEnter={(e) => handleDragEnter(e, index)}
-                        onDragOver={(e) => handleDragOverItem(e, index)}
-                        onDrop={(e) => handleDrop(e, index)}
-                        onDragEnd={handleDragEnd}
-                        style={{
-                          transform: (() => {
-                            if (draggedIndex === null) return 'translateY(0)';
-                            if (dragOverIndex === null) return 'translateY(0)';
-                            
-                            // Create space for the dragged item
-                            if (draggedIndex < dragOverIndex) {
-                              // Dragging down
-                              if (index > draggedIndex && index <= dragOverIndex) {
-                                return WORKSPACE_TRANSFORMS.MOVE_UP;
-                              }
-                            } else {
-                              // Dragging up
-                              if (index < draggedIndex && index >= dragOverIndex) {
-                                return WORKSPACE_TRANSFORMS.MOVE_DOWN;
-                              }
-                            }
-                            return 'translateY(0)';
-                          })(),
-                          transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                      <WorkspaceListItem
+                        key={wsName}
+                        name={wsName}
+                        index={index}
+                        isSelected={selectedWorkspaces.has(wsName)}
+                        isRenaming={renamingWsName === wsName}
+                        isDragging={isDragging}
+                        isDragOver={isDragOver}
+                        shouldShowGap={shouldShowGap}
+                        newName={newName}
+                        onToggleSelect={() => handleToggleWorkspace(wsName)}
+                        onRenameStart={() => handleRenameStart(wsName)}
+                        onRenameConfirm={handleRenameConfirm}
+                        onRenameCancel={handleRenameCancel}
+                        onRenameChange={setNewName}
+                        onLoad={() => handleLoad(wsName)}
+                        onDelete={() => handleDelete(wsName)}
+                        dragHandlers={{
+                          onDragStart: (e) => handleDragStart(e, index),
+                          onDragEnter: (e) => handleDragEnter(e, index),
+                          onDragOver: (e) => handleDragOverItem(e, index),
+                          onDrop: (e) => handleDrop(e, index),
+                          onDragEnd: handleDragEnd
                         }}
-                      >
-                      <div className="drag-handle">
-                        <GripVertical size={16} />
-                      </div>
-                      <div className="workspace-checkbox-container">
-                        <input
-                          type="checkbox"
-                          id={`workspace-checkbox-${wsName}`}
-                          className="tree-item-checkbox"
-                          checked={selectedWorkspaces.has(wsName)}
-                          onChange={() => handleToggleWorkspace(wsName)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <label 
-                          htmlFor={`workspace-checkbox-${wsName}`} 
-                          className="custom-checkbox"
-                          aria-label={`Select ${wsName}`}
-                        />
-                      </div>
-                      {renamingWsName === wsName ? (
-                        // Renaming UI
-                        <>
-                          <div className="prompt-details flex-grow"> 
-                            <input
-                              type="text"
-                              className="prompt-title-input flex-grow" // Use similar styling
-                              value={newName}
-                              onChange={(e) => setNewName(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && handleRenameConfirm()}
-                              ref={renameInputRef}
-                            />
-                          </div>
-                          <div className="workspace-actions">
-                            <button 
-                              className="prompt-action-button confirm-button" // Style as needed
-                              onClick={handleRenameConfirm}
-                              title="Confirm rename"
-                              disabled={!newName.trim() || (newName.trim() === wsName)}
-                            >
-                              <Check size={16} />
-                            </button>
-                            <button 
-                              className="prompt-action-button cancel-button" // Style as needed
-                              onClick={handleRenameCancel}
-                              title="Cancel rename"
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        // Default display UI
-                        <>
-                          <div className="prompt-details">
-                            <div className="prompt-title">{wsName}</div>
-                          </div>
-                          <div className="workspace-actions">
-                            <button 
-                              className="prompt-action-button"
-                              onClick={() => handleLoad(wsName)}
-                              title="Load workspace"
-                            >
-                              Load
-                            </button>
-                             <button 
-                              className="prompt-action-button rename-button" // Style as needed
-                              onClick={() => handleRenameStart(wsName)}
-                              title="Rename workspace"
-                            >
-                              <Pencil size={16} /> 
-                            </button>
-                            <button 
-                              className="prompt-action-button delete-button"
-                              onClick={() => handleDelete(wsName)}
-                              title="Delete workspace"
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
+                        transform={getItemTransform(index)}
+                      />
+                    );
                   })}
                 </div>
               )}
