@@ -274,12 +274,10 @@ export class TokenWorkerPool {
   }
   
   private async initializeWorkers() {
-    console.log('[Pool] Starting worker initialization...');
     // Progressive enhancement check
     const supportsWorkers = typeof Worker !== 'undefined';
     const supportsWasm = typeof WebAssembly !== 'undefined';
     
-    console.log('[Pool] Support check - Workers:', supportsWorkers, 'WASM:', supportsWasm);
     
     if (!supportsWorkers || !supportsWasm) {
       console.warn('Web Workers or WASM not supported, falling back to estimation');
@@ -289,13 +287,11 @@ export class TokenWorkerPool {
     
     for (let i = 0; i < this.poolSize; i++) {
       try {
-        console.log(`[Pool] Creating worker ${i}...`);
         // Note: Webpack/Vite will handle worker bundling
         const worker = new Worker(
           new URL('../workers/token-counter-worker.ts', import.meta.url),
           { type: 'module' }
         );
-        console.log(`[Pool] Worker ${i} created successfully`);
         
         // Create named handlers for proper cleanup
         const messageHandler = (event: MessageEvent) => {
@@ -333,14 +329,11 @@ export class TokenWorkerPool {
     }
     
     // Wait for all workers to send READY signal
-    console.log('[Pool] Waiting for workers to be ready...');
     await this.waitForWorkersReady();
     
     // Send INIT messages to all ready workers
-    console.log('[Pool] All workers ready, sending INIT messages...');
     for (const [i, worker] of this.workers.entries()) {
       if (this.workerReadyStatus[i]) {
-        console.log(`[Pool] Sending INIT message to worker ${i}`);
         worker.postMessage({ type: 'INIT', id: `init-${i}` });
       }
     }
@@ -357,16 +350,13 @@ export class TokenWorkerPool {
     while (Date.now() - start < timeout) {
       const hasReady = this.workerReadyStatus.some(Boolean);
       const readyCount = hasReady ? this.workerReadyStatus.filter(Boolean).length : 0;
-      console.log(`[Pool] ${readyCount}/${this.workers.length} workers ready`);
       
       if (hasReady && readyCount === this.workers.length) {
-        console.log('[Pool] All workers are ready!');
         return;
       }
       
       // If at least half are ready after 1 second, continue
       if (Date.now() - start > 1000 && readyCount >= Math.ceil(this.workers.length / 2)) {
-        console.log(`[Pool] ${readyCount} workers ready, continuing with partial pool`);
         return;
       }
       
@@ -391,17 +381,14 @@ export class TokenWorkerPool {
   private handleWorkerMessage(workerId: number, event: MessageEvent) {
     const { type, id, success, healthy } = event.data;
     
-    console.log(`[Pool] Received message from worker ${workerId}:`, { type, id, success: success || healthy });
     
     switch (type) {
       case 'WORKER_READY': {
-        console.log(`[Pool] Worker ${workerId} is ready`);
         this.workerReadyStatus[workerId] = true;
         break;
       }
         
       case 'INIT_COMPLETE': {
-        console.log(`[Pool] Worker ${workerId} initialization complete, success: ${success}`);
         this.workerStatus[workerId] = success;
         break;
       }
@@ -779,7 +766,6 @@ export class TokenWorkerPool {
       setInterval(async () => {
         try {
           const memory = await (performance as any).measureUserAgentSpecificMemory();
-          console.log('Worker pool memory usage:', memory);
           
           // Recycle workers if memory usage is high
           if (memory.bytes > 500_000_000) { // 500MB threshold
@@ -943,20 +929,17 @@ export class TokenWorkerPool {
     
     // Check if pool is being recycled or preparing for shutdown
     if (this.isRecycling || this.recyclingLock || !this.acceptingJobs || this.preparingForShutdown) {
-      console.log(`Skipping recovery for worker ${workerId} - pool is recycling or shutting down`);
       return;
     }
     
     // Check if worker is permanently failed
     if (this.workerPermanentlyFailed.has(workerId)) {
-      console.log(`Skipping recovery for worker ${workerId} - permanently failed`);
       return;
     }
     
     // Try to acquire recovery lock
     const lockAcquired = await this.acquireRecoveryLock(workerId);
     if (!lockAcquired) {
-      console.log(`Worker ${workerId} is already being recovered`);
       return;
     }
     
@@ -976,11 +959,9 @@ export class TokenWorkerPool {
   private async performWorkerRecovery(workerId: number): Promise<void> {
     // Double-check worker still needs recovery
     if (this.workerStatus[workerId] && await this.isWorkerHealthy(workerId)) {
-      console.log(`Worker ${workerId} is already healthy, skipping recovery`);
       return;
     }
     
-    console.log(`Starting recovery for worker ${workerId}`);
     
     // Clean up old worker listeners before termination
     this.cleanupWorkerListeners(workerId);
@@ -1037,7 +1018,6 @@ export class TokenWorkerPool {
         2000,
         (event) => {
           if (event.data.type === 'WORKER_READY') {
-            console.log(`[Pool] Recovered worker ${workerId} is ready, sending INIT`);
             this.workerReadyStatus[workerId] = true;
             worker.postMessage({ type: 'INIT', id: `init-recovery-${workerId}` });
             return true; // Signal success
@@ -1058,7 +1038,6 @@ export class TokenWorkerPool {
     while (Date.now() - initStart < initTimeout && !initialized) {
       if (this.workerStatus[workerId]) {
         initialized = true;
-        console.log(`Worker ${workerId} successfully recovered`);
         break;
       }
       await new Promise(resolve => setTimeout(resolve, 50));

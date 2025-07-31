@@ -34,19 +34,13 @@ function sanitizeTextForTokenCount(text: string): string {
 // Initialize encoder with proper error handling
 async function initializeEncoder(): Promise<boolean> {
   try {
-    console.log('[Worker] Starting tiktoken initialization...');
-    console.log('[Worker] o200k_base available:', !!o200k_base);
-    console.log('[Worker] bpe_ranks available:', !!o200k_base?.bpe_ranks);
-    
     encoder = new Tiktoken(
       o200k_base.bpe_ranks,
       o200k_base.special_tokens,
       o200k_base.pat_str
     );
-    console.log('[Worker] Tiktoken encoder initialized successfully');
     return true;
   } catch (error) {
-    console.error('[Worker] Failed to initialize tiktoken encoder:', error);
     encoder = null;
     return false;
   }
@@ -56,20 +50,15 @@ async function initializeEncoder(): Promise<boolean> {
 const MAX_TEXT_SIZE = 10 * 1024 * 1024; // 10MB limit
 
 // Send READY signal immediately when worker script loads
-console.log('[Worker] Worker script loaded, sending READY signal');
 self.postMessage({ type: 'WORKER_READY' });
 
 self.addEventListener('message', async (event) => {
   const { type, payload, id } = event.data;
   
-  console.log('[Worker] Received message:', { type, id });
-  
   try {
     switch (type) {
       case 'INIT': {
-        console.log('[Worker] Processing INIT message...');
         const success = await initializeEncoder();
-        console.log('[Worker] Sending INIT_COMPLETE with success:', success);
         self.postMessage({ type: 'INIT_COMPLETE', id, success });
         break;
       }

@@ -164,10 +164,8 @@ const useAppState = () => {
 
   useEffect(() => {
     const handleWorkspacesChanged = (event: CustomEvent) => {
-      console.log('[useAppState.workspacesChangedListener] "workspacesChanged" event received.', event.detail);
 
       if (event.detail?.deleted === currentWorkspace && event.detail?.wasCurrent) {
-         console.log(`[useAppState.workspacesChangedListener] Current workspace "${currentWorkspace}" was deleted. Clearing current workspace state and folder.`);
          setCurrentWorkspace(null);
          handleResetFolderState();
       }
@@ -675,7 +673,6 @@ const useAppState = () => {
   // Set up file-list-updated event listener to handle pending workspace data
   useEffect(() => {
     const handleFileListUpdated = () => {
-      console.log('[useAppState.fileListUpdatedListener] File list updated event received. Pending data application handled by separate effect.');
     };
     
     // Add event listener
@@ -691,8 +688,6 @@ const useAppState = () => {
   const saveWorkspace = useCallback((name: string) => {
     // Deduplicate selected files before saving
     const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
-    console.log(`[saveWorkspace] Saving workspace "${name}" with ${uniqueSelectedFiles.length} unique files (from ${fileSelection.selectedFiles.length} total)`);
-    console.log('[saveWorkspace] Files being saved:', uniqueSelectedFiles.map(f => f.path));
     
     const workspace: WorkspaceState = {
       selectedFolder: selectedFolder,
@@ -739,7 +734,6 @@ const useAppState = () => {
     
     // CRITICAL: Cancel any in-progress file loading
     if (processingStatus.status === "processing") {
-      console.log(`[handleFolderChange] Cancelling previous file loading before switching to: ${workspaceFolder}`);
       cancelFileLoading(isElectron, setProcessingStatus);
     }
     
@@ -778,18 +772,14 @@ const useAppState = () => {
   }, [exclusionPatterns, setProcessingStatus, setSelectedFolder, setCurrentWorkspace, setPendingWorkspaceData, processingStatus.status, isElectron, setAllFiles, clearSelectedFiles]);
 
   const applyExpandedNodes = useCallback((expandedNodesFromWorkspace: Record<string, boolean>) => {
-    console.log('[useAppState.applyExpandedNodes] Applying:', expandedNodesFromWorkspace);
     setExpandedNodes(expandedNodesFromWorkspace || {});
     localStorage.setItem(STORAGE_KEYS.EXPANDED_NODES, JSON.stringify(expandedNodesFromWorkspace || {}));
   }, [setExpandedNodes]);
 
   const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileWithLines[], availableFiles: FileData[]): void => {
-    console.log(`[applySelectedFiles] Called with ${selectedFilesToApply.length} files to apply`);
-    console.log('[applySelectedFiles] Files to apply:', selectedFilesToApply.map(f => f.path));
     
     // Deduplicate input files before applying
     const uniqueFiles = [...new Map(selectedFilesToApply.map(file => [file.path, file])).values()];
-    console.log(`[applySelectedFiles] After deduplication: ${uniqueFiles.length} unique files`);
     
     // Create a map of available files for efficient lookup
     const availableFilesMap = new Map(availableFiles.map(f => [f.path, f]));
@@ -810,7 +800,6 @@ const useAppState = () => {
       })
       .filter((file): file is SelectedFileWithLines => !!file);
 
-    console.log(`[applySelectedFiles] Setting ${filesToSelect.length} files after filtering`);
     
     // Always call setSelectionState even with empty array to ensure proper clearing
     // Batch state updates
@@ -820,7 +809,6 @@ const useAppState = () => {
   }, [setSelectionState]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
-    console.log('[useAppState.applyPrompts] Applying prompts (raw):', promptsToApply);
     const currentPrompts = promptStateRef.current;
 
     // Deselect current prompts
@@ -850,7 +838,6 @@ const useAppState = () => {
 
   // This function handles applying workspace data, with proper file selection management
   const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null) => {
-    console.log(`[useAppState.applyWorkspaceData ENTRY] Name: ${workspaceName}, Has Data: ${!!workspaceData}`);
     if (!workspaceData || !workspaceName) {
       console.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
       setPendingWorkspaceData(null);
@@ -879,7 +866,6 @@ const useAppState = () => {
     setCurrentWorkspace(workspaceName);
     setPendingWorkspaceData(null);
 
-    console.log(`[useAppState.applyWorkspaceData APPLYING] Applying state for workspace: ${workspaceName}`);
     
     applyExpandedNodes(workspaceData.expandedNodes);
     applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
@@ -919,7 +905,6 @@ const useAppState = () => {
 
     try {
       electronHandlerSingleton.setup(() => {
-        console.log('[useAppState.setupElectronHandlers] Setting up Electron handlers');
         
         // Create wrapper functions that use refs to get latest values
         const handleFiltersAndSortWrapper = (files: FileData[], _sort: string, _filter: string) => {
@@ -947,7 +932,6 @@ const useAppState = () => {
         // Dispatch a custom event when handlers are set up
         const event = new CustomEvent('electron-handlers-ready');
         window.dispatchEvent(event);
-        console.log('[useAppState.setupElectronHandlers] Handlers ready event dispatched');
         
         return cleanup;
       });
@@ -975,7 +959,6 @@ const useAppState = () => {
     ]);
 
   const saveCurrentWorkspace = useCallback(() => {
-    console.log('[useAppState.saveCurrentWorkspace] Attempting to save current workspace:', currentWorkspace);
     if (!currentWorkspace) {
       console.warn("[useAppState.saveCurrentWorkspace] No current workspace selected, cannot save.");
       return;
@@ -994,7 +977,6 @@ const useAppState = () => {
       // Set timeout to revert state
       headerSaveTimeoutRef.current = setTimeout(() => {
         setHeaderSaveState('idle');
-        console.log('[useAppState.saveCurrentWorkspace] Save success state finished.');
       }, 1500); // Duration for the checkmark visibility
 
     } catch (error) {
@@ -1005,14 +987,11 @@ const useAppState = () => {
   }, [currentWorkspace, saveWorkspace]);
 
   const loadWorkspace = useCallback((name: string) => {
-    console.log(`[useAppState.loadWorkspace] Loading workspace: "${name}"`);
     const workspaceData = loadPersistedWorkspace(name);
     
     if (workspaceData) {
-        console.log(`[useAppState.loadWorkspace] Workspace data loaded:`, workspaceData);
         // Ensure we have the folder path before applying
         if (workspaceData.selectedFolder) {
-            console.log(`[useAppState.loadWorkspace] Workspace has folder: "${workspaceData.selectedFolder}"`);
         } else {
             console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
         }
@@ -1070,25 +1049,14 @@ const useAppState = () => {
   }, [handleWorkspaceLoadedEvent, handleDirectFolderOpenedEvent]);
 
   useEffect(() => {
-    console.log('[useAppState.applyPendingEffect] Effect triggered with:', {
-      hasPendingData: !!pendingWorkspaceData,
-      currentWorkspace,
-      filesCount: allFiles.length,
-      processingStatus: processingStatus.status,
-      selectedFolder
-    });
-    
     // Wait for file loading to complete before applying workspace data
     if (pendingWorkspaceData && currentWorkspace && allFiles.length > 0 && processingStatus.status === "complete") {
-      console.log('[useAppState.applyPendingEffect] Conditions met to apply pending workspace data');
-      console.log('[useAppState.applyPendingEffect] pendingWorkspaceData:', pendingWorkspaceData);
       
       const fullWorkspaceData: WorkspaceState = {
         selectedFolder: selectedFolder,
         ...pendingWorkspaceData
       };
       
-      console.log('[useAppState.applyPendingEffect TRIGGERED] Applying pending workspace data. Pending data:', pendingWorkspaceData, 'Current selectedFolder:', selectedFolder);
       
       applyWorkspaceData(currentWorkspace, fullWorkspaceData);
     }
@@ -1096,7 +1064,6 @@ const useAppState = () => {
 
   useEffect(() => {
     const handleCreateNewWorkspaceEvent = () => {
-      console.log("[useAppState] Received 'createNewWorkspace' event. Clearing current workspace.");
       setCurrentWorkspace(null);
       handleResetFolderStateRef.current();
     };

@@ -22,4 +22,26 @@ export const SORT_OPTIONS = [
   { value: "tokens-desc", label: "Tokens (Highest First)" },
   { value: "size-asc", label: "Size (Smallest First)" },
   { value: "size-desc", label: "Size (Largest First)" }
+];
+
+export const DEFAULT_EXCLUSION_PATTERNS = [
+  "**/node_modules/",
+  "**/.npm/",
+  "**/__pycache__/",
+  "**/.pytest_cache/",
+  "**/.mypy_cache/",
+  "**/.gradle/",
+  "**/.nuget/",
+  "**/.cargo/",
+  "**/.stack-work/",
+  "**/.ccache/",
+  "**/.idea/",
+  "**/.vscode/",
+  "**/*.swp",
+  "**/*~",
+  "**/*.tmp",
+  "**/*.temp",
+  "**/*.bak",
+  "**/*.meta",
+  "**/package-lock.json",
 ]; 

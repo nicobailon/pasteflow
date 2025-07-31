@@ -35,7 +35,6 @@ const validateFolderPath = (
   setProcessingStatus: (status: ProcessingStatus) => void
 ): { isValid: boolean; sanitizedPath?: string } => {
   if (typeof folderPath !== "string") {
-    console.error("Invalid folder path received:", folderPath);
     setProcessingStatus({
       status: "error",
       message: "Invalid folder path received",
@@ -101,7 +100,6 @@ const handleWorkspaceUpdate = (
 ): string | null => {
   // Check if we're opening the same folder that's already open
   if (selectedFolder === newPath) {
-    console.log('[electron-handler] Same folder selected, no workspace change needed:', newPath);
     return currentWorkspace;
   }
 
@@ -111,11 +109,6 @@ const handleWorkspaceUpdate = (
   const initialWorkspaceState = createInitialWorkspaceState(newPath);
   persistWorkspace(newWorkspaceName, initialWorkspaceState);
   setCurrentWorkspace(newWorkspaceName);
-  
-  const message = currentWorkspace === null 
-    ? `Workspace "${newWorkspaceName}" created and activated.`
-    : `New workspace "${newWorkspaceName}" created and activated.`;
-  console.log(`[electron-handler] ${message}`);
   
   return newWorkspaceName;
 };
@@ -134,7 +127,6 @@ const setupPeriodicCleanup = (
       
       // If no updates for 5 minutes, clear the accumulated files
       if (timeSinceLastUpdate > 5 * 60 * 1000) {
-        console.warn('Clearing stale accumulated files due to inactivity');
         accumulatedFiles.length = 0; // Clear array in place
         window.sessionStorage.removeItem('lastFileListUpdate');
       }
@@ -183,7 +175,6 @@ const createFolderSelectedHandler = (
         }
         
         const newPath = validation.sanitizedPath!;
-        console.log("Folder selected:", folderPath);
         
         accumulatedFiles.length = 0; // Clear accumulated files
 
@@ -202,7 +193,6 @@ const createFolderSelectedHandler = (
           const minimalWorkspaceData = createInitialWorkspaceState(newPath);
 
           // Dispatch a specific event for direct folder opening to avoid conflicts with workspace loading
-          console.log(`[handleFolderSelected] Dispatching directFolderOpened event for: ${workspaceName}`);
           window.dispatchEvent(new CustomEvent('directFolderOpened', { 
             detail: { 
               name: workspaceName, 
@@ -211,7 +201,6 @@ const createFolderSelectedHandler = (
           }));
         } else {
           // This should rarely happen, but as a fallback use the old behavior
-          console.warn('[handleFolderSelected] No workspace name returned, falling back to direct handling');
           params.setSelectedFolder(newPath);
           params.clearSelectedFiles();
           params.setProcessingStatus({
@@ -329,7 +318,6 @@ export const setupElectronHandlers = (
 
     // Check if this data is from the current request
     if ('requestId' in data && data.requestId !== currentRequestId.value) {
-      console.warn(`[processFileData] Ignoring stale file batch from request ${data.requestId}, current request is ${currentRequestId.value}`);
       return {
         filesArray: [],
         isComplete: false,
@@ -343,7 +331,6 @@ export const setupElectronHandlers = (
     if ('requestId' in data && data.requestId === currentRequestId.value && data.files && data.files.length > 0) {
       // Check if this looks like the first batch (small file count and low processed count)
       if (data.processed && data.processed <= data.files.length && data.processed < 50) {
-        console.log(`[processFileData] First batch of new request ${data.requestId}, clearing accumulated files`);
         accumulatedFiles.length = 0;
       }
     }
@@ -366,7 +353,7 @@ export const setupElectronHandlers = (
       });
       
       if (validFiles.length !== newFiles.length) {
-        console.warn(`[processFileData] Filtered out ${newFiles.length - validFiles.length} files from wrong workspace. Current workspace: ${currentFolder}`);
+        // Some files were filtered out
       }
       
       newFiles = validFiles;
@@ -427,16 +414,6 @@ export const setupElectronHandlers = (
 
       const { filesArray, isComplete, processedCount, directoriesCount, totalCount } = processFileData(data, currentRequestId);
 
-      console.log('[handleFileListData] Setting files:', {
-        filesCount: filesArray.length,
-        isComplete,
-        processedCount,
-        directoriesCount,
-        totalCount,
-        hasRequestId: 'requestId' in data,
-        requestId: 'requestId' in data && typeof data === 'object' && 'requestId' in data ? data.requestId : null,
-        currentRequestId: currentRequestId.value
-      });
       
       params.setAllFiles(filesArray);
       params.applyFiltersAndSort(filesArray, params.sortOrder, params.searchTerm);
@@ -464,7 +441,6 @@ export const setupElectronHandlers = (
   // Create the processing status handler factory
   const createProcessingStatusHandler = (params: HandlerParams) => {
     return (status: ProcessingStatus) => {
-      console.log("Processing status:", status);
       params.setProcessingStatus(status);
 
       if (status.status === "complete" || status.status === "error") {
@@ -523,7 +499,6 @@ export const openFolderDialog = (isElectron: boolean, setProcessingStatus: (stat
     sessionStorage.setItem("hasLoadedInitialData", "true");
     return true;
   } else {
-    console.warn("Folder selection not available in browser");
     return false;
   }
 };

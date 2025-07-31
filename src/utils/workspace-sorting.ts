@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from '../constants';
+import { safeJsonParse } from './local-storage-utils';
 
 export type WorkspaceSortMode = 'recent' | 'alphabetical' | 'manual';
 
@@ -18,7 +19,7 @@ export const setWorkspaceSortMode = (mode: WorkspaceSortMode) => {
 
 export const getWorkspaceManualOrder = (): string[] => {
   const savedOrder = localStorage.getItem(STORAGE_KEYS.WORKSPACE_MANUAL_ORDER);
-  return savedOrder ? JSON.parse(savedOrder) : [];
+  return safeJsonParse(savedOrder, []);
 };
 
 export const setWorkspaceManualOrder = (order: string[]) => {

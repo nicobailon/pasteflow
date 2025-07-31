@@ -14,13 +14,11 @@ export const electronHandlerSingleton = {
   setup: (setupFn: () => (() => void)) => {
     // Check if setup is already complete or in progress
     if (isHandlersSetup || setupInProgress) {
-      console.log('[ElectronHandlerSingleton] Handlers already set up or setup in progress, skipping...');
       return;
     }
     
     // Mark setup as in progress to prevent concurrent setups
     setupInProgress = true;
-    console.log('[ElectronHandlerSingleton] Setting up electron handlers for the first time');
     
     try {
       cleanupFunction = setupFn();
@@ -36,7 +34,6 @@ export const electronHandlerSingleton = {
   
   cleanup: () => {
     if (cleanupFunction && isHandlersSetup) {
-      console.log('[ElectronHandlerSingleton] Cleaning up electron handlers');
       cleanupFunction();
       cleanupFunction = null;
       isHandlersSetup = false;

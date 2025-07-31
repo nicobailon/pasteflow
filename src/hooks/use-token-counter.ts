@@ -61,7 +61,6 @@ function hasActiveComponents(): boolean {
 
 function checkForCleanup() {
   if (!hasActiveComponents() && globalWorkerPool) {
-    console.log('[useTokenCounter] No active components detected, scheduling cleanup');
     scheduleCleanup();
   }
 }
@@ -73,7 +72,6 @@ function scheduleCleanup() {
   
   cleanupCoordinatorTimer = setTimeout(() => {
     if (!hasActiveComponents() && globalWorkerPool) {
-      console.log('[useTokenCounter] Cleanup coordinator: terminating pool');
       cleanupGlobalPool();
     }
     cleanupCoordinatorTimer = null;
@@ -85,7 +83,6 @@ if (typeof window !== 'undefined') {
   // Handle window unload
   const handleUnload = () => {
     if (globalWorkerPool) {
-      console.log('[useTokenCounter] Window unload detected, cleaning up pool');
       cleanupGlobalPool(true);
     }
   };
@@ -122,7 +119,6 @@ function scheduleIdleCleanup() {
     idleTimeoutId = setTimeout(() => {
       const idleTime = Date.now() - lastActivityTime;
       if (idleTime >= IDLE_TIMEOUT_MS && refCount === 0) {
-        console.log('[useTokenCounter] Idle timeout reached, terminating unused pool');
         cleanupGlobalPool();
       }
     }, IDLE_TIMEOUT_MS);
@@ -132,7 +128,6 @@ function scheduleIdleCleanup() {
 // Helper function to cleanup global pool
 function cleanupGlobalPool(forceResetRefCount = true) {
   if (globalWorkerPool) {
-    console.log('[useTokenCounter] Cleaning up global worker pool');
     if (typeof globalWorkerPool.terminate === 'function') {
       globalWorkerPool.terminate();
     }
@@ -286,7 +281,6 @@ export function useTokenCounter() {
     
     // Use singleton instance with reference counting
     refCount++;
-    console.log(`[useTokenCounter] Reference count: ${refCount}`);
     updateActivityTime();
     
     // Clear any pending cleanup since we have a new reference
@@ -301,9 +295,7 @@ export function useTokenCounter() {
     }
     
     if (globalWorkerPool) {
-      console.log('[useTokenCounter] Reusing existing singleton TokenWorkerPool');
     } else {
-      console.log('[useTokenCounter] Creating singleton TokenWorkerPool');
       globalWorkerPool = new TokenWorkerPool();
       if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
         globalWorkerPool.monitorWorkerMemory();
@@ -331,10 +323,8 @@ export function useTokenCounter() {
       // Cleanup complete
       
       refCount--;
-      console.log(`[useTokenCounter] Cleanup - Reference count: ${refCount}`);
       
       if (refCount === 0) {
-        console.log('[useTokenCounter] Last reference removed, scheduling idle cleanup');
         scheduleIdleCleanup();
         checkForCleanup();
       } else if (refCount < 0) {
@@ -372,7 +362,6 @@ export function useTokenCounter() {
     
     // Check if pool needs to be recreated after force cleanup
     if (!globalWorkerPool && refCount > 0) {
-      console.log('[useTokenCounter] Recreating pool after force cleanup');
       globalWorkerPool = new TokenWorkerPool();
       if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
         globalWorkerPool.monitorWorkerMemory();
@@ -404,7 +393,6 @@ export function useTokenCounter() {
     } catch (error) {
       // Handle abort silently
       if (error instanceof DOMException && error.name === 'AbortError') {
-        console.log('[useTokenCounter] Operation aborted due to component unmount');
         return 0;
       }
       
@@ -492,7 +480,6 @@ export function useTokenCounter() {
     } catch (error) {
       // Handle abort silently
       if (error instanceof DOMException && error.name === 'AbortError') {
-        console.log('[useTokenCounter] Batch operation aborted due to component unmount');
         return texts.map(() => 0);
       }
       
@@ -517,7 +504,6 @@ export function useTokenCounter() {
   }, []);
   
   const forceCleanup = useCallback(() => {
-    console.log('[useTokenCounter] Force cleanup requested');
     if (refCount > 0) {
       console.warn(`[useTokenCounter] Force cleanup with active references: ${refCount}`);
     }
@@ -537,6 +523,5 @@ export function useTokenCounter() {
 
 // Export global cleanup function for edge cases
 export function forceCleanupTokenWorkerPool() {
-  console.log('[useTokenCounter] Global force cleanup requested');
   cleanupGlobalPool(true); // Reset refCount for global cleanup
 }

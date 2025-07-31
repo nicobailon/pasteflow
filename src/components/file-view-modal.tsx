@@ -683,7 +683,6 @@ const FileViewModal = ({
     if (!lineNumbers.startLine || !lineNumbers.endLine) return;
     
     if (process.env.NODE_ENV !== 'production') {
-      console.log('Selection range:', lineNumbers);
     }
     
     addLineRangeToSelection(lineNumbers.startLine, lineNumbers.endLine);

@@ -14,7 +14,6 @@ export const resetFolderState = (
   setProcessingStatus: (status: any) => void,
   setAppInitialized: (initialized: boolean) => void
 ): void => {
-  console.log("Resetting folder state to blank starting state");
   setSelectedFolder(null);
   setAllFiles([]);
   setSelectedFiles([]);

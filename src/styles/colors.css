@@ -24,6 +24,11 @@
   --scrollbar-thumb-hover: #888888;
   --option-selected-bg: #333333;
   --option-selected-text: #ffffff;
+  
+  /* Workspace drag-and-drop */
+  --workspace-item-height: 44px;
+  --workspace-drag-opacity: 0.5;
+  --workspace-drag-transition: 200ms;
 }
 
 .dark-mode {
@@ -52,4 +57,9 @@
   --scrollbar-thumb-hover: #505050;
   --option-selected-bg: #dedede;
   --option-selected-text: #333333;
+  
+  /* Workspace drag-and-drop */
+  --workspace-item-height: 44px;
+  --workspace-drag-opacity: 0.5;
+  --workspace-drag-transition: 200ms;
 } 

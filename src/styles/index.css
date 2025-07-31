@@ -2525,7 +2525,7 @@ input[type="text"].search-input:focus {
 }
 
 .workspace-item.dragging {
-  opacity: 0.5;
+  opacity: var(--workspace-drag-opacity);
   cursor: grabbing;
   z-index: 1000;
 }
