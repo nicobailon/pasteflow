@@ -1,6 +1,6 @@
 import { Check, ChevronDown, FileText, Settings, User } from 'lucide-react';
 
-import { FileData, Instruction, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
+import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
 
 import CopyButton from './copy-button';
 import Dropdown from './dropdown';
@@ -10,7 +10,7 @@ interface ContentAreaProps {
   selectedFiles: SelectedFileReference[];
   allFiles: FileData[];
   toggleFileSelection: (filePath: string) => void;
-  toggleSelection: (filePath: string, lineRange?: any) => void;
+  toggleSelection: (filePath: string, lineRange?: LineRange) => void;
   openFolder: () => void;
   onViewFile: (filePath: string) => void;
   processingStatus: {

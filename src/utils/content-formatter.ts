@@ -192,8 +192,14 @@ export const getSelectedFilesContentWithoutInstructions = (
     const selectedFileRef = selectedFilesMap.get(file.path);
     const fileData = allFilesMap.get(file.path);
     
-    if (!fileData || !fileData.isContentLoaded || fileData.content === undefined) {
-      console.warn(`Content not loaded for ${file.path} when formatting. Skipping.`);
+    if (!fileData) {
+      console.warn(`File data not found for ${file.path} when formatting. Skipping.`);
+      continue;
+    }
+    
+    // Handle files that are still loading
+    if (!fileData.isContentLoaded || fileData.content === undefined) {
+      result.push(`<file>\n<file_path>${escapeXmlEntities(file.path)}</file_path>\n<file_content>\n[Content is loading...]\n</file_content>\n</file>\n`);
       continue;
     }
     

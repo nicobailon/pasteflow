@@ -11,6 +11,7 @@ import { resetFolderState } from '../utils/file-utils';
 import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
 import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache';
 import { mapFileTreeSortToContentSort } from '../utils/sort-utils';
+import { tokenCountCache } from '../utils/token-cache';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -22,6 +23,25 @@ import { useTokenCounter } from './use-token-counter';
 
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
+/**
+ * Central application state hook implementing the single-source-of-truth pattern.
+ * 
+ * Architecture Overview:
+ * - `allFiles`: The authoritative source for all file data in the workspace
+ * - `selectedFiles`: Contains only references (paths + line ranges) to selected files
+ * - Components look up file data by combining references with the source data
+ * 
+ * This design solves the file content flicker issue by ensuring:
+ * 1. File data is never duplicated across different state variables
+ * 2. All file updates flow through a single update path (updateFileWithContent)
+ * 3. Selection changes don't trigger unnecessary file data updates
+ * 4. Caches are properly invalidated when file content changes
+ * 
+ * Key patterns:
+ * - Use `SelectedFileReference` for tracking selections
+ * - Use `FileData` from allFiles for all file information
+ * - Clear all caches when switching workspaces to prevent memory leaks
+ */
 const useAppState = () => {
   const isElectron = window.electron !== undefined;
 
@@ -392,6 +412,9 @@ const useAppState = () => {
   ) => {
     fileContentCache.set(filePath, content, tokenCount);
     
+    // Invalidate token cache for this file when content changes
+    tokenCountCache.invalidateFile(filePath);
+    
     setAllFiles((prev: FileData[]) =>
       prev.map((f: FileData) =>
         f.path === filePath
@@ -745,6 +768,9 @@ const useAppState = () => {
     
     // Clear file content cache when switching workspaces
     fileContentCache.clear();
+    
+    // Clear token count cache when switching workspaces
+    tokenCountCache.clear();
     
     // Clear all files to prevent accumulation from previous workspace
     setAllFiles([]);

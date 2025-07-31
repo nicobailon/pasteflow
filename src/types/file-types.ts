@@ -1,3 +1,19 @@
+/**
+ * Core interface representing a file or directory in the workspace.
+ * 
+ * This is the authoritative data structure for all file information in the
+ * single-source-of-truth architecture. The `allFiles` array in the app state
+ * contains all FileData objects, and this is the only place where file content,
+ * metadata, and token counts are stored.
+ * 
+ * Components should never duplicate this data. Instead, they should:
+ * 1. Use `SelectedFileReference` to track which files are selected
+ * 2. Look up the actual file data from `allFiles` when needed
+ * 3. Derive display data at render time by combining the reference with the source data
+ * 
+ * This pattern ensures consistency and prevents the state synchronization issues
+ * that can cause UI flicker or stale data display.
+ */
 export interface FileData {
   name: string;
   path: string;
@@ -35,7 +51,26 @@ export interface SelectedFileWithLines {
   tokenCountError?: string;  // Error message if token counting failed
 }
 
-// Simplified interface for selected files - single source of truth approach
+/**
+ * Simplified interface for selected files following the single-source-of-truth pattern.
+ * 
+ * This interface only stores the minimal reference information needed to identify
+ * which files (and optionally which line ranges) are selected. The actual file
+ * content, metadata, and token counts are always retrieved from the `allFiles`
+ * array in the app state, ensuring there's only one authoritative source for
+ * file data.
+ * 
+ * This design prevents state desynchronization issues that previously caused
+ * content flicker when switching between files.
+ * 
+ * @example
+ * // Full file selection
+ * { path: '/src/index.ts' }
+ * 
+ * @example
+ * // Partial file selection with line ranges
+ * { path: '/src/utils.ts', lines: [{ start: 10, end: 20 }, { start: 30, end: 40 }] }
+ */
 export interface SelectedFileReference {
   path: string;
   lines?: LineRange[];       // Undefined or empty array means entire file

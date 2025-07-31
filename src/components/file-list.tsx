@@ -1,6 +1,9 @@
+import { useMemo } from "react";
 import { FolderOpen } from "lucide-react";
 
 import { FileData, FileListProps, LineRange, SelectedFileWithLines } from "../types/file-types";
+import { tokenCountCache } from "../utils/token-cache";
+import { estimateTokenCount } from "../utils/token-utils";
 
 import FileCard from "./file-card";
 import InstructionCard from "./instruction-card";
@@ -17,6 +20,20 @@ interface ExpandedFileCard {
   isFullFile: boolean;
 }
 
+/**
+ * FileList component implementing the single-source-of-truth pattern.
+ * 
+ * This component demonstrates the proper way to handle file data in the new architecture:
+ * - `files` (allFiles) contains the authoritative file data
+ * - `selectedFiles` contains only references (path + optional line ranges)
+ * - The component derives display data by looking up references in the source data
+ * 
+ * Key implementation details:
+ * 1. Maps are memoized for performance when looking up files
+ * 2. File content and token counts come from FileData, not SelectedFileReference
+ * 3. Line range token counts are cached to avoid recalculation on every render
+ * 4. The component never modifies or duplicates FileData
+ */
 const FileList = ({
   files,
   selectedFiles,
@@ -34,10 +51,16 @@ const FileList = ({
   loadFileContent,
 }: FileListProps) => {
   // Create a Map for faster lookups - now just references
-  const selectedFilesMap = new Map(selectedFiles.map(file => [file.path, file]));
+  const selectedFilesMap = useMemo(
+    () => new Map(selectedFiles.map(file => [file.path, file])),
+    [selectedFiles]
+  );
   
   // Create a Map of all files for quick access
-  const allFilesMap = new Map(files.map(file => [file.path, file]));
+  const allFilesMap = useMemo(
+    () => new Map(files.map(file => [file.path, file])),
+    [files]
+  );
   
   // Only show files that are in the selectedFiles array and not binary/skipped
   const displayableFiles = files.filter(
@@ -70,11 +93,24 @@ const FileList = ({
     // If the file has line ranges, create a separate card for each range
     else if (selectedFileRef.lines && selectedFileRef.lines.length > 0) {
       for (const lineRange of selectedFileRef.lines) {
-        // Calculate content and token count for this specific line range
-        const lines = fileData.content?.split('\n') || [];
-        const rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
-        // Simple estimation: ~4 characters per token on average
-        const rangeTokenCount = Math.ceil(rangeContent.length / 4);
+        let rangeContent: string;
+        let rangeTokenCount: number;
+        
+        // Check cache first
+        const cachedEntry = tokenCountCache.get(file.path, lineRange);
+        
+        if (cachedEntry) {
+          rangeContent = cachedEntry.content;
+          rangeTokenCount = cachedEntry.tokenCount;
+        } else {
+          // Calculate content and token count for this specific line range
+          const lines = fileData.content?.split('\n') || [];
+          rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
+          rangeTokenCount = estimateTokenCount(rangeContent);
+          
+          // Cache the result
+          tokenCountCache.set(file.path, rangeContent, rangeTokenCount, lineRange);
+        }
         
         expandedCards.push({
           originalFile: {
