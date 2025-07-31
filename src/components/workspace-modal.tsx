@@ -54,7 +54,6 @@ const WorkspaceModal = ({
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() => getWorkspaceSortMode());
   const [manualOrder, setManualOrder] = useState<string[]>(() => {
     const order = getWorkspaceManualOrder();
-    console.log('[WorkspaceModal] Initial manual order:', order);
     return order;
   });
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -64,7 +63,6 @@ const WorkspaceModal = ({
 
   const refreshWorkspaceList = useCallback(() => {
     const names = getWorkspaceNames();
-    console.log("[WorkspaceModal] Refreshing internal workspace list:", names);
     setWorkspaceNames(names);
   }, [getWorkspaceNames]);
 
@@ -88,7 +86,6 @@ const WorkspaceModal = ({
     });
     
     const sorted = sortWorkspaces(workspaceInfos, sortMode, manualOrder);
-    console.log('[WorkspaceModal] Sorted workspaces:', { sortMode, manualOrder, sorted });
     return sorted;
   }, [sortMode, manualOrder]);
 
