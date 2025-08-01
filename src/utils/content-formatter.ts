@@ -199,7 +199,7 @@ export const getSelectedFilesContentWithoutInstructions = (
     
     // Handle files that are still loading
     if (!fileData.isContentLoaded || fileData.content === undefined) {
-      result.push(`<file>\n<file_path>${escapeXmlEntities(file.path)}</file_path>\n<file_content>\n[Content is loading...]\n</file_content>\n</file>\n`);
+      concatenatedString += `\nFile: ${file.path}\n\`\`\`\n[Content is loading...]\n\`\`\`\n`;
       continue;
     }
     

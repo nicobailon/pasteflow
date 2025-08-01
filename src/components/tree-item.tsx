@@ -78,7 +78,7 @@ const formatSelectedLines = (selectedFile?: { path: string; lines?: { start: num
 
 // Handle specific item actions independently to reduce complexity
 const handleTreeItemActions = {
-  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string) => void, path: string, currentIsExpanded?: boolean) => {
+  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string) => void, path: string) => {
     e.stopPropagation();
     e.preventDefault(); // Also prevent default to avoid any bubbling issues
     toggleExpanded(path);
@@ -516,7 +516,7 @@ const TreeItem = memo(({
 
   const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     // Pass both the path and current expanded state
-    handleTreeItemActions.handleToggle(e, toggleExpanded, path, isExpanded);
+    handleTreeItemActions.handleToggle(e, toggleExpanded, path);
   }, [toggleExpanded, path, name, isExpanded]);
 
   const handleNameClick = (e: React.MouseEvent | React.KeyboardEvent) => {
