@@ -1,16 +1,16 @@
 import { Check, ChevronDown, FileText, Settings, User } from 'lucide-react';
 
-import { FileData, Instruction, RolePrompt, SelectedFileWithLines, SystemPrompt } from '../types/file-types';
+import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
 
 import CopyButton from './copy-button';
 import Dropdown from './dropdown';
 import FileList from './file-list';
 
 interface ContentAreaProps {
-  selectedFiles: SelectedFileWithLines[];
+  selectedFiles: SelectedFileReference[];
   allFiles: FileData[];
   toggleFileSelection: (filePath: string) => void;
-  toggleSelection: (filePath: string, lineRange?: any) => void;
+  toggleSelection: (filePath: string, lineRange?: LineRange) => void;
   openFolder: () => void;
   onViewFile: (filePath: string) => void;
   processingStatus: {
@@ -74,7 +74,15 @@ const ContentArea = ({
 }: ContentAreaProps) => {
   
   const handleCopyWithLoading = async (getContent: () => string): Promise<string> => {
-    const unloadedFiles = selectedFiles.filter((f) => !f.isContentLoaded);
+    // Create a Map of all files for quick lookup
+    const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
+    
+    // Find selected files that haven't loaded content yet
+    const unloadedFiles = selectedFiles.filter((selectedFile) => {
+      const file = allFilesMap.get(selectedFile.path);
+      return file && !file.isContentLoaded;
+    });
+    
     if (unloadedFiles.length > 0) {
       await Promise.all(unloadedFiles.map((f) => loadFileContent(f.path)));
     }

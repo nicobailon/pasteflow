@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, memo, useMemo, useCallback } from "react";
 
 import { debounce } from "../utils/debounce";
 
-import { TreeItemProps, TreeNode, SelectedFileWithLines } from "../types/file-types";
+import { TreeItemProps, TreeNode, SelectedFileReference } from "../types/file-types";
 
 // Helper function to check if a node is fully selected - moved outside component
 const isNodeFullySelected = (node: TreeNode, selectedFiles: { path: string; lines?: { start: number; end: number }[] }[]): boolean => {
@@ -78,7 +78,7 @@ const formatSelectedLines = (selectedFile?: { path: string; lines?: { start: num
 
 // Handle specific item actions independently to reduce complexity
 const handleTreeItemActions = {
-  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string) => void, path: string, currentIsExpanded?: boolean) => {
+  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string) => void, path: string) => {
     e.stopPropagation();
     e.preventDefault(); // Also prevent default to avoid any bubbling issues
     toggleExpanded(path);
@@ -212,7 +212,7 @@ interface TreeItemContentProps {
   type: "file" | "directory";
   isDisabled: boolean;
   isPartiallySelected: boolean;
-  selectedFile?: SelectedFileWithLines;
+  selectedFile?: SelectedFileReference;
   onNameClick?: (e: React.MouseEvent | React.KeyboardEvent) => void;
 }
 
@@ -393,7 +393,7 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
 // Helper function to get tree item state
 const getTreeItemState = (
   node: TreeNode,
-  selectedFiles: SelectedFileWithLines[]
+  selectedFiles: SelectedFileReference[]
 ) => {
   const { path, type, fileData } = node;
   const selectedFile = selectedFiles.find(f => f.path === path);
@@ -418,7 +418,7 @@ const getTreeItemState = (
 // Custom hook to manage TreeItem state and effects
 const useTreeItemState = (
   node: TreeNode,
-  selectedFiles: SelectedFileWithLines[],
+  selectedFiles: SelectedFileReference[],
   loadFileContent?: (filePath: string) => Promise<void>
 ) => {
   const { fileData, type, path } = node;
@@ -516,7 +516,7 @@ const TreeItem = memo(({
 
   const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     // Pass both the path and current expanded state
-    handleTreeItemActions.handleToggle(e, toggleExpanded, path, isExpanded);
+    handleTreeItemActions.handleToggle(e, toggleExpanded, path);
   }, [toggleExpanded, path, name, isExpanded]);
 
   const handleNameClick = (e: React.MouseEvent | React.KeyboardEvent) => {

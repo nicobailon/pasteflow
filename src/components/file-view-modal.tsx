@@ -1199,17 +1199,11 @@ const FileViewModal = ({
                     return;
                   }
                   
-                  const selectedContent = getSelectedContent();
-                  const tokenCount = calculateTokenCount(selectedContent);
-                  
                   // Update selected file with line ranges
-                  onUpdateSelectedFile({
-                    path: file.path,
-                    lines: selectionMode === 'specific' && selectedLines.length > 0 ? [...selectedLines] : undefined,
-                    content: selectedContent,
-                    tokenCount: tokenCount,
-                    isFullFile: selectionMode === 'entire'
-                  });
+                  onUpdateSelectedFile(
+                    file.path,
+                    selectionMode === 'specific' && selectedLines.length > 0 ? [...selectedLines] : undefined
+                  );
                   
                   onClose();
                 }}

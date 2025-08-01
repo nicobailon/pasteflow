@@ -29,7 +29,10 @@ const FileSelectionTestComponent = ({
         {fileSelection.selectedFiles.length}
       </div>
       <div data-testid="total-tokens">
-        {fileSelection.selectedFiles.reduce((sum, file) => sum + (file.tokenCount || 0), 0)}
+        {fileSelection.selectedFiles.reduce((sum, selectedFile) => {
+          const fileData = allFiles.find(f => f.path === selectedFile.path);
+          return sum + (fileData?.tokenCount || 0);
+        }, 0)}
       </div>
       {allFiles.map(file => (
         <button

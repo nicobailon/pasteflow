@@ -1,3 +1,19 @@
+/**
+ * Core interface representing a file or directory in the workspace.
+ * 
+ * This is the authoritative data structure for all file information in the
+ * single-source-of-truth architecture. The `allFiles` array in the app state
+ * contains all FileData objects, and this is the only place where file content,
+ * metadata, and token counts are stored.
+ * 
+ * Components should never duplicate this data. Instead, they should:
+ * 1. Use `SelectedFileReference` to track which files are selected
+ * 2. Look up the actual file data from `allFiles` when needed
+ * 3. Derive display data at render time by combining the reference with the source data
+ * 
+ * This pattern ensures consistency and prevents the state synchronization issues
+ * that can cause UI flicker or stale data display.
+ */
 export interface FileData {
   name: string;
   path: string;
@@ -35,6 +51,31 @@ export interface SelectedFileWithLines {
   tokenCountError?: string;  // Error message if token counting failed
 }
 
+/**
+ * Simplified interface for selected files following the single-source-of-truth pattern.
+ * 
+ * This interface only stores the minimal reference information needed to identify
+ * which files (and optionally which line ranges) are selected. The actual file
+ * content, metadata, and token counts are always retrieved from the `allFiles`
+ * array in the app state, ensuring there's only one authoritative source for
+ * file data.
+ * 
+ * This design prevents state desynchronization issues that previously caused
+ * content flicker when switching between files.
+ * 
+ * @example
+ * // Full file selection
+ * { path: '/src/index.ts' }
+ * 
+ * @example
+ * // Partial file selection with line ranges
+ * { path: '/src/utils.ts', lines: [{ start: 10, end: 20 }, { start: 30, end: 40 }] }
+ */
+export interface SelectedFileReference {
+  path: string;
+  lines?: LineRange[];       // Undefined or empty array means entire file
+}
+
 export interface TreeNode {
   id: string;
   name: string;
@@ -50,7 +91,7 @@ export interface SidebarProps {
   selectedFolder: string | null;
   openFolder: () => void;
   allFiles: FileData[];
-  selectedFiles: SelectedFileWithLines[]; // Updated type
+  selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
   searchTerm: string;
@@ -76,7 +117,7 @@ export interface SidebarProps {
 
 export interface FileListProps {
   files: FileData[];
-  selectedFiles: SelectedFileWithLines[]; // Updated type
+  selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleSelection?: (filePath: string, lineRange?: LineRange) => void;
   openFolder: () => void;
@@ -104,7 +145,7 @@ export interface FileCardProps {
 
 export interface TreeItemProps {
   node: TreeNode;
-  selectedFiles: SelectedFileWithLines[]; // Updated type
+  selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
   toggleExpanded: (path: string) => void;
@@ -155,7 +196,7 @@ export interface FileViewModalProps {
   filePath: string;
   allFiles: FileData[];
   selectedFile: SelectedFileWithLines | undefined;
-  onUpdateSelectedFile: (selectedFile: SelectedFileWithLines) => void;
+  onUpdateSelectedFile: (path: string, lines?: LineRange[]) => void;
   loadFileContent: (filePath: string) => Promise<void>;
 }
 
@@ -228,7 +269,7 @@ export interface InstructionsModalProps {
 export interface WorkspaceState {
   selectedFolder: string | null;
   allFiles: FileData[];
-  selectedFiles: SelectedFileWithLines[];
+  selectedFiles: SelectedFileReference[];
   expandedNodes: Record<string, boolean>;
   sortOrder: string;
   searchTerm: string;

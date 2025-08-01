@@ -1,6 +1,9 @@
+import { useMemo } from "react";
 import { FolderOpen } from "lucide-react";
 
 import { FileData, FileListProps, LineRange, SelectedFileWithLines } from "../types/file-types";
+import { tokenCountCache } from "../utils/token-cache";
+import { estimateTokenCount } from "../utils/token-utils";
 
 import FileCard from "./file-card";
 import InstructionCard from "./instruction-card";
@@ -17,6 +20,20 @@ interface ExpandedFileCard {
   isFullFile: boolean;
 }
 
+/**
+ * FileList component implementing the single-source-of-truth pattern.
+ * 
+ * This component demonstrates the proper way to handle file data in the new architecture:
+ * - `files` (allFiles) contains the authoritative file data
+ * - `selectedFiles` contains only references (path + optional line ranges)
+ * - The component derives display data by looking up references in the source data
+ * 
+ * Key implementation details:
+ * 1. Maps are memoized for performance when looking up files
+ * 2. File content and token counts come from FileData, not SelectedFileReference
+ * 3. Line range token counts are cached to avoid recalculation on every render
+ * 4. The component never modifies or duplicates FileData
+ */
 const FileList = ({
   files,
   selectedFiles,
@@ -33,8 +50,17 @@ const FileList = ({
   toggleInstructionSelection,
   loadFileContent,
 }: FileListProps) => {
-  // Create a Map for faster lookups
-  const selectedFilesMap = new Map(selectedFiles.map(file => [file.path, file]));
+  // Create a Map for faster lookups - now just references
+  const selectedFilesMap = useMemo(
+    () => new Map(selectedFiles.map(file => [file.path, file])),
+    [selectedFiles]
+  );
+  
+  // Create a Map of all files for quick access
+  const allFilesMap = useMemo(
+    () => new Map(files.map(file => [file.path, file])),
+    [files]
+  );
   
   // Only show files that are in the selectedFiles array and not binary/skipped
   const displayableFiles = files.filter(
@@ -46,40 +72,50 @@ const FileList = ({
   const expandedCards: ExpandedFileCard[] = [];
   
   for (const file of displayableFiles) {
-    const selectedFile = selectedFilesMap.get(file.path);
+    const selectedFileRef = selectedFilesMap.get(file.path);
     
-    if (!selectedFile) continue;
+    if (!selectedFileRef) continue;
     
-    // If the file has no line ranges or is a full file, create a single card
-    if (!selectedFile.lines || selectedFile.lines.length === 0 || selectedFile.isFullFile) {
+    // Get the actual file data from allFiles
+    const fileData = allFilesMap.get(file.path);
+    if (!fileData) continue;
+    
+    // If the file has no line ranges, create a single card for the entire file
+    if (!selectedFileRef.lines || selectedFileRef.lines.length === 0) {
       expandedCards.push({
-        originalFile: {
-          ...file,
-          isContentLoaded: selectedFile.isContentLoaded || file.isContentLoaded,
-          tokenCount: selectedFile.tokenCount || file.tokenCount,
-          error: selectedFile.error || file.error
-        },
+        originalFile: fileData,
         selectedFilePath: file.path,
-        content: selectedFile.content || file.content || '',
-        tokenCount: selectedFile.tokenCount || file.tokenCount || 0,
-        isFullFile: !!selectedFile.isFullFile
+        content: fileData.content || '',
+        tokenCount: fileData.tokenCount || 0,
+        isFullFile: true
       });
     } 
     // If the file has line ranges, create a separate card for each range
-    else if (selectedFile.lines && selectedFile.lines.length > 0) {
-      for (const lineRange of selectedFile.lines) {
-        // Calculate content and token count for this specific line range
-        const lines = file.content?.split('\n') || [];
-        const rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
-        // Simple estimation: ~4 characters per token on average
-        const rangeTokenCount = Math.ceil(rangeContent.length / 4);
+    else if (selectedFileRef.lines && selectedFileRef.lines.length > 0) {
+      for (const lineRange of selectedFileRef.lines) {
+        let rangeContent: string;
+        let rangeTokenCount: number;
+        
+        // Check cache first
+        const cachedEntry = tokenCountCache.get(file.path, lineRange);
+        
+        if (cachedEntry) {
+          rangeContent = cachedEntry.content;
+          rangeTokenCount = cachedEntry.tokenCount;
+        } else {
+          // Calculate content and token count for this specific line range
+          const lines = fileData.content?.split('\n') || [];
+          rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
+          rangeTokenCount = estimateTokenCount(rangeContent);
+          
+          // Cache the result
+          tokenCountCache.set(file.path, rangeContent, rangeTokenCount, lineRange);
+        }
         
         expandedCards.push({
           originalFile: {
-            ...file,
-            isContentLoaded: selectedFile.isContentLoaded || file.isContentLoaded,
-            tokenCount: rangeTokenCount,
-            error: selectedFile.error || file.error
+            ...fileData,
+            tokenCount: rangeTokenCount
           },
           selectedFilePath: file.path,
           lineRange: lineRange,
@@ -127,20 +163,24 @@ const FileList = ({
           
           {/* Display selected files */}
           {expandedCards.map((cardData, index) => {
-            // Create a modified selected file object for each card
-            const modifiedSelectedFile: SelectedFileWithLines = {
+            // Create a selected file object that combines reference and actual data
+            const selectedFile: SelectedFileWithLines = {
               path: cardData.selectedFilePath,
               lines: cardData.lineRange ? [cardData.lineRange] : undefined,
               content: cardData.content,
               tokenCount: cardData.tokenCount,
-              isFullFile: cardData.isFullFile
+              isFullFile: cardData.isFullFile,
+              isContentLoaded: cardData.originalFile.isContentLoaded,
+              error: cardData.originalFile.error,
+              isCountingTokens: cardData.originalFile.isCountingTokens,
+              tokenCountError: cardData.originalFile.tokenCountError
             };
             
             return (
               <FileCard
                 key={`${cardData.selectedFilePath}-${cardData.lineRange?.start || 'full'}-${index}`}
                 file={cardData.originalFile}
-                selectedFile={modifiedSelectedFile}
+                selectedFile={selectedFile}
                 toggleSelection={toggleSelection || toggleFileSelection}
                 onViewFile={onViewFile}
                 loadFileContent={loadFileContent}
