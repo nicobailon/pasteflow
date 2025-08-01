@@ -294,8 +294,7 @@ export function useTokenCounter() {
       cleanupCoordinatorTimer = null;
     }
     
-    if (globalWorkerPool) {
-    } else {
+    if (!globalWorkerPool) {
       globalWorkerPool = new TokenWorkerPool();
       if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
         globalWorkerPool.monitorWorkerMemory();
@@ -337,7 +336,7 @@ export function useTokenCounter() {
     };
   }, []);
   
-  const countTokens = useCallback(async (text: string): Promise<number> => {
+  const countTokens = useCallback(async (text: string, priority: number = 0): Promise<number> => {
     // Update activity time on usage
     updateActivityTime();
     
@@ -379,7 +378,7 @@ export function useTokenCounter() {
     }
     
     try {
-      const count = await workerPoolRef.current.countTokens(text, { signal });
+      const count = await workerPoolRef.current.countTokens(text, { signal, priority });
       
       // Check again after async operation
       if (signal?.aborted) {
@@ -425,7 +424,7 @@ export function useTokenCounter() {
     return estimateTokenCount(text);
   }, []);
   
-  const countTokensBatch = useCallback(async (texts: string[]): Promise<number[]> => {
+  const countTokensBatch = useCallback(async (texts: string[], options?: { priority?: number }): Promise<number[]> => {
     // Update activity time on usage
     updateActivityTime();
     
@@ -453,30 +452,34 @@ export function useTokenCounter() {
     }
     
     try {
-      // Process valid texts through workers, use estimation for oversized ones
-      return await Promise.all(
-        validatedTexts.map(async (text, index) => {
-          if (text === null) {
-            return estimateTokenCount(texts[index]);
-          }
-          try {
-            const count = await workerPoolRef.current!.countTokens(text, { signal });
-            
-            // Check if aborted after async operation
-            if (signal?.aborted) {
-              throw new DOMException('Component unmounted during batch operation', 'AbortError');
-            }
-            
-            return count ?? estimateTokenCount(text);
-          } catch (error) {
-            // Handle abort silently
-            if (error instanceof DOMException && error.name === 'AbortError') {
-              throw error; // Re-throw to be caught by outer try-catch
-            }
-            return estimateTokenCount(texts[index]);
-          }
-        })
-      );
+      // Separate valid texts and their indices
+      const validIndices: number[] = [];
+      const validTexts: string[] = [];
+      
+      validatedTexts.forEach((text, index) => {
+        if (text !== null) {
+          validIndices.push(index);
+          validTexts.push(text);
+        }
+      });
+      
+      // Count tokens for valid texts using batch method with priority
+      const validResults = await workerPoolRef.current.countTokensBatch(validTexts, { signal, priority: options?.priority });
+      
+      // Combine results, using estimation for oversized texts
+      const results: number[] = new Array(texts.length);
+      validIndices.forEach((originalIndex, validIndex) => {
+        results[originalIndex] = validResults[validIndex];
+      });
+      
+      // Fill in estimations for oversized texts
+      texts.forEach((text, index) => {
+        if (validatedTexts[index] === null) {
+          results[index] = estimateTokenCount(text);
+        }
+      });
+      
+      return results;
     } catch (error) {
       // Handle abort silently
       if (error instanceof DOMException && error.name === 'AbortError') {

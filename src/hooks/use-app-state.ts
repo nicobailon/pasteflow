@@ -12,6 +12,7 @@ import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } fr
 import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache';
 import { mapFileTreeSortToContentSort } from '../utils/sort-utils';
 import { tokenCountCache } from '../utils/token-cache';
+import { buildFolderIndex, type FolderIndex } from '../utils/folder-selection-index';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -109,9 +110,14 @@ const useAppState = () => {
   const [headerSaveState, setHeaderSaveState] = useState('idle' as 'idle' | 'saving' | 'success');
   const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null);
   const [currentWorkspace, setCurrentWorkspace] = useState(null as string | null);
+  
+  // Build folder index for efficient folder selection
+  const folderIndex = useMemo(() => {
+    return buildFolderIndex(allFiles);
+  }, [allFiles]);
 
   // Integration with specialized hooks
-  const fileSelection = useFileSelectionState(allFiles, selectedFolder);
+  const fileSelection = useFileSelectionState(allFiles, selectedFolder, folderIndex);
   const promptState = usePromptState();
   const modalState = useModalState();
   const docState = useDocState();
@@ -386,11 +392,12 @@ const useAppState = () => {
   // Helper function to process token counting
   const processFileTokens = useCallback(async (
     content: string,
-    filePath: string
+    filePath: string,
+    priority: number = 0
   ): Promise<{ tokenCount: number; error?: string }> => {
     try {
       if (isTokenWorkerReady) {
-        const tokenCount = await workerCountTokens(content);
+        const tokenCount = await workerCountTokens(content, priority);
         return { tokenCount };
       } else {
         const tokenCount = estimateTokenCount(content);
@@ -450,51 +457,69 @@ const useAppState = () => {
     }
     
     // Need to count tokens for cached content
-    const { tokenCount, error } = await processFileTokens(cached.content, filePath);
+    const { tokenCount, error } = await processFileTokens(cached.content, filePath, 0); // High priority for visible files
     updateFileWithContent(filePath, cached.content, tokenCount, error);
     return true;
   }, [processFileTokens, updateFileWithContent]);
 
   const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
-    // Get current files state for validation
-    const currentFiles = await new Promise<FileData[]>((resolve) => {
-      setAllFiles((prev: FileData[]) => {
-        resolve(prev);
-        return prev;
+    try {
+      // Get current files state for validation
+      const currentFiles = await new Promise<FileData[]>((resolve) => {
+        setAllFiles((prev: FileData[]) => {
+          resolve(prev);
+          return prev;
+        });
       });
-    });
 
-    // Validate the request
-    const validation = validateFileLoadRequest(filePath, currentFiles);
-    if (!validation.valid) {
-      if (validation.reason === 'Outside workspace') {
-        console.warn(`Skipping file outside current workspace: ${filePath}`);
+      // Validate the request
+      const validation = validateFileLoadRequest(filePath, currentFiles);
+      if (!validation.valid) {
+        if (validation.reason === 'Outside workspace') {
+          console.warn(`Skipping file outside current workspace: ${filePath}`);
+        }
+        return;
       }
-      return;
-    }
 
-    // Mark file as loading
-    updateFileLoadingState(filePath, true);
+      // Check if already loading to prevent duplicate requests
+      const file = validation.file;
+      if (file && file.isCountingTokens) {
+        return;
+      }
 
-    // Check cache first
-    const cached = fileContentCache.get(filePath);
-    if (cached) {
-      await handleCachedContent(filePath, cached);
-      return;
-    }
+      // Mark file as loading
+      updateFileLoadingState(filePath, true);
 
-    // Load from backend
-    const result = await requestFileContent(filePath);
-    if (result.success && result.content !== undefined) {
-      // Process tokens and update state
-      const { tokenCount, error } = await processFileTokens(result.content, filePath);
-      updateFileWithContent(filePath, result.content, tokenCount, error);
-    } else {
-      // Handle error
+      // Check cache first
+      const cached = fileContentCache.get(filePath);
+      if (cached) {
+        await handleCachedContent(filePath, cached);
+        return;
+      }
+
+      // Load from backend
+      const result = await requestFileContent(filePath);
+      if (result.success && result.content !== undefined) {
+        // Process tokens and update state
+        const { tokenCount, error } = await processFileTokens(result.content, filePath, 0); // High priority for visible files
+        updateFileWithContent(filePath, result.content, tokenCount, error);
+      } else {
+        // Handle error
+        setAllFiles((prev: FileData[]) =>
+          prev.map((f: FileData) =>
+            f.path === filePath 
+              ? { ...f, error: result.error, isContentLoaded: false, isCountingTokens: false } 
+              : f
+          )
+        );
+      }
+    } catch (error) {
+      console.error(`Error loading file content for ${filePath}:`, error);
+      // Ensure loading state is cleared on any error
       setAllFiles((prev: FileData[]) =>
         prev.map((f: FileData) =>
           f.path === filePath 
-            ? { ...f, error: result.error, isContentLoaded: false, isCountingTokens: false } 
+            ? { ...f, error: 'Failed to load file', isContentLoaded: false, isCountingTokens: false } 
             : f
         )
       );
@@ -608,7 +633,7 @@ const useAppState = () => {
   }, [setAllFiles]);
 
   // Batch load multiple file contents
-  const loadMultipleFileContents = useCallback(async (filePaths: string[]): Promise<void> => {
+  const loadMultipleFileContents = useCallback(async (filePaths: string[], options?: { priority?: number }): Promise<void> => {
     if (!isTokenWorkerReady) {
       for (const path of filePaths) {
         await loadFileContent(path);
@@ -627,7 +652,7 @@ const useAppState = () => {
     if (successful.length > 0) {
       try {
         const contents = successful.map((item: { path: string; content: string }) => item.content);
-        const tokenCounts = await countTokensBatch(contents);
+        const tokenCounts = await countTokensBatch(contents, { priority: options?.priority ?? 10 });
 
         const filePathToTokenCount = new Map(
           successful.map((item: { path: string; content: string }, index: number) => [item.path, tokenCounts[index]])

@@ -5,6 +5,7 @@ interface QueueItem {
   text: string;
   resolve: (count: number) => void;
   reject: (error: Error) => void;
+  priority: number; // Lower values = higher priority (0 = highest, 10 = lowest)
 }
 
 interface ActiveJob {
@@ -460,7 +461,7 @@ export class TokenWorkerPool {
     return `${hash}-${text.length}`;
   }
   
-  async countTokens(text: string, options?: { signal?: AbortSignal }): Promise<number> {
+  async countTokens(text: string, options?: { signal?: AbortSignal; priority?: number }): Promise<number> {
     // Fast path for terminated, recycling, or no workers
     // Use atomic check to prevent race condition during recycling
     if (this.isTerminated || !this.acceptingJobs || this.preparingForShutdown || this.workers.length === 0) {
@@ -476,7 +477,7 @@ export class TokenWorkerPool {
     
     // Create new promise for this request
     // Pass true to indicate job acceptance was already verified
-    const promise = this.createCountTokensPromise(text, options?.signal, true);
+    const promise = this.createCountTokensPromise(text, options?.signal, true, options?.priority);
     this.pendingRequests.set(textHash, promise);
     
     // Clean up after completion
@@ -530,7 +531,7 @@ export class TokenWorkerPool {
     signal.addEventListener('abort', () => operationController.abort());
   }
   
-  private createCountTokensPromise(text: string, signal?: AbortSignal, jobAcceptanceVerified = false): Promise<number> {
+  private createCountTokensPromise(text: string, signal?: AbortSignal, jobAcceptanceVerified = false, priority: number = 0): Promise<number> {
     return new Promise((resolve, reject) => {
       // Early exit
       if (this.shouldFallbackToEstimation(jobAcceptanceVerified)) {
@@ -550,7 +551,7 @@ export class TokenWorkerPool {
       const availableWorkerId = this.findAvailableWorker();
       
       if (availableWorkerId === -1) {
-        this.handleQueuedJob(jobId, text, resolve, reject, operationController);
+        this.handleQueuedJob(jobId, text, resolve, reject, operationController, priority);
       } else {
         this.processJobWithWorker(
           jobId, availableWorkerId, text, resolve, reject, operationController
@@ -559,14 +560,24 @@ export class TokenWorkerPool {
     });
   }
   
-  private enqueueJob(id: string, text: string, resolve: (count: number) => void, reject: (error: Error) => void): void {
+  private enqueueJob(id: string, text: string, resolve: (count: number) => void, reject: (error: Error) => void, priority: number = 0): void {
     this.enforceQueueSizeLimit();
-    this.queue.push({ id, text, resolve, reject });
+    this.queue.push({ id, text, resolve, reject, priority });
+    // Sort queue by priority (lower values = higher priority)
+    this.queue.sort((a, b) => a.priority - b.priority);
   }
   
   private enforceQueueSizeLimit(): void {
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-      const dropped = this.queue.shift();
+      // Drop the lowest priority item (highest priority value)
+      // Since queue is sorted by priority ascending, find the item with highest priority value
+      let lowestPriorityIndex = this.queue.length - 1;
+      for (let i = this.queue.length - 2; i >= 0; i--) {
+        if (this.queue[i].priority > this.queue[lowestPriorityIndex].priority) {
+          lowestPriorityIndex = i;
+        }
+      }
+      const dropped = this.queue.splice(lowestPriorityIndex, 1)[0];
       if (dropped) {
         this.handleDroppedJob(dropped);
       }
@@ -584,9 +595,10 @@ export class TokenWorkerPool {
     text: string, 
     resolve: (count: number) => void, 
     reject: (error: Error) => void,
-    operationController: AbortController
+    operationController: AbortController,
+    priority: number = 0
   ): void {
-    this.enqueueJob(id, text, resolve, reject);
+    this.enqueueJob(id, text, resolve, reject, priority);
     
     const queueAbortHandler = () => {
       const queueIndex = this.queue.findIndex(item => item.id === id);
@@ -733,15 +745,18 @@ export class TokenWorkerPool {
     }
   }
   
-  async countTokensBatch(texts: string[], options?: { signal?: AbortSignal }): Promise<number[]> {
+  async countTokensBatch(texts: string[], options?: { signal?: AbortSignal; priority?: number }): Promise<number[]> {
     // Fast path for recycling state or job acceptance disabled
     if (!this.acceptingJobs || this.preparingForShutdown) {
       return texts.map(text => estimateTokenCount(text));
     }
     
+    // Default priority is 10 (background) if not specified
+    const priority = options?.priority ?? 10;
+    
     // For small batches, process in parallel
     if (texts.length <= this.poolSize * 2) {
-      return Promise.all(texts.map(text => this.countTokens(text, options)));
+      return Promise.all(texts.map(text => this.countTokens(text, { ...options, priority })));
     }
     
     // For large batches, chunk and process
@@ -753,7 +768,7 @@ export class TokenWorkerPool {
     }
     
     const chunkResults = await Promise.all(
-      chunks.map(chunk => Promise.all(chunk.map(text => this.countTokens(text, options))))
+      chunks.map(chunk => Promise.all(chunk.map(text => this.countTokens(text, { ...options, priority }))))
     );
     
     return chunkResults.flat();

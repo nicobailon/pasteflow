@@ -1,7 +1,9 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { FileData, LineRange, SelectedFileReference } from '../types/file-types';
+import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/folder-selection-index';
+import { createDirectorySelectionCache, type DirectorySelectionCache } from '../utils/selection-cache';
 
 import useLocalStorage from './use-local-storage';
 
@@ -11,11 +13,45 @@ import useLocalStorage from './use-local-storage';
  * @param {FileData[]} allFiles - Array of all files
  * @returns {Object} File selection state and functions
  */
-const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: string | null) => {
+const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: string | null, providedFolderIndex?: FolderIndex) => {
   const [selectedFiles, setSelectedFiles] = useLocalStorage<SelectedFileReference[]>(
     STORAGE_KEYS.SELECTED_FILES,
     []
   );
+  
+  // Build folder index if not provided
+  const folderIndex = useMemo(() => {
+    if (providedFolderIndex) {
+      return providedFolderIndex;
+    }
+    return buildFolderIndex(allFiles);
+  }, [allFiles, providedFolderIndex]);
+  
+  // Track optimistic folder updates separately
+  const [optimisticFolderStates, setOptimisticFolderStates] = useState<Map<string, 'full' | 'none'>>(new Map());
+  
+  // Build folder selection cache for instant UI updates
+  const baseFolderSelectionCache = useMemo(() => {
+    return createDirectorySelectionCache(allFiles, selectedFiles);
+  }, [allFiles, selectedFiles]);
+  
+  // Create a wrapper cache that includes optimistic updates
+  const folderSelectionCache = useMemo(() => {
+    return {
+      get(path: string): 'full' | 'partial' | 'none' {
+        // Check optimistic updates first
+        const optimisticState = optimisticFolderStates.get(path);
+        if (optimisticState !== undefined) {
+          return optimisticState;
+        }
+        // Fall back to base cache
+        return baseFolderSelectionCache.get(path);
+      },
+      set: baseFolderSelectionCache.set,
+      bulkUpdate: baseFolderSelectionCache.bulkUpdate,
+      clear: baseFolderSelectionCache.clear
+    };
+  }, [baseFolderSelectionCache, optimisticFolderStates]);
 
   // Immediate cleanup on mount if workspace is provided
   useEffect(() => {
@@ -133,12 +169,61 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   }, [setSelectedFiles]);
 
   // Toggle folder selection (select/deselect all files in folder)
-  const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean) => {
-    const filesInFolder = allFiles.filter(
-      (file: FileData) =>
-        file.path.startsWith(folderPath) && !file.isBinary && !file.isSkipped,
+  const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
+    // Use folder index for O(1) lookup
+    const filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
+    
+    // If no files in folder, bail early
+    if (filesInFolderPaths.length === 0) {
+      return;
+    }
+    
+    // Filter to only selectable files
+    const selectableFiles = filesInFolderPaths.filter((filePath) => {
+      const file = allFiles.find(f => f.path === filePath);
+      return file && !file.isBinary && !file.isSkipped;
+    });
+    
+    if (selectableFiles.length === 0) {
+      return;
+    }
+    
+    // Check current selection state of folder
+    const selectedFilesInFolder = selectedFiles.filter(
+      (f: SelectedFileReference) => selectableFiles.includes(f.path)
     );
+    
+    // Early bailout conditions
+    if (isSelected && selectedFilesInFolder.length === selectableFiles.length) {
+      // All files in folder are already selected
+      return;
+    }
+    
+    if (!isSelected && selectedFilesInFolder.length === 0) {
+      // No files from folder are selected
+      return;
+    }
 
+    // Optimistically update the cache if requested
+    if (opts?.optimistic !== false) {
+      const newState = isSelected ? 'full' : 'none';
+      setOptimisticFolderStates(prev => {
+        const next = new Map(prev);
+        next.set(folderPath, newState);
+        return next;
+      });
+      
+      // Clear optimistic state after a short delay to let the real state take over
+      setTimeout(() => {
+        setOptimisticFolderStates(prev => {
+          const next = new Map(prev);
+          next.delete(folderPath);
+          return next;
+        });
+      }, 100);
+    }
+    
+    // Perform the actual update
     if (isSelected) {
       // Add all files from this folder that aren't already selected
       setSelectedFiles((prev: SelectedFileReference[]) => {
@@ -146,10 +231,10 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         const prevMap = new Map(prev.map(f => [f.path, f]));
         
         // Add all files from folder that aren't already selected
-        for (const file of filesInFolder) {
-          if (!prevMap.has(file.path)) {
-            prevMap.set(file.path, {
-              path: file.path
+        for (const filePath of selectableFiles) {
+          if (!prevMap.has(filePath)) {
+            prevMap.set(filePath, {
+              path: filePath
               // lines undefined means entire file
             });
           }
@@ -162,13 +247,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       // Remove all files from this folder
       setSelectedFiles((prev: SelectedFileReference[]) => {
         // Create a Set of paths to remove for faster lookups
-        const folderPathsSet = new Set(filesInFolder.map((file: FileData) => file.path));
+        const folderPathsSet = new Set(selectableFiles);
         
         // Keep only paths that are not in the folder
         return prev.filter(f => !folderPathsSet.has(f.path));
       });
     }
-  }, [allFiles, setSelectedFiles]);
+  }, [allFiles, selectedFiles, setSelectedFiles, folderIndex, folderSelectionCache]);
 
   // Handle select all files
   const selectAllFiles = useCallback((displayedFiles: FileData[]) => {
@@ -238,7 +323,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     clearSelectedFiles,
     getSelectionState,
     setSelectionState,
-    cleanupStaleSelections
+    cleanupStaleSelections,
+    folderSelectionCache
   };
 };
 

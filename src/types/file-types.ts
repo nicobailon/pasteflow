@@ -93,7 +93,7 @@ export interface SidebarProps {
   allFiles: FileData[];
   selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
-  toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
+  toggleFolderSelection: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
   searchTerm: string;
   onSearchChange: (term: string) => void;
   selectAllFiles: () => void;
@@ -105,6 +105,7 @@ export interface SidebarProps {
   toggleFilterModal?: () => void;
   refreshFileTree?: () => void;
   onViewFile?: (filePath: string) => void; // New prop
+  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache; // Cache for instant folder selection UI updates
   processingStatus?: {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
@@ -147,11 +148,12 @@ export interface TreeItemProps {
   node: TreeNode;
   selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
-  toggleFolderSelection: (folderPath: string, isSelected: boolean) => void;
+  toggleFolderSelection: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
   toggleExpanded: (path: string) => void;
   expandedNodes?: Record<string, boolean>;
   onViewFile?: (filePath: string) => void; // New prop
   loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property
+  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache; // Cache for instant folder selection UI updates
 }
 
 export interface SortOption {
@@ -277,6 +279,7 @@ export interface WorkspaceState {
   exclusionPatterns: string[];
   userInstructions: string;
   tokenCounts: { [filePath: string]: number };
+  folderIndex?: Map<string, string[]>; // Optional for backward compatibility
   customPrompts: {
     systemPrompts: SystemPrompt[];
     rolePrompts: RolePrompt[];

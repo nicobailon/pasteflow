@@ -103,6 +103,7 @@ const App = () => {
             onViewFile={appState.openFileViewModal}
             processingStatus={appState.processingStatus}
             loadFileContent={appState.loadFileContent}
+            folderSelectionCache={appState.folderSelectionCache}
           />
           
           <ContentArea 
