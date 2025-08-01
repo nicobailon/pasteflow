@@ -284,6 +284,8 @@ export interface WorkspaceState {
     systemPrompts: SystemPrompt[];
     rolePrompts: RolePrompt[];
   };
+  instructions?: Instruction[]; // Optional for backward compatibility
+  selectedInstructions?: Instruction[]; // Optional for backward compatibility
   savedAt?: number; // Added timestamp for sorting
 }
 

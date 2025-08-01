@@ -269,5 +269,5 @@ export function createEnhancedFileCache(profile: keyof typeof CACHE_PROFILES = '
 
 // Export singleton instance with development profile by default
 export const enhancedFileContentCache = createEnhancedFileCache(
-  process.env.NODE_ENV === 'production' ? 'electron' : 'development'
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') ? 'electron' : 'development'
 );

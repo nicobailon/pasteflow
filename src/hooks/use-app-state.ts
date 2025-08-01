@@ -12,7 +12,7 @@ import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } fr
 import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache';
 import { mapFileTreeSortToContentSort } from '../utils/sort-utils';
 import { tokenCountCache } from '../utils/token-cache';
-import { buildFolderIndex, type FolderIndex } from '../utils/folder-selection-index';
+import { buildFolderIndex } from '../utils/folder-selection-index';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -149,7 +149,10 @@ const useAppState = () => {
   const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
   
   // Instructions (docs) state
-  const [instructions, setInstructions] = useState(() => [] as Instruction[]);
+  const [instructions, setInstructions] = useLocalStorage<Instruction[]>(
+    STORAGE_KEYS.INSTRUCTIONS,
+    []
+  );
   const [selectedInstructions, setSelectedInstructions] = useState(() => [] as Instruction[]);
 
   const handleResetFolderState = useCallback(() => {
@@ -763,7 +766,9 @@ const useAppState = () => {
       customPrompts: {
         systemPrompts: promptState.selectedSystemPrompts,
         rolePrompts: promptState.selectedRolePrompts
-      }
+      },
+      instructions: instructions,
+      selectedInstructions: selectedInstructions
     };
 
     persistWorkspace(name, workspace);
@@ -780,6 +785,8 @@ const useAppState = () => {
     userInstructions,
     promptState.selectedSystemPrompts,
     promptState.selectedRolePrompts,
+    instructions,
+    selectedInstructions,
     persistWorkspace
   ]);
 
@@ -928,6 +935,14 @@ const useAppState = () => {
     applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
     setUserInstructions(workspaceData.userInstructions || '');
     applyPrompts(workspaceData.customPrompts);
+    
+    // Restore instructions if they exist in the workspace
+    if (workspaceData.instructions) {
+      setInstructions(workspaceData.instructions);
+    }
+    if (workspaceData.selectedInstructions) {
+      setSelectedInstructions(workspaceData.selectedInstructions);
+    }
   }, [
     setPendingWorkspaceData,
     setCurrentWorkspace,
@@ -935,7 +950,8 @@ const useAppState = () => {
     handleFolderChange,
     applyExpandedNodes,
     applySelectedFiles,
-    applyPrompts
+    applyPrompts,
+    setInstructions
   ]);
 
   // Store refs to get latest values in handlers

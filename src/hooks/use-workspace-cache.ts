@@ -22,7 +22,7 @@ interface UseWorkspaceCacheReturn {
 }
 
 export function useWorkspaceCache(options: UseWorkspaceCacheOptions = {}): UseWorkspaceCacheReturn {
-  const { enablePerformanceMonitoring = process.env.NODE_ENV === 'development' } = options;
+  const { enablePerformanceMonitoring = (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') } = options;
   
   const cacheManager = useMemo(() => WorkspaceCacheManager.getInstance(), []);
   const perfMonitor = useMemo(
@@ -44,7 +44,7 @@ export function useWorkspaceCache(options: UseWorkspaceCacheOptions = {}): UseWo
     return () => {
       unsubscribe();
       // Log performance report on unmount in development
-      if (perfMonitor && process.env.NODE_ENV === 'development') {
+      if (perfMonitor && typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
         perfMonitor.logReport();
       }
     };
