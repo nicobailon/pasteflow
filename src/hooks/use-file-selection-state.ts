@@ -27,8 +27,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     return buildFolderIndex(allFiles);
   }, [allFiles, providedFolderIndex]);
   
-  // Track optimistic folder updates separately
+  // Track optimistic folder updates separately with timestamps
   const [optimisticFolderStates, setOptimisticFolderStates] = useState<Map<string, 'full' | 'none'>>(new Map());
+  const optimisticTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   
   // Build folder selection cache for instant UI updates
   const baseFolderSelectionCache = useMemo(() => {
@@ -63,6 +64,17 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
+  
+  // Cleanup optimistic timeouts on unmount
+  useEffect(() => {
+    return () => {
+      // Clear all pending timeouts
+      for (const timeout of optimisticTimeoutsRef.current.values()) {
+        clearTimeout(timeout);
+      }
+      optimisticTimeoutsRef.current.clear();
+    };
+  }, []);
 
   // Clean up files outside current workspace
   const cleanupStaleSelections = useCallback(() => {
@@ -207,20 +219,31 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     // Optimistically update the cache if requested
     if (opts?.optimistic !== false) {
       const newState = isSelected ? 'full' : 'none';
+      
+      // Clear any existing timeout for this path
+      const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+      
+      // Set optimistic state
       setOptimisticFolderStates(prev => {
         const next = new Map(prev);
         next.set(folderPath, newState);
         return next;
       });
       
-      // Clear optimistic state after a short delay to let the real state take over
-      setTimeout(() => {
+      // Schedule cleanup with a longer timeout to ensure state has settled
+      const timeout = setTimeout(() => {
         setOptimisticFolderStates(prev => {
           const next = new Map(prev);
           next.delete(folderPath);
           return next;
         });
-      }, 100);
+        optimisticTimeoutsRef.current.delete(folderPath);
+      }, 500); // Increased from 100ms to 500ms for better stability
+      
+      optimisticTimeoutsRef.current.set(folderPath, timeout);
     }
     
     // Perform the actual update

@@ -237,7 +237,7 @@ export class SecureDatabase {
   }
 
   // Additional helpers for state handlers
-  async saveFileContent(content: string, filePath: string): Promise<string> {
+  async saveFileContentByHash(content: string, filePath: string): Promise<string> {
     const hash = crypto.createHash('sha256').update(content).digest('hex');
     
     // Save content if new

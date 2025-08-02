@@ -24,7 +24,7 @@ export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
     
     // Build up each parent folder path
     for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : `/${parts[i]}`;
+      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
       
       // Add this file to the folder's file list
       if (!index.has(currentPath)) {

@@ -24,7 +24,7 @@ export class StateHandlers {
   ) {
     this.contentDeduplicator = {
       storeFileContent: async (content: string, filePath: string) => {
-        return await this.db.saveFileContent(content, filePath);
+        return await this.db.saveFileContentByHash(content, filePath);
       },
       retrieveContent: async (hash: string) => {
         return await this.db.getContentByHash(hash);
