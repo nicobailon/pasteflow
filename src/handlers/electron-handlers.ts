@@ -26,7 +26,9 @@ const createInitialWorkspaceState = (folderPath: string): WorkspaceState => ({
   exclusionPatterns: [],
   userInstructions: '',
   tokenCounts: {},
-  customPrompts: { systemPrompts: [], rolePrompts: [] }
+  customPrompts: { systemPrompts: [], rolePrompts: [] },
+  instructions: [],
+  selectedInstructions: []
 });
 
 // Helper function to validate folder path
@@ -89,20 +91,20 @@ const validateFolderPath = (
 };
 
 // Helper function to handle workspace creation/selection
-const handleWorkspaceUpdate = (
+const handleWorkspaceUpdate = async (
   newPath: string,
   selectedFolder: string | null,
   currentWorkspace: string | null,
-  getWorkspaceNames: () => string[],
+  getWorkspaceNames: () => Promise<string[]>,
   persistWorkspace: (name: string, state: WorkspaceState) => void,
   setCurrentWorkspace: (name: string | null) => void,
-): string | null => {
+): Promise<string | null> => {
   // Check if we're opening the same folder that's already open
   if (selectedFolder === newPath) {
     return currentWorkspace;
   }
 
-  const existingWorkspaceNames = getWorkspaceNames();
+  const existingWorkspaceNames = await getWorkspaceNames();
   const newWorkspaceName = generateUniqueWorkspaceName(existingWorkspaceNames, newPath);
 
   const initialWorkspaceState = createInitialWorkspaceState(newPath);
@@ -148,7 +150,7 @@ interface HandlerParams {
   currentWorkspace: string | null;
   setCurrentWorkspace: (name: string | null) => void;
   persistWorkspace: (name: string, state: WorkspaceState) => void;
-  getWorkspaceNames: () => string[];
+  getWorkspaceNames: () => Promise<string[]>;
   selectedFolder: string | null;
 }
 
@@ -166,7 +168,7 @@ const createFolderSelectedHandler = (
       clearTimeout(folderSelectionTimeout);
     }
 
-    folderSelectionTimeout = setTimeout(() => {
+    folderSelectionTimeout = setTimeout(async () => {
       try {
         const validation = validateFolderPath(folderPath, params.setProcessingStatus);
         if (!validation.isValid) {
@@ -177,7 +179,7 @@ const createFolderSelectedHandler = (
         
         accumulatedFiles.length = 0; // Clear accumulated files
 
-        const workspaceName = handleWorkspaceUpdate(
+        const workspaceName = await handleWorkspaceUpdate(
           newPath,
           params.selectedFolder,
           params.currentWorkspace,
@@ -253,7 +255,7 @@ export const setupElectronHandlers = (
   currentWorkspace: string | null,
   setCurrentWorkspace: (name: string | null) => void,
   persistWorkspace: (name: string, state: WorkspaceState) => void,
-  getWorkspaceNames: () => string[],
+  getWorkspaceNames: () => Promise<string[]>,
   selectedFolder: string | null
 ): (() => void) => {
   if (!isElectron) return () => {};

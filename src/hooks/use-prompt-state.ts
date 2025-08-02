@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { STORAGE_KEYS } from '../constants';
 import { RolePrompt, SystemPrompt } from '../types/file-types';
 
-import useLocalStorage from './use-local-storage';
+import usePersistentState from './use-persistent-state';
 
 /**
  * Custom hook to manage system and role prompts
@@ -12,14 +12,14 @@ import useLocalStorage from './use-local-storage';
  */
 const usePromptState = () => {
   // System prompts state
-  const [systemPrompts, setSystemPrompts] = useLocalStorage<SystemPrompt[]>(
+  const [systemPrompts, setSystemPrompts] = usePersistentState<SystemPrompt[]>(
     STORAGE_KEYS.SYSTEM_PROMPTS,
     []
   );
   const [selectedSystemPrompts, setSelectedSystemPrompts] = useState([] as SystemPrompt[]);
   
   // Role prompts state
-  const [rolePrompts, setRolePrompts] = useLocalStorage<RolePrompt[]>(
+  const [rolePrompts, setRolePrompts] = usePersistentState<RolePrompt[]>(
     STORAGE_KEYS.ROLE_PROMPTS,
     []
   );

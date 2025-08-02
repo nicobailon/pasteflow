@@ -117,8 +117,8 @@ export const useWorkspaceDrag = ({
     
     const newOrder = moveWorkspace(sortedNames, draggedIndex, targetIndex);
     
-    // Update both state and localStorage
-    setWorkspaceManualOrder(newOrder);
+    // Update both state and database (fire and forget)
+    setWorkspaceManualOrder(newOrder).catch(console.error);
     onReorder(newOrder);
     
     setDraggedIndex(null);
@@ -144,7 +144,8 @@ export const useWorkspaceDrag = ({
     
     const newOrder = moveWorkspace(sortedNames, draggedIndex, dragOverIndex);
     
-    setWorkspaceManualOrder(newOrder);
+    // Update database (fire and forget)
+    setWorkspaceManualOrder(newOrder).catch(console.error);
     onReorder(newOrder);
     
     setDraggedIndex(null);

@@ -1,8 +1,19 @@
-import { STORAGE_KEYS } from '../constants';
+import { WorkspaceState } from '../types/file-types';
+
 import { WorkspaceSortMode, WorkspaceInfo, sortWorkspaces } from './workspace-sorting';
 
+interface DatabaseWorkspace {
+  id: string;
+  name: string;
+  folderPath: string;
+  state: WorkspaceState;
+  createdAt: number;
+  updatedAt: number;
+  lastAccessed: number;
+}
+
 interface WorkspaceCache {
-  // Raw workspace data from localStorage
+  // Raw workspace data from database
   rawData: Map<string, WorkspaceInfo>;
   
   // Sorted workspace names by mode
@@ -22,6 +33,7 @@ export class WorkspaceCacheManager {
   private listeners: Set<() => void> = new Set();
   private maxCacheSize = 1000; // Maximum workspaces to cache
   private cacheExpiryMs = 5 * 60 * 1000; // 5 minutes
+  private loadingPromise: Promise<void> | null = null;
   
   // Singleton instance
   private static instance: WorkspaceCacheManager;
@@ -39,27 +51,20 @@ export class WorkspaceCacheManager {
     window.addEventListener('workspacesChanged', () => {
       this.invalidate();
     });
-    
-    // Listen for storage changes from other tabs
-    window.addEventListener('storage', (e: StorageEvent) => {
-      if (e.key === STORAGE_KEYS.WORKSPACES) {
-        this.invalidate();
-      }
-    });
   }
   
-  // Get cached data or load from localStorage
-  getWorkspaces(): Map<string, WorkspaceInfo> {
+  // Get cached data or load from database
+  async getWorkspaces(): Promise<Map<string, WorkspaceInfo>> {
     if (!this.cache || this.isStale()) {
-      this.loadFromStorage();
+      await this.loadFromDatabase();
     }
     return this.cache!.rawData;
   }
   
   // Get sorted list for specific mode
-  getSortedList(mode: WorkspaceSortMode, manualOrder?: string[]): string[] {
+  async getSortedList(mode: WorkspaceSortMode, manualOrder?: string[]): Promise<string[]> {
     if (!this.cache || this.isStale()) {
-      this.loadFromStorage();
+      await this.loadFromDatabase();
     }
     
     // Manual mode always regenerates to respect current order
@@ -80,17 +85,17 @@ export class WorkspaceCacheManager {
   }
   
   // Get workspace count without full parsing
-  getWorkspaceCount(): number {
+  async getWorkspaceCount(): Promise<number> {
     if (!this.cache || this.isStale()) {
-      this.loadFromStorage();
+      await this.loadFromDatabase();
     }
     return this.cache!.rawData.size;
   }
   
   // Check if a workspace exists
-  hasWorkspace(name: string): boolean {
+  async hasWorkspace(name: string): Promise<boolean> {
     if (!this.cache || this.isStale()) {
-      this.loadFromStorage();
+      await this.loadFromDatabase();
     }
     return this.cache!.rawData.has(name);
   }
@@ -103,14 +108,15 @@ export class WorkspaceCacheManager {
       this.cache.sortedLists[mode] = null;
     } else {
       this.cache = null;
+      this.loadingPromise = null;
     }
     
     this.notifyListeners();
   }
   
-  // Force refresh from storage
-  refresh(): void {
-    this.loadFromStorage();
+  // Force refresh from database
+  async refresh(): Promise<void> {
+    await this.loadFromDatabase();
     this.notifyListeners();
   }
   
@@ -120,27 +126,38 @@ export class WorkspaceCacheManager {
     return () => this.listeners.delete(listener);
   }
   
-  private loadFromStorage(): void {
+  private async loadFromDatabase(): Promise<void> {
+    // Prevent multiple concurrent loads
+    if (this.loadingPromise) {
+      await this.loadingPromise;
+      return;
+    }
+    
+    this.loadingPromise = this.performDatabaseLoad();
+    
     try {
-      const workspacesString = localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}';
-      const workspaces = JSON.parse(workspacesString);
+      await this.loadingPromise;
+    } finally {
+      this.loadingPromise = null;
+    }
+  }
+  
+  private async performDatabaseLoad(): Promise<void> {
+    try {
+      if (!window.electron) {
+        throw new Error('Electron IPC not available');
+      }
+      
+      const workspaces: DatabaseWorkspace[] = await window.electron.ipcRenderer.invoke('/workspace/list');
       
       const workspaceInfos = new Map<string, WorkspaceInfo>();
       
-      Object.entries(workspaces).forEach(([name, data]: [string, any]) => {
-        let savedAt = 0;
-        if (typeof data === 'string') {
-          try {
-            const parsed = JSON.parse(data);
-            savedAt = parsed.savedAt || 0;
-          } catch {
-            // Ignore parse errors
-          }
-        } else if (data && typeof data === 'object') {
-          savedAt = data.savedAt || 0;
-        }
-        workspaceInfos.set(name, { name, savedAt });
-      });
+      for (const workspace of workspaces) {
+        workspaceInfos.set(workspace.name, {
+          name: workspace.name,
+          savedAt: workspace.lastAccessed * 1000 // Convert to milliseconds
+        });
+      }
       
       // Check memory usage and trim if needed
       if (workspaceInfos.size > this.maxCacheSize) {
@@ -158,7 +175,7 @@ export class WorkspaceCacheManager {
         version: (this.cache?.version || 0) + 1
       };
     } catch (error) {
-      console.error('Failed to load workspaces from storage:', error);
+      console.error('Failed to load workspaces from database:', error);
       // Initialize with empty cache on error
       this.cache = {
         rawData: new Map(),
@@ -174,7 +191,7 @@ export class WorkspaceCacheManager {
   }
   
   private generateSortedList(mode: WorkspaceSortMode, manualOrder?: string[]): string[] {
-    const workspaces = Array.from(this.cache!.rawData.values());
+    const workspaces = [...this.cache!.rawData.values()];
     return sortWorkspaces(workspaces, mode, manualOrder);
   }
   
@@ -185,22 +202,24 @@ export class WorkspaceCacheManager {
   
   private trimWorkspaces(workspaces: Map<string, WorkspaceInfo>): void {
     // Keep only the most recent workspaces
-    const sorted = Array.from(workspaces.values())
+    const sorted = [...workspaces.values()]
       .sort((a, b) => b.savedAt - a.savedAt)
       .slice(0, this.maxCacheSize);
     
     workspaces.clear();
-    sorted.forEach(w => workspaces.set(w.name, w));
+    for (const w of sorted) {
+      workspaces.set(w.name, w);
+    }
   }
   
   private notifyListeners(): void {
-    this.listeners.forEach(listener => {
+    for (const listener of this.listeners) {
       try {
         listener();
       } catch (error) {
         console.error('Cache listener error:', error);
       }
-    });
+    }
   }
   
   // Get cache statistics for debugging

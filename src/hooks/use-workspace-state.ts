@@ -1,13 +1,24 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { WorkspaceState } from '../types/file-types';
 import { getPathValidator } from '../security/path-validator';
-import { safeJsonParse } from '../utils/local-storage-utils';
-
-type WorkspacesRecord = Record<string, WorkspaceState | string>;
+import { useDatabaseWorkspaceState } from './use-database-workspace-state';
+import { usePersistentState } from './use-persistent-state';
 
 export const useWorkspaceState = () => {
+  const db = useDatabaseWorkspaceState();
+  const [currentWorkspace, setCurrentWorkspace] = usePersistentState<string | null>(
+    STORAGE_KEYS.CURRENT_WORKSPACE,
+    null
+  );
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Mark as initialized on mount
+  useEffect(() => {
+    setIsInitialized(true);
+  }, []);
+
   const saveWorkspace = useCallback((name: string, workspace: WorkspaceState) => {
     try {
       // Validate the workspace folder path if it exists
@@ -26,157 +37,119 @@ export const useWorkspaceState = () => {
         };
       }
       
-      const workspaces = safeJsonParse<WorkspacesRecord>(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
-      // Add timestamp before saving
-      const workspaceWithTimestamp = { ...workspace, savedAt: Date.now() };
-      workspaces[name] = workspaceWithTimestamp;
-      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
-      localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, name);
-      window.dispatchEvent(new CustomEvent('workspacesChanged'));
+      // Save to database asynchronously (fire and forget)
+      db.saveWorkspace(name, workspace)
+        .then(() => {
+          setCurrentWorkspace(name);
+        })
+        .catch(error => {
+          console.error('Failed to save workspace:', error);
+          throw error;
+        });
     } catch (error) {
       throw error;
     }
-  }, []);
+  }, [db, setCurrentWorkspace]);
 
-  const loadWorkspace = useCallback((name: string): WorkspaceState | null => {
+  // These methods need to be async now
+  const loadWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {
     try {
-      let workspacesString;
-      try {
-        workspacesString = localStorage.getItem(STORAGE_KEYS.WORKSPACES);
-      } catch (error) {
-        return null;
+      const workspace = await db.loadWorkspace(name);
+      if (workspace) {
+        // Don't set current workspace here - let the caller decide
+        return workspace;
       }
-
-      const workspaces = safeJsonParse<WorkspacesRecord>(workspacesString, {});
-      if (!workspaces[name]) {
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-        return null;
-      }
-
-      // REMOVED: localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, name);
-      // The application state (useAppState) should manage which workspace is currently active in the UI.
-      // This hook is only responsible for retrieving the data from storage.
-
-      const workspaceData = workspaces[name];
-      try {
-        if (typeof workspaceData === 'string') {
-          // Handle legacy double-serialized data
-          const parsedWorkspace = safeJsonParse(workspaceData, null);
-          return parsedWorkspace;
-        } else if (typeof workspaceData === 'object' && workspaceData !== null) {
-          // Handle new direct object storage
-          return workspaceData;
-        } else {
-             delete workspaces[name];
-             localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
-             localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-             window.dispatchEvent(new CustomEvent('workspacesChanged', { detail: { deleted: name, wasCurrent: true, wasCorrupted: true } }));
-             return null;
-        }
-      } catch (parseError) {
-        delete workspaces[name];
-        localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-        window.dispatchEvent(new CustomEvent('workspacesChanged', { detail: { deleted: name, wasCurrent: true, wasCorrupted: true } }));
-        return null;
-      }
+      return null;
     } catch (error) {
+      console.error('Failed to load workspace:', error);
       return null;
     }
-  }, []);
+  }, [db]);
 
-  const deleteWorkspace = useCallback((name: string) => {
+  const deleteWorkspace = useCallback(async (name: string): Promise<void> => {
     try {
-      const workspaces = safeJsonParse<WorkspacesRecord>(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
-      let wasCurrent = false;
-
-      if (workspaces[name]) {
-        delete workspaces[name];
-        const currentWorkspace = localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-        if (currentWorkspace === name) {
-          localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-          wasCurrent = true;
-        }
-        localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
-        window.dispatchEvent(new CustomEvent('workspacesChanged', { detail: { deleted: name, wasCurrent } }));
+      await db.deleteWorkspace(name);
+      
+      // Clear current workspace if it was the deleted one
+      if (currentWorkspace === name) {
+        setCurrentWorkspace(null);
       }
     } catch (error) {
-      // Silent fail
+      console.error('Failed to delete workspace:', error);
+      throw error;
     }
-  }, []);
+  }, [db, currentWorkspace, setCurrentWorkspace]);
 
-  const renameWorkspace = useCallback((oldName: string, newName: string): boolean => {
+  const renameWorkspace = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
     if (!newName || oldName === newName) {
       return false;
     }
+    
     try {
-      const workspaces = safeJsonParse<WorkspacesRecord>(localStorage.getItem(STORAGE_KEYS.WORKSPACES), {});
-
-      if (!workspaces[oldName]) {
+      // Check if new name already exists
+      const exists = await db.doesWorkspaceExist(newName);
+      if (exists) {
         return false;
       }
-      if (workspaces[newName]) {
-        // Optionally, prompt user or handle differently
-        return false;
-      }
-
-      // Copy data and delete old entry
-      workspaces[newName] = workspaces[oldName];
-      delete workspaces[oldName];
-
-      // Update current workspace if it was the one renamed
-      const currentWorkspace = localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-      let wasCurrent = false;
+      
+      await db.renameWorkspace(oldName, newName);
+      
+      // Update current workspace if it was renamed
       if (currentWorkspace === oldName) {
-        localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, newName);
-        wasCurrent = true;
+        setCurrentWorkspace(newName);
       }
-
-      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
-      window.dispatchEvent(new CustomEvent('workspacesChanged', { detail: { renamed: { oldName, newName }, wasCurrent } }));
+      
       return true;
     } catch (error) {
+      console.error('Failed to rename workspace:', error);
       return false;
     }
-  }, []);
+  }, [db, currentWorkspace, setCurrentWorkspace]);
 
-  const getWorkspaceNames = useCallback((): string[] => {
+  const getWorkspaceNames = useCallback(async (): Promise<string[]> => {
     try {
-      const workspacesString = localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '{}';
-      const workspaces = safeJsonParse<WorkspacesRecord>(workspacesString, {});
-
-      // Get entries, parse data, sort by savedAt (descending), return names
-      // Extract just the names
-      return Object.entries(workspaces)
-        .map(([name, dataValue]) => {
-          try {
-            let data: WorkspaceState | null;
-            if (typeof dataValue === 'string') {
-              // Handle legacy double-serialized data
-              data = safeJsonParse<WorkspaceState | null>(dataValue, null);
-            } else if (typeof dataValue === 'object' && dataValue !== null) {
-              // Handle new direct object storage
-              data = dataValue as WorkspaceState;
-            } else {
-              return { name, savedAt: 0 }; // Treat as oldest if invalid
-            }
-            
-            if (!data) {
-              return { name, savedAt: 0 }; // Treat as oldest if data is null
-            }
-            
-            // Use savedAt, default to 0 if missing for older workspaces
-            return { name, savedAt: data.savedAt || 0 }; 
-          } catch (parseError) {
-            return { name, savedAt: 0 }; // Treat as oldest if parsing fails
-          }
-        })
-        .sort((a, b) => b.savedAt - a.savedAt) // Sort descending (newest first)
-        .map(item => item.name);
+      const names = await db.getWorkspaceNames();
+      
+      // Sort by last accessed time (database already returns them sorted)
+      return names;
     } catch (error) {
+      console.error('Failed to get workspace names:', error);
       return [];
     }
-  }, []);
+  }, [db]);
 
-  return { saveWorkspace, loadWorkspace, deleteWorkspace, renameWorkspace, getWorkspaceNames };
+  // Export/Import functionality
+  const exportWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {
+    return db.exportWorkspace(name);
+  }, [db]);
+
+  const importWorkspace = useCallback(async (name: string, workspaceData: WorkspaceState): Promise<void> => {
+    return db.importWorkspace(name, workspaceData);
+  }, [db]);
+
+  // Utility methods
+  const doesWorkspaceExist = useCallback(async (name: string): Promise<boolean> => {
+    return db.doesWorkspaceExist(name);
+  }, [db]);
+
+  const clearAllWorkspaces = useCallback(async (): Promise<void> => {
+    await db.clearAllWorkspaces();
+    setCurrentWorkspace(null);
+  }, [db, setCurrentWorkspace]);
+
+  return { 
+    saveWorkspace, 
+    loadWorkspace, 
+    deleteWorkspace, 
+    renameWorkspace, 
+    getWorkspaceNames,
+    exportWorkspace,
+    importWorkspace,
+    doesWorkspaceExist,
+    clearAllWorkspaces,
+    currentWorkspace,
+    setCurrentWorkspace,
+    isLoading: db.isLoading,
+    error: db.error
+  };
 };

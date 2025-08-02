@@ -5,6 +5,78 @@ const { Worker } = require("worker_threads");
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const { getPathValidator } = require("./src/security/path-validator.cjs");
 const { ipcValidator } = require("./src/validation/ipc-validator.js");
+const { DatabaseBridge } = require("./src/main/db/database-bridge.js");
+
+// Add error handling for console operations to prevent EIO errors
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+const originalConsoleLog = console.log;
+
+console.error = (...args) => {
+  try {
+    originalConsoleError.apply(console, args);
+  } catch (err) {
+    // Silently ignore EIO errors in console output
+    if (err.code !== 'EIO') {
+      // Try to write to stderr directly as fallback
+      try {
+        process.stderr.write(`Console error: ${args.join(' ')}\n`);
+      } catch (fallbackErr) {
+        // If even stderr fails, just ignore
+      }
+    }
+  }
+};
+
+console.warn = (...args) => {
+  try {
+    originalConsoleWarn.apply(console, args);
+  } catch (err) {
+    if (err.code !== 'EIO') {
+      try {
+        process.stderr.write(`Console warn: ${args.join(' ')}\n`);
+      } catch (fallbackErr) {
+        // If even stderr fails, just ignore
+      }
+    }
+  }
+};
+
+console.log = (...args) => {
+  try {
+    originalConsoleLog.apply(console, args);
+  } catch (err) {
+    if (err.code !== 'EIO') {
+      try {
+        process.stdout.write(`Console log: ${args.join(' ')}\n`);
+      } catch (fallbackErr) {
+        // If even stdout fails, just ignore
+      }
+    }
+  }
+};
+
+// Add global error handlers to prevent crashes
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Don't exit the process for EIO errors
+  if (error.code === 'EIO') {
+    console.log('Ignoring EIO error to prevent crash');
+    return;
+  }
+  // For other errors, log but don't crash in production
+  if (!process.env.NODE_ENV || process.env.NODE_ENV === 'production') {
+    console.error('Preventing crash in production mode');
+    return;
+  }
+  // In development, still crash for debugging
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't crash for unhandled rejections
+});
 
 // Add handling for the 'ignore' module
 let ignore;
@@ -15,6 +87,13 @@ let currentRequestId = null;
 
 // Track current workspace paths for security validation
 let currentWorkspacePaths = [];
+
+// Store for workspace and preferences data
+const workspaceStore = new Map();
+const preferencesStore = new Map();
+
+// Database instance
+let database = null;
 
 try {
   ignore = require("ignore");
@@ -257,7 +336,18 @@ function createWindow() {
 
 // Replace the top-level await with a proper async function
 // eslint-disable-next-line unicorn/prefer-top-level-await
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    // Initialize database
+    database = new DatabaseBridge();
+    await database.initialize();
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize database:', error);
+    console.log('Falling back to in-memory storage');
+    // Continue with in-memory storage as fallback
+  }
+  
   createWindow();
 });
 
@@ -270,6 +360,19 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+app.on("before-quit", async () => {
+  // Clean up database connection
+  if (database) {
+    try {
+      await database.close();
+      console.log('Database closed successfully');
+    } catch (error) {
+      console.error('Error closing database:', error);
+    }
+  }
+});
+
 
 // Handle folder selection
 ipcMain.on("open-folder", async (event) => {
@@ -725,3 +828,274 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
     return { success: false, error: error.message };
   }
 });
+
+// Workspace management handlers
+ipcMain.handle('/workspace/list', async () => {
+  try {
+    // Use database if available
+    if (database) {
+      return await database.listWorkspaces();
+    }
+    
+    // Fallback to in-memory store
+    const workspaces = Array.from(workspaceStore.entries())
+      .sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0))
+      .map(([name, data]) => ({
+        id: name,
+        name: name,
+        folderPath: data.folderPath || '',
+        state: data.state || {},
+        createdAt: data.createdAt || Date.now(),
+        updatedAt: data.updatedAt || Date.now(),
+        lastAccessed: data.lastAccessed || Date.now()
+      }));
+    return workspaces;
+  } catch (error) {
+    console.error('Error listing workspaces:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('/workspace/create', async (event, { name, folderPath, state }) => {
+  try {
+    // Use database if available
+    if (database) {
+      const workspace = await database.createWorkspace(name, folderPath, state);
+      return { success: true, workspace };
+    }
+    
+    // Fallback to in-memory store
+    const now = Date.now();
+    workspaceStore.set(name, {
+      folderPath,
+      state,
+      createdAt: now,
+      updatedAt: now,
+      lastAccessed: now
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error creating workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('/workspace/load', async (event, { id }) => {
+  try {
+    // Use database if available
+    if (database) {
+      const workspace = await database.getWorkspace(id);
+      if (!workspace) {
+        throw new Error('Workspace not found');
+      }
+      return workspace;
+    }
+
+    // Fallback to in-memory store
+    const workspace = workspaceStore.get(id);
+    if (!workspace) {
+      throw new Error('Workspace not found');
+    }
+
+    return {
+      id: id,
+      name: id,
+      folderPath: workspace.folderPath || '',
+      state: workspace.state || {},
+      createdAt: workspace.createdAt || Date.now(),
+      updatedAt: workspace.updatedAt || Date.now(),
+      lastAccessed: workspace.lastAccessed || Date.now()
+    };
+  } catch (error) {
+    console.error('Error loading workspace:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('/workspace/update', async (event, { id, name, folderPath, state }) => {
+  try {
+    // Use database if available
+    if (database) {
+      // Try to find workspace by id first, then by name
+      let workspace = null;
+      if (id) {
+        workspace = await database.getWorkspace(id);
+      } else if (name) {
+        workspace = await database.getWorkspace(name);
+      }
+
+      if (workspace) {
+        await database.updateWorkspace(workspace.name, state);
+        return { success: true };
+      } else {
+        return { success: false, error: 'Workspace not found' };
+      }
+    }
+
+    // Fallback to in-memory store
+    const workspaceKey = id || name;
+    const existing = workspaceStore.get(workspaceKey);
+    if (!existing) {
+      return { success: false, error: 'Workspace not found' };
+    }
+
+    workspaceStore.set(workspaceKey, {
+      ...existing,
+      folderPath: folderPath !== undefined ? folderPath : existing.folderPath,
+      state: state !== undefined ? state : existing.state,
+      updatedAt: Date.now()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('/workspace/touch', async (event, { id, name }) => {
+  try {
+    // Use database if available
+    if (database) {
+      // Try to find workspace by id first, then by name
+      let workspace = null;
+      if (id) {
+        workspace = await database.getWorkspace(id);
+      } else if (name) {
+        workspace = await database.getWorkspace(name);
+      }
+
+      if (workspace) {
+        await database.touchWorkspace(workspace.name);
+        return { success: true };
+      } else {
+        return { success: false, error: 'Workspace not found' };
+      }
+    }
+
+    // Fallback to in-memory store
+    const workspaceKey = id || name;
+    const existing = workspaceStore.get(workspaceKey);
+    if (!existing) {
+      return { success: false, error: 'Workspace not found' };
+    }
+
+    workspaceStore.set(workspaceKey, {
+      ...existing,
+      lastAccessed: Date.now()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error touching workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('/workspace/delete', async (event, { name }) => {
+  try {
+    // Use database if available
+    if (database) {
+      await database.deleteWorkspace(name);
+      return { success: true };
+    }
+    
+    // Fallback to in-memory store
+    workspaceStore.delete(name);
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('/workspace/rename', async (event, { oldName, newName }) => {
+  try {
+    // Use database if available
+    if (database) {
+      await database.renameWorkspace(oldName, newName);
+      return { success: true };
+    }
+    
+    // Fallback to in-memory store
+    const existing = workspaceStore.get(oldName);
+    if (!existing) {
+      return { success: false, error: 'Workspace not found' };
+    }
+    
+    workspaceStore.set(newName, {
+      ...existing,
+      updatedAt: Date.now()
+    });
+    workspaceStore.delete(oldName);
+    return { success: true };
+  } catch (error) {
+    console.error('Error renaming workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Preferences handlers
+ipcMain.handle('/prefs/get', async (event, params) => {
+  try {
+    // Defensive check for params - handle undefined, null, or non-object params
+    if (params === undefined || params === null || typeof params !== 'object') {
+      console.error('Invalid params for /prefs/get:', params, 'Type:', typeof params);
+      return null;
+    }
+    
+    // Safely destructure with default value
+    const { key = null } = params || {};
+    if (!key) {
+      console.error('No key provided for /prefs/get, params:', params);
+      return null;
+    }
+    
+    // Use database if available
+    if (database) {
+      const value = await database.getPreference(key);
+      return value !== undefined ? value : null;
+    }
+    
+    // Fallback to in-memory store
+    const value = preferencesStore.get(key);
+    // Return just the value, not wrapped in an object
+    // Return null if undefined to match database behavior
+    return value !== undefined ? value : null;
+  } catch (error) {
+    console.error('Error getting preference:', error);
+    console.error('Params were:', params);
+    throw error; // Let the renderer handle the error
+  }
+});
+
+ipcMain.handle('/prefs/set', async (event, params) => {
+  try {
+    // Defensive check for params - handle undefined, null, or non-object params
+    if (params === undefined || params === null || typeof params !== 'object') {
+      console.error('Invalid params for /prefs/set:', params, 'Type:', typeof params);
+      throw new Error('Invalid parameters');
+    }
+    
+    // Safely destructure
+    const { key = null, value = undefined } = params || {};
+    if (!key) {
+      console.error('No key provided for /prefs/set, params:', params);
+      throw new Error('Key is required');
+    }
+    
+    // Use database if available
+    if (database) {
+      await database.setPreference(key, value);
+      return true;
+    }
+    
+    // Fallback to in-memory store
+    preferencesStore.set(key, value);
+    // Return boolean to match expected behavior
+    return true;
+  } catch (error) {
+    console.error('Error setting preference:', error);
+    console.error('Params were:', params);
+    throw error; // Let the renderer handle the error
+  }
+});
+

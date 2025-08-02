@@ -7,16 +7,12 @@ import { useWorkspaceDrag } from '../hooks/use-workspace-drag';
 import { useWorkspaceSelection } from '../hooks/use-workspace-selection';
 import { WorkspaceState } from '../types/file-types';
 import type { AppState } from '../hooks/use-app-state';
-import { STORAGE_KEYS } from '../constants';
-import { safeJsonParse } from '../utils/local-storage-utils';
 import { 
   getWorkspaceSortMode, 
   setWorkspaceSortMode, 
   getWorkspaceManualOrder, 
   setWorkspaceManualOrder, 
-  sortWorkspaces, 
-  WorkspaceSortMode,
-  WorkspaceInfo
+  WorkspaceSortMode
 } from '../utils/workspace-sorting';
 
 import { WorkspaceListItem } from './workspace-list-item';
@@ -53,45 +49,75 @@ const WorkspaceModal = ({
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
-  const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() => getWorkspaceSortMode());
-  const [manualOrder, setManualOrder] = useState<string[]>(() => getWorkspaceManualOrder());
+  const [sortMode, setSortMode] = useState<WorkspaceSortMode>('recent');
+  const [manualOrder, setManualOrder] = useState<string[]>([]);
+  const [sortedWorkspaces, setSortedWorkspaces] = useState<string[]>([]);
+  
+  // Load sort preferences from database on mount
+  useEffect(() => {
+    const loadSortPreferences = async () => {
+      const [mode, order] = await Promise.all([
+        getWorkspaceSortMode(),
+        getWorkspaceManualOrder()
+      ]);
+      setSortMode(mode);
+      setManualOrder(order);
+    };
+    loadSortPreferences();
+  }, []);
 
-  const refreshWorkspaceList = useCallback(() => {
-    const names = getWorkspaceNames();
-    setWorkspaceNames(names);
+  const refreshWorkspaceList = useCallback(async () => {
+    try {
+      const names = await getWorkspaceNames();
+      setWorkspaceNames(names);
+    } catch (error) {
+      console.error('[WorkspaceModal] Error refreshing workspace list:', error);
+    }
   }, [getWorkspaceNames]);
 
-  const getSortedWorkspaces = useCallback((): string[] => {
-    const workspacesString = localStorage.getItem(STORAGE_KEYS.WORKSPACES);
-    const workspaces = safeJsonParse(workspacesString, {});
-    
-    const workspaceInfos: WorkspaceInfo[] = Object.entries(workspaces).map(([name, data]: [string, any]) => {
-      let savedAt = 0;
-      if (typeof data === 'string') {
-        try {
-          const parsed = safeJsonParse(data, { savedAt: 0 });
-          savedAt = parsed.savedAt || 0;
-        } catch {
-          // Ignore parse errors
+  const getSortedWorkspaces = useCallback(async (): Promise<string[]> => {
+    try {
+      // Get workspace names from database (already sorted by last accessed)
+      const names = await getWorkspaceNames();
+      
+      // If manual sorting is enabled, use manualOrder
+      if (sortMode === 'manual' && manualOrder.length > 0) {
+        // Sort according to manual order, with any new workspaces at the end
+        const orderedNames = [...manualOrder];
+        for (const name of names) {
+          if (!orderedNames.includes(name)) {
+            orderedNames.push(name);
+          }
         }
-      } else if (data && typeof data === 'object') {
-        savedAt = data.savedAt || 0;
+        // Filter to only include workspaces that still exist
+        return orderedNames.filter(name => names.includes(name));
       }
-      return { name, savedAt };
-    });
-    
-    return sortWorkspaces(workspaceInfos, sortMode, manualOrder);
-  }, [sortMode, manualOrder]);
+      
+      // For other sort modes, names are already sorted by last accessed from database
+      return names;
+    } catch (error) {
+      console.error('[WorkspaceModal] Error getting sorted workspaces:', error);
+      return [];
+    }
+  }, [getWorkspaceNames, sortMode, manualOrder]);
 
-  const handleSortModeChange = useCallback((newMode: WorkspaceSortMode) => {
+  const handleSortModeChange = useCallback(async (newMode: WorkspaceSortMode) => {
     if (newMode === 'manual') {
       // When switching to manual, preserve the current order
-      const currentOrder = getSortedWorkspaces();
-      setManualOrder(currentOrder);
-      setWorkspaceManualOrder(currentOrder);
+      try {
+        const currentOrder = await getSortedWorkspaces();
+        setManualOrder(currentOrder);
+        setWorkspaceManualOrder(currentOrder).catch(error => 
+          console.error('Error saving workspace manual order:', error)
+        );
+      } catch (error) {
+        console.error('[WorkspaceModal] Error getting sorted workspaces:', error);
+      }
     }
     setSortMode(newMode);
-    setWorkspaceSortMode(newMode);
+    setWorkspaceSortMode(newMode).catch(error => 
+      console.error('Error saving workspace sort mode:', error)
+    );
   }, [getSortedWorkspaces]);
 
   // Use selection hook
@@ -104,7 +130,9 @@ const WorkspaceModal = ({
     clearSelection 
   } = useWorkspaceSelection({
     workspaceNames,
-    onDelete: deletePersistedWorkspace,
+    onDelete: async (name: string) => {
+      await deletePersistedWorkspace(name);
+    },
     onRefresh: refreshWorkspaceList
   });
   
@@ -135,22 +163,33 @@ const WorkspaceModal = ({
     getItemTransform
   } = useWorkspaceDrag({
     sortMode,
-    getSortedWorkspaces,
+    getSortedWorkspaces: () => sortedWorkspaces,
     onReorder: (newOrder) => {
       setManualOrder(newOrder);
       setSortMode('manual');
-      setWorkspaceSortMode('manual');
+      setWorkspaceSortMode('manual').catch(error => 
+        console.error('Error saving workspace sort mode:', error)
+      );
     }
   });
 
   useEffect(() => {
     if (isOpen) {
       console.log("[WorkspaceModal] Modal opened. Refreshing workspace list and resetting state.");
-      refreshWorkspaceList();
+      refreshWorkspaceList().catch(error => 
+        console.error('[WorkspaceModal] Error refreshing workspace list:', error)
+      );
       setName(''); // Reset save input
       setRenamingWsName(null); // Reset renaming state
       setNewName(''); // Reset rename input
       clearSelection(); // Reset selection
+      
+      // Load sorted workspaces
+      getSortedWorkspaces().then(sorted => {
+        setSortedWorkspaces(sorted);
+      }).catch(error => {
+        console.error('[WorkspaceModal] Error loading sorted workspaces:', error);
+      });
 
       // Check if we need to start in rename mode
       if (!initialRenameTarget || !onClearInitialRenameTarget) return;
@@ -163,8 +202,18 @@ const WorkspaceModal = ({
           onClearInitialRenameTarget(); // Clear the target in the parent state
       }, 0);
     }
-  }, [isOpen, refreshWorkspaceList, initialRenameTarget, onClearInitialRenameTarget, clearSelection]); // Added dependencies
+  }, [isOpen, initialRenameTarget, onClearInitialRenameTarget]); // Added dependencies
 
+  // Update sorted workspaces when relevant state changes
+  useEffect(() => {
+    if (isOpen) {
+      getSortedWorkspaces().then(sorted => {
+        setSortedWorkspaces(sorted);
+      }).catch(error => {
+        console.error('[WorkspaceModal] Error updating sorted workspaces:', error);
+      });
+    }
+  }, [workspaceNames, sortMode, manualOrder, isOpen, getSortedWorkspaces]);
 
   // Debug manual order changes
   useEffect(() => {
@@ -247,7 +296,9 @@ const WorkspaceModal = ({
       persistWorkspace(trimmedName, workspaceToSave);
       console.log(`[WorkspaceModal.handleSave] persistWorkspace successful for "${trimmedName}".`);
       setSaveState('success'); // Set state to success
-      refreshWorkspaceList(); // Refresh list *after* successful save
+      refreshWorkspaceList().catch(error => 
+        console.error('[WorkspaceModal] Error refreshing workspace list:', error)
+      ); // Refresh list *after* successful save
 
       // Set timeout to revert state and clear the form, keeping the modal open
       saveTimeoutRef.current = setTimeout(() => {
@@ -264,22 +315,29 @@ const WorkspaceModal = ({
     }
   };
   
-  const handleDelete = (wsName: string) => {
+  const handleDelete = async (wsName: string) => {
     console.log(`[WorkspaceModal.handleDelete] Attempting to delete workspace: ${wsName}`);
     if (window.confirm(`Are you sure you want to delete workspace "${wsName}"? This cannot be undone.`)) {
       console.log(`[WorkspaceModal.handleDelete] User confirmed deletion for "${wsName}".`);
-      deletePersistedWorkspace(wsName);
-      refreshWorkspaceList();
-      console.log(`[WorkspaceModal.handleDelete] Deletion process complete for "${wsName}".`);
+      try {
+        await deletePersistedWorkspace(wsName);
+        refreshWorkspaceList().catch(error => 
+          console.error('[WorkspaceModal] Error refreshing workspace list:', error)
+        );
+        console.log(`[WorkspaceModal.handleDelete] Deletion process complete for "${wsName}".`);
+      } catch (error) {
+        console.error(`[WorkspaceModal.handleDelete] Error deleting workspace "${wsName}":`, error);
+        alert(`Failed to delete workspace "${wsName}". Please try again.`);
+      }
     } else {
        console.log(`[WorkspaceModal.handleDelete] Deletion cancelled by user for "${wsName}".`);
     }
   };
 
-  const handleLoad = (wsName: string) => {
+  const handleLoad = async (wsName: string) => {
     console.log(`[WorkspaceModal.handleLoad] Attempting to load workspace: ${wsName}`);
     try {
-      const workspaceData = loadPersistedWorkspace(wsName);
+      const workspaceData = await loadPersistedWorkspace(wsName);
       if (workspaceData) {
         console.log(`[WorkspaceModal.handleLoad] Workspace "${wsName}" loaded successfully via hook. Dispatching 'workspaceLoaded' event.`);
         window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name: wsName, workspace: workspaceData } }));
@@ -288,16 +346,20 @@ const WorkspaceModal = ({
       } else {
         console.error(`[WorkspaceModal.handleLoad] loadPersistedWorkspace returned null for "${wsName}". Load failed.`);
         // No alert - workspace has been auto-deleted if corrupted
-        refreshWorkspaceList(); // Refresh the list to remove the corrupted workspace
+        refreshWorkspaceList().catch(error => 
+        console.error('[WorkspaceModal] Error refreshing workspace list:', error)
+      ); // Refresh the list to remove the corrupted workspace
       }
     } catch (error) {
       console.error(`[WorkspaceModal.handleLoad] Error during loadPersistedWorkspace call for "${wsName}":`, error);
       // No alert - just log the error
-      refreshWorkspaceList(); // Refresh the list to remove the corrupted workspace
+      refreshWorkspaceList().catch(error => 
+        console.error('[WorkspaceModal] Error refreshing workspace list:', error)
+      ); // Refresh the list to remove the corrupted workspace
     }
   };
  
-  const handleRenameConfirm = () => {
+  const handleRenameConfirm = async () => {
     if (!renamingWsName || !newName.trim() || renamingWsName === newName.trim()) {
       console.warn("[WorkspaceModal.handleRenameConfirm] Rename cancelled - invalid state or no change.");
       handleRenameCancel(); // Exit rename mode if names are same or new name is empty
@@ -313,17 +375,24 @@ const WorkspaceModal = ({
         return; // Keep rename mode active for user to correct
     }
 
-    const success = renamePersistedWorkspace(renamingWsName, trimmedNewName);
-    if (success) {
-      console.log(`[WorkspaceModal.handleRenameConfirm] Rename successful via hook for "${renamingWsName}" -> "${trimmedNewName}".`);
-      refreshWorkspaceList();
-      handleRenameCancel(); // Exit rename mode
-    } else {
-      // Error likely logged in the hook, maybe show an alert here too
-      console.error(`[WorkspaceModal.handleRenameConfirm] Rename failed for "${renamingWsName}" -> "${trimmedNewName}". Hook returned false.`);
-      alert(`Failed to rename workspace "${renamingWsName}". Check console for details.`);
-      // Optionally keep rename mode active or cancel
-      // handleRenameCancel(); 
+    try {
+      const success = await renamePersistedWorkspace(renamingWsName, trimmedNewName);
+      if (success) {
+        console.log(`[WorkspaceModal.handleRenameConfirm] Rename successful via hook for "${renamingWsName}" -> "${trimmedNewName}".`);
+        refreshWorkspaceList().catch(error => 
+          console.error('[WorkspaceModal] Error refreshing workspace list:', error)
+        );
+        handleRenameCancel(); // Exit rename mode
+      } else {
+        // Error likely logged in the hook, maybe show an alert here too
+        console.error(`[WorkspaceModal.handleRenameConfirm] Rename failed for "${renamingWsName}" -> "${trimmedNewName}". Hook returned false.`);
+        alert(`Failed to rename workspace "${renamingWsName}". Check console for details.`);
+        // Optionally keep rename mode active or cancel
+        // handleRenameCancel(); 
+      }
+    } catch (error) {
+      console.error(`[WorkspaceModal.handleRenameConfirm] Error renaming workspace:`, error);
+      alert('Failed to rename workspace. Please try again.');
     }
   };
 
@@ -390,7 +459,7 @@ const WorkspaceModal = ({
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                 >
-                  {getSortedWorkspaces().map((wsName: string, index: number) => {
+                  {sortedWorkspaces.map((wsName: string, index: number) => {
                     const isDragging = draggedIndex === index;
                     const isDragOver = dragOverIndex === index;
                     const shouldShowGap = isDragOver && draggedIndex !== null && draggedIndex !== index;

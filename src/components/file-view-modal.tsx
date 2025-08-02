@@ -108,19 +108,26 @@ const FileViewModal = ({
     if (filePath && isOpen) {
       const foundFile = allFiles.find((file: FileData) => file.path === filePath);
       if (foundFile && !foundFile.isContentLoaded) {
-        loadFileContent(filePath).then(() => {
-          const updatedFile = allFiles.find((f) => f.path === filePath);
-          setFile(updatedFile ?? null);
-          if (updatedFile?.content) {
-            setTotalTokenCount(calculateTokenCount(updatedFile.content));
-          }
-        });
+        // Set the file immediately so we show the loading state
+        setFile(foundFile);
+        loadFileContent(filePath);
       } else {
         setFile(foundFile ?? null);
         setTotalTokenCount(foundFile?.content ? calculateTokenCount(foundFile.content) : 0);
       }
     }
   }, [filePath, isOpen, allFiles, calculateTokenCount, loadFileContent]);
+
+  // Separate effect to update file state when allFiles changes (after content is loaded)
+  useEffect(() => {
+    if (filePath && isOpen && file) {
+      const updatedFile = allFiles.find((f: FileData) => f.path === filePath);
+      if (updatedFile && updatedFile.isContentLoaded && updatedFile.content && updatedFile.content !== file.content) {
+        setFile(updatedFile);
+        setTotalTokenCount(calculateTokenCount(updatedFile.content));
+      }
+    }
+  }, [allFiles, filePath, isOpen, file, calculateTokenCount]);
   
   // Initialize selected lines based on the selectedFile prop
   useEffect(() => {
@@ -1145,7 +1152,7 @@ const FileViewModal = ({
             aria-label="File content viewer"
           >
             {file ? (
-              <div 
+              <div
                 className="syntax-highlighter-wrapper"
               >
                 <SyntaxHighlighter

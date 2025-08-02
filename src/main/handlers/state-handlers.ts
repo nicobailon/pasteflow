@@ -37,9 +37,19 @@ export class StateHandlers {
     // Workspace handlers
     this.ipc.setHandler('/workspace/list', async () => {
       const workspaces = await this.db.database.all(
-        'SELECT id, name, folder_path as folderPath, last_accessed as lastAccessed FROM workspaces ORDER BY last_accessed DESC'
+        'SELECT id, name, folder_path as folderPath, state_json, created_at as createdAt, updated_at as updatedAt, last_accessed as lastAccessed FROM workspaces ORDER BY last_accessed DESC'
       );
-      return workspaces;
+      
+      // Parse the state JSON for each workspace
+      return workspaces.map(ws => ({
+        id: ws.id,
+        name: ws.name,
+        folderPath: ws.folderPath,
+        state: JSON.parse(ws.state_json || '{}'),
+        createdAt: ws.createdAt,
+        updatedAt: ws.updatedAt,
+        lastAccessed: ws.lastAccessed
+      }));
     });
 
     this.ipc.setHandler('/workspace/create', async (input) => {

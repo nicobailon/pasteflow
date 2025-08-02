@@ -71,7 +71,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
     setError(null);
 
     try {
-      const result = await window.electron.ipcRenderer.invoke(channel, params);
+      const result = await window.electron.ipcRenderer.invoke(channel, params || {});
       setData(result);
       setCached(cacheKey, result);
       return result;
@@ -122,10 +122,13 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
       cache.current.clear();
     };
 
-    window.electron.ipcRenderer.on(updateChannel, handleUpdate);
+    // Store the handler to ensure we remove the exact same function
+    const boundHandler = handleUpdate.bind(null);
+    
+    window.electron.ipcRenderer.on(updateChannel, boundHandler);
     
     return () => {
-      window.electron.ipcRenderer.removeListener(updateChannel, handleUpdate);
+      window.electron.ipcRenderer.removeListener(updateChannel, boundHandler);
     };
   }, [channel]);
 

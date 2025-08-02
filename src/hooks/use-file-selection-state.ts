@@ -5,7 +5,7 @@ import { FileData, LineRange, SelectedFileReference } from '../types/file-types'
 import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/folder-selection-index';
 import { createDirectorySelectionCache, type DirectorySelectionCache } from '../utils/selection-cache';
 
-import useLocalStorage from './use-local-storage';
+import usePersistentState from './use-persistent-state';
 
 /**
  * Custom hook to manage file selection state
@@ -14,7 +14,7 @@ import useLocalStorage from './use-local-storage';
  * @returns {Object} File selection state and functions
  */
 const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: string | null, providedFolderIndex?: FolderIndex) => {
-  const [selectedFiles, setSelectedFiles] = useLocalStorage<SelectedFileReference[]>(
+  const [selectedFiles, setSelectedFiles] = usePersistentState<SelectedFileReference[]>(
     STORAGE_KEYS.SELECTED_FILES,
     []
   );
@@ -143,40 +143,50 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
   // Toggle selection for a specific line range within a file
   const toggleSelection = useCallback((filePath: string, lineRange?: LineRange) => {
-    setSelectedFiles((prev: SelectedFileReference[]) => {
-      // Find the file in the current selection
-      const existingIndex = prev.findIndex(f => f.path === filePath);
-      
+    setSelectedFiles((prev) => {
+      const existingIndex = prev.findIndex((f) => f.path === filePath);
+
+      if (!lineRange) {
+        // If no line range, toggle the entire file
+        if (existingIndex >= 0) {
+          return prev.filter((f) => f.path !== filePath);
+        } else {
+          return [...prev, { path: filePath }];
+        }
+      }
+
+      // With a line range
       if (existingIndex < 0) {
-        // File not found in selection, this should not happen
-        return prev;
+        // If file not selected, add it with the new line range
+        return [...prev, { path: filePath, lines: [lineRange] }];
+      } else {
+        // File is already selected, modify its line ranges
+        const newSelection = [...prev];
+        const selectedFile = newSelection[existingIndex];
+        const existingLines = selectedFile.lines || [];
+        const lineIndex = existingLines.findIndex(
+          (r) => r.start === lineRange.start && r.end === lineRange.end
+        );
+
+        if (lineIndex >= 0) {
+          // Line range exists, remove it
+          const updatedLines = existingLines.filter((_, i) => i !== lineIndex);
+          if (updatedLines.length === 0) {
+            // If no lines are left, remove the file from selection
+            return prev.filter((f) => f.path !== filePath);
+          } else {
+            newSelection[existingIndex] = { ...selectedFile, lines: updatedLines };
+            return newSelection;
+          }
+        } else {
+          // Line range doesn't exist, add it
+          newSelection[existingIndex] = {
+            ...selectedFile,
+            lines: [...existingLines, lineRange],
+          };
+          return newSelection;
+        }
       }
-      
-      const selectedFile = prev[existingIndex];
-      
-      // If no line range is provided or the file has no specific lines (full file), remove the entire file
-      if (!lineRange || !selectedFile.lines) {
-        return prev.filter((f: SelectedFileReference) => f.path !== filePath);
-      }
-      
-      // If line range is provided, only remove that specific range
-      const updatedLines = selectedFile.lines?.filter(
-        range => !(range.start === lineRange.start && range.end === lineRange.end)
-      ) || [];
-      
-      // If no more lines are selected, remove the entire file
-      if (updatedLines.length === 0) {
-        return prev.filter((f: SelectedFileReference) => f.path !== filePath);
-      }
-      
-      // Otherwise, update the file with the remaining line ranges
-      const newSelection = [...prev];
-      newSelection[existingIndex] = {
-        path: selectedFile.path,
-        lines: updatedLines
-      };
-      
-      return newSelection;
     });
   }, [setSelectedFiles]);
 
@@ -325,13 +335,10 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const setSelectionState = useCallback((files: SelectedFileReference[]): void => {
     // Deduplicate files by path before setting
     const uniqueFiles = [...new Map(files.map(file => [file.path, file])).values()];
-    
-    // Force a complete replacement by clearing localStorage first
-    localStorage.removeItem(STORAGE_KEYS.SELECTED_FILES);
-    
-    // Then set the new files
+
+    // Direct replacement - no need to clear first as this causes React batching issues
     setSelectedFiles(uniqueFiles);
-  }, [setSelectedFiles, selectedFiles]);
+  }, [setSelectedFiles]);
 
   return {
     selectedFiles,

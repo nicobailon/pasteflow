@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { STORAGE_KEYS } from '../constants';
 import { Doc } from '../types/file-types';
 
-import useLocalStorage from './use-local-storage';
+import usePersistentState from './use-persistent-state';
 
 /**
  * Custom hook to manage documentation state
@@ -12,7 +12,7 @@ import useLocalStorage from './use-local-storage';
  */
 const useDocState = () => {
   // Docs state
-  const [docs, setDocs] = useLocalStorage<Doc[]>(
+  const [docs, setDocs] = usePersistentState<Doc[]>(
     STORAGE_KEYS.DOCS,
     []
   );

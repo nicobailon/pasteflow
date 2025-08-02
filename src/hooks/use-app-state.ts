@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { unstable_batchedUpdates } from 'react-dom';
+import { unstable_batchedUpdates, flushSync } from 'react-dom';
 
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
-import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction, SelectedFileWithLines } from '../types/file-types';
+import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction, SelectedFileWithLines, SelectedFileReference } from '../types/file-types';
 import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } from '../utils/content-formatter';
 import { resetFolderState } from '../utils/file-utils';
 import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
@@ -16,7 +16,7 @@ import { buildFolderIndex } from '../utils/folder-selection-index';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
-import useLocalStorage from './use-local-storage';
+import usePersistentState from './use-persistent-state';
 import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
@@ -46,21 +46,21 @@ type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 const useAppState = () => {
   const isElectron = window.electron !== undefined;
 
-  // Core state from localStorage
+  // Core state
   const [selectedFolder, setSelectedFolder] = useState(null as string | null);
-  const [sortOrder, setSortOrder] = useLocalStorage<string>(
+  const [sortOrder, setSortOrder] = usePersistentState<string>(
     STORAGE_KEYS.SORT_ORDER,
     "tokens-desc"
   );
-  const [searchTerm, setSearchTerm] = useLocalStorage<string>(
+  const [searchTerm, setSearchTerm] = usePersistentState<string>(
     STORAGE_KEYS.SEARCH_TERM,
     ""
   );
-  const [fileTreeMode, setFileTreeMode] = useLocalStorage<FileTreeMode>(
+  const [fileTreeMode, setFileTreeMode] = usePersistentState<FileTreeMode>(
     STORAGE_KEYS.FILE_TREE_MODE,
     "none"
   );
-  const [exclusionPatterns, setExclusionPatterns] = useLocalStorage<string[]>(
+  const [exclusionPatterns, setExclusionPatterns] = usePersistentState<string[]>(
     "pasteflow-exclusion-patterns",
     [
       "**/node_modules/",
@@ -88,7 +88,10 @@ const useAppState = () => {
   // Non-persistent state
   const [allFiles, setAllFiles] = useState([] as FileData[]);
   const [displayedFiles, setDisplayedFiles] = useState([] as FileData[]);
-  const [expandedNodes, setExpandedNodes] = useState({} as Record<string, boolean>);
+  const [expandedNodes, setExpandedNodes] = usePersistentState<Record<string, boolean>>(
+    STORAGE_KEYS.EXPANDED_NODES, 
+    {}
+  );
   const [appInitialized, setAppInitialized] = useState(false);
 
   type ProcessingStatusType = {
@@ -149,7 +152,7 @@ const useAppState = () => {
   const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
   
   // Instructions (docs) state
-  const [instructions, setInstructions] = useLocalStorage<Instruction[]>(
+  const [instructions, setInstructions] = usePersistentState<Instruction[]>(
     STORAGE_KEYS.INSTRUCTIONS,
     []
   );
@@ -307,11 +310,7 @@ const useAppState = () => {
         [nodeId]: newValue,
       };
 
-      // Save to localStorage
-      localStorage.setItem(
-        STORAGE_KEYS.EXPANDED_NODES,
-        JSON.stringify(newState)
-      );
+      // The usePersistentState hook will handle persistence
 
       return newState;
     });
@@ -380,13 +379,15 @@ const useAppState = () => {
 
   // Helper function to update file loading state
   const updateFileLoadingState = useCallback((filePath: string, isLoading: boolean) => {
-    setAllFiles((prev: FileData[]) =>
-      prev.map((f: FileData) =>
-        f.path === filePath
-          ? { ...f, isCountingTokens: isLoading }
-          : f
-      )
-    );
+    flushSync(() => {
+      setAllFiles((prev: FileData[]) =>
+        prev.map((f: FileData) =>
+          f.path === filePath
+            ? { ...f, isCountingTokens: isLoading }
+            : f
+        )
+      );
+    });
     
     // Removed automatic file selection when loading content
     // Files should only be selected via explicit user action (checkbox or Apply in modal)
@@ -425,21 +426,25 @@ const useAppState = () => {
     // Invalidate token cache for this file when content changes
     tokenCountCache.invalidateFile(filePath);
     
-    setAllFiles((prev: FileData[]) =>
-      prev.map((f: FileData) =>
-        f.path === filePath
-          ? { 
-              ...f, 
-              content, 
-              tokenCount, 
-              isContentLoaded: true, 
-              isCountingTokens: false,
-              error: undefined,
-              tokenCountError 
-            }
-          : f
-      )
-    );
+    // Use flushSync to force React to process this update immediately
+    // This fixes the issue where token counts don't appear until a second file is selected
+    flushSync(() => {
+      setAllFiles((prev: FileData[]) =>
+        prev.map((f: FileData) =>
+          f.path === filePath
+            ? { 
+                ...f, 
+                content, 
+                tokenCount, 
+                isContentLoaded: true, 
+                isCountingTokens: false,
+                error: undefined,
+                tokenCountError 
+              }
+            : f
+        )
+      );
+    });
     
     // Only update selected file if it's already in the selection
     // This prevents auto-selecting files when just viewing them
@@ -692,19 +697,7 @@ const useAppState = () => {
     setAllFiles
   ]);
 
-  // Load expanded nodes state from localStorage
-  useEffect(() => {
-    const savedExpandedNodes = localStorage.getItem(
-      STORAGE_KEYS.EXPANDED_NODES,
-    );
-    if (savedExpandedNodes) {
-      try {
-        setExpandedNodes(JSON.parse(savedExpandedNodes)); // Use extracted setter
-      } catch (error) {
-        console.error("Error parsing saved expanded nodes:", error);
-      }
-    }
-  }, [setExpandedNodes]); // Depend on the stable setter function
+  // expandedNodes is managed by usePersistentState hook
 
 
 
@@ -837,10 +830,15 @@ const useAppState = () => {
 
   const applyExpandedNodes = useCallback((expandedNodesFromWorkspace: Record<string, boolean>) => {
     setExpandedNodes(expandedNodesFromWorkspace || {});
-    localStorage.setItem(STORAGE_KEYS.EXPANDED_NODES, JSON.stringify(expandedNodesFromWorkspace || {}));
+    // The usePersistentState hook will handle database persistence
   }, [setExpandedNodes]);
 
-  const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileWithLines[], availableFiles: FileData[]): void => {
+  const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileReference[], availableFiles: FileData[]): void => {
+    console.log('[useAppState.applySelectedFiles] Called with:', {
+      selectedFilesToApplyCount: selectedFilesToApply?.length || 0,
+      availableFilesCount: availableFiles?.length || 0,
+      selectedFiles: selectedFilesToApply
+    });
     
     // Deduplicate input files before applying
     const uniqueFiles = [...new Map(selectedFilesToApply.map(file => [file.path, file])).values()];
@@ -854,16 +852,19 @@ const useAppState = () => {
         const availableFile = availableFilesMap.get(savedFile.path);
         if (!availableFile) return null;
         
-        // Restore the saved line selection data
+        // Convert SelectedFileReference to the format expected by setSelectionState
         return {
-          ...savedFile,
-          // Ensure we have current file content if it's loaded
-          content: availableFile.content || savedFile.content,
-          isContentLoaded: availableFile.isContentLoaded || savedFile.isContentLoaded
-        } as SelectedFileWithLines;
+          path: savedFile.path,
+          lines: savedFile.lines
+        } as SelectedFileReference;
       })
-      .filter((file): file is SelectedFileWithLines => !!file);
+      .filter((file): file is SelectedFileReference => !!file);
 
+    
+    console.log('[useAppState.applySelectedFiles] Files to select:', {
+      filesToSelectCount: filesToSelect.length,
+      filesToSelect
+    });
     
     // Always call setSelectionState even with empty array to ensure proper clearing
     // Batch state updates
@@ -873,6 +874,12 @@ const useAppState = () => {
   }, [setSelectionState]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
+    console.log('[useAppState.applyPrompts] Called with:', {
+      systemPromptsCount: promptsToApply?.systemPrompts?.length || 0,
+      rolePromptsCount: promptsToApply?.rolePrompts?.length || 0,
+      promptsToApply
+    });
+    
     const currentPrompts = promptStateRef.current;
 
     // Deselect current prompts
@@ -908,6 +915,15 @@ const useAppState = () => {
       return;
     }
 
+    console.log('[useAppState.applyWorkspaceData] Applying workspace data:', {
+      workspaceName,
+      selectedFilesCount: workspaceData.selectedFiles?.length || 0,
+      systemPromptsCount: workspaceData.customPrompts?.systemPrompts?.length || 0,
+      rolePromptsCount: workspaceData.customPrompts?.rolePrompts?.length || 0,
+      instructionsCount: workspaceData.instructions?.length || 0,
+      selectedInstructionsCount: workspaceData.selectedInstructions?.length || 0
+    });
+
     const currentSelectedFolder = selectedFolderRef.current;
     const currentProcessingStatus = processingStatusRef.current;
     const workspaceFolder = workspaceData.selectedFolder || null;
@@ -936,13 +952,9 @@ const useAppState = () => {
     setUserInstructions(workspaceData.userInstructions || '');
     applyPrompts(workspaceData.customPrompts);
     
-    // Restore instructions if they exist in the workspace
-    if (workspaceData.instructions) {
-      setInstructions(workspaceData.instructions);
-    }
-    if (workspaceData.selectedInstructions) {
-      setSelectedInstructions(workspaceData.selectedInstructions);
-    }
+    // Restore instructions - always set them to ensure clearing when empty
+    setInstructions(workspaceData.instructions || []);
+    setSelectedInstructions(workspaceData.selectedInstructions || []);
   }, [
     setPendingWorkspaceData,
     setCurrentWorkspace,
@@ -1059,18 +1071,22 @@ const useAppState = () => {
     }
   }, [currentWorkspace, saveWorkspace]);
 
-  const loadWorkspace = useCallback((name: string) => {
-    const workspaceData = loadPersistedWorkspace(name);
-    
-    if (workspaceData) {
-        // Ensure we have the folder path before applying
-        if (workspaceData.selectedFolder) {
-        } else {
-            console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
-        }
-        applyWorkspaceData(name, workspaceData);
-    } else {
-        console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
+  const loadWorkspace = useCallback(async (name: string) => {
+    try {
+      const workspaceData = await loadPersistedWorkspace(name);
+      
+      if (workspaceData) {
+          // Ensure we have the folder path before applying
+          if (workspaceData.selectedFolder) {
+          } else {
+              console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
+          }
+          applyWorkspaceData(name, workspaceData);
+      } else {
+          console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
+      }
+    } catch (error) {
+      console.error(`[useAppState.loadWorkspace] Error loading workspace "${name}":`, error);
     }
   }, [loadPersistedWorkspace, applyWorkspaceData]);
 
