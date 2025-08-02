@@ -1,4 +1,5 @@
 import { createContext, useState, useEffect, useContext } from "react";
+import usePersistentState from "../hooks/use-persistent-state";
 
 type ThemeType = "light" | "dark" | "system";
 
@@ -20,19 +21,12 @@ const ThemeContext = createContext(defaultThemeContext);
 type ThemeProviderProps = { children: JSX.Element | JSX.Element[] };
 
 export const ThemeProvider = ({ children }: ThemeProviderProps): JSX.Element => {
-  // Initialize theme from localStorage or default to "system"
-  const [theme, setThemeState] = useState(() => {
-    const savedTheme = localStorage.getItem("theme") as ThemeType;
-    return savedTheme && ["light", "dark", "system"].includes(savedTheme) ? savedTheme : "system";
-  });
+  // Initialize theme from database or default to "system"
+  const [theme, setTheme] = usePersistentState<ThemeType>("theme", "system");
   
   const [currentTheme, setCurrentTheme] = useState<"light" | "dark">("light");
 
-  // Function to set theme and save to localStorage
-  const setTheme = (newTheme: ThemeType) => {
-    setThemeState(newTheme);
-    localStorage.setItem("theme", newTheme);
-  };
+  // The setTheme function from usePersistentState already handles database persistence
 
   // Effect to apply the correct theme based on selection or system preference
   useEffect(() => {

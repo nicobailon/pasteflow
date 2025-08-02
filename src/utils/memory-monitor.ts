@@ -1,3 +1,5 @@
+import { MEMORY } from '../constants/app-constants';
+
 /**
  * Memory monitoring utility for tracking cache usage across the application.
  * Helps prevent memory leaks by monitoring and reporting on cache sizes.
@@ -17,8 +19,8 @@ export interface MemoryStats {
 
 export class MemoryMonitor {
   private caches: Map<string, { getSize: () => number; estimateMemory: () => number }> = new Map();
-  private warningThresholdMB = 100; // Warn if total cache memory exceeds 100MB
-  private criticalThresholdMB = 200; // Critical if exceeds 200MB
+  private warningThresholdMB = MEMORY.WARNING_THRESHOLD_MB;
+  private criticalThresholdMB = MEMORY.CRITICAL_THRESHOLD_MB;
   
   /**
    * Register a cache for monitoring
@@ -116,7 +118,7 @@ export class MemoryMonitor {
   /**
    * Start periodic monitoring
    */
-  startPeriodicMonitoring(intervalMs = 60000): () => void {
+  startPeriodicMonitoring(intervalMs = MEMORY.MONITOR_INTERVAL_MS): () => void {
     const intervalId = setInterval(() => {
       this.checkMemoryUsage();
     }, intervalMs);
@@ -131,8 +133,8 @@ export const memoryMonitor = new MemoryMonitor();
 
 // Helper to estimate string memory usage
 export function estimateStringMemoryMB(str: string): number {
-  // Approximate: 2 bytes per character in JavaScript
-  return (str.length * 2) / (1024 * 1024);
+  // Approximate: bytes per character from constants
+  return (str.length * MEMORY.BYTES_PER_CHAR) / (1024 * 1024);
 }
 
 // Helper to estimate object memory usage (rough approximation)
@@ -144,8 +146,8 @@ export function estimateObjectMemoryMB(obj: unknown): number {
     // If can't stringify, estimate based on property count
     if (obj && typeof obj === 'object') {
       const keys = Object.keys(obj);
-      // Rough estimate: 100 bytes per property
-      return (keys.length * 100) / (1024 * 1024);
+      // Rough estimate using centralized constant
+      return (keys.length * MEMORY.BYTES_PER_PROPERTY) / (1024 * 1024);
     }
     return 0;
   }

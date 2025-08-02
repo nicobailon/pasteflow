@@ -6,7 +6,7 @@ import { openFolderDialog, cancelFileLoading } from '../handlers/electron-handle
 import { refreshFileTree } from '../handlers/filter-handlers';
 import { FileData } from '../types/file-types';
 import { resetFolderState as resetFolderStateUtil } from '../utils/file-utils';
-import useLocalStorage from '../hooks/use-local-storage';
+import { usePersistentState } from '../hooks/use-persistent-state';
 
 // Default no-op function for setters
 const noopFunc = () => {};
@@ -107,7 +107,7 @@ export const FileSystemProvider = ({
   clearSelectedFiles: clearSelectedFilesProp, // Type inferred
 }: FileSystemProviderProps) => { // Add explicit type annotation here
   // State management for selectedFolder
-  const [selectedFolder, setSelectedFolder] = useLocalStorage<string | null>(
+  const [selectedFolder, setSelectedFolder] = usePersistentState<string | null>(
     STORAGE_KEYS.SELECTED_FOLDER,
     null
   );

@@ -5,6 +5,94 @@ const { Worker } = require("worker_threads");
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const { getPathValidator } = require("./src/security/path-validator.cjs");
 const { ipcValidator } = require("./src/validation/ipc-validator.js");
+const { DatabaseBridge } = require("./src/main/db/database-bridge.js");
+const { 
+  validateInput,
+  WorkspaceCreateSchema,
+  WorkspaceLoadSchema,
+  WorkspaceUpdateSchema,
+  WorkspaceDeleteSchema,
+  WorkspaceRenameSchema,
+  WorkspaceTouchSchema,
+  GetPreferenceSchema,
+  SetPreferenceSchema,
+  FileContentRequestSchema,
+  CancelFileLoadingSchema,
+  OpenDocsSchema,
+  FolderSelectionSchema,
+  FileListRequestSchema
+} = require("./src/main/utils/input-validation.js");
+
+// Add error handling for console operations to prevent EIO errors
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+const originalConsoleLog = console.log;
+
+console.error = (...args) => {
+  try {
+    originalConsoleError.apply(console, args);
+  } catch (err) {
+    // Silently ignore EIO errors in console output
+    if (err.code !== 'EIO') {
+      // Try to write to stderr directly as fallback
+      try {
+        process.stderr.write(`Console error: ${args.join(' ')}\n`);
+      } catch (fallbackErr) {
+        // If even stderr fails, just ignore
+      }
+    }
+  }
+};
+
+console.warn = (...args) => {
+  try {
+    originalConsoleWarn.apply(console, args);
+  } catch (err) {
+    if (err.code !== 'EIO') {
+      try {
+        process.stderr.write(`Console warn: ${args.join(' ')}\n`);
+      } catch (fallbackErr) {
+        // If even stderr fails, just ignore
+      }
+    }
+  }
+};
+
+console.log = (...args) => {
+  try {
+    originalConsoleLog.apply(console, args);
+  } catch (err) {
+    if (err.code !== 'EIO') {
+      try {
+        process.stdout.write(`Console log: ${args.join(' ')}\n`);
+      } catch (fallbackErr) {
+        // If even stdout fails, just ignore
+      }
+    }
+  }
+};
+
+// Add global error handlers to prevent crashes
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Don't exit the process for EIO errors
+  if (error.code === 'EIO') {
+    console.log('Ignoring EIO error to prevent crash');
+    return;
+  }
+  // For other errors, log but don't crash in production
+  if (!process.env.NODE_ENV || process.env.NODE_ENV === 'production') {
+    console.error('Preventing crash in production mode');
+    return;
+  }
+  // In development, still crash for debugging
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't crash for unhandled rejections
+});
 
 // Add handling for the 'ignore' module
 let ignore;
@@ -15,6 +103,13 @@ let currentRequestId = null;
 
 // Track current workspace paths for security validation
 let currentWorkspacePaths = [];
+
+// Store for workspace and preferences data
+const workspaceStore = new Map();
+const preferencesStore = new Map();
+
+// Database instance
+let database = null;
 
 try {
   ignore = require("ignore");
@@ -113,8 +208,11 @@ const BINARY_EXTENSIONS = new Set([
   ...(binaryExtensions || []) // Add any additional binary extensions from excluded-files.js
 ]);
 
-// Max file size to read (5MB)
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+// Import centralized constants
+const { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } = require('./src/constants/app-constants.js');
+
+// Max file size to read
+const MAX_FILE_SIZE = FILE_PROCESSING.MAX_FILE_SIZE_BYTES;
 
 // Special file extensions to skip (not even try to read)
 const SPECIAL_FILE_EXTENSIONS = new Set(['.asar', '.bin', '.dll', '.exe', '.so', '.dylib']);
@@ -140,7 +238,7 @@ function isLikelyBinaryContent(content, filePath) {
   
   // Count control/binary characters
   let controlCharCount = 0;
-  const threshold = 50; // Same as the original regex threshold
+  const threshold = ELECTRON.BINARY_DETECTION.CONTROL_CHAR_THRESHOLD;
   
   for (let i = 0; i < content.length; i++) {
     if (isControlOrBinaryChar(content.codePointAt(i))) {
@@ -163,8 +261,8 @@ function isSpecialFile(filePath) {
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: ELECTRON.WINDOW.WIDTH,
+    height: ELECTRON.WINDOW.HEIGHT,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -208,7 +306,7 @@ function createWindow() {
   // In production, load from built files
   if (isDev) {
     // Use the URL provided by the dev script, or fall back to default
-    const startUrl = process.env.ELECTRON_START_URL || "http://localhost:3000";
+    const startUrl = process.env.ELECTRON_START_URL || ELECTRON.DEV_SERVER.URL;
     // Wait a moment for dev server to be ready
     setTimeout(() => {
       // Clear any cached data to prevent redirection loops
@@ -218,9 +316,9 @@ function createWindow() {
         if (mainWindow.webContents.isDevToolsOpened()) {
           mainWindow.webContents.closeDevTools();
         }
-        mainWindow.webContents.openDevTools({ mode: "detach" });
+        mainWindow.webContents.openDevTools({ mode: ELECTRON.WINDOW.DEVTOOLS_MODE });
       });
-    }, 1000);
+    }, ELECTRON.WINDOW.DEV_RELOAD_DELAY_MS);
   } else {
     const indexPath = path.join(__dirname, "dist", "index.html");
 
@@ -240,7 +338,7 @@ function createWindow() {
 
       if (isDev) {
         const retryUrl =
-          process.env.ELECTRON_START_URL || "http://localhost:3000";
+          process.env.ELECTRON_START_URL || ELECTRON.DEV_SERVER.URL;
         // Clear cache before retrying
         mainWindow.webContents.session.clearCache().then(() => {
           setTimeout(() => mainWindow.loadURL(retryUrl), 1000);
@@ -257,7 +355,18 @@ function createWindow() {
 
 // Replace the top-level await with a proper async function
 // eslint-disable-next-line unicorn/prefer-top-level-await
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    // Initialize database
+    database = new DatabaseBridge();
+    await database.initialize();
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize database:', error);
+    console.log('Falling back to in-memory storage');
+    // Continue with in-memory storage as fallback
+  }
+  
   createWindow();
 });
 
@@ -271,6 +380,19 @@ app.on("window-all-closed", () => {
   }
 });
 
+app.on("before-quit", async () => {
+  // Clean up database connection
+  if (database && database.initialized) {
+    try {
+      await database.close();
+      console.log('Database closed successfully');
+    } catch (error) {
+      console.error('Error closing database:', error);
+    }
+  }
+});
+
+
 // Handle folder selection
 ipcMain.on("open-folder", async (event) => {
   // SECURITY: Apply rate limiting
@@ -278,6 +400,14 @@ ipcMain.on("open-folder", async (event) => {
   
   if (!validation.success) {
     console.warn(`Rate limit exceeded for open-folder from sender: ${event.sender.id}`);
+    return;
+  }
+  
+  // Validate using schema (no input parameters but ensures consistent validation pattern)
+  try {
+    validateInput(FolderSelectionSchema, {});
+  } catch (error) {
+    console.error('Validation error for open-folder:', error.message);
     return;
   }
   
@@ -356,8 +486,8 @@ function sanitizeTextForTokenCount(text) {
 function countTokens(text) {
   // Simple fallback implementation if encoder fails
   if (!encoder) {
-    // Very rough estimate: ~4 characters per token on average
-    return Math.ceil(text.length / 4);
+    // Very rough estimate using centralized constant
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 
   try {
@@ -375,7 +505,7 @@ function countTokens(text) {
   } catch (error) {
     console.error("Error counting tokens:", error);
     // Fallback to character-based estimation on error
-    return Math.ceil(text.length / 4);
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 }
 
@@ -463,14 +593,26 @@ function processDirectory(dirPath, folderPath, depth, ignoreFilter) {
 
 // Handle file list request
 ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = [], requestId = null) => {
-  // SECURITY: Validate input parameters
+  // SECURITY: Validate input parameters using both rate limiting and schema validation
   const validation = ipcValidator.validate('request-file-list', { folderPath, exclusionPatterns }, event);
   
   if (!validation.success) {
-    console.warn(`Input validation failed for request-file-list: ${validation.error}`);
+    console.warn(`Rate limit validation failed for request-file-list: ${validation.error}`);
     event.sender.send("file-processing-status", {
       status: "error",
       message: validation.error
+    });
+    return;
+  }
+  
+  // Additional schema validation
+  try {
+    validateInput(FileListRequestSchema, { folderPath, exclusionPatterns, requestId });
+  } catch (error) {
+    console.warn(`Schema validation failed for request-file-list: ${error.message}`);
+    event.sender.send("file-processing-status", {
+      status: "error",
+      message: error.message
     });
     return;
   }
@@ -637,9 +779,26 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 });
 
 // Add handler for cancel request
-ipcMain.on("cancel-file-loading", () => {
-  fileLoadingCancelled = true;
-  currentRequestId = null; // Clear request ID when canceling
+ipcMain.on("cancel-file-loading", (event, requestId = null) => {
+  // SECURITY: Apply rate limiting
+  const validation = ipcValidator.validate('cancel-file-loading', { requestId }, event);
+  
+  if (!validation.success) {
+    console.warn(`Rate limit exceeded for cancel-file-loading from sender: ${event.sender.id}`);
+    return;
+  }
+  
+  try {
+    // Validate input if requestId is provided
+    if (requestId !== null) {
+      validateInput(CancelFileLoadingSchema, { requestId });
+    }
+    
+    fileLoadingCancelled = true;
+    currentRequestId = null; // Clear request ID when canceling
+  } catch (error) {
+    console.error('Invalid input for cancel-file-loading:', error.message);
+  }
 });
 
 // Check if a file should be excluded by default, using glob matching
@@ -654,18 +813,24 @@ function shouldExcludeByDefault(filePath, rootDir) {
 
 // Add a new IPC handler for opening documentation
 ipcMain.on('open-docs', (event, docName) => {
-  // SECURITY: Validate and sanitize document name to prevent path injection
-  if (!docName || typeof docName !== 'string') {
-    console.warn('Invalid document name provided to open-docs');
+  // SECURITY: Apply rate limiting
+  const validation = ipcValidator.validate('open-docs', { docName }, event);
+  
+  if (!validation.success) {
+    console.warn(`Rate limit exceeded for open-docs from sender: ${event.sender.id}`);
     return;
   }
   
-  // Only allow specific document formats and remove any path traversal
-  const sanitizedDocName = path.basename(docName);
-  if (!/^[a-zA-Z0-9._-]+\.(md|txt|pdf)$/i.test(sanitizedDocName)) {
-    console.warn(`Invalid document format requested: ${docName}`);
+  try {
+    // Validate input using schema
+    validateInput(OpenDocsSchema, { docName });
+  } catch (error) {
+    console.warn('Invalid input for open-docs:', error.message);
     return;
   }
+  
+  // Extract sanitized document name from validation
+  const sanitizedDocName = path.basename(docName);
   
   // Path to the documentation file - only allow files in docs directory
   const docPath = path.join(__dirname, 'docs', sanitizedDocName);
@@ -697,6 +862,14 @@ ipcMain.on('open-docs', (event, docName) => {
 
 // Add request-file-content handler for lazy loading file content
 ipcMain.handle('request-file-content', async (event, filePath) => {
+  try {
+    // Validate input
+    validateInput({ filePath: FileContentRequestSchema.filePath }, { filePath });
+  } catch (error) {
+    console.error('Invalid input for request-file-content:', error.message);
+    return { success: false, error: error.message };
+  }
+  
   // SECURITY: Validate path to prevent path traversal attacks
   // If no workspace paths are set, this might be a file request before folder selection
   // In this case, we should reject the request for security
@@ -725,3 +898,301 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
     return { success: false, error: error.message };
   }
 });
+
+// Workspace management handlers
+ipcMain.handle('/workspace/list', async () => {
+  try {
+    // Use database if available
+    if (database && database.initialized) {
+      return await database.listWorkspaces();
+    }
+    
+    // Fallback to in-memory store
+    const workspaces = Array.from(workspaceStore.entries())
+      .sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0))
+      .map(([name, data]) => ({
+        id: name,
+        name: name,
+        folderPath: data.folderPath || '',
+        state: data.state || {},
+        createdAt: data.createdAt || Date.now(),
+        updatedAt: data.updatedAt || Date.now(),
+        lastAccessed: data.lastAccessed || Date.now()
+      }));
+    return workspaces;
+  } catch (error) {
+    console.error('Error listing workspaces:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('/workspace/create', async (event, params) => {
+  try {
+    // Validate input
+    const validated = validateInput(WorkspaceCreateSchema, params);
+    const { name, folderPath, state } = validated;
+    
+    // Use database if available
+    if (database && database.initialized) {
+      const workspace = await database.createWorkspace(name, folderPath, state);
+      return { success: true, workspace };
+    }
+    
+    // Fallback to in-memory store
+    const now = Date.now();
+    workspaceStore.set(name, {
+      folderPath,
+      state,
+      createdAt: now,
+      updatedAt: now,
+      lastAccessed: now
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error creating workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('/workspace/load', async (event, params) => {
+  try {
+    // Ensure params is an object
+    if (!params || typeof params !== 'object') {
+      throw new Error('Invalid parameters provided');
+    }
+    
+    // Validate input
+    const validated = validateInput(WorkspaceLoadSchema, params);
+    const { id } = validated;
+    // Use database if available
+    if (database && database.initialized) {
+      const workspace = await database.getWorkspace(id);
+      if (!workspace) {
+        throw new Error('Workspace not found');
+      }
+      return workspace;
+    }
+
+    // Fallback to in-memory store
+    const workspace = workspaceStore.get(id);
+    if (!workspace) {
+      throw new Error('Workspace not found');
+    }
+
+    return {
+      id: id,
+      name: id,
+      folderPath: workspace.folderPath || '',
+      state: workspace.state || {},
+      createdAt: workspace.createdAt || Date.now(),
+      updatedAt: workspace.updatedAt || Date.now(),
+      lastAccessed: workspace.lastAccessed || Date.now()
+    };
+  } catch (error) {
+    console.error('Error loading workspace:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('/workspace/update', async (event, params) => {
+  try {
+    // Validate input
+    const validated = validateInput(WorkspaceUpdateSchema, params);
+    const { id, name, folderPath, state } = validated;
+    // Use database if available
+    if (database && database.initialized) {
+      // Try to find workspace by id first, then by name
+      let workspace = null;
+      if (id) {
+        workspace = await database.getWorkspace(id);
+      } else if (name) {
+        workspace = await database.getWorkspace(name);
+      }
+
+      if (workspace) {
+        await database.updateWorkspace(workspace.name, state);
+        return { success: true };
+      } else {
+        return { success: false, error: 'Workspace not found' };
+      }
+    }
+
+    // Fallback to in-memory store
+    const workspaceKey = id || name;
+    const existing = workspaceStore.get(workspaceKey);
+    if (!existing) {
+      return { success: false, error: 'Workspace not found' };
+    }
+
+    workspaceStore.set(workspaceKey, {
+      ...existing,
+      folderPath: folderPath !== undefined ? folderPath : existing.folderPath,
+      state: state !== undefined ? state : existing.state,
+      updatedAt: Date.now()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('/workspace/touch', async (event, params) => {
+  try {
+    // Validate input
+    const validated = validateInput(WorkspaceTouchSchema, params);
+    const { id, name } = validated;
+    // Use database if available
+    if (database && database.initialized) {
+      // Try to find workspace by id first, then by name
+      let workspace = null;
+      if (id) {
+        workspace = await database.getWorkspace(id);
+      } else if (name) {
+        workspace = await database.getWorkspace(name);
+      }
+
+      if (workspace) {
+        await database.touchWorkspace(workspace.name);
+        return { success: true };
+      } else {
+        return { success: false, error: 'Workspace not found' };
+      }
+    }
+
+    // Fallback to in-memory store
+    const workspaceKey = id || name;
+    const existing = workspaceStore.get(workspaceKey);
+    if (!existing) {
+      return { success: false, error: 'Workspace not found' };
+    }
+
+    workspaceStore.set(workspaceKey, {
+      ...existing,
+      lastAccessed: Date.now()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error touching workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('/workspace/delete', async (event, params) => {
+  try {
+    // Validate input
+    const validated = validateInput(WorkspaceDeleteSchema, params);
+    const { name } = validated;
+    // Use database if available
+    if (database && database.initialized) {
+      await database.deleteWorkspace(name);
+      return { success: true };
+    }
+    
+    // Fallback to in-memory store
+    workspaceStore.delete(name);
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('/workspace/rename', async (event, params) => {
+  try {
+    // Validate input
+    const validated = validateInput(WorkspaceRenameSchema, params);
+    const { oldName, newName } = validated;
+    // Use database if available
+    if (database && database.initialized) {
+      await database.renameWorkspace(oldName, newName);
+      return { success: true };
+    }
+    
+    // Fallback to in-memory store
+    const existing = workspaceStore.get(oldName);
+    if (!existing) {
+      return { success: false, error: 'Workspace not found' };
+    }
+    
+    workspaceStore.set(newName, {
+      ...existing,
+      updatedAt: Date.now()
+    });
+    workspaceStore.delete(oldName);
+    return { success: true };
+  } catch (error) {
+    console.error('Error renaming workspace:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Preferences handlers
+ipcMain.handle('/prefs/get', async (event, params) => {
+  try {
+    // Handle various input formats
+    let key;
+    if (typeof params === 'string') {
+      // Direct string key
+      key = params;
+    } else if (params && typeof params === 'object' && 'key' in params) {
+      // Object with key property
+      key = params.key;
+    } else {
+      console.error('Invalid /prefs/get params:', params);
+      return null; // Return null instead of throwing for missing keys
+    }
+    
+    if (!key || typeof key !== 'string') {
+      console.error('Invalid key provided to /prefs/get:', key);
+      return null; // Return null for invalid keys
+    }
+    
+    // Use database if available and initialized
+    if (database && database.initialized) {
+      const value = await database.getPreference(key);
+      return value !== undefined ? value : null;
+    }
+    
+    // Fallback to in-memory store
+    const value = preferencesStore.get(key);
+    // Return just the value, not wrapped in an object
+    // Return null if undefined to match database behavior
+    return value !== undefined ? value : null;
+  } catch (error) {
+    console.error('Error getting preference:', error);
+    console.error('Params were:', params);
+    throw error; // Let the renderer handle the error
+  }
+});
+
+ipcMain.handle('/prefs/set', async (event, params) => {
+  try {
+    // Handle various input formats
+    if (!params || typeof params !== 'object') {
+      throw new Error('Invalid parameters: object with key and value required');
+    }
+    
+    const { key, value } = params;
+    
+    if (!key || typeof key !== 'string') {
+      throw new Error('Invalid key provided');
+    }
+    
+    // Use database if available
+    if (database && database.initialized) {
+      await database.setPreference(key, value);
+      return true;
+    }
+    
+    // Fallback to in-memory store
+    preferencesStore.set(key, value);
+    // Return boolean to match expected behavior
+    return true;
+  } catch (error) {
+    console.error('Error setting preference:', error);
+    console.error('Params were:', params);
+    throw error; // Let the renderer handle the error
+  }
+});
+

@@ -1,16 +1,18 @@
 // Simple validation library for IPC handlers
 // Since the project doesn't use zod in main.js, we'll create a simple validation system
+const { RATE_LIMITS, VALIDATION } = require('../constants/app-constants.js');
 
 class IPCValidator {
   constructor() {
     this.rateLimiter = new Map();
     
-    // Rate limiting configuration
+    // Rate limiting configuration using centralized constants
     this.rateLimits = {
-      'request-file-list': { windowMs: 60000, maxRequests: 100 },
-      'request-file-content': { windowMs: 60000, maxRequests: 500 },
-      'open-docs': { windowMs: 60000, maxRequests: 20 },
-      'open-folder': { windowMs: 60000, maxRequests: 20 }
+      'request-file-list': { windowMs: RATE_LIMITS.WINDOW_MS, maxRequests: RATE_LIMITS.REQUESTS.FILE_LIST },
+      'request-file-content': { windowMs: RATE_LIMITS.WINDOW_MS, maxRequests: RATE_LIMITS.REQUESTS.FILE_CONTENT },
+      'open-docs': { windowMs: RATE_LIMITS.WINDOW_MS, maxRequests: RATE_LIMITS.REQUESTS.OPEN_DOCS },
+      'open-folder': { windowMs: RATE_LIMITS.WINDOW_MS, maxRequests: RATE_LIMITS.REQUESTS.OPEN_FOLDER },
+      'cancel-file-loading': { windowMs: RATE_LIMITS.WINDOW_MS, maxRequests: RATE_LIMITS.REQUESTS.WORKSPACE_OPERATIONS }
     };
   }
 
@@ -25,19 +27,19 @@ class IPCValidator {
 
   isValidPath(value) {
     if (!this.isString(value)) return false;
-    if (value.length === 0 || value.length > 1000) return false;
+    if (value.length === 0 || value.length > VALIDATION.MAX_PATH_LENGTH) return false;
     if (value.includes('..') || value.includes('\0') || value.includes('%00')) return false;
     return true;
   }
 
   isValidExclusionPatterns(value) {
     if (!this.isArray(value)) return false;
-    if (value.length > 50) return false;
+    if (value.length > VALIDATION.MAX_DOC_NAME_LENGTH) return false;
     
     return value.every(pattern => 
       this.isString(pattern) && 
       pattern.length > 0 && 
-      pattern.length <= 200 &&
+      pattern.length <= VALIDATION.MAX_PATTERN_LENGTH &&
       !pattern.includes('\0')
     );
   }
@@ -101,6 +103,12 @@ class IPCValidator {
       case 'open-docs':
         return this.validateOpenDocsRequest(data);
       
+      case 'cancel-file-loading':
+        return this.validateCancelFileLoadingRequest(data);
+      
+      case 'open-folder':
+        return this.validateOpenFolderRequest(data);
+      
       default:
         return { success: true, data };
     }
@@ -162,6 +170,30 @@ class IPCValidator {
     };
   }
 
+  validateCancelFileLoadingRequest({ requestId }) {
+    // requestId is optional, but if provided must be a string
+    if (requestId !== undefined && requestId !== null && !this.isString(requestId)) {
+      return {
+        success: false,
+        error: 'Invalid request ID',
+        code: 'INVALID_REQUEST_ID'
+      };
+    }
+
+    return {
+      success: true,
+      data: { requestId }
+    };
+  }
+
+  validateOpenFolderRequest(data) {
+    // Open folder has no input parameters, just validate rate limiting
+    return {
+      success: true,
+      data: {}
+    };
+  }
+
   // Cleanup old rate limiting entries
   cleanupRateLimiter() {
     const now = Date.now();
@@ -188,7 +220,7 @@ const ipcValidator = new IPCValidator();
 // Cleanup rate limiter every 5 minutes
 setInterval(() => {
   ipcValidator.cleanupRateLimiter();
-}, 5 * 60 * 1000);
+}, RATE_LIMITS.CLEANUP_INTERVAL_MINUTES * 60 * 1000);
 
 module.exports = {
   IPCValidator,

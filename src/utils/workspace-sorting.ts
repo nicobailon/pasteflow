@@ -1,5 +1,4 @@
 import { STORAGE_KEYS } from '../constants';
-import { safeJsonParse } from './local-storage-utils';
 
 export type WorkspaceSortMode = 'recent' | 'alphabetical' | 'manual';
 
@@ -8,22 +7,63 @@ export interface WorkspaceInfo {
   savedAt: number;
 }
 
-export const getWorkspaceSortMode = (): WorkspaceSortMode => {
-  const savedMode = localStorage.getItem(STORAGE_KEYS.WORKSPACE_SORT_MODE);
-  return (savedMode as WorkspaceSortMode) || 'recent';
+// Database-backed workspace sorting utilities
+// These now use IPC to communicate with the database
+
+export const getWorkspaceSortMode = async (): Promise<WorkspaceSortMode> => {
+  try {
+    if (window.electron) {
+      const savedMode = await window.electron.ipcRenderer.invoke('/prefs/get', {
+        key: STORAGE_KEYS.WORKSPACE_SORT_MODE
+      });
+      return (savedMode as WorkspaceSortMode) || 'recent';
+    }
+  } catch (error) {
+    console.error('Error getting workspace sort mode:', error);
+  }
+  return 'recent';
 };
 
-export const setWorkspaceSortMode = (mode: WorkspaceSortMode) => {
-  localStorage.setItem(STORAGE_KEYS.WORKSPACE_SORT_MODE, mode);
+export const setWorkspaceSortMode = async (mode: WorkspaceSortMode): Promise<void> => {
+  try {
+    if (window.electron) {
+      await window.electron.ipcRenderer.invoke('/prefs/set', {
+        key: STORAGE_KEYS.WORKSPACE_SORT_MODE,
+        value: mode,
+        encrypted: false
+      });
+    }
+  } catch (error) {
+    console.error('Error setting workspace sort mode:', error);
+  }
 };
 
-export const getWorkspaceManualOrder = (): string[] => {
-  const savedOrder = localStorage.getItem(STORAGE_KEYS.WORKSPACE_MANUAL_ORDER);
-  return safeJsonParse(savedOrder, []);
+export const getWorkspaceManualOrder = async (): Promise<string[]> => {
+  try {
+    if (window.electron) {
+      const savedOrder = await window.electron.ipcRenderer.invoke('/prefs/get', {
+        key: STORAGE_KEYS.WORKSPACE_MANUAL_ORDER
+      });
+      return savedOrder || [];
+    }
+  } catch (error) {
+    console.error('Error getting workspace manual order:', error);
+  }
+  return [];
 };
 
-export const setWorkspaceManualOrder = (order: string[]) => {
-  localStorage.setItem(STORAGE_KEYS.WORKSPACE_MANUAL_ORDER, JSON.stringify(order));
+export const setWorkspaceManualOrder = async (order: string[]): Promise<void> => {
+  try {
+    if (window.electron) {
+      await window.electron.ipcRenderer.invoke('/prefs/set', {
+        key: STORAGE_KEYS.WORKSPACE_MANUAL_ORDER,
+        value: order,
+        encrypted: false
+      });
+    }
+  } catch (error) {
+    console.error('Error setting workspace manual order:', error);
+  }
 };
 
 export const sortWorkspaces = (

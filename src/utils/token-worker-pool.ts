@@ -1,4 +1,5 @@
 import { estimateTokenCount } from './token-utils';
+import { WORKER_POOL, PRIORITY } from '../constants/app-constants';
 
 interface QueueItem {
   id: string;
@@ -42,11 +43,11 @@ export class TokenWorkerPool {
   }>();
   
   // Queue management
-  private readonly MAX_QUEUE_SIZE = 1000;
+  private readonly MAX_QUEUE_SIZE = WORKER_POOL.MAX_QUEUE_SIZE;
   private droppedRequests = 0;
   
   // Health check configuration
-  private readonly HEALTH_CHECK_TIMEOUT = 1000;
+  private readonly HEALTH_CHECK_TIMEOUT = WORKER_POOL.HEALTH_CHECK_TIMEOUT_MS;
   
   // Request deduplication
   private pendingRequests = new Map<string, Promise<number>>();
@@ -64,8 +65,8 @@ export class TokenWorkerPool {
   
   // Recovery debouncing for rapid failures
   private workerFailureTimes = new Map<number, number[]>();
-  private readonly FAILURE_WINDOW_MS = 5000; // 5 seconds
-  private readonly MAX_FAILURES_IN_WINDOW = 3;
+  private readonly FAILURE_WINDOW_MS = WORKER_POOL.FAILURE_WINDOW_MS;
+  private readonly MAX_FAILURES_IN_WINDOW = WORKER_POOL.MAX_FAILURES_IN_WINDOW;
   
   // Graceful degradation tracking
   private workerPermanentlyFailed = new Set<number>();
@@ -73,7 +74,7 @@ export class TokenWorkerPool {
   // Active operations tracking for abort support
   private activeOperations = new Map<string, AbortController>();
   
-  constructor(private poolSize = Math.min(navigator.hardwareConcurrency || 4, 8)) {
+  constructor(private poolSize = Math.min(navigator.hardwareConcurrency || WORKER_POOL.DEFAULT_WORKERS, WORKER_POOL.MAX_WORKERS)) {
     this.initializeWorkers();
   }
   
@@ -165,7 +166,7 @@ export class TokenWorkerPool {
       return await this.waitForWorkerMessage(
         worker,
         `health-verify-${workerId}`,
-        1000, // 1 second timeout
+        WORKER_POOL.HEALTH_CHECK_TIMEOUT_MS, // 1 second timeout
         (event) => {
           if (event.data.id === healthCheckId && event.data.type === 'HEALTH_RESPONSE') {
             return event.data.healthy === true;
@@ -346,7 +347,7 @@ export class TokenWorkerPool {
     this.performHealthMonitoring();
   }
   
-  private async waitForWorkersReady(timeout = 5000): Promise<void> {
+  private async waitForWorkersReady(timeout = WORKER_POOL.READY_TIMEOUT_MS): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeout) {
       const hasReady = this.workerReadyStatus.some(Boolean);
@@ -357,7 +358,7 @@ export class TokenWorkerPool {
       }
       
       // If at least half are ready after 1 second, continue
-      if (Date.now() - start > 1000 && readyCount >= Math.ceil(this.workers.length / 2)) {
+      if (Date.now() - start > WORKER_POOL.HEALTH_CHECK_TIMEOUT_MS && readyCount >= Math.ceil(this.workers.length / 2)) {
         return;
       }
       
@@ -368,7 +369,7 @@ export class TokenWorkerPool {
     console.warn(`[Pool] Worker ready timeout - only ${readyCount}/${this.workers.length} workers ready`);
   }
   
-  private async waitForWorkerInit(timeout = 5000): Promise<void> {
+  private async waitForWorkerInit(timeout = WORKER_POOL.INIT_TIMEOUT_MS): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeout) {
       if (this.workerStatus.some(Boolean)) {
@@ -453,7 +454,7 @@ export class TokenWorkerPool {
   private hashText(text: string): string {
     // Simple hash function for deduplication
     let hash = 0;
-    for (let i = 0; i < Math.min(text.length, 1000); i++) {
+    for (let i = 0; i < Math.min(text.length, WORKER_POOL.MAX_QUEUE_SIZE); i++) {
       const char = text.codePointAt(i) ?? 0;
       hash = ((hash << 5) - hash) + char;
       hash = hash & hash; // Convert to 32-bit integer
@@ -531,7 +532,7 @@ export class TokenWorkerPool {
     signal.addEventListener('abort', () => operationController.abort());
   }
   
-  private createCountTokensPromise(text: string, signal?: AbortSignal, jobAcceptanceVerified = false, priority: number = 0): Promise<number> {
+  private createCountTokensPromise(text: string, signal?: AbortSignal, jobAcceptanceVerified = false, priority: number = PRIORITY.CRITICAL): Promise<number> {
     return new Promise((resolve, reject) => {
       // Early exit
       if (this.shouldFallbackToEstimation(jobAcceptanceVerified)) {
@@ -560,7 +561,7 @@ export class TokenWorkerPool {
     });
   }
   
-  private enqueueJob(id: string, text: string, resolve: (count: number) => void, reject: (error: Error) => void, priority: number = 0): void {
+  private enqueueJob(id: string, text: string, resolve: (count: number) => void, reject: (error: Error) => void, priority: number = PRIORITY.CRITICAL): void {
     this.enforceQueueSizeLimit();
     this.queue.push({ id, text, resolve, reject, priority });
     // Sort queue by priority (lower values = higher priority)
@@ -596,7 +597,7 @@ export class TokenWorkerPool {
     resolve: (count: number) => void, 
     reject: (error: Error) => void,
     operationController: AbortController,
-    priority: number = 0
+    priority: number = PRIORITY.CRITICAL
   ): void {
     this.enqueueJob(id, text, resolve, reject, priority);
     
@@ -720,7 +721,7 @@ export class TokenWorkerPool {
     timeoutId = setTimeout(() => {
       console.warn(`Token counting timeout for worker ${workerId}`);
       handleResult(estimateTokenCount(text));
-    }, 30_000);
+    }, WORKER_POOL.OPERATION_TIMEOUT_MS);
     
     return { messageHandler, errorHandler, cleanup };
   }
@@ -789,7 +790,7 @@ export class TokenWorkerPool {
         } catch {
           // Memory API might not be available
         }
-      }, 30_000); // Check every 30 seconds
+      }, WORKER_POOL.MEMORY_MONITOR_INTERVAL_SECONDS * 1000); // Check every 30 seconds
     }
   }
   
@@ -926,7 +927,7 @@ export class TokenWorkerPool {
         console.error(`Race condition detected: jobs added during recycling initialization (${jobCountAtStart} -> ${this.activeJobs.size})`);
       }
       
-      await this.waitForActiveJobs(10_000); // 10 seconds max wait
+      await this.waitForActiveJobs(WORKER_POOL.JOB_WAIT_TIMEOUT_MS); // 10 seconds max wait
       await this.performFinalSafetyCheck();
       await this.terminateAllWorkers();
       await this.initializeWorkers();
@@ -1234,7 +1235,7 @@ export class TokenWorkerPool {
     
     // Schedule next health check
     if (!this.isTerminated) {
-      setTimeout(() => this.performHealthMonitoring(), 30_000); // Every 30 seconds
+      setTimeout(() => this.performHealthMonitoring(), WORKER_POOL.HEALTH_MONITOR_INTERVAL_SECONDS * 1000); // Every 30 seconds
     }
   }
   

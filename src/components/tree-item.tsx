@@ -455,7 +455,7 @@ const useTreeItemState = (
   folderSelectionCache?: DirectorySelectionCache
 ) => {
   const { fileData, type, path, children } = node;
-  const [isLoading, setIsLoading] = useState(false);
+  // Removed isLoading state as content loading is now handled directly in checkbox handler
   const [localTokenCount, setLocalTokenCount] = useState(fileData?.tokenCount);
   
   // Calculate directory token count from selected children
@@ -491,40 +491,18 @@ const useTreeItemState = (
   // Get computed state
   const state = getTreeItemState(node, selectedFiles, folderSelectionCache);
 
-  // Update token count when fileData changes
+  // Update local token count when fileData changes
   useEffect(() => {
-    if (fileData?.tokenCount && fileData.tokenCount !== localTokenCount) {
+    // Always sync token count from fileData when it's available
+    // This ensures UI updates immediately when token counting completes
+    if (fileData?.tokenCount !== undefined) {
       setLocalTokenCount(fileData.tokenCount);
     }
-  }, [fileData?.tokenCount, localTokenCount]);
-
-  // Handle file content loading
-  useEffect(() => {
-    // Skip if already loading, content loaded, not a file, not selected, disabled, or no loader
-    if (isLoading || fileData?.isContentLoaded || fileData?.isCountingTokens || 
-        type !== "file" || !state.isSelected || !fileData || state.isDisabled || !loadFileContent) {
-      return;
-    }
-
-    setIsLoading(true);
-    
-    loadFileContent(path)
-      .then(() => {
-        if (fileData.tokenCount) {
-          setLocalTokenCount(fileData.tokenCount);
-        }
-      })
-      .catch((error) => {
-        console.warn(`Failed to load content for ${path}:`, error);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [type, state.isSelected, path, fileData?.isContentLoaded, fileData?.isCountingTokens, state.isDisabled, loadFileContent]);
+  }, [fileData?.tokenCount]);
 
   return {
     ...state,
-    isLoading,
+    isLoading: false, // Always false as loading is handled differently now
     localTokenCount: type === 'directory' ? directoryTokenCount : localTokenCount
   };
 };
@@ -557,23 +535,26 @@ const TreeItem = memo(({
     );
   };
 
-  // Create debounced toggle function
+  // Create debounced toggle function - no dependencies on changing state
   const debouncedToggle = useMemo(
     () => debounce((filePath: unknown) => {
       if (typeof filePath === 'string') {
         toggleFileSelection(filePath);
-        if (!fileData?.isContentLoaded && type === "file" && loadFileContent) {
-          loadFileContent(filePath);
-        }
+        // Load content will be triggered by the checkbox handler directly
       }
     }, 100),
-    [toggleFileSelection, loadFileContent, fileData?.isContentLoaded, type]
+    [toggleFileSelection] // Only depend on stable function reference
   );
 
   const handleCheckboxChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
     e.stopPropagation();
     if (type === "file") {
-      debouncedToggle(path);
+      const isChecked = e.target.checked;
+      toggleFileSelection(path);
+      // Load content when file is selected
+      if (isChecked && loadFileContent && !fileData?.isContentLoaded) {
+        loadFileContent(path);
+      }
     } else if (type === "directory") {
       const isChecked = e.target.checked;
       // Toggle folder selection with optimistic update for immediate UI feedback
@@ -583,7 +564,7 @@ const TreeItem = memo(({
         toggleExpanded(path);
       }
     }
-  }, [type, path, debouncedToggle, toggleFolderSelection, toggleExpanded, isExpanded]);
+  }, [type, path, toggleFileSelection, loadFileContent, fileData?.isContentLoaded, toggleFolderSelection, toggleExpanded, isExpanded]);
 
   const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     // Pass both the path and current expanded state

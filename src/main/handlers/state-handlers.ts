@@ -5,6 +5,19 @@ import * as path from 'path';
 import { SecureDatabase } from '../db/secure-database';
 import { SecureIpcLayer } from '../ipc/secure-ipc';
 import { countTokens } from '../utils/token-utils';
+import { 
+  validateInput,
+  WorkspaceCreateSchema,
+  WorkspaceLoadSchema,
+  WorkspaceUpdateSchema,
+  WorkspaceDeleteSchema,
+  WorkspaceRenameSchema,
+  SaveStateSchema,
+  LoadStateSchema,
+  ClearStateSchema,
+  UpdateSettingsSchema,
+  GetSettingsSchema
+} from '../utils/input-validation';
 
 interface ContentDeduplicator {
   storeFileContent(content: string, filePath: string): Promise<string>;
@@ -36,442 +49,651 @@ export class StateHandlers {
   private registerHandlers() {
     // Workspace handlers
     this.ipc.setHandler('/workspace/list', async () => {
-      const workspaces = await this.db.database.all(
-        'SELECT id, name, folder_path as folderPath, last_accessed as lastAccessed FROM workspaces ORDER BY last_accessed DESC'
-      );
-      return workspaces;
+      try {
+        const workspaces = await this.db.database.all(
+          'SELECT id, name, folder_path as folderPath, state_json, created_at as createdAt, updated_at as updatedAt, last_accessed as lastAccessed FROM workspaces ORDER BY last_accessed DESC'
+        );
+        
+        // Parse the state JSON for each workspace
+        return workspaces.map(ws => ({
+          id: ws.id,
+          name: ws.name,
+          folderPath: ws.folderPath,
+          state: JSON.parse(ws.state_json || '{}'),
+          createdAt: ws.createdAt,
+          updatedAt: ws.updatedAt,
+          lastAccessed: ws.lastAccessed
+        }));
+      } catch (error) {
+        throw new Error(`Failed to list workspaces: ${error.message}. Check database connection and table integrity.`);
+      }
     });
 
     this.ipc.setHandler('/workspace/create', async (input) => {
-      const id = uuidv4();
-      const now = Math.floor(Date.now() / 1000);
-      
-      await this.db.database.run(
-        'INSERT INTO workspaces (id, name, folder_path, state_json, created_at, updated_at, last_accessed) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [id, input.name, input.folderPath, JSON.stringify(input.state || {}), now, now, now]
-      );
-      
-      return {
-        id,
-        name: input.name,
-        folderPath: input.folderPath,
-        state: input.state || {},
-        createdAt: now,
-        updatedAt: now,
-        lastAccessed: now
-      };
+      try {
+        const validated = validateInput(WorkspaceCreateSchema, input);
+        const id = uuidv4();
+        const now = Math.floor(Date.now() / 1000);
+        
+        await this.db.database.run(
+          'INSERT INTO workspaces (id, name, folder_path, state_json, created_at, updated_at, last_accessed) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [id, validated.name, validated.folderPath, JSON.stringify(validated.state || {}), now, now, now]
+        );
+        
+        return {
+          id,
+          name: validated.name,
+          folderPath: validated.folderPath,
+          state: validated.state || {},
+          createdAt: now,
+          updatedAt: now,
+          lastAccessed: now
+        };
+      } catch (error) {
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+          throw new Error(`Cannot create workspace '${input.name}': A workspace with this name already exists. Choose a different name.`);
+        }
+        throw new Error(`Failed to create workspace '${input.name}' at '${input.folderPath}': ${error.message}. Verify folder path is valid and database is writable.`);
+      }
     });
 
     this.ipc.setHandler('/workspace/load', async (input) => {
-      const workspace = await this.db.database.get(
-        'SELECT * FROM workspaces WHERE id = ?',
-        [input.id]
-      );
-      
-      if (!workspace) {
-        throw new Error('Workspace not found');
+      try {
+        const validated = validateInput(WorkspaceLoadSchema, input);
+        const workspace = await this.db.database.get(
+          'SELECT * FROM workspaces WHERE id = ?',
+          [validated.id]
+        );
+        
+        if (!workspace) {
+          throw new Error(`Workspace '${validated.id}' not found during load operation. Verify workspace exists in database.`);
+        }
+        
+        return {
+          id: workspace.id,
+          name: workspace.name,
+          folderPath: workspace.folder_path,
+          state: JSON.parse(workspace.state_json),
+          createdAt: workspace.created_at,
+          updatedAt: workspace.updated_at,
+          lastAccessed: workspace.last_accessed
+        };
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to load workspace '${input.id}': ${error.message}. Check database connection and workspace data integrity.`);
       }
-      
-      return {
-        id: workspace.id,
-        name: workspace.name,
-        folderPath: workspace.folder_path,
-        state: JSON.parse(workspace.state_json),
-        createdAt: workspace.created_at,
-        updatedAt: workspace.updated_at,
-        lastAccessed: workspace.last_accessed
-      };
     });
 
     this.ipc.setHandler('/workspace/update', async (input) => {
-      const now = Math.floor(Date.now() / 1000);
-      
-      await this.db.database.run(
-        'UPDATE workspaces SET state_json = ?, updated_at = ? WHERE id = ?',
-        [JSON.stringify(input.state), now, input.id]
-      );
-      
-      return true;
+      try {
+        const validated = validateInput(WorkspaceUpdateSchema, input);
+        const now = Math.floor(Date.now() / 1000);
+        
+        const result = await this.db.database.run(
+          'UPDATE workspaces SET state_json = ?, updated_at = ? WHERE id = ?',
+          [JSON.stringify(validated.state), now, validated.id]
+        );
+        
+        if (result.changes === 0) {
+          throw new Error(`Workspace '${validated.id}' not found during update operation. Verify workspace exists before updating.`);
+        }
+        
+        return true;
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to update workspace '${input.id}': ${error.message}. Check workspace state format and database permissions.`);
+      }
     });
 
     this.ipc.setHandler('/workspace/delete', async (input) => {
-      await this.db.database.run('DELETE FROM workspaces WHERE id = ?', [input.id]);
-      return true;
+      try {
+        const validated = validateInput(WorkspaceDeleteSchema, input);
+        const result = await this.db.database.run('DELETE FROM workspaces WHERE id = ?', [validated.id]);
+        
+        if (result.changes === 0) {
+          throw new Error(`Workspace '${validated.id}' not found during delete operation. Workspace may have already been deleted.`);
+        }
+        
+        return true;
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to delete workspace '${input.id}': ${error.message}. Check database permissions and workspace references.`);
+      }
     });
 
     this.ipc.setHandler('/workspace/current', async () => {
-      // Get the most recently accessed workspace
-      const workspace = await this.db.database.get(
-        'SELECT * FROM workspaces ORDER BY last_accessed DESC LIMIT 1'
-      );
-      
-      if (!workspace) {
-        return null;
+      try {
+        // Get the most recently accessed workspace
+        const workspace = await this.db.database.get(
+          'SELECT * FROM workspaces ORDER BY last_accessed DESC LIMIT 1'
+        );
+        
+        if (!workspace) {
+          return null;
+        }
+        
+        return {
+          id: workspace.id,
+          name: workspace.name,
+          folderPath: workspace.folder_path,
+          state: JSON.parse(workspace.state_json),
+          createdAt: workspace.created_at,
+          updatedAt: workspace.updated_at,
+          lastAccessed: workspace.last_accessed
+        };
+      } catch (error) {
+        throw new Error(`Failed to get current workspace: ${error.message}. Check database connection and workspace data integrity.`);
       }
-      
-      return {
-        id: workspace.id,
-        name: workspace.name,
-        folderPath: workspace.folder_path,
-        state: JSON.parse(workspace.state_json),
-        createdAt: workspace.created_at,
-        updatedAt: workspace.updated_at,
-        lastAccessed: workspace.last_accessed
-      };
     });
 
     this.ipc.setHandler('/workspace/set-current', async (input) => {
-      // Update the current workspace state
-      const workspace = await this.db.database.get(
-        'SELECT id FROM workspaces ORDER BY last_accessed DESC LIMIT 1'
-      );
-      
-      if (workspace) {
-        const now = Math.floor(Date.now() / 1000);
-        await this.db.database.run(
-          'UPDATE workspaces SET state_json = ?, updated_at = ?, last_accessed = ? WHERE id = ?',
-          [JSON.stringify(input.workspace), now, now, workspace.id]
+      try {
+        // Update the current workspace state
+        const workspace = await this.db.database.get(
+          'SELECT id, name FROM workspaces ORDER BY last_accessed DESC LIMIT 1'
         );
+        
+        if (workspace) {
+          const now = Math.floor(Date.now() / 1000);
+          await this.db.database.run(
+            'UPDATE workspaces SET state_json = ?, updated_at = ?, last_accessed = ? WHERE id = ?',
+            [JSON.stringify(input.workspace), now, now, workspace.id]
+          );
+        }
+        
+        return true;
+      } catch (error) {
+        const workspaceName = workspace?.name || 'current workspace';
+        throw new Error(`Failed to set current workspace '${workspaceName}': ${error.message}. Check workspace data format and database permissions.`);
       }
-      
-      return true;
     });
 
     this.ipc.setHandler('/workspace/clear', async () => {
-      // Clear current workspace by setting state to empty
-      const workspace = await this.db.database.get(
-        'SELECT id FROM workspaces ORDER BY last_accessed DESC LIMIT 1'
-      );
-      
-      if (workspace) {
-        const now = Math.floor(Date.now() / 1000);
-        await this.db.database.run(
-          'UPDATE workspaces SET state_json = ?, updated_at = ? WHERE id = ?',
-          [JSON.stringify({}), now, workspace.id]
+      try {
+        // Clear current workspace by setting state to empty
+        const workspace = await this.db.database.get(
+          'SELECT id, name FROM workspaces ORDER BY last_accessed DESC LIMIT 1'
         );
+        
+        if (workspace) {
+          const now = Math.floor(Date.now() / 1000);
+          await this.db.database.run(
+            'UPDATE workspaces SET state_json = ?, updated_at = ? WHERE id = ?',
+            [JSON.stringify({}), now, workspace.id]
+          );
+        }
+        
+        return true;
+      } catch (error) {
+        const workspaceName = workspace?.name || 'current workspace';
+        throw new Error(`Failed to clear workspace '${workspaceName}': ${error.message}. Check database permissions.`);
       }
-      
-      return true;
     });
 
     this.ipc.setHandler('/workspace/touch', async (input) => {
-      const now = Math.floor(Date.now() / 1000);
-      await this.db.database.run(
-        'UPDATE workspaces SET last_accessed = ? WHERE id = ?',
-        [now, input.id]
-      );
-      return true;
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const result = await this.db.database.run(
+          'UPDATE workspaces SET last_accessed = ? WHERE id = ?',
+          [now, input.id]
+        );
+        
+        if (result.changes === 0) {
+          throw new Error(`Workspace '${input.id}' not found during access time update. Workspace may have been deleted.`);
+        }
+        
+        return true;
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to update access time for workspace '${input.id}': ${error.message}. Check database permissions.`);
+      }
     });
 
     this.ipc.setHandler('/workspace/rename', async (input) => {
-      await this.db.database.run(
-        'UPDATE workspaces SET name = ? WHERE id = ?',
-        [input.newName, input.id]
-      );
-      return true;
+      try {
+        const result = await this.db.database.run(
+          'UPDATE workspaces SET name = ? WHERE id = ?',
+          [input.newName, input.id]
+        );
+        
+        if (result.changes === 0) {
+          throw new Error(`Workspace '${input.id}' not found during rename operation. Verify workspace exists before renaming.`);
+        }
+        
+        return true;
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+          throw new Error(`Cannot rename workspace to '${input.newName}': A workspace with this name already exists. Choose a different name.`);
+        }
+        throw new Error(`Failed to rename workspace '${input.id}' to '${input.newName}': ${error.message}. Check for name conflicts and database permissions.`);
+      }
     });
 
     // File content handlers
     this.ipc.setHandler('/file/content', async (input) => {
-      // Check if content exists in database
-      const file = await this.db.database.get(
-        'SELECT content_hash, token_count FROM files WHERE workspace_id = ? AND path = ?',
-        [input.workspaceId, input.filePath]
-      );
-      
-      if (file && file.content_hash) {
-        // Retrieve from content store
-        const content = await this.contentDeduplicator.retrieveContent(file.content_hash);
+      try {
+        // Check if content exists in database
+        const file = await this.db.database.get(
+          'SELECT content_hash, token_count FROM files WHERE workspace_id = ? AND path = ?',
+          [input.workspaceId, input.filePath]
+        );
         
-        // Apply line ranges if specified
-        if (input.lineRanges) {
-          const lines = content.split('\n');
-          const selectedLines = input.lineRanges.flatMap(range => 
-            lines.slice(range.start - 1, range.end)
-          );
-          
-          return {
-            content: selectedLines.join('\n'),
-            tokenCount: this.estimateTokenCount(selectedLines.join('\n')),
-            hash: file.content_hash,
-            compressed: true
-          };
+        if (file && file.content_hash) {
+          try {
+            // Retrieve from content store
+            const content = await this.contentDeduplicator.retrieveContent(file.content_hash);
+            
+            // Apply line ranges if specified
+            if (input.lineRanges) {
+              const lines = content.split('\n');
+              const selectedLines = input.lineRanges.flatMap(range => 
+                lines.slice(range.start - 1, range.end)
+              );
+              
+              return {
+                content: selectedLines.join('\n'),
+                tokenCount: this.estimateTokenCount(selectedLines.join('\n')),
+                hash: file.content_hash,
+                compressed: true
+              };
+            }
+            
+            return {
+              content,
+              tokenCount: file.token_count,
+              hash: file.content_hash,
+              compressed: true
+            };
+          } catch (contentError) {
+            throw new Error(`Failed to retrieve cached content for file '${input.filePath}' in workspace '${input.workspaceId}': ${contentError.message}. Falling back to filesystem.`);
+          }
         }
+      } catch (dbError) {
+        console.warn(`Database lookup failed for file '${input.filePath}' in workspace '${input.workspaceId}': ${dbError.message}. Loading from filesystem.`);
+      }
+      
+      try {
+        // Load from file system
+        const content = await fs.readFile(input.filePath, 'utf8');
+        const tokenCount = countTokens(content);
+        
+        // Store for future use
+        const hash = await this.contentDeduplicator.storeFileContent(
+          content,
+          input.filePath
+        );
+        
+        await this.db.database.run(
+          'INSERT OR REPLACE INTO files (path, workspace_id, content_hash, size, is_binary, token_count) VALUES (?, ?, ?, ?, ?, ?)',
+          [input.filePath, input.workspaceId, hash, content.length, false, tokenCount]
+        );
         
         return {
           content,
-          tokenCount: file.token_count,
-          hash: file.content_hash,
-          compressed: true
+          tokenCount,
+          hash,
+          compressed: false
         };
+      } catch (error) {
+        throw new Error(`Failed to load file content from '${input.filePath}' for workspace '${input.workspaceId}': ${error.message}. Verify file exists and is readable.`);
       }
-      
-      // Load from file system
-      const content = await fs.readFile(input.filePath, 'utf8');
-      const tokenCount = countTokens(content);
-      
-      // Store for future use
-      const hash = await this.contentDeduplicator.storeFileContent(
-        content,
-        input.filePath
-      );
-      
-      await this.db.database.run(
-        'INSERT OR REPLACE INTO files (path, workspace_id, content_hash, size, is_binary, token_count) VALUES (?, ?, ?, ?, ?, ?)',
-        [input.filePath, input.workspaceId, hash, content.length, false, tokenCount]
-      );
-      
-      return {
-        content,
-        tokenCount,
-        hash,
-        compressed: false
-      };
     });
 
     // Prompt handlers
     this.ipc.setHandler('/prompts/system', async () => {
-      const prompts = await this.db.database.all(
-        'SELECT * FROM prompts WHERE type = ? AND is_active = 1',
-        ['system']
-      );
-      
-      return prompts.map(p => ({
-        id: p.id,
-        type: p.type,
-        name: p.name,
-        content: p.content,
-        tokenCount: p.token_count,
-        isActive: p.is_active === 1,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at
-      }));
+      try {
+        const prompts = await this.db.database.all(
+          'SELECT * FROM prompts WHERE type = ? AND is_active = 1',
+          ['system']
+        );
+        
+        return prompts.map(p => ({
+          id: p.id,
+          type: p.type,
+          name: p.name,
+          content: p.content,
+          tokenCount: p.token_count,
+          isActive: p.is_active === 1,
+          createdAt: p.created_at,
+          updatedAt: p.updated_at
+        }));
+      } catch (error) {
+        throw new Error(`Failed to load system prompts: ${error.message}. Check database connection and prompts table integrity.`);
+      }
     });
 
     this.ipc.setHandler('/prompts/role', async () => {
-      const prompts = await this.db.database.all(
-        'SELECT * FROM prompts WHERE type = ? AND is_active = 1',
-        ['role']
-      );
-      
-      return prompts.map(p => ({
-        id: p.id,
-        type: p.type,
-        name: p.name,
-        content: p.content,
-        tokenCount: p.token_count,
-        isActive: p.is_active === 1,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at
-      }));
+      try {
+        const prompts = await this.db.database.all(
+          'SELECT * FROM prompts WHERE type = ? AND is_active = 1',
+          ['role']
+        );
+        
+        return prompts.map(p => ({
+          id: p.id,
+          type: p.type,
+          name: p.name,
+          content: p.content,
+          tokenCount: p.token_count,
+          isActive: p.is_active === 1,
+          createdAt: p.created_at,
+          updatedAt: p.updated_at
+        }));
+      } catch (error) {
+        throw new Error(`Failed to load role prompts: ${error.message}. Check database connection and prompts table integrity.`);
+      }
     });
 
     this.ipc.setHandler('/prompts/system/add', async (input) => {
-      const now = Math.floor(Date.now() / 1000);
-      const tokenCount = countTokens(input.content);
-      
-      await this.db.database.run(
-        'INSERT INTO prompts (id, type, name, content, token_count, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [input.id, 'system', input.name, input.content, tokenCount, input.isActive ? 1 : 0, now, now]
-      );
-      
-      // Notify all windows
-      this.broadcastUpdate('/prompts/system:update');
-      
-      return true;
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const tokenCount = countTokens(input.content);
+        
+        await this.db.database.run(
+          'INSERT INTO prompts (id, type, name, content, token_count, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [input.id, 'system', input.name, input.content, tokenCount, input.isActive ? 1 : 0, now, now]
+        );
+        
+        // Notify all windows
+        this.broadcastUpdate('/prompts/system:update');
+        
+        return true;
+      } catch (error) {
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+          throw new Error(`Cannot add system prompt '${input.name}': A prompt with this ID already exists. Use update operation instead.`);
+        }
+        throw new Error(`Failed to add system prompt '${input.name}': ${error.message}. Check prompt data format and database permissions.`);
+      }
     });
 
     this.ipc.setHandler('/prompts/system/update', async (input) => {
-      const now = Math.floor(Date.now() / 1000);
-      const updates = input.updates;
-      
-      // Build dynamic update query
-      const fields: string[] = [];
-      const values: unknown[] = [];
-      
-      if ('name' in updates) {
-        fields.push('name = ?');
-        values.push(updates.name);
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const updates = input.updates;
+        
+        // Build dynamic update query
+        const fields: string[] = [];
+        const values: unknown[] = [];
+        
+        if ('name' in updates) {
+          fields.push('name = ?');
+          values.push(updates.name);
+        }
+        if ('content' in updates) {
+          fields.push('content = ?');
+          values.push(updates.content);
+          fields.push('token_count = ?');
+          values.push(countTokens(updates.content as string));
+        }
+        if ('isActive' in updates) {
+          fields.push('is_active = ?');
+          values.push(updates.isActive ? 1 : 0);
+        }
+        
+        fields.push('updated_at = ?');
+        values.push(now);
+        values.push(input.id);
+        
+        const result = await this.db.database.run(
+          `UPDATE prompts SET ${fields.join(', ')} WHERE id = ?`,
+          values
+        );
+        
+        if (result.changes === 0) {
+          throw new Error(`System prompt '${input.id}' not found during update operation. Verify prompt exists before updating.`);
+        }
+        
+        this.broadcastUpdate('/prompts/system:update');
+        return true;
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to update system prompt '${input.id}': ${error.message}. Check prompt data format and database permissions.`);
       }
-      if ('content' in updates) {
-        fields.push('content = ?');
-        values.push(updates.content);
-        fields.push('token_count = ?');
-        values.push(countTokens(updates.content as string));
-      }
-      if ('isActive' in updates) {
-        fields.push('is_active = ?');
-        values.push(updates.isActive ? 1 : 0);
-      }
-      
-      fields.push('updated_at = ?');
-      values.push(now);
-      values.push(input.id);
-      
-      await this.db.database.run(
-        `UPDATE prompts SET ${fields.join(', ')} WHERE id = ?`,
-        values
-      );
-      
-      this.broadcastUpdate('/prompts/system:update');
-      return true;
     });
 
     this.ipc.setHandler('/prompts/system/delete', async (input) => {
-      await this.db.database.run('DELETE FROM prompts WHERE id = ?', [input.id]);
-      this.broadcastUpdate('/prompts/system:update');
-      return true;
+      try {
+        const result = await this.db.database.run('DELETE FROM prompts WHERE id = ?', [input.id]);
+        
+        if (result.changes === 0) {
+          throw new Error(`System prompt '${input.id}' not found during delete operation. Prompt may have already been deleted.`);
+        }
+        
+        this.broadcastUpdate('/prompts/system:update');
+        return true;
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to delete system prompt '${input.id}': ${error.message}. Check database permissions and prompt references.`);
+      }
     });
 
     // Role prompt handlers (similar pattern)
     this.ipc.setHandler('/prompts/role/add', async (input) => {
-      const now = Math.floor(Date.now() / 1000);
-      const tokenCount = countTokens(input.content);
-      
-      await this.db.database.run(
-        'INSERT INTO prompts (id, type, name, content, token_count, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [input.id, 'role', input.name, input.content, tokenCount, input.isActive ? 1 : 0, now, now]
-      );
-      
-      this.broadcastUpdate('/prompts/role:update');
-      return true;
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const tokenCount = countTokens(input.content);
+        
+        await this.db.database.run(
+          'INSERT INTO prompts (id, type, name, content, token_count, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [input.id, 'role', input.name, input.content, tokenCount, input.isActive ? 1 : 0, now, now]
+        );
+        
+        this.broadcastUpdate('/prompts/role:update');
+        return true;
+      } catch (error) {
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+          throw new Error(`Cannot add role prompt '${input.name}': A prompt with this ID already exists. Use update operation instead.`);
+        }
+        throw new Error(`Failed to add role prompt '${input.name}': ${error.message}. Check prompt data format and database permissions.`);
+      }
     });
 
     this.ipc.setHandler('/prompts/role/update', async (input) => {
-      const now = Math.floor(Date.now() / 1000);
-      const updates = input.updates;
-      
-      const fields: string[] = [];
-      const values: unknown[] = [];
-      
-      if ('name' in updates) {
-        fields.push('name = ?');
-        values.push(updates.name);
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const updates = input.updates;
+        
+        const fields: string[] = [];
+        const values: unknown[] = [];
+        
+        if ('name' in updates) {
+          fields.push('name = ?');
+          values.push(updates.name);
+        }
+        if ('content' in updates) {
+          fields.push('content = ?');
+          values.push(updates.content);
+          fields.push('token_count = ?');
+          values.push(countTokens(updates.content as string));
+        }
+        if ('isActive' in updates) {
+          fields.push('is_active = ?');
+          values.push(updates.isActive ? 1 : 0);
+        }
+        
+        fields.push('updated_at = ?');
+        values.push(now);
+        values.push(input.id);
+        
+        const result = await this.db.database.run(
+          `UPDATE prompts SET ${fields.join(', ')} WHERE id = ?`,
+          values
+        );
+        
+        if (result.changes === 0) {
+          throw new Error(`Role prompt '${input.id}' not found during update operation. Verify prompt exists before updating.`);
+        }
+        
+        this.broadcastUpdate('/prompts/role:update');
+        return true;
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to update role prompt '${input.id}': ${error.message}. Check prompt data format and database permissions.`);
       }
-      if ('content' in updates) {
-        fields.push('content = ?');
-        values.push(updates.content);
-        fields.push('token_count = ?');
-        values.push(countTokens(updates.content as string));
-      }
-      if ('isActive' in updates) {
-        fields.push('is_active = ?');
-        values.push(updates.isActive ? 1 : 0);
-      }
-      
-      fields.push('updated_at = ?');
-      values.push(now);
-      values.push(input.id);
-      
-      await this.db.database.run(
-        `UPDATE prompts SET ${fields.join(', ')} WHERE id = ?`,
-        values
-      );
-      
-      this.broadcastUpdate('/prompts/role:update');
-      return true;
     });
 
     this.ipc.setHandler('/prompts/role/delete', async (input) => {
-      await this.db.database.run('DELETE FROM prompts WHERE id = ?', [input.id]);
-      this.broadcastUpdate('/prompts/role:update');
-      return true;
+      try {
+        const result = await this.db.database.run('DELETE FROM prompts WHERE id = ?', [input.id]);
+        
+        if (result.changes === 0) {
+          throw new Error(`Role prompt '${input.id}' not found during delete operation. Prompt may have already been deleted.`);
+        }
+        
+        this.broadcastUpdate('/prompts/role:update');
+        return true;
+      } catch (error) {
+        if (error.message.includes('not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to delete role prompt '${input.id}': ${error.message}. Check database permissions and prompt references.`);
+      }
     });
 
     // Active prompts handlers
     this.ipc.setHandler('/prompts/active', async () => {
-      // Get active prompt selections from preferences
-      const systemPromptIds = await this.db.getPreference('active_system_prompts') || [];
-      const rolePromptIds = await this.db.getPreference('active_role_prompts') || [];
-      
-      return {
-        systemPromptIds,
-        rolePromptIds
-      };
+      try {
+        // Get active prompt selections from preferences
+        const systemPromptIds = await this.db.getPreference('active_system_prompts') || [];
+        const rolePromptIds = await this.db.getPreference('active_role_prompts') || [];
+        
+        return {
+          systemPromptIds,
+          rolePromptIds
+        };
+      } catch (error) {
+        throw new Error(`Failed to get active prompts: ${error.message}. Check database connection and preferences table.`);
+      }
     });
 
     this.ipc.setHandler('/prompts/active/update', async (input) => {
-      await this.db.setPreference('active_system_prompts', input.systemPromptIds);
-      await this.db.setPreference('active_role_prompts', input.rolePromptIds);
-      
-      this.broadcastUpdate('/prompts/active:update');
-      return true;
+      try {
+        await this.db.setPreference('active_system_prompts', input.systemPromptIds);
+        await this.db.setPreference('active_role_prompts', input.rolePromptIds);
+        
+        this.broadcastUpdate('/prompts/active:update');
+        return true;
+      } catch (error) {
+        throw new Error(`Failed to update active prompts (system: ${input.systemPromptIds?.length || 0}, role: ${input.rolePromptIds?.length || 0}): ${error.message}. Check prompt IDs and database permissions.`);
+      }
     });
 
     this.ipc.setHandler('/prompts/active/clear', async () => {
-      await this.db.setPreference('active_system_prompts', []);
-      await this.db.setPreference('active_role_prompts', []);
-      
-      this.broadcastUpdate('/prompts/active:update');
-      return true;
+      try {
+        await this.db.setPreference('active_system_prompts', []);
+        await this.db.setPreference('active_role_prompts', []);
+        
+        this.broadcastUpdate('/prompts/active:update');
+        return true;
+      } catch (error) {
+        throw new Error(`Failed to clear active prompts: ${error.message}. Check database permissions.`);
+      }
     });
 
     // Preference handlers
     this.ipc.setHandler('/prefs/get', async (input) => {
-      const pref = await this.db.database.get(
-        'SELECT value, encrypted FROM preferences WHERE key = ?',
-        [input.key]
-      );
-      
-      if (!pref) {
-        return null;
+      try {
+        const pref = await this.db.database.get(
+          'SELECT value, encrypted FROM preferences WHERE key = ?',
+          [input.key]
+        );
+        
+        if (!pref) {
+          return null;
+        }
+        
+        let value = pref.value;
+        
+        if (pref.encrypted) {
+          // Decrypt value using secure database method
+          value = await this.db.decryptValue(value);
+        }
+        
+        return JSON.parse(value);
+      } catch (error) {
+        throw new Error(`Failed to get preference '${input.key}': ${error.message}. Check key format and database connection.`);
       }
-      
-      let value = pref.value;
-      
-      if (pref.encrypted) {
-        // Decrypt value using secure database method
-        value = await this.db.decryptValue(value);
-      }
-      
-      return JSON.parse(value);
     });
 
     this.ipc.setHandler('/prefs/set', async (input) => {
-      let value = JSON.stringify(input.value);
-      
-      if (input.encrypted) {
-        // Encrypt sensitive values
-        value = await this.db.encryptValue(value);
+      try {
+        let value = JSON.stringify(input.value);
+        
+        if (input.encrypted) {
+          // Encrypt sensitive values
+          value = await this.db.encryptValue(value);
+        }
+        
+        const now = Math.floor(Date.now() / 1000);
+        
+        await this.db.database.run(
+          'INSERT OR REPLACE INTO preferences (key, value, encrypted, updated_at) VALUES (?, ?, ?, ?)',
+          [input.key, value, input.encrypted ? 1 : 0, now]
+        );
+        
+        return true;
+      } catch (error) {
+        throw new Error(`Failed to set preference '${input.key}': ${error.message}. Check value format and database permissions.`);
       }
-      
-      const now = Math.floor(Date.now() / 1000);
-      
-      await this.db.database.run(
-        'INSERT OR REPLACE INTO preferences (key, value, encrypted, updated_at) VALUES (?, ?, ?, ?)',
-        [input.key, value, input.encrypted ? 1 : 0, now]
-      );
-      
-      return true;
     });
 
     // Selection state handlers
     this.ipc.setHandler('/workspace/selection', async () => {
-      const selection = await this.db.getPreference('workspace_selection') || {
-        selectedFiles: [],
-        lastModified: Date.now()
-      };
-      
-      return selection;
+      try {
+        const selection = await this.db.getPreference('workspace_selection') || {
+          selectedFiles: [],
+          lastModified: Date.now()
+        };
+        
+        return selection;
+      } catch (error) {
+        throw new Error(`Failed to get workspace selection: ${error.message}. Check database connection and preferences.`);
+      }
     });
 
     this.ipc.setHandler('/workspace/selection/update', async (input) => {
-      await this.db.setPreference('workspace_selection', input);
-      
-      this.broadcastUpdate('/workspace/selection:update', input);
-      return true;
+      try {
+        await this.db.setPreference('workspace_selection', input);
+        
+        this.broadcastUpdate('/workspace/selection:update', input);
+        return true;
+      } catch (error) {
+        const fileCount = input?.selectedFiles?.length || 0;
+        throw new Error(`Failed to update workspace selection (${fileCount} files): ${error.message}. Check selection data format and database permissions.`);
+      }
     });
 
     this.ipc.setHandler('/workspace/selection/clear', async () => {
-      const cleared = {
-        selectedFiles: [],
-        lastModified: Date.now()
-      };
-      
-      await this.db.setPreference('workspace_selection', cleared);
-      
-      this.broadcastUpdate('/workspace/selection:update', cleared);
-      return true;
+      try {
+        const cleared = {
+          selectedFiles: [],
+          lastModified: Date.now()
+        };
+        
+        await this.db.setPreference('workspace_selection', cleared);
+        
+        this.broadcastUpdate('/workspace/selection:update', cleared);
+        return true;
+      } catch (error) {
+        throw new Error(`Failed to clear workspace selection: ${error.message}. Check database permissions.`);
+      }
     });
   }
 
