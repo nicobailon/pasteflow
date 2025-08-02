@@ -588,10 +588,16 @@ const useAppState = () => {
         if (result?.success && result.content !== undefined && tokenCount !== undefined) {
           fileContentCache.set(f.path, result.content, tokenCount);
           
-          // Only update selected file if it's already in the selection
-          const existingSelectedFile = fileSelection.findSelectedFile(f.path);
-          if (existingSelectedFile) {
-            fileSelection.updateSelectedFile(f.path, existingSelectedFile.lines);
+          // Only update selected file if it's still in the selection
+          // This prevents memory leaks from updating deselected files
+          const currentSelectedFiles = fileSelection.selectedFiles;
+          const isStillSelected = currentSelectedFiles.some(sf => sf.path === f.path);
+          
+          if (isStillSelected) {
+            const existingSelectedFile = fileSelection.findSelectedFile(f.path);
+            if (existingSelectedFile) {
+              fileSelection.updateSelectedFile(f.path, existingSelectedFile.lines);
+            }
           }
 
           return {
@@ -907,13 +913,25 @@ const useAppState = () => {
     }
   }, []);
 
+  // Add a ref to track if we're currently applying workspace data
+  const isApplyingWorkspaceDataRef = useRef(false);
+  
   // This function handles applying workspace data, with proper file selection management
   const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null) => {
     if (!workspaceData || !workspaceName) {
       console.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
       setPendingWorkspaceData(null);
+      isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
     }
+
+    // Prevent concurrent calls to avoid infinite loops
+    if (isApplyingWorkspaceDataRef.current) {
+      console.warn("[useAppState.applyWorkspaceData] Already applying workspace data, skipping to prevent infinite loop");
+      return;
+    }
+
+    isApplyingWorkspaceDataRef.current = true;
 
     console.log('[useAppState.applyWorkspaceData] Applying workspace data:', {
       workspaceName,
@@ -936,10 +954,12 @@ const useAppState = () => {
       // Clear all files when folder changes to prevent accumulation
       setAllFiles([]);
       handleFolderChange(workspaceName, workspaceFolder, workspaceData);
+      isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
     } else if (folderChanged && isProcessing) {
       console.warn(`[useAppState.applyWorkspaceData] Folder changed but currently processing. Cannot change folder to "${workspaceFolder}". Aborting workspace load.`);
       setPendingWorkspaceData(null);
+      isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
     }
 
@@ -955,6 +975,9 @@ const useAppState = () => {
     // Restore instructions - always set them to ensure clearing when empty
     setInstructions(workspaceData.instructions || []);
     setSelectedInstructions(workspaceData.selectedInstructions || []);
+    
+    // Reset the flag after applying
+    isApplyingWorkspaceDataRef.current = false;
   }, [
     setPendingWorkspaceData,
     setCurrentWorkspace,

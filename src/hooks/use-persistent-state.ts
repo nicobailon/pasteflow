@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDatabaseState } from './use-database-state';
 
+// Constants
+const CACHE_TTL_MS = 300000; // 5 minutes in milliseconds
+
 interface PreferenceGetParams {
   key: string;
 }
@@ -36,7 +39,7 @@ export function usePersistentState<T>(
     null,
     {
       cache: true,
-      cacheTTL: 300000, // 5 minutes
+      cacheTTL: CACHE_TTL_MS,
       optimisticUpdate: true
     }
   );
@@ -51,13 +54,23 @@ export function usePersistentState<T>(
 
     const loadValue = async () => {
       try {
+        // Double-check key is valid before fetching
+        if (!key || typeof key !== 'string') {
+          console.error('Invalid key in loadValue:', key);
+          setHasInitialized(true);
+          return;
+        }
+        
         const dbValue = await fetchData({ key });
         if (dbValue !== null) {
           setPersistedValue(dbValue as T);
         }
         setHasInitialized(true);
       } catch (error) {
-        console.error(`Error loading preference "${key}":`, error);
+        // Only log error if it's not about missing key
+        if (!error?.message?.includes('key is required')) {
+          console.error(`Error loading preference "${key}":`, error);
+        }
         setHasInitialized(true);
       }
     };
@@ -69,15 +82,26 @@ export function usePersistentState<T>(
     // Use functional update to avoid stale closure issues
     setPersistedValue(prevValue => {
       const newValue = value instanceof Function ? value(prevValue) : value;
+      
+      // Check if value actually changed to prevent infinite loops
+      if (JSON.stringify(prevValue) === JSON.stringify(newValue)) {
+        return prevValue; // No change, don't trigger update
+      }
 
-      // Save to database asynchronously
-      updateData(updateChannel, {
-        key,
-        value: newValue,
-        encrypted: false
-      }).catch(error => {
-        console.error(`Error saving preference "${key}":`, error);
-      });
+      // Only save if key is valid
+      if (key && typeof key === 'string') {
+        // Save to database asynchronously
+        updateData(updateChannel, {
+          key,
+          value: newValue,
+          encrypted: false
+        }).catch(error => {
+          // Only log error if it's not about missing key
+          if (!error?.message?.includes('key is required')) {
+            console.error(`Error saving preference "${key}":`, error);
+          }
+        });
+      }
 
       return newValue;
     });

@@ -2,6 +2,9 @@ const { parentPort, workerData } = require('worker_threads');
 const Database = require('better-sqlite3');
 const crypto = require('crypto');
 
+// Constants
+const CACHE_TTL_MS = 300000; // 5 minutes in milliseconds
+
 // Initialize database with SQLCipher
 const db = new Database(workerData.dbPath);
 
@@ -89,7 +92,7 @@ setInterval(() => {
     const now = Date.now();
     for (const [id, stmt] of statements) {
       const timestamp = parseInt(id.split('_')[1]);
-      if (now - timestamp > 300000) { // 5 minutes
+      if (now - timestamp > CACHE_TTL_MS) {
         statements.delete(id);
       }
     }

@@ -5,6 +5,19 @@ import * as path from 'path';
 import { SecureDatabase } from '../db/secure-database';
 import { SecureIpcLayer } from '../ipc/secure-ipc';
 import { countTokens } from '../utils/token-utils';
+import { 
+  validateInput,
+  WorkspaceCreateSchema,
+  WorkspaceLoadSchema,
+  WorkspaceUpdateSchema,
+  WorkspaceDeleteSchema,
+  WorkspaceRenameSchema,
+  SaveStateSchema,
+  LoadStateSchema,
+  ClearStateSchema,
+  UpdateSettingsSchema,
+  GetSettingsSchema
+} from '../utils/input-validation';
 
 interface ContentDeduplicator {
   storeFileContent(content: string, filePath: string): Promise<string>;
@@ -53,19 +66,20 @@ export class StateHandlers {
     });
 
     this.ipc.setHandler('/workspace/create', async (input) => {
+      const validated = validateInput(WorkspaceCreateSchema, input);
       const id = uuidv4();
       const now = Math.floor(Date.now() / 1000);
       
       await this.db.database.run(
         'INSERT INTO workspaces (id, name, folder_path, state_json, created_at, updated_at, last_accessed) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [id, input.name, input.folderPath, JSON.stringify(input.state || {}), now, now, now]
+        [id, validated.name, validated.folderPath, JSON.stringify(validated.state || {}), now, now, now]
       );
       
       return {
         id,
-        name: input.name,
-        folderPath: input.folderPath,
-        state: input.state || {},
+        name: validated.name,
+        folderPath: validated.folderPath,
+        state: validated.state || {},
         createdAt: now,
         updatedAt: now,
         lastAccessed: now
@@ -73,9 +87,10 @@ export class StateHandlers {
     });
 
     this.ipc.setHandler('/workspace/load', async (input) => {
+      const validated = validateInput(WorkspaceLoadSchema, input);
       const workspace = await this.db.database.get(
         'SELECT * FROM workspaces WHERE id = ?',
-        [input.id]
+        [validated.id]
       );
       
       if (!workspace) {
@@ -94,18 +109,20 @@ export class StateHandlers {
     });
 
     this.ipc.setHandler('/workspace/update', async (input) => {
+      const validated = validateInput(WorkspaceUpdateSchema, input);
       const now = Math.floor(Date.now() / 1000);
       
       await this.db.database.run(
         'UPDATE workspaces SET state_json = ?, updated_at = ? WHERE id = ?',
-        [JSON.stringify(input.state), now, input.id]
+        [JSON.stringify(validated.state), now, validated.id]
       );
       
       return true;
     });
 
     this.ipc.setHandler('/workspace/delete', async (input) => {
-      await this.db.database.run('DELETE FROM workspaces WHERE id = ?', [input.id]);
+      const validated = validateInput(WorkspaceDeleteSchema, input);
+      await this.db.database.run('DELETE FROM workspaces WHERE id = ?', [validated.id]);
       return true;
     });
 

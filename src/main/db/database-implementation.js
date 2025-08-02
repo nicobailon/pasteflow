@@ -47,7 +47,9 @@ class PasteFlowDatabase {
       -- Create indexes
       CREATE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(name);
       CREATE INDEX IF NOT EXISTS idx_workspaces_last_accessed ON workspaces(last_accessed DESC);
+      CREATE INDEX IF NOT EXISTS idx_workspaces_folder_path ON workspaces(folder_path);
       CREATE INDEX IF NOT EXISTS idx_preferences_key ON preferences(key);
+      CREATE INDEX IF NOT EXISTS idx_preferences_updated_at ON preferences(updated_at);
       CREATE INDEX IF NOT EXISTS idx_prompts_name ON custom_prompts(name);
     `);
 
@@ -106,6 +108,11 @@ class PasteFlowDatabase {
           updated_at = strftime('%s', 'now') * 1000
       `),
       
+      // Optimized query for getting workspace names only
+      getWorkspaceNames: this.db.prepare(`
+        SELECT name FROM workspaces ORDER BY last_accessed DESC
+      `),
+      
     };
   }
 
@@ -114,6 +121,7 @@ class PasteFlowDatabase {
     const rows = this.statements.listWorkspaces.all();
     return rows.map(row => ({
       ...row,
+      id: String(row.id),  // Convert numeric id to string
       state: row.state ? JSON.parse(row.state) : {},
       folderPath: row.folder_path
     }));
@@ -125,6 +133,7 @@ class PasteFlowDatabase {
     
     return {
       ...row,
+      id: String(row.id),  // Convert numeric id to string
       state: row.state ? JSON.parse(row.state) : {},
       folderPath: row.folder_path
     };
@@ -156,7 +165,8 @@ class PasteFlowDatabase {
   }
 
   getWorkspaceNames() {
-    return this.listWorkspaces().map(w => w.name);
+    const rows = this.statements.getWorkspaceNames.all();
+    return rows.map(row => row.name);
   }
 
   // Preference methods
@@ -164,11 +174,26 @@ class PasteFlowDatabase {
     const row = this.statements.getPreference.get(key);
     if (!row) return null;
     
-    try {
-      return JSON.parse(row.value);
-    } catch {
-      return row.value;
+    // Handle edge cases: null, undefined, empty strings
+    if (row.value === null || row.value === undefined || row.value === '') {
+      return null;
     }
+    
+    // Check if the value looks like JSON (starts with { or [ or is "true"/"false"/"null" or a number)
+    const trimmedValue = row.value.trim();
+    if (trimmedValue.startsWith('{') || trimmedValue.startsWith('[') || 
+        trimmedValue === 'true' || trimmedValue === 'false' || 
+        trimmedValue === 'null' || !isNaN(trimmedValue)) {
+      try {
+        return JSON.parse(row.value);
+      } catch (error) {
+        // Silently return raw value if JSON parsing fails
+        return row.value;
+      }
+    }
+    
+    // Return as plain string if not JSON-like
+    return row.value;
   }
 
   setPreference(key, value) {
@@ -178,6 +203,71 @@ class PasteFlowDatabase {
 
 
   // Cleanup
+  // Transaction support for complex operations
+  runInTransaction(callback) {
+    const transaction = this.db.transaction(callback);
+    try {
+      return transaction();
+    } catch (error) {
+      console.error('Transaction failed:', error);
+      throw error;
+    }
+  }
+
+  // Atomic workspace state update
+  updateWorkspaceAtomic(name, updates) {
+    return this.runInTransaction(() => {
+      // Get current workspace
+      const current = this.getWorkspace(name);
+      if (!current) {
+        throw new Error('Workspace not found');
+      }
+
+      // Merge state if provided
+      let newState = current.state;
+      if (updates.state) {
+        newState = { ...current.state, ...updates.state };
+      }
+
+      // Update workspace
+      this.statements.updateWorkspace.run(
+        JSON.stringify(newState),
+        Date.now(),
+        name
+      );
+
+      // If folder path changed, update that too
+      if (updates.folderPath && updates.folderPath !== current.folderPath) {
+        const updateFolderStmt = this.db.prepare(`
+          UPDATE workspaces SET folder_path = ? WHERE name = ?
+        `);
+        updateFolderStmt.run(updates.folderPath, name);
+      }
+
+      // Update last accessed time
+      this.touchWorkspace(name);
+
+      return this.getWorkspace(name);
+    });
+  }
+
+  // Atomic operation to rename workspace and update all references
+  renameWorkspaceAtomic(oldName, newName) {
+    return this.runInTransaction(() => {
+      // Check if new name already exists
+      const existing = this.getWorkspace(newName);
+      if (existing) {
+        throw new Error('Workspace with new name already exists');
+      }
+
+      // Rename the workspace
+      this.statements.renameWorkspace.run(newName, oldName);
+
+      // Return the renamed workspace
+      return this.getWorkspace(newName);
+    });
+  }
+
   close() {
     this.db.close();
   }

@@ -6,6 +6,18 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const { getPathValidator } = require("./src/security/path-validator.cjs");
 const { ipcValidator } = require("./src/validation/ipc-validator.js");
 const { DatabaseBridge } = require("./src/main/db/database-bridge.js");
+const { 
+  validateInput,
+  WorkspaceCreateSchema,
+  WorkspaceLoadSchema,
+  WorkspaceUpdateSchema,
+  WorkspaceDeleteSchema,
+  WorkspaceRenameSchema,
+  WorkspaceTouchSchema,
+  GetPreferenceSchema,
+  SetPreferenceSchema,
+  FileContentRequestSchema
+} = require("./src/main/utils/input-validation.js");
 
 // Add error handling for console operations to prevent EIO errors
 const originalConsoleError = console.error;
@@ -800,6 +812,14 @@ ipcMain.on('open-docs', (event, docName) => {
 
 // Add request-file-content handler for lazy loading file content
 ipcMain.handle('request-file-content', async (event, filePath) => {
+  try {
+    // Validate input
+    validateInput({ filePath: FileContentRequestSchema.filePath }, { filePath });
+  } catch (error) {
+    console.error('Invalid input for request-file-content:', error.message);
+    return { success: false, error: error.message };
+  }
+  
   // SECURITY: Validate path to prevent path traversal attacks
   // If no workspace paths are set, this might be a file request before folder selection
   // In this case, we should reject the request for security
@@ -856,8 +876,12 @@ ipcMain.handle('/workspace/list', async () => {
   }
 });
 
-ipcMain.handle('/workspace/create', async (event, { name, folderPath, state }) => {
+ipcMain.handle('/workspace/create', async (event, params) => {
   try {
+    // Validate input
+    const validated = validateInput(WorkspaceCreateSchema, params);
+    const { name, folderPath, state } = validated;
+    
     // Use database if available
     if (database) {
       const workspace = await database.createWorkspace(name, folderPath, state);
@@ -880,8 +904,16 @@ ipcMain.handle('/workspace/create', async (event, { name, folderPath, state }) =
   }
 });
 
-ipcMain.handle('/workspace/load', async (event, { id }) => {
+ipcMain.handle('/workspace/load', async (event, params) => {
   try {
+    // Ensure params is an object
+    if (!params || typeof params !== 'object') {
+      throw new Error('Invalid parameters provided');
+    }
+    
+    // Validate input
+    const validated = validateInput(WorkspaceLoadSchema, params);
+    const { id } = validated;
     // Use database if available
     if (database) {
       const workspace = await database.getWorkspace(id);
@@ -912,8 +944,11 @@ ipcMain.handle('/workspace/load', async (event, { id }) => {
   }
 });
 
-ipcMain.handle('/workspace/update', async (event, { id, name, folderPath, state }) => {
+ipcMain.handle('/workspace/update', async (event, params) => {
   try {
+    // Validate input
+    const validated = validateInput(WorkspaceUpdateSchema, params);
+    const { id, name, folderPath, state } = validated;
     // Use database if available
     if (database) {
       // Try to find workspace by id first, then by name
@@ -952,8 +987,11 @@ ipcMain.handle('/workspace/update', async (event, { id, name, folderPath, state 
   }
 });
 
-ipcMain.handle('/workspace/touch', async (event, { id, name }) => {
+ipcMain.handle('/workspace/touch', async (event, params) => {
   try {
+    // Validate input
+    const validated = validateInput(WorkspaceTouchSchema, params);
+    const { id, name } = validated;
     // Use database if available
     if (database) {
       // Try to find workspace by id first, then by name
@@ -990,8 +1028,11 @@ ipcMain.handle('/workspace/touch', async (event, { id, name }) => {
   }
 });
 
-ipcMain.handle('/workspace/delete', async (event, { name }) => {
+ipcMain.handle('/workspace/delete', async (event, params) => {
   try {
+    // Validate input
+    const validated = validateInput(WorkspaceDeleteSchema, params);
+    const { name } = validated;
     // Use database if available
     if (database) {
       await database.deleteWorkspace(name);
@@ -1007,8 +1048,11 @@ ipcMain.handle('/workspace/delete', async (event, { name }) => {
   }
 });
 
-ipcMain.handle('/workspace/rename', async (event, { oldName, newName }) => {
+ipcMain.handle('/workspace/rename', async (event, params) => {
   try {
+    // Validate input
+    const validated = validateInput(WorkspaceRenameSchema, params);
+    const { oldName, newName } = validated;
     // Use database if available
     if (database) {
       await database.renameWorkspace(oldName, newName);
@@ -1036,17 +1080,22 @@ ipcMain.handle('/workspace/rename', async (event, { oldName, newName }) => {
 // Preferences handlers
 ipcMain.handle('/prefs/get', async (event, params) => {
   try {
-    // Defensive check for params - handle undefined, null, or non-object params
-    if (params === undefined || params === null || typeof params !== 'object') {
-      console.error('Invalid params for /prefs/get:', params, 'Type:', typeof params);
-      return null;
+    // Handle various input formats
+    let key;
+    if (typeof params === 'string') {
+      // Direct string key
+      key = params;
+    } else if (params && typeof params === 'object' && 'key' in params) {
+      // Object with key property
+      key = params.key;
+    } else {
+      console.error('Invalid /prefs/get params:', params);
+      return null; // Return null instead of throwing for missing keys
     }
     
-    // Safely destructure with default value
-    const { key = null } = params || {};
-    if (!key) {
-      console.error('No key provided for /prefs/get, params:', params);
-      return null;
+    if (!key || typeof key !== 'string') {
+      console.error('Invalid key provided to /prefs/get:', key);
+      return null; // Return null for invalid keys
     }
     
     // Use database if available
@@ -1069,17 +1118,15 @@ ipcMain.handle('/prefs/get', async (event, params) => {
 
 ipcMain.handle('/prefs/set', async (event, params) => {
   try {
-    // Defensive check for params - handle undefined, null, or non-object params
-    if (params === undefined || params === null || typeof params !== 'object') {
-      console.error('Invalid params for /prefs/set:', params, 'Type:', typeof params);
-      throw new Error('Invalid parameters');
+    // Handle various input formats
+    if (!params || typeof params !== 'object') {
+      throw new Error('Invalid parameters: object with key and value required');
     }
     
-    // Safely destructure
-    const { key = null, value = undefined } = params || {};
-    if (!key) {
-      console.error('No key provided for /prefs/set, params:', params);
-      throw new Error('Key is required');
+    const { key, value } = params;
+    
+    if (!key || typeof key !== 'string') {
+      throw new Error('Invalid key provided');
     }
     
     // Use database if available

@@ -5,14 +5,17 @@ import { WorkspaceState } from '../types/file-types';
 import { getPathValidator } from '../security/path-validator';
 import { useDatabaseWorkspaceState } from './use-database-workspace-state';
 import { usePersistentState } from './use-persistent-state';
+import { useCancellableOperation } from './use-cancellable-operation';
 
 export const useWorkspaceState = () => {
   const db = useDatabaseWorkspaceState();
+  const { runCancellableOperation } = useCancellableOperation();
   const [currentWorkspace, setCurrentWorkspace] = usePersistentState<string | null>(
     STORAGE_KEYS.CURRENT_WORKSPACE,
     null
   );
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
 
   // Mark as initialized on mount
   useEffect(() => {
@@ -53,18 +56,36 @@ export const useWorkspaceState = () => {
 
   // These methods need to be async now
   const loadWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {
-    try {
-      const workspace = await db.loadWorkspace(name);
-      if (workspace) {
-        // Don't set current workspace here - let the caller decide
-        return workspace;
-      }
-      return null;
-    } catch (error) {
-      console.error('Failed to load workspace:', error);
-      return null;
+    if (isLoadingWorkspace) {
+      console.log('Cancelling previous workspace load operation');
     }
-  }, [db]);
+
+    setIsLoadingWorkspace(true);
+    
+    const result = await runCancellableOperation(async (token) => {
+      try {
+        const workspace = await db.loadWorkspace(name);
+        
+        // Check if cancelled before processing
+        if (token.cancelled) {
+          console.log('Workspace load cancelled');
+          return null;
+        }
+        
+        if (workspace) {
+          // Don't set current workspace here - let the caller decide
+          return workspace;
+        }
+        return null;
+      } catch (error) {
+        console.error('Failed to load workspace:', error);
+        return null;
+      }
+    });
+    
+    setIsLoadingWorkspace(false);
+    return result;
+  }, [db, isLoadingWorkspace, runCancellableOperation]);
 
   const deleteWorkspace = useCallback(async (name: string): Promise<void> => {
     try {

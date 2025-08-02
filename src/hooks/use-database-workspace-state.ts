@@ -45,10 +45,14 @@ export const useDatabaseWorkspaceState = () => {
     try {
       if (!window.electron) return null;
       
-      const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list');
-      return workspaces.find((w: DatabaseWorkspace) => w.name === name) || null;
+      // Use the direct load method instead of listing all workspaces
+      const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', { id: name });
+      return workspace;
     } catch (error) {
-      console.error('Failed to find workspace by name:', error);
+      // Workspace not found is expected, don't log as error
+      if (error.message !== 'Workspace not found') {
+        console.error('Failed to find workspace by name:', error);
+      }
       return null;
     }
   }, []);

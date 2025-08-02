@@ -6,6 +6,7 @@ import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/pris
 
 import { useTheme } from '../context/theme-context';
 import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
+import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 
 // Map file extensions to language identifiers for syntax highlighting
 const getLanguageFromPath = (filePath: string): string => {
@@ -64,6 +65,7 @@ const FileViewModal = ({
   loadFileContent,
 }: FileViewModalProps): JSX.Element => {
   const { currentTheme } = useTheme();
+  const { runCancellableOperation } = useCancellableOperation();
   const [file, setFile] = useState<FileData | null>(null);
   const [selectedLines, setSelectedLines] = useState<LineRange[]>([]);
   const [initialSelection, setInitialSelection] = useState<LineRange[]>([]);
@@ -106,17 +108,28 @@ const FileViewModal = ({
   // Find the file in allFiles when filePath changes and load content if needed
   useEffect(() => {
     if (filePath && isOpen) {
-      const foundFile = allFiles.find((file: FileData) => file.path === filePath);
-      if (foundFile && !foundFile.isContentLoaded) {
-        // Set the file immediately so we show the loading state
-        setFile(foundFile);
-        loadFileContent(filePath);
-      } else {
-        setFile(foundFile ?? null);
-        setTotalTokenCount(foundFile?.content ? calculateTokenCount(foundFile.content) : 0);
-      }
+      runCancellableOperation(async (token) => {
+        const foundFile = allFiles.find((file: FileData) => file.path === filePath);
+        
+        if (token.cancelled) return;
+        
+        if (foundFile && !foundFile.isContentLoaded) {
+          // Set the file immediately so we show the loading state
+          setFile(foundFile);
+          
+          // Load content asynchronously
+          await loadFileContent(filePath);
+          
+          // Check if cancelled after async operation
+          if (token.cancelled) return;
+        } else {
+          // No action needed for other cases
+          setFile(foundFile ?? null);
+          setTotalTokenCount(foundFile?.content ? calculateTokenCount(foundFile.content) : 0);
+        }
+      });
     }
-  }, [filePath, isOpen, allFiles, calculateTokenCount, loadFileContent]);
+  }, [filePath, isOpen, allFiles, calculateTokenCount, loadFileContent, runCancellableOperation]);
 
   // Separate effect to update file state when allFiles changes (after content is loaded)
   useEffect(() => {
