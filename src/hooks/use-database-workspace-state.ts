@@ -83,7 +83,7 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error('Failed to save workspace:', error);
+      console.error(`Failed to save workspace '${name}':`, error);
       setError('Failed to save workspace');
       throw error;
     } finally {
@@ -100,28 +100,27 @@ export const useDatabaseWorkspaceState = () => {
         throw new Error('Electron IPC not available');
       }
 
-      const workspace = await findWorkspaceByName(name);
-      if (!workspace) return null;
-      
-      // Load the full workspace data including state
-      const fullWorkspace = await window.electron.ipcRenderer.invoke('/workspace/load', {
-        id: workspace.id
+      // Load the workspace directly - no need to check existence first
+      const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', {
+        id: name
       });
+      
+      if (!workspace) return null;
       
       // Update last accessed time
       await window.electron.ipcRenderer.invoke('/workspace/touch', {
-        id: workspace.id
+        id: name
       });
       
-      return fullWorkspace.state;
+      return workspace.state;
     } catch (error) {
-      console.error('Failed to load workspace:', error);
+      console.error(`Failed to load workspace '${name}':`, error);
       setError('Failed to load workspace');
       return null;
     } finally {
       setIsLoading(false);
     }
-  }, [findWorkspaceByName]);
+  }, []);
 
   const deleteWorkspace = useCallback(async (name: string): Promise<void> => {
     try {
@@ -144,7 +143,7 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error('Failed to delete workspace:', error);
+      console.error(`Failed to delete workspace '${name}':`, error);
       setError('Failed to delete workspace');
       throw error;
     } finally {
@@ -173,7 +172,7 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error('Failed to rename workspace:', error);
+      console.error(`Failed to rename workspace '${oldName}' to '${newName}':`, error);
       setError('Failed to rename workspace');
       throw error;
     } finally {
@@ -232,7 +231,7 @@ export const useDatabaseWorkspaceState = () => {
       
       return workspace.state;
     } catch (error) {
-      console.error('Failed to export workspace:', error);
+      console.error(`Failed to export workspace '${name}':`, error);
       setError('Failed to export workspace');
       return null;
     } finally {

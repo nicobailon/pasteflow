@@ -46,7 +46,7 @@ export const useWorkspaceState = () => {
           setCurrentWorkspace(name);
         })
         .catch(error => {
-          console.error('Failed to save workspace:', error);
+          console.error(`Failed to save workspace '${name}':`, error);
           throw error;
         });
     } catch (error) {
@@ -78,7 +78,7 @@ export const useWorkspaceState = () => {
         }
         return null;
       } catch (error) {
-        console.error('Failed to load workspace:', error);
+        console.error(`Failed to load workspace '${name}':`, error);
         return null;
       }
     });
@@ -96,7 +96,7 @@ export const useWorkspaceState = () => {
         setCurrentWorkspace(null);
       }
     } catch (error) {
-      console.error('Failed to delete workspace:', error);
+      console.error(`Failed to delete workspace '${name}':`, error);
       throw error;
     }
   }, [db, currentWorkspace, setCurrentWorkspace]);
@@ -122,7 +122,7 @@ export const useWorkspaceState = () => {
       
       return true;
     } catch (error) {
-      console.error('Failed to rename workspace:', error);
+      console.error(`Failed to rename workspace '${oldName}' to '${newName}':`, error);
       return false;
     }
   }, [db, currentWorkspace, setCurrentWorkspace]);

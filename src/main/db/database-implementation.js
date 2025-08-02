@@ -179,15 +179,21 @@ class PasteFlowDatabase {
       return null;
     }
     
-    // Check if the value looks like JSON (starts with { or [ or is "true"/"false"/"null" or a number)
+    // Safely check if the value looks like JSON
     const trimmedValue = row.value.trim();
     if (trimmedValue.startsWith('{') || trimmedValue.startsWith('[') || 
         trimmedValue === 'true' || trimmedValue === 'false' || 
         trimmedValue === 'null' || !isNaN(trimmedValue)) {
       try {
+        // Validate JSON string before parsing to prevent malformed data issues
+        if (typeof row.value !== 'string') {
+          console.warn(`Invalid preference value type for key '${key}':`, typeof row.value);
+          return row.value;
+        }
         return JSON.parse(row.value);
       } catch (error) {
-        // Silently return raw value if JSON parsing fails
+        console.warn(`Failed to parse JSON preference for key '${key}':`, error.message);
+        // Return raw value if JSON parsing fails
         return row.value;
       }
     }
@@ -220,7 +226,7 @@ class PasteFlowDatabase {
       // Get current workspace
       const current = this.getWorkspace(name);
       if (!current) {
-        throw new Error('Workspace not found');
+        throw new Error(`Workspace '${name}' not found`);
       }
 
       // Merge state if provided
@@ -229,10 +235,10 @@ class PasteFlowDatabase {
         newState = { ...current.state, ...updates.state };
       }
 
-      // Update workspace
+      // Update workspace - updateWorkspace prepared statement expects (state, name)
+      // The updated_at is handled by the SQL statement itself using strftime
       this.statements.updateWorkspace.run(
         JSON.stringify(newState),
-        Date.now(),
         name
       );
 
@@ -257,7 +263,7 @@ class PasteFlowDatabase {
       // Check if new name already exists
       const existing = this.getWorkspace(newName);
       if (existing) {
-        throw new Error('Workspace with new name already exists');
+        throw new Error(`Workspace '${newName}' already exists`);
       }
 
       // Rename the workspace
