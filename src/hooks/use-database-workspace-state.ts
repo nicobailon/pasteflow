@@ -1,32 +1,117 @@
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { WorkspaceState } from '../types/file-types';
+import { useCancellableOperation } from './use-cancellable-operation';
 
+/**
+ * Database workspace object with metadata and state.
+ * Represents a complete workspace record from the SQLite database.
+ */
 interface DatabaseWorkspace {
+  /** Unique workspace identifier (string representation of database ID) */
   id: string;
+  /** Human-readable workspace name (unique) */
   name: string;
+  /** Associated folder path for this workspace */
   folderPath: string;
+  /** Complete workspace state (file selections, UI state, etc.) */
   state: WorkspaceState;
+  /** Creation timestamp (Unix milliseconds) */
   createdAt: number;
+  /** Last modification timestamp (Unix milliseconds) */
   updatedAt: number;
+  /** Last access timestamp (Unix milliseconds) */
   lastAccessed: number;
 }
 
+/**
+ * React hook for managing workspace state through SQLite database operations.
+ * Provides CRUD operations for workspaces with automatic UI synchronization and loading states.
+ * 
+ * @returns {Object} Workspace management interface with methods and state:
+ *   - saveWorkspace: Save or update workspace state
+ *   - loadWorkspace: Load workspace state by name
+ *   - deleteWorkspace: Remove workspace permanently
+ *   - renameWorkspace: Change workspace name
+ *   - importWorkspace: Import workspace from external data
+ *   - exportWorkspace: Export workspace state
+ *   - getWorkspaceNames: Get list of workspace names
+ *   - workspacesList: Current list of all workspaces
+ *   - isLoading: Loading state indicator
+ *   - error: Error message if operation fails
+ * 
+ * @example
+ * const {
+ *   saveWorkspace,
+ *   loadWorkspace,
+ *   workspacesList,
+ *   isLoading
+ * } = useDatabaseWorkspaceState();
+ * 
+ * // Save current state
+ * await saveWorkspace('my-project', currentWorkspaceState);
+ * 
+ * // Load saved state
+ * const state = await loadWorkspace('my-project');
+ */
 export const useDatabaseWorkspaceState = () => {
   const [workspacesList, setWorkspacesList] = useState<DatabaseWorkspace[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { runCancellableOperation } = useCancellableOperation();
+  const isMountedRef = useRef(true);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-  const refreshWorkspacesList = useCallback(async () => {
-    try {
-      if (!window.electron) return;
-      
-      const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list');
-      setWorkspacesList(workspaces);
-    } catch (error) {
-      console.error('Failed to refresh workspaces list:', error);
-      setError('Failed to load workspaces');
+  // Safe state setters that check if component is still mounted
+  const safeSetIsLoading = useCallback((loading: boolean) => {
+    if (isMountedRef.current) {
+      setIsLoading(loading);
     }
   }, []);
+
+  const safeSetError = useCallback((error: string | null) => {
+    if (isMountedRef.current) {
+      setError(error);
+    }
+  }, []);
+
+  const safeSetWorkspacesList = useCallback((workspaces: DatabaseWorkspace[]) => {
+    if (isMountedRef.current) {
+      setWorkspacesList(workspaces);
+    }
+  }, []);
+
+  /**
+   * Refreshes the local workspaces list from the database.
+   * Called automatically on mount and when workspaces change.
+   * 
+   * @returns {Promise<void>} Promise that resolves when refresh completes
+   */
+  const refreshWorkspacesList = useCallback(async () => {
+    await runCancellableOperation(async (token) => {
+      try {
+        if (!window.electron) return;
+        
+        const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list');
+        
+        // Check if cancelled before updating state
+        if (token.cancelled) {
+          console.log('[useDatabaseWorkspaceState] Workspace list refresh cancelled');
+          return;
+        }
+        
+        safeSetWorkspacesList(workspaces);
+      } catch (error) {
+        console.error(`Failed to refresh workspaces list: ${(error as Error).message}`);
+        safeSetError(`Failed to load workspaces: ${(error as Error).message}. Check database connection and retry.`);
+      }
+    });
+  }, [runCancellableOperation, safeSetWorkspacesList, safeSetError]);
 
   useEffect(() => {
     refreshWorkspacesList();
@@ -41,6 +126,18 @@ export const useDatabaseWorkspaceState = () => {
     };
   }, [refreshWorkspacesList]);
 
+  /**
+   * Finds a workspace by name using direct database lookup.
+   * More efficient than filtering the workspaces list for single workspace operations.
+   * 
+   * @param {string} name - Workspace name to find
+   * @returns {Promise<DatabaseWorkspace | null>} Promise resolving to workspace object or null
+   * @example
+   * const workspace = await findWorkspaceByName('my-project');
+   * if (workspace) {
+   *   console.log('Found:', workspace.folderPath);
+   * }
+   */
   const findWorkspaceByName = useCallback(async (name: string): Promise<DatabaseWorkspace | null> => {
     try {
       if (!window.electron) return null;
@@ -51,77 +148,146 @@ export const useDatabaseWorkspaceState = () => {
     } catch (error) {
       // Workspace not found is expected, don't log as error
       if (error.message !== 'Workspace not found') {
-        console.error('Failed to find workspace by name:', error);
+        console.error(`Failed to find workspace '${name}': ${error.message}`);
       }
       return null;
     }
   }, []);
 
+  /**
+   * Saves or updates a workspace with the given state.
+   * Creates new workspace if it doesn't exist, updates if it does.
+   * Automatically triggers UI refresh on completion.
+   * 
+   * @param {string} name - Workspace name (must be unique)
+   * @param {WorkspaceState} workspace - Complete workspace state to save
+   * @returns {Promise<void>} Promise that resolves when save completes
+   * @throws {Error} If Electron IPC unavailable or database operation fails
+   * @example
+   * await saveWorkspace('my-project', {
+   *   selectedFolder: '/path/to/project',
+   *   selectedFiles: [{ path: 'src/main.js' }],
+   *   expandedNodes: { 'src': true }
+   * });
+   */
   const saveWorkspace = useCallback(async (name: string, workspace: WorkspaceState): Promise<void> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      if (!window.electron) {
-        throw new Error('Electron IPC not available');
-      }
+    return await runCancellableOperation(async (token) => {
+      try {
+        safeSetIsLoading(true);
+        safeSetError(null);
+        
+        if (!window.electron) {
+          throw new Error('Electron IPC not available');
+        }
 
-      const existing = await findWorkspaceByName(name);
-      
-      if (existing) {
-        await window.electron.ipcRenderer.invoke('/workspace/update', {
-          id: existing.id,
-          state: workspace
-        });
-      } else {
-        await window.electron.ipcRenderer.invoke('/workspace/create', {
-          name,
-          folderPath: workspace.selectedFolder || '',
-          state: workspace
-        });
+        const existing = await findWorkspaceByName(name);
+        
+        // Check if cancelled before proceeding
+        if (token.cancelled) {
+          console.log(`[useDatabaseWorkspaceState] Workspace save cancelled for "${name}"`);
+          return;
+        }
+        
+        if (existing) {
+          await window.electron.ipcRenderer.invoke('/workspace/update', {
+            id: existing.id,
+            state: workspace
+          });
+        } else {
+          await window.electron.ipcRenderer.invoke('/workspace/create', {
+            name,
+            folderPath: workspace.selectedFolder || '',
+            state: workspace
+          });
+        }
+        
+        // Check if cancelled before dispatching event
+        if (token.cancelled) {
+          console.log(`[useDatabaseWorkspaceState] Workspace save cancelled before dispatch for "${name}"`);
+          return;
+        }
+        
+        window.dispatchEvent(new CustomEvent('workspacesChanged'));
+      } catch (error) {
+        console.error(`Failed to save workspace '${name}': ${(error as Error).message}`);
+        safeSetError(`Failed to save workspace '${name}': ${(error as Error).message}. Check workspace data and database permissions.`);
+        throw error;
+      } finally {
+        safeSetIsLoading(false);
       }
-      
-      window.dispatchEvent(new CustomEvent('workspacesChanged'));
-    } catch (error) {
-      console.error(`Failed to save workspace '${name}':`, error);
-      setError('Failed to save workspace');
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [findWorkspaceByName]);
+    });
+  }, [runCancellableOperation, findWorkspaceByName, safeSetIsLoading, safeSetError]);
 
+  /**
+   * Loads workspace state by name and updates last accessed time.
+   * Returns null if workspace doesn't exist.
+   * 
+   * @param {string} name - Workspace name to load
+   * @returns {Promise<WorkspaceState | null>} Promise resolving to workspace state or null
+   * @throws {Error} If Electron IPC unavailable
+   * @example
+   * const state = await loadWorkspace('my-project');
+   * if (state) {
+   *   // Apply state to UI
+   *   setSelectedFolder(state.selectedFolder);
+   * }
+   */
   const loadWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      if (!window.electron) {
-        throw new Error('Electron IPC not available');
+    return await runCancellableOperation(async (token) => {
+      try {
+        safeSetIsLoading(true);
+        safeSetError(null);
+        
+        if (!window.electron) {
+          throw new Error('Electron IPC not available');
+        }
+
+        // Load the workspace directly - no need to check existence first
+        const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', {
+          id: name
+        });
+        
+        // Check if cancelled before continuing
+        if (token.cancelled) {
+          console.log(`[useDatabaseWorkspaceState] Workspace load cancelled for "${name}"`);
+          return null;
+        }
+        
+        if (!workspace) return null;
+        
+        // Update last accessed time
+        await window.electron.ipcRenderer.invoke('/workspace/touch', {
+          id: name
+        });
+        
+        // Check again if cancelled before returning
+        if (token.cancelled) {
+          console.log(`[useDatabaseWorkspaceState] Workspace load cancelled after touch for "${name}"`);
+          return null;
+        }
+        
+        return workspace.state;
+      } catch (error) {
+        console.error(`Failed to load workspace '${name}': ${(error as Error).message}`);
+        safeSetError(`Failed to load workspace '${name}': ${(error as Error).message}. Verify workspace exists and database is accessible.`);
+        return null;
+      } finally {
+        safeSetIsLoading(false);
       }
+    });
+  }, [runCancellableOperation, safeSetIsLoading, safeSetError]);
 
-      // Load the workspace directly - no need to check existence first
-      const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', {
-        id: name
-      });
-      
-      if (!workspace) return null;
-      
-      // Update last accessed time
-      await window.electron.ipcRenderer.invoke('/workspace/touch', {
-        id: name
-      });
-      
-      return workspace.state;
-    } catch (error) {
-      console.error(`Failed to load workspace '${name}':`, error);
-      setError('Failed to load workspace');
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  /**
+   * Permanently deletes a workspace and all associated data.
+   * Triggers UI refresh and emits workspacesChanged event.
+   * 
+   * @param {string} name - Workspace name to delete
+   * @returns {Promise<void>} Promise that resolves when deletion completes
+   * @throws {Error} If Electron IPC unavailable or database operation fails
+   * @example
+   * await deleteWorkspace('old-project');
+   * // Workspace is permanently removed
+   */
   const deleteWorkspace = useCallback(async (name: string): Promise<void> => {
     try {
       setIsLoading(true);
@@ -133,7 +299,7 @@ export const useDatabaseWorkspaceState = () => {
 
       const workspace = await findWorkspaceByName(name);
       if (!workspace) {
-        console.warn('Workspace not found:', name);
+        console.warn(`Workspace '${name}' not found during delete operation`);
         return;
       }
       
@@ -143,14 +309,25 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to delete workspace '${name}':`, error);
-      setError('Failed to delete workspace');
+      console.error(`Failed to delete workspace '${name}': ${error.message}`);
+      setError(`Failed to delete workspace '${name}': ${error.message}. Check database permissions and workspace references.`);
       throw error;
     } finally {
       setIsLoading(false);
     }
   }, [findWorkspaceByName]);
 
+  /**
+   * Renames a workspace with validation and conflict detection.
+   * New name must be unique across all workspaces.
+   * 
+   * @param {string} oldName - Current workspace name
+   * @param {string} newName - Desired new name (must be unique)
+   * @returns {Promise<void>} Promise that resolves when rename completes
+   * @throws {Error} If old workspace not found, new name exists, or operation fails
+   * @example
+   * await renameWorkspace('old-project-name', 'new-project-name');
+   */
   const renameWorkspace = useCallback(async (oldName: string, newName: string): Promise<void> => {
     try {
       setIsLoading(true);
@@ -162,7 +339,7 @@ export const useDatabaseWorkspaceState = () => {
 
       const workspace = await findWorkspaceByName(oldName);
       if (!workspace) {
-        throw new Error('Workspace not found');
+        throw new Error(`Workspace '${oldName}' not found during rename operation. Verify workspace exists before renaming.`);
       }
       
       await window.electron.ipcRenderer.invoke('/workspace/rename', {
@@ -172,14 +349,23 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to rename workspace '${oldName}' to '${newName}':`, error);
-      setError('Failed to rename workspace');
+      console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${error.message}`);
+      setError(`Failed to rename workspace '${oldName}' to '${newName}': ${error.message}. Check for name conflicts and database permissions.`);
       throw error;
     } finally {
       setIsLoading(false);
     }
   }, [findWorkspaceByName]);
 
+  /**
+   * Retrieves all workspace names ordered by last access time.
+   * Optimized for performance when only names are needed.
+   * 
+   * @returns {Promise<string[]>} Promise resolving to array of workspace names
+   * @example
+   * const names = await getWorkspaceNames();
+   * // ['recent-project', 'older-project', ...]
+   */
   const getWorkspaceNames = useCallback(async (): Promise<string[]> => {
     try {
       if (!window.electron) return [];
@@ -187,11 +373,23 @@ export const useDatabaseWorkspaceState = () => {
       const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list');
       return workspaces.map((w: DatabaseWorkspace) => w.name);
     } catch (error) {
-      console.error('Failed to get workspace names:', error);
+      console.error(`Failed to get workspace names: ${error.message}`);
       return [];
     }
   }, []);
 
+  /**
+   * Imports workspace data from external source (file, backup, etc.).
+   * Creates a new workspace with the imported state.
+   * 
+   * @param {string} name - Name for the imported workspace
+   * @param {WorkspaceState} workspaceData - Workspace state to import
+   * @returns {Promise<void>} Promise that resolves when import completes
+   * @throws {Error} If name conflicts or import operation fails
+   * @example
+   * const importedData = JSON.parse(backupFileContent);
+   * await importWorkspace('imported-project', importedData);
+   */
   const importWorkspace = useCallback(async (name: string, workspaceData: WorkspaceState): Promise<void> => {
     try {
       setIsLoading(true);
@@ -209,14 +407,27 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error('Failed to import workspace:', error);
-      setError('Failed to import workspace');
+      console.error(`Failed to import workspace '${name}': ${error.message}`);
+      setError(`Failed to import workspace '${name}': ${error.message}. Check workspace data format and database permissions.`);
       throw error;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  /**
+   * Exports workspace state for backup or sharing purposes.
+   * Returns the complete workspace state object.
+   * 
+   * @param {string} name - Workspace name to export
+   * @returns {Promise<WorkspaceState | null>} Promise resolving to workspace state or null
+   * @example
+   * const exportData = await exportWorkspace('my-project');
+   * if (exportData) {
+   *   const json = JSON.stringify(exportData, null, 2);
+   *   // Save to file or share
+   * }
+   */
   const exportWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {
     try {
       setIsLoading(true);
@@ -231,29 +442,70 @@ export const useDatabaseWorkspaceState = () => {
       
       return workspace.state;
     } catch (error) {
-      console.error(`Failed to export workspace '${name}':`, error);
-      setError('Failed to export workspace');
+      console.error(`Failed to export workspace '${name}': ${error.message}`);
+      setError(`Failed to export workspace '${name}': ${error.message}. Verify workspace exists and is accessible.`);
       return null;
     } finally {
       setIsLoading(false);
     }
   }, [findWorkspaceByName]);
 
+  /**
+   * Checks if a workspace exists without loading its full data.
+   * Efficient method for existence validation.
+   * 
+   * @param {string} name - Workspace name to check
+   * @returns {Promise<boolean>} Promise resolving to true if workspace exists
+   * @example
+   * if (await doesWorkspaceExist('my-project')) {
+   *   console.log('Workspace exists');
+   * }
+   */
   const doesWorkspaceExist = useCallback(async (name: string): Promise<boolean> => {
     const workspace = await findWorkspaceByName(name);
     return workspace !== null;
   }, [findWorkspaceByName]);
 
+  /**
+   * Retrieves workspace creation timestamp.
+   * 
+   * @param {string} name - Workspace name
+   * @returns {Promise<number | null>} Promise resolving to Unix timestamp or null
+   * @example
+   * const created = await getWorkspaceCreatedTime('my-project');
+   * if (created) {
+   *   console.log('Created:', new Date(created));
+   * }
+   */
   const getWorkspaceCreatedTime = useCallback(async (name: string): Promise<number | null> => {
     const workspace = await findWorkspaceByName(name);
     return workspace ? workspace.createdAt : null;
   }, [findWorkspaceByName]);
 
+  /**
+   * Retrieves workspace last access timestamp.
+   * 
+   * @param {string} name - Workspace name
+   * @returns {Promise<number | null>} Promise resolving to Unix timestamp or null
+   * @example
+   * const accessed = await getWorkspaceLastAccessedTime('my-project');
+   * console.log('Last used:', new Date(accessed));
+   */
   const getWorkspaceLastAccessedTime = useCallback(async (name: string): Promise<number | null> => {
     const workspace = await findWorkspaceByName(name);
     return workspace ? workspace.lastAccessed : null;
   }, [findWorkspaceByName]);
 
+  /**
+   * Permanently deletes all workspaces from the database.
+   * This operation cannot be undone - use with extreme caution.
+   * 
+   * @returns {Promise<void>} Promise that resolves when all workspaces are deleted
+   * @throws {Error} If database operations fail
+   * @example
+   * // WARNING: This deletes ALL workspaces permanently
+   * await clearAllWorkspaces();
+   */
   const clearAllWorkspaces = useCallback(async (): Promise<void> => {
     try {
       setIsLoading(true);
@@ -273,8 +525,8 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error('Failed to clear all workspaces:', error);
-      setError('Failed to clear all workspaces');
+      console.error(`Failed to clear all workspaces: ${error.message}`);
+      setError(`Failed to clear all workspaces: ${error.message}. Check database permissions and try again.`);
       throw error;
     } finally {
       setIsLoading(false);

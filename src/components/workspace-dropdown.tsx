@@ -2,6 +2,7 @@ import { ChevronDown } from 'lucide-react';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
+import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 import { 
   getWorkspaceSortMode, 
   getWorkspaceManualOrder, 
@@ -27,12 +28,14 @@ export interface WorkspaceDropdownRef {
 const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProps>(
   ({ currentWorkspace, toggleWorkspaceModal, containerClassName = "workspace-dropdown", buttonClassName = "dropdown-header" }, ref) => {
   const { getWorkspaceNames, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
+  const { runCancellableOperation } = useCancellableOperation();
   const dropdownRef = useRef<DropdownRef>(null);
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>('recent');
   const [manualOrder, setManualOrder] = useState<string[]>([]);
   const [options, setOptions] = useState<DropdownOption[]>([]);
   const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
   
   // Load sort preferences from database
   useEffect(() => {
@@ -79,18 +82,39 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
     close: () => dropdownRef.current?.close()
   }), []);
 
-  const handleSelectAndLoadWorkspace = async (name: string) => {
-    try {
-      const workspaceData = await loadPersistedWorkspace(name);
-      if (workspaceData) {
-        window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name, workspace: workspaceData } }));
-      } else {
-        console.error(`[WorkspaceDropdown] loadPersistedWorkspace returned null for "${name}". Load failed.`);
-      }
-    } catch (error) {
-      console.error(`[WorkspaceDropdown] Error loading workspace "${name}":`, error);
+  const handleSelectAndLoadWorkspace = useCallback(async (name: string) => {
+    // Prevent concurrent workspace loads
+    if (isLoadingWorkspace) {
+      console.log(`[WorkspaceDropdown] Ignoring workspace load request for "${name}" - already loading`);
+      return;
     }
-  };
+    
+    setIsLoadingWorkspace(true);
+    
+    try {
+      await runCancellableOperation(async (token) => {
+        try {
+          const workspaceData = await loadPersistedWorkspace(name);
+          
+          // Check if cancelled before dispatching event
+          if (token.cancelled) {
+            console.log(`[WorkspaceDropdown] Workspace load cancelled for "${name}"`);
+            return;
+          }
+          
+          if (workspaceData) {
+            window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name, workspace: workspaceData } }));
+          } else {
+            console.error(`[WorkspaceDropdown] loadPersistedWorkspace returned null for "${name}". Load failed.`);
+          }
+        } catch (error) {
+          console.error(`[WorkspaceDropdown] Error loading workspace "${name}":`, error);
+        }
+      });
+    } finally {
+      setIsLoadingWorkspace(false);
+    }
+  }, [runCancellableOperation, loadPersistedWorkspace, isLoadingWorkspace]);
 
   const getWorkspaceOptions = useCallback(async () => {
     const displayNames = new Set(workspaceNames);

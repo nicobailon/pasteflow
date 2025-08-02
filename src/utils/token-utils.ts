@@ -1,4 +1,5 @@
 import { FileData, FileTreeMode, RolePrompt, SelectedFileReference, SystemPrompt } from "../types/file-types";
+import { TOKEN_COUNTING } from '../constants/app-constants';
 
 import { generateAsciiFileTree, getAllDirectories, normalizePath } from "./path-utils";
 
@@ -13,12 +14,12 @@ export const estimateTokenCount = (text: string): number => {
   if (!text) return 0;
   
   try {
-    // Simple estimation: ~4 characters per token on average
-    return Math.ceil(text.length / 4);
+    // Simple estimation using centralized constant
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   } catch (error) {
     console.error("Error estimating token count:", error);
     // Return a safe fallback value
-    return Math.ceil((text?.length || 0) / 4);
+    return Math.ceil((text?.length || 0) / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 };
 

@@ -2,6 +2,7 @@ import { Worker } from 'worker_threads';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
+import { retryWorkerOperation, executeWithRetry, retryUtility, DatabaseErrorType } from './retry-utils.js';
 
 interface WorkerRequest {
   id: string;
@@ -52,6 +53,8 @@ export class AsyncDatabase extends EventEmitter {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
     timeout: NodeJS.Timeout;
+    operation: string;
+    retryCount: number;
   }>();
   private originalWorkerData?: {
     dbPath: string;
@@ -59,51 +62,108 @@ export class AsyncDatabase extends EventEmitter {
   };
   private readonly dbPath: string;
   private readonly options?: AsyncDatabaseOptions;
+  private isRestarting = false;
+  private restartCount = 0;
+  private maxRestarts = 3;
+  private healthCheckInterval?: NodeJS.Timeout;
 
   constructor(dbPath: string, options?: AsyncDatabaseOptions) {
     super();
     this.dbPath = dbPath;
     this.options = options;
     
-    // Create worker thread
-    this.worker = new Worker(
-      path.join(__dirname, 'database-worker.js'),
-      {
-        workerData: { dbPath, ...options }
-      }
-    );
-
-    this.setupWorkerHandlers();
+    // Create worker thread with enhanced error handling
+    this.createWorker();
+    this.setupHealthCheck();
   }
 
-  // Core database operations
+  private createWorker(): void {
+    try {
+      this.worker = new Worker(
+        path.join(__dirname, 'database-worker.js'),
+        {
+          workerData: { dbPath: this.dbPath, ...this.options }
+        }
+      );
+      this.setupWorkerHandlers();
+      console.log('Database worker created successfully');
+    } catch (error) {
+      console.error('Failed to create database worker:', error);
+      throw new Error(`Worker creation failed: ${(error as Error).message}`);
+    }
+  }
+
+  private setupHealthCheck(): void {
+    // Periodic health check every 30 seconds
+    this.healthCheckInterval = setInterval(async () => {
+      try {
+        await this.performHealthCheck();
+      } catch (error) {
+        console.warn('Database worker health check failed:', error);
+        retryUtility.emit('worker:health_check_failed', { error });
+      }
+    }, 30000);
+  }
+
+  private async performHealthCheck(): Promise<void> {
+    try {
+      await this.get('SELECT 1 as health_check', []);
+    } catch (error) {
+      throw new Error(`Health check failed: ${(error as Error).message}`);
+    }
+  }
+
+  // Core database operations with retry support
   async run(sql: string, params?: unknown[]): Promise<RunResult> {
-    return this.sendToWorker('run', { sql, params }) as Promise<RunResult>;
+    return await retryWorkerOperation(async () => {
+      return this.sendToWorker('run', { sql, params }) as Promise<RunResult>;
+    });
   }
 
   async get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined> {
-    return this.sendToWorker('get', { sql, params }) as Promise<T | undefined>;
+    return await retryWorkerOperation(async () => {
+      return this.sendToWorker('get', { sql, params }) as Promise<T | undefined>;
+    });
   }
 
   async all<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
-    return this.sendToWorker('all', { sql, params }) as Promise<T[]>;
+    return await retryWorkerOperation(async () => {
+      return this.sendToWorker('all', { sql, params }) as Promise<T[]>;
+    });
   }
 
   async exec(sql: string): Promise<void> {
-    return this.sendToWorker('exec', { sql }) as Promise<void>;
+    return await retryWorkerOperation(async () => {
+      return this.sendToWorker('exec', { sql }) as Promise<void>;
+    });
   }
 
-  // Transaction support
+  // Enhanced transaction support with retry
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    await this.exec('BEGIN IMMEDIATE');
-    try {
-      const result = await fn();
-      await this.exec('COMMIT');
-      return result;
-    } catch (error) {
-      await this.exec('ROLLBACK');
-      throw error;
-    }
+    return await executeWithRetry(async () => {
+      await this.exec('BEGIN IMMEDIATE');
+      try {
+        const result = await fn();
+        await this.exec('COMMIT');
+        return result;
+      } catch (error) {
+        try {
+          await this.exec('ROLLBACK');
+        } catch (rollbackError) {
+          console.error('Transaction rollback failed:', rollbackError);
+        }
+        throw error;
+      }
+    }, {
+      operation: 'database_transaction',
+      maxRetries: 3,
+      retryableErrors: [
+        'SQLITE_BUSY',
+        'SQLITE_LOCKED',
+        'database is locked',
+        'deadlock'
+      ]
+    });
   }
 
   // Prepared statements
@@ -116,65 +176,156 @@ export class AsyncDatabase extends EventEmitter {
     return new Promise((resolve, reject) => {
       const id = uuidv4();
       
-      // Set timeout for long-running queries
+      // Enhanced timeout with operation-specific durations
+      const timeoutDuration = this.getTimeoutForOperation(method);
       const timeout = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        reject(new Error(`Database operation timed out: ${method}`));
-      }, 30000); // 30 second timeout
+        const pending = this.pendingRequests.get(id);
+        if (pending) {
+          this.pendingRequests.delete(id);
+          const error = new Error(`Database operation timed out after ${timeoutDuration}ms: ${method}`);
+          retryUtility.emit('worker:timeout', { method, id, duration: timeoutDuration });
+          reject(error);
+        }
+      }, timeoutDuration);
 
-      this.pendingRequests.set(id, { resolve, reject, timeout });
+      this.pendingRequests.set(id, { 
+        resolve, 
+        reject, 
+        timeout, 
+        operation: method,
+        retryCount: 0
+      });
       
       const request: WorkerRequest = { id, method, params };
-      this.worker.postMessage(request);
+      
+      try {
+        this.worker.postMessage(request);
+      } catch (error) {
+        this.pendingRequests.delete(id);
+        clearTimeout(timeout);
+        reject(new Error(`Failed to send message to worker: ${(error as Error).message}`));
+      }
     });
   }
 
-  private handleWorkerError(error: Error) {
-    // Reject all pending requests
+  private getTimeoutForOperation(method: string): number {
+    const timeouts: Record<string, number> = {
+      'exec': 60000,        // Schema operations may take longer
+      'run': 30000,         // Standard operations
+      'get': 15000,         // Quick reads
+      'all': 45000,         // Bulk reads
+      'prepare': 10000,     // Statement preparation
+      'stmt_run': 30000,    // Prepared statement execution
+      'stmt_get': 15000,    // Prepared statement reads
+      'stmt_all': 45000,    // Prepared statement bulk reads
+    };
+    
+    return timeouts[method] || 30000; // Default 30 seconds
+  }
+
+  private handleWorkerError(error: Error): void {
+    console.error('Database worker encountered error:', error);
+    
+    const errorType = this.classifyWorkerError(error);
+    retryUtility.emit('worker:error', { error, errorType });
+    
+    // Reject all pending requests with enhanced error information
     for (const [id, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
-      pending.reject(new Error(`Worker terminated: ${error.message}`));
+      const enhancedError = new Error(
+        `Worker failed (${errorType}): ${error.message}. Operation: ${pending.operation}, Retries: ${pending.retryCount}`
+      );
+      pending.reject(enhancedError);
     }
     this.pendingRequests.clear();
     
-    // Attempt to restart worker
-    this.restartWorker();
+    // Attempt to restart worker with backoff
+    this.attemptWorkerRestart(error);
   }
 
-  private async restartWorker() {
-    console.log('Attempting to restart database worker...');
-    try {
-      // Store original worker data if not already stored
-      if (!this.originalWorkerData) {
-        this.originalWorkerData = {
-          dbPath: this.dbPath,
-          options: this.options
-        };
-      }
-      
-      // Terminate existing worker
-      if (this.worker) {
-        await this.worker.terminate();
-      }
-      
-      // Create new worker
-      this.worker = new Worker(
-        path.join(__dirname, 'database-worker.js'),
-        { workerData: this.originalWorkerData }
+  private classifyWorkerError(error: Error): DatabaseErrorType {
+    const message = error.message.toLowerCase();
+    
+    if (message.includes('terminated') || message.includes('exit')) {
+      return DatabaseErrorType.WORKER_TERMINATED;
+    }
+    if (message.includes('timeout')) {
+      return DatabaseErrorType.WORKER_TIMEOUT;
+    }
+    if (message.includes('connection') || message.includes('socket')) {
+      return DatabaseErrorType.CONNECTION_FAILED;
+    }
+    
+    return DatabaseErrorType.UNKNOWN;
+  }
+
+  private async attemptWorkerRestart(originalError: Error): Promise<void> {
+    if (this.isRestarting) {
+      console.log('Worker restart already in progress, skipping...');
+      return;
+    }
+    
+    if (this.restartCount >= this.maxRestarts) {
+      const error = new Error(
+        `Worker restart limit exceeded (${this.maxRestarts}). Original error: ${originalError.message}`
       );
-      
-      // Re-setup event handlers
-      this.setupWorkerHandlers();
+      retryUtility.emit('worker:restart_limit_exceeded', { originalError, restartCount: this.restartCount });
+      throw error;
+    }
+    
+    this.isRestarting = true;
+    this.restartCount++;
+    
+    console.log(`Attempting worker restart ${this.restartCount}/${this.maxRestarts}...`);
+    
+    try {
+      await executeWithRetry(async () => {
+        await this.restartWorker();
+      }, {
+        operation: 'worker_restart',
+        maxRetries: 2,
+        baseDelay: 1000 * this.restartCount // Exponential backoff
+      });
       
       console.log('Database worker restarted successfully');
+      retryUtility.emit('worker:restarted', { restartCount: this.restartCount });
+      
     } catch (error) {
       console.error('Failed to restart worker:', error);
+      retryUtility.emit('worker:restart_failed', { error, restartCount: this.restartCount });
       throw new Error(`Worker restart failed: ${(error as Error).message}`);
+    } finally {
+      this.isRestarting = false;
     }
   }
 
-  private setupWorkerHandlers() {
-    // Handle worker messages
+  private async restartWorker(): Promise<void> {
+    // Store original worker data if not already stored
+    if (!this.originalWorkerData) {
+      this.originalWorkerData = {
+        dbPath: this.dbPath,
+        options: this.options
+      };
+    }
+    
+    // Terminate existing worker
+    if (this.worker) {
+      try {
+        await this.worker.terminate();
+      } catch (terminateError) {
+        console.warn('Warning: Failed to cleanly terminate worker:', terminateError);
+      }
+    }
+    
+    // Create new worker
+    this.createWorker();
+    
+    // Verify worker is responsive
+    await this.performHealthCheck();
+  }
+
+  private setupWorkerHandlers(): void {
+    // Handle worker messages with enhanced logging
     this.worker.on('message', (response: WorkerResponse) => {
       const pending = this.pendingRequests.get(response.id);
       if (pending) {
@@ -182,29 +333,121 @@ export class AsyncDatabase extends EventEmitter {
         this.pendingRequests.delete(response.id);
         
         if (response.error) {
-          pending.reject(new Error(response.error));
+          const error = new Error(response.error);
+          retryUtility.emit('worker:operation_failed', {
+            operation: pending.operation,
+            error: response.error,
+            retryCount: pending.retryCount
+          });
+          pending.reject(error);
         } else {
+          retryUtility.emit('worker:operation_success', {
+            operation: pending.operation,
+            retryCount: pending.retryCount
+          });
           pending.resolve(response.result);
         }
+      } else {
+        console.warn('Received response for unknown request ID:', response.id);
       }
     });
 
-    // Handle worker errors
+    // Handle worker errors with enhanced reporting
     this.worker.on('error', (error) => {
       console.error('Worker error:', error);
       this.handleWorkerError(error);
     });
     
-    // Handle worker exit
+    // Handle worker exit with restart logic
     this.worker.on('exit', (code) => {
-      if (code !== 0) {
-        console.error(`Worker exited with code ${code}`);
+      console.log(`Worker exited with code ${code}`);
+      
+      if (code !== 0 && !this.isRestarting) {
+        const error = new Error(`Worker exited unexpectedly with code ${code}`);
+        this.handleWorkerError(error);
       }
+      
+      retryUtility.emit('worker:exit', { code, isRestarting: this.isRestarting });
+    });
+    
+    // Handle worker online event
+    this.worker.on('online', () => {
+      console.log('Database worker is online');
+      retryUtility.emit('worker:online', { restartCount: this.restartCount });
     });
   }
 
-  async close() {
-    await this.worker.terminate();
+  async close(): Promise<void> {
+    console.log('Closing database worker...');
+    
+    // Clear health check interval
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = undefined;
+    }
+    
+    // Reject all pending requests
+    for (const [id, pending] of this.pendingRequests) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error('Database worker is closing'));
+    }
+    this.pendingRequests.clear();
+    
+    // Terminate worker with retry
+    if (this.worker) {
+      try {
+        await executeWithRetry(async () => {
+          await this.worker.terminate();
+        }, {
+          operation: 'worker_close',
+          maxRetries: 2,
+          baseDelay: 1000
+        });
+      } catch (error) {
+        console.warn('Failed to cleanly terminate worker:', error);
+      }
+    }
+    
+    retryUtility.emit('worker:closed', { restartCount: this.restartCount });
+    console.log('Database worker closed');
+  }
+
+  // Monitoring and diagnostics
+  getWorkerStats(): {
+    pendingRequests: number;
+    restartCount: number;
+    isRestarting: boolean;
+    maxRestarts: number;
+  } {
+    return {
+      pendingRequests: this.pendingRequests.size,
+      restartCount: this.restartCount,
+      isRestarting: this.isRestarting,
+      maxRestarts: this.maxRestarts
+    };
+  }
+
+  async getStatus(): Promise<{
+    healthy: boolean;
+    workerStats: ReturnType<typeof this.getWorkerStats>;
+    lastHealthCheck?: Date;
+  }> {
+    let healthy = false;
+    let lastHealthCheck: Date | undefined;
+    
+    try {
+      await this.performHealthCheck();
+      healthy = true;
+      lastHealthCheck = new Date();
+    } catch (error) {
+      console.warn('Health check failed during status check:', error);
+    }
+    
+    return {
+      healthy,
+      workerStats: this.getWorkerStats(),
+      lastHealthCheck
+    };
   }
 }
 

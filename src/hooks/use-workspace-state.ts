@@ -30,7 +30,7 @@ export const useWorkspaceState = () => {
         const validation = validator.validatePath(workspace.selectedFolder);
         
         if (!validation.valid) {
-          throw new Error(`Cannot save workspace with invalid path: ${validation.reason}`);
+          throw new Error(`Cannot save workspace '${name}' with invalid path '${workspace.selectedFolder}': ${validation.reason}. Choose a valid directory path.`);
         }
         
         // Update workspace with sanitized path
@@ -46,8 +46,8 @@ export const useWorkspaceState = () => {
           setCurrentWorkspace(name);
         })
         .catch(error => {
-          console.error(`Failed to save workspace '${name}':`, error);
-          throw error;
+          console.error(`Failed to save workspace '${name}': ${error.message}`);
+          throw new Error(`Failed to save workspace '${name}': ${error.message}. Check workspace data and database permissions.`);
         });
     } catch (error) {
       throw error;
@@ -78,7 +78,7 @@ export const useWorkspaceState = () => {
         }
         return null;
       } catch (error) {
-        console.error(`Failed to load workspace '${name}':`, error);
+        console.error(`Failed to load workspace '${name}': ${error.message}`);
         return null;
       }
     });
@@ -96,8 +96,8 @@ export const useWorkspaceState = () => {
         setCurrentWorkspace(null);
       }
     } catch (error) {
-      console.error(`Failed to delete workspace '${name}':`, error);
-      throw error;
+      console.error(`Failed to delete workspace '${name}': ${error.message}`);
+      throw new Error(`Failed to delete workspace '${name}': ${error.message}. Check database permissions and workspace references.`);
     }
   }, [db, currentWorkspace, setCurrentWorkspace]);
 
@@ -122,7 +122,7 @@ export const useWorkspaceState = () => {
       
       return true;
     } catch (error) {
-      console.error(`Failed to rename workspace '${oldName}' to '${newName}':`, error);
+      console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${error.message}`);
       return false;
     }
   }, [db, currentWorkspace, setCurrentWorkspace]);
@@ -134,28 +134,48 @@ export const useWorkspaceState = () => {
       // Sort by last accessed time (database already returns them sorted)
       return names;
     } catch (error) {
-      console.error('Failed to get workspace names:', error);
+      console.error(`Failed to get workspace names: ${error.message}`);
       return [];
     }
   }, [db]);
 
   // Export/Import functionality
   const exportWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {
-    return db.exportWorkspace(name);
+    try {
+      return await db.exportWorkspace(name);
+    } catch (error) {
+      console.error(`Failed to export workspace '${name}': ${error.message}`);
+      throw new Error(`Failed to export workspace '${name}': ${error.message}. Verify workspace exists and is accessible.`);
+    }
   }, [db]);
 
   const importWorkspace = useCallback(async (name: string, workspaceData: WorkspaceState): Promise<void> => {
-    return db.importWorkspace(name, workspaceData);
+    try {
+      return await db.importWorkspace(name, workspaceData);
+    } catch (error) {
+      console.error(`Failed to import workspace '${name}': ${error.message}`);
+      throw new Error(`Failed to import workspace '${name}': ${error.message}. Check workspace data format and database permissions.`);
+    }
   }, [db]);
 
   // Utility methods
   const doesWorkspaceExist = useCallback(async (name: string): Promise<boolean> => {
-    return db.doesWorkspaceExist(name);
+    try {
+      return await db.doesWorkspaceExist(name);
+    } catch (error) {
+      console.error(`Failed to check if workspace '${name}' exists: ${error.message}`);
+      return false;
+    }
   }, [db]);
 
   const clearAllWorkspaces = useCallback(async (): Promise<void> => {
-    await db.clearAllWorkspaces();
-    setCurrentWorkspace(null);
+    try {
+      await db.clearAllWorkspaces();
+      setCurrentWorkspace(null);
+    } catch (error) {
+      console.error(`Failed to clear all workspaces: ${error.message}`);
+      throw new Error(`Failed to clear all workspaces: ${error.message}. Check database permissions and try again.`);
+    }
   }, [db, setCurrentWorkspace]);
 
   return { 

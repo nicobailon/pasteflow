@@ -1,3 +1,7 @@
+// Re-export centralized constants
+export * from './constants/app-constants';
+export * from './constants/workspace-drag-constants';
+
 export const STORAGE_KEYS = {
   SELECTED_FOLDER: 'pasteflow.selected_folder',
   SELECTED_FILES: 'pasteflow.selected_files',

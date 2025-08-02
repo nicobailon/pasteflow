@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
+import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 import { useWorkspaceDrag } from '../hooks/use-workspace-drag';
 import { useWorkspaceSelection } from '../hooks/use-workspace-selection';
 import { WorkspaceState } from '../types/file-types';
@@ -42,10 +43,12 @@ const WorkspaceModal = ({
     renameWorkspace: renamePersistedWorkspace,
     getWorkspaceNames 
   } = useWorkspaceState();
+  const { runCancellableOperation } = useCancellableOperation();
   const [name, setName] = useState("");
   const [newName, setNewName] = useState("");
   const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
   const [renamingWsName, setRenamingWsName] = useState<string | null>(null);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
@@ -334,30 +337,52 @@ const WorkspaceModal = ({
     }
   };
 
-  const handleLoad = async (wsName: string) => {
+  const handleLoad = useCallback(async (wsName: string) => {
     console.log(`[WorkspaceModal.handleLoad] Attempting to load workspace: ${wsName}`);
-    try {
-      const workspaceData = await loadPersistedWorkspace(wsName);
-      if (workspaceData) {
-        console.log(`[WorkspaceModal.handleLoad] Workspace "${wsName}" loaded successfully via hook. Dispatching 'workspaceLoaded' event.`);
-        window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name: wsName, workspace: workspaceData } }));
-        onClose();
-        console.log(`[WorkspaceModal.handleLoad] Load process complete for "${wsName}". Modal closed.`);
-      } else {
-        console.error(`[WorkspaceModal.handleLoad] loadPersistedWorkspace returned null for "${wsName}". Load failed.`);
-        // No alert - workspace has been auto-deleted if corrupted
-        refreshWorkspaceList().catch(error => 
-        console.error('[WorkspaceModal] Error refreshing workspace list:', error)
-      ); // Refresh the list to remove the corrupted workspace
-      }
-    } catch (error) {
-      console.error(`[WorkspaceModal.handleLoad] Error during loadPersistedWorkspace call for "${wsName}":`, error);
-      // No alert - just log the error
-      refreshWorkspaceList().catch(error => 
-        console.error('[WorkspaceModal] Error refreshing workspace list:', error)
-      ); // Refresh the list to remove the corrupted workspace
+    
+    // Prevent concurrent workspace loads
+    if (isLoadingWorkspace) {
+      console.log(`[WorkspaceModal.handleLoad] Ignoring workspace load request for "${wsName}" - already loading`);
+      return;
     }
-  };
+    
+    setIsLoadingWorkspace(true);
+    
+    try {
+      await runCancellableOperation(async (token) => {
+        try {
+          const workspaceData = await loadPersistedWorkspace(wsName);
+          
+          // Check if cancelled before proceeding
+          if (token.cancelled) {
+            console.log(`[WorkspaceModal.handleLoad] Workspace load cancelled for "${wsName}"`);
+            return;
+          }
+          
+          if (workspaceData) {
+            console.log(`[WorkspaceModal.handleLoad] Workspace "${wsName}" loaded successfully via hook. Dispatching 'workspaceLoaded' event.`);
+            window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name: wsName, workspace: workspaceData } }));
+            onClose();
+            console.log(`[WorkspaceModal.handleLoad] Load process complete for "${wsName}". Modal closed.`);
+          } else {
+            console.error(`[WorkspaceModal.handleLoad] loadPersistedWorkspace returned null for "${wsName}". Load failed.`);
+            // No alert - workspace has been auto-deleted if corrupted
+            refreshWorkspaceList().catch(error => 
+            console.error('[WorkspaceModal] Error refreshing workspace list:', error)
+          ); // Refresh the list to remove the corrupted workspace
+          }
+        } catch (error) {
+          console.error(`[WorkspaceModal.handleLoad] Error during loadPersistedWorkspace call for "${wsName}":`, error);
+          // No alert - just log the error
+          refreshWorkspaceList().catch(error => 
+            console.error('[WorkspaceModal] Error refreshing workspace list:', error)
+          ); // Refresh the list to remove the corrupted workspace
+        }
+      });
+    } finally {
+      setIsLoadingWorkspace(false);
+    }
+  }, [runCancellableOperation, loadPersistedWorkspace, onClose, refreshWorkspaceList, isLoadingWorkspace]);
  
   const handleRenameConfirm = async () => {
     if (!renamingWsName || !newName.trim() || renamingWsName === newName.trim()) {

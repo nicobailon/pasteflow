@@ -16,7 +16,11 @@ const {
   WorkspaceTouchSchema,
   GetPreferenceSchema,
   SetPreferenceSchema,
-  FileContentRequestSchema
+  FileContentRequestSchema,
+  CancelFileLoadingSchema,
+  OpenDocsSchema,
+  FolderSelectionSchema,
+  FileListRequestSchema
 } = require("./src/main/utils/input-validation.js");
 
 // Add error handling for console operations to prevent EIO errors
@@ -204,8 +208,11 @@ const BINARY_EXTENSIONS = new Set([
   ...(binaryExtensions || []) // Add any additional binary extensions from excluded-files.js
 ]);
 
-// Max file size to read (5MB)
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+// Import centralized constants
+const { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } = require('./src/constants/app-constants.js');
+
+// Max file size to read
+const MAX_FILE_SIZE = FILE_PROCESSING.MAX_FILE_SIZE_BYTES;
 
 // Special file extensions to skip (not even try to read)
 const SPECIAL_FILE_EXTENSIONS = new Set(['.asar', '.bin', '.dll', '.exe', '.so', '.dylib']);
@@ -231,7 +238,7 @@ function isLikelyBinaryContent(content, filePath) {
   
   // Count control/binary characters
   let controlCharCount = 0;
-  const threshold = 50; // Same as the original regex threshold
+  const threshold = ELECTRON.BINARY_DETECTION.CONTROL_CHAR_THRESHOLD;
   
   for (let i = 0; i < content.length; i++) {
     if (isControlOrBinaryChar(content.codePointAt(i))) {
@@ -254,8 +261,8 @@ function isSpecialFile(filePath) {
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: ELECTRON.WINDOW.WIDTH,
+    height: ELECTRON.WINDOW.HEIGHT,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -299,7 +306,7 @@ function createWindow() {
   // In production, load from built files
   if (isDev) {
     // Use the URL provided by the dev script, or fall back to default
-    const startUrl = process.env.ELECTRON_START_URL || "http://localhost:3000";
+    const startUrl = process.env.ELECTRON_START_URL || ELECTRON.DEV_SERVER.URL;
     // Wait a moment for dev server to be ready
     setTimeout(() => {
       // Clear any cached data to prevent redirection loops
@@ -309,9 +316,9 @@ function createWindow() {
         if (mainWindow.webContents.isDevToolsOpened()) {
           mainWindow.webContents.closeDevTools();
         }
-        mainWindow.webContents.openDevTools({ mode: "detach" });
+        mainWindow.webContents.openDevTools({ mode: ELECTRON.WINDOW.DEVTOOLS_MODE });
       });
-    }, 1000);
+    }, ELECTRON.WINDOW.DEV_RELOAD_DELAY_MS);
   } else {
     const indexPath = path.join(__dirname, "dist", "index.html");
 
@@ -331,7 +338,7 @@ function createWindow() {
 
       if (isDev) {
         const retryUrl =
-          process.env.ELECTRON_START_URL || "http://localhost:3000";
+          process.env.ELECTRON_START_URL || ELECTRON.DEV_SERVER.URL;
         // Clear cache before retrying
         mainWindow.webContents.session.clearCache().then(() => {
           setTimeout(() => mainWindow.loadURL(retryUrl), 1000);
@@ -375,7 +382,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", async () => {
   // Clean up database connection
-  if (database) {
+  if (database && database.initialized) {
     try {
       await database.close();
       console.log('Database closed successfully');
@@ -393,6 +400,14 @@ ipcMain.on("open-folder", async (event) => {
   
   if (!validation.success) {
     console.warn(`Rate limit exceeded for open-folder from sender: ${event.sender.id}`);
+    return;
+  }
+  
+  // Validate using schema (no input parameters but ensures consistent validation pattern)
+  try {
+    validateInput(FolderSelectionSchema, {});
+  } catch (error) {
+    console.error('Validation error for open-folder:', error.message);
     return;
   }
   
@@ -471,8 +486,8 @@ function sanitizeTextForTokenCount(text) {
 function countTokens(text) {
   // Simple fallback implementation if encoder fails
   if (!encoder) {
-    // Very rough estimate: ~4 characters per token on average
-    return Math.ceil(text.length / 4);
+    // Very rough estimate using centralized constant
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 
   try {
@@ -490,7 +505,7 @@ function countTokens(text) {
   } catch (error) {
     console.error("Error counting tokens:", error);
     // Fallback to character-based estimation on error
-    return Math.ceil(text.length / 4);
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 }
 
@@ -578,14 +593,26 @@ function processDirectory(dirPath, folderPath, depth, ignoreFilter) {
 
 // Handle file list request
 ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = [], requestId = null) => {
-  // SECURITY: Validate input parameters
+  // SECURITY: Validate input parameters using both rate limiting and schema validation
   const validation = ipcValidator.validate('request-file-list', { folderPath, exclusionPatterns }, event);
   
   if (!validation.success) {
-    console.warn(`Input validation failed for request-file-list: ${validation.error}`);
+    console.warn(`Rate limit validation failed for request-file-list: ${validation.error}`);
     event.sender.send("file-processing-status", {
       status: "error",
       message: validation.error
+    });
+    return;
+  }
+  
+  // Additional schema validation
+  try {
+    validateInput(FileListRequestSchema, { folderPath, exclusionPatterns, requestId });
+  } catch (error) {
+    console.warn(`Schema validation failed for request-file-list: ${error.message}`);
+    event.sender.send("file-processing-status", {
+      status: "error",
+      message: error.message
     });
     return;
   }
@@ -752,9 +779,26 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 });
 
 // Add handler for cancel request
-ipcMain.on("cancel-file-loading", () => {
-  fileLoadingCancelled = true;
-  currentRequestId = null; // Clear request ID when canceling
+ipcMain.on("cancel-file-loading", (event, requestId = null) => {
+  // SECURITY: Apply rate limiting
+  const validation = ipcValidator.validate('cancel-file-loading', { requestId }, event);
+  
+  if (!validation.success) {
+    console.warn(`Rate limit exceeded for cancel-file-loading from sender: ${event.sender.id}`);
+    return;
+  }
+  
+  try {
+    // Validate input if requestId is provided
+    if (requestId !== null) {
+      validateInput(CancelFileLoadingSchema, { requestId });
+    }
+    
+    fileLoadingCancelled = true;
+    currentRequestId = null; // Clear request ID when canceling
+  } catch (error) {
+    console.error('Invalid input for cancel-file-loading:', error.message);
+  }
 });
 
 // Check if a file should be excluded by default, using glob matching
@@ -769,18 +813,24 @@ function shouldExcludeByDefault(filePath, rootDir) {
 
 // Add a new IPC handler for opening documentation
 ipcMain.on('open-docs', (event, docName) => {
-  // SECURITY: Validate and sanitize document name to prevent path injection
-  if (!docName || typeof docName !== 'string') {
-    console.warn('Invalid document name provided to open-docs');
+  // SECURITY: Apply rate limiting
+  const validation = ipcValidator.validate('open-docs', { docName }, event);
+  
+  if (!validation.success) {
+    console.warn(`Rate limit exceeded for open-docs from sender: ${event.sender.id}`);
     return;
   }
   
-  // Only allow specific document formats and remove any path traversal
-  const sanitizedDocName = path.basename(docName);
-  if (!/^[a-zA-Z0-9._-]+\.(md|txt|pdf)$/i.test(sanitizedDocName)) {
-    console.warn(`Invalid document format requested: ${docName}`);
+  try {
+    // Validate input using schema
+    validateInput(OpenDocsSchema, { docName });
+  } catch (error) {
+    console.warn('Invalid input for open-docs:', error.message);
     return;
   }
+  
+  // Extract sanitized document name from validation
+  const sanitizedDocName = path.basename(docName);
   
   // Path to the documentation file - only allow files in docs directory
   const docPath = path.join(__dirname, 'docs', sanitizedDocName);
@@ -853,7 +903,7 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
 ipcMain.handle('/workspace/list', async () => {
   try {
     // Use database if available
-    if (database) {
+    if (database && database.initialized) {
       return await database.listWorkspaces();
     }
     
@@ -883,7 +933,7 @@ ipcMain.handle('/workspace/create', async (event, params) => {
     const { name, folderPath, state } = validated;
     
     // Use database if available
-    if (database) {
+    if (database && database.initialized) {
       const workspace = await database.createWorkspace(name, folderPath, state);
       return { success: true, workspace };
     }
@@ -915,7 +965,7 @@ ipcMain.handle('/workspace/load', async (event, params) => {
     const validated = validateInput(WorkspaceLoadSchema, params);
     const { id } = validated;
     // Use database if available
-    if (database) {
+    if (database && database.initialized) {
       const workspace = await database.getWorkspace(id);
       if (!workspace) {
         throw new Error('Workspace not found');
@@ -950,7 +1000,7 @@ ipcMain.handle('/workspace/update', async (event, params) => {
     const validated = validateInput(WorkspaceUpdateSchema, params);
     const { id, name, folderPath, state } = validated;
     // Use database if available
-    if (database) {
+    if (database && database.initialized) {
       // Try to find workspace by id first, then by name
       let workspace = null;
       if (id) {
@@ -993,7 +1043,7 @@ ipcMain.handle('/workspace/touch', async (event, params) => {
     const validated = validateInput(WorkspaceTouchSchema, params);
     const { id, name } = validated;
     // Use database if available
-    if (database) {
+    if (database && database.initialized) {
       // Try to find workspace by id first, then by name
       let workspace = null;
       if (id) {
@@ -1034,7 +1084,7 @@ ipcMain.handle('/workspace/delete', async (event, params) => {
     const validated = validateInput(WorkspaceDeleteSchema, params);
     const { name } = validated;
     // Use database if available
-    if (database) {
+    if (database && database.initialized) {
       await database.deleteWorkspace(name);
       return { success: true };
     }
@@ -1054,7 +1104,7 @@ ipcMain.handle('/workspace/rename', async (event, params) => {
     const validated = validateInput(WorkspaceRenameSchema, params);
     const { oldName, newName } = validated;
     // Use database if available
-    if (database) {
+    if (database && database.initialized) {
       await database.renameWorkspace(oldName, newName);
       return { success: true };
     }
@@ -1098,8 +1148,8 @@ ipcMain.handle('/prefs/get', async (event, params) => {
       return null; // Return null for invalid keys
     }
     
-    // Use database if available
-    if (database) {
+    // Use database if available and initialized
+    if (database && database.initialized) {
       const value = await database.getPreference(key);
       return value !== undefined ? value : null;
     }
@@ -1130,7 +1180,7 @@ ipcMain.handle('/prefs/set', async (event, params) => {
     }
     
     // Use database if available
-    if (database) {
+    if (database && database.initialized) {
       await database.setPreference(key, value);
       return true;
     }

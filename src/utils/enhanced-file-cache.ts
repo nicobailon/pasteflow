@@ -7,6 +7,8 @@ interface CacheEntry {
   isCompressed?: boolean;
 }
 
+import { CACHE } from '../constants/app-constants';
+
 interface MemoryAwareCacheConfig {
   maxMemoryMB: number;
   maxEntries: number;
@@ -32,11 +34,11 @@ export class MemoryAwareFileCache {
 
   constructor(config?: Partial<MemoryAwareCacheConfig>) {
     this.config = {
-      maxMemoryMB: 256,
-      maxEntries: 1000,
-      maxFileSizeMB: 10,
-      ttlMinutes: 30,
-      compressionThreshold: 100 * 1024, // 100KB
+      maxMemoryMB: CACHE.DEFAULT.MAX_MEMORY_MB,
+      maxEntries: CACHE.DEFAULT.MAX_ENTRIES,
+      maxFileSizeMB: CACHE.DEFAULT.MAX_FILE_SIZE_MB,
+      ttlMinutes: CACHE.DEFAULT.TTL_MINUTES,
+      compressionThreshold: CACHE.DEFAULT.COMPRESSION_THRESHOLD_BYTES,
       ...config
     };
   }
@@ -237,28 +239,28 @@ export class MemoryAwareFileCache {
   }
 }
 
-// Configuration profiles for different environments
+// Use centralized cache profiles from constants  
 const CACHE_PROFILES = {
   development: {
-    maxMemoryMB: 128,
-    maxEntries: 500,
-    maxFileSizeMB: 5,
-    ttlMinutes: 15,
-    compressionThreshold: 50 * 1024 // 50KB
+    maxMemoryMB: CACHE.PROFILES.DEVELOPMENT.MAX_MEMORY_MB,
+    maxEntries: CACHE.PROFILES.DEVELOPMENT.MAX_ENTRIES,
+    maxFileSizeMB: CACHE.PROFILES.DEVELOPMENT.MAX_FILE_SIZE_MB,
+    ttlMinutes: CACHE.PROFILES.DEVELOPMENT.TTL_MINUTES,
+    compressionThreshold: CACHE.PROFILES.DEVELOPMENT.COMPRESSION_THRESHOLD_BYTES
   },
   production: {
-    maxMemoryMB: 512,
-    maxEntries: 2000,
-    maxFileSizeMB: 20,
-    ttlMinutes: 60,
-    compressionThreshold: 100 * 1024 // 100KB
+    maxMemoryMB: CACHE.PROFILES.PRODUCTION.MAX_MEMORY_MB,
+    maxEntries: CACHE.PROFILES.PRODUCTION.MAX_ENTRIES,
+    maxFileSizeMB: CACHE.PROFILES.PRODUCTION.MAX_FILE_SIZE_MB,
+    ttlMinutes: CACHE.PROFILES.PRODUCTION.TTL_MINUTES,
+    compressionThreshold: CACHE.PROFILES.PRODUCTION.COMPRESSION_THRESHOLD_BYTES
   },
   electron: {
-    maxMemoryMB: 1024,
-    maxEntries: 5000,
-    maxFileSizeMB: 50,
-    ttlMinutes: 120,
-    compressionThreshold: 200 * 1024 // 200KB
+    maxMemoryMB: CACHE.PROFILES.ELECTRON.MAX_MEMORY_MB,
+    maxEntries: CACHE.PROFILES.ELECTRON.MAX_ENTRIES,
+    maxFileSizeMB: CACHE.PROFILES.ELECTRON.MAX_FILE_SIZE_MB,
+    ttlMinutes: CACHE.PROFILES.ELECTRON.TTL_MINUTES,
+    compressionThreshold: CACHE.PROFILES.ELECTRON.COMPRESSION_THRESHOLD_BYTES
   }
 };
 

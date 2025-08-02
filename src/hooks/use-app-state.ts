@@ -21,6 +21,7 @@ import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
 import { useTokenCounter } from './use-token-counter';
+import { useCancellableOperation, CancellationToken } from './use-cancellable-operation';
 
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
@@ -125,6 +126,7 @@ const useAppState = () => {
   const modalState = useModalState();
   const docState = useDocState();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace, getWorkspaceNames } = useWorkspaceState();
+  const { runCancellableOperation } = useCancellableOperation();
   
   // Extract specific functions from fileSelection to avoid dependency on the whole object
   const clearSelectedFiles = fileSelection.clearSelectedFiles;
@@ -1095,23 +1097,42 @@ const useAppState = () => {
   }, [currentWorkspace, saveWorkspace]);
 
   const loadWorkspace = useCallback(async (name: string) => {
-    try {
-      const workspaceData = await loadPersistedWorkspace(name);
-      
-      if (workspaceData) {
-          // Ensure we have the folder path before applying
-          if (workspaceData.selectedFolder) {
-          } else {
-              console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
-          }
-          applyWorkspaceData(name, workspaceData);
-      } else {
-          console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
+    const result = await runCancellableOperation(async (token) => {
+      try {
+        const workspaceData = await loadPersistedWorkspace(name);
+        
+        // Check if cancelled before proceeding
+        if (token.cancelled) {
+          console.log(`[useAppState.loadWorkspace] Workspace load cancelled for "${name}"`);
+          return null;
+        }
+        
+        if (workspaceData) {
+            // Ensure we have the folder path before applying
+            if (workspaceData.selectedFolder) {
+            } else {
+                console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
+            }
+            
+            // Check again if cancelled before applying data
+            if (token.cancelled) {
+              console.log(`[useAppState.loadWorkspace] Workspace load cancelled before applying data for "${name}"`);
+              return null;
+            }
+            
+            applyWorkspaceData(name, workspaceData);
+        } else {
+            console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
+        }
+        return workspaceData;
+      } catch (error) {
+        console.error(`[useAppState.loadWorkspace] Error loading workspace "${name}":`, error);
+        return null;
       }
-    } catch (error) {
-      console.error(`[useAppState.loadWorkspace] Error loading workspace "${name}":`, error);
-    }
-  }, [loadPersistedWorkspace, applyWorkspaceData]);
+    });
+    
+    return result;
+  }, [loadPersistedWorkspace, applyWorkspaceData, runCancellableOperation]);
 
   // Clean up selected files when workspace changes
   useEffect(() => {

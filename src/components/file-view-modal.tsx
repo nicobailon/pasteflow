@@ -7,6 +7,7 @@ import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/pris
 import { useTheme } from '../context/theme-context';
 import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
 import { useCancellableOperation } from '../hooks/use-cancellable-operation';
+import { TOKEN_COUNTING, UI } from '../constants/app-constants';
 
 // Map file extensions to language identifiers for syntax highlighting
 const getLanguageFromPath = (filePath: string): string => {
@@ -86,8 +87,8 @@ const FileViewModal = ({
     if (!content) return 0;
     
     // Fast path for short content
-    if (content.length < 100) {
-      return Math.ceil(content.length / 4);
+    if (content.length < TOKEN_COUNTING.SMALL_CONTENT_THRESHOLD) {
+      return Math.ceil(content.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
     }
     
     // More accurate token estimation for longer content
@@ -96,13 +97,13 @@ const FileViewModal = ({
     const charCount = content.length;
     
     // Combine word and character metrics for a better estimation
-    // GPT models typically use ~1.3 tokens per word
+    // GPT models typically use centralized ratio tokens per word
     // Adjust estimation based on special chars density
     const specialChars = content.replace(/[\d\sA-Za-z]/g, '').length;
     const specialCharRatio = specialChars / charCount;
     
     // Apply correction factor based on code characteristics
-    return Math.ceil(wordCount * 1.3 * (1 + specialCharRatio));
+    return Math.ceil(wordCount * TOKEN_COUNTING.WORD_TO_TOKEN_RATIO * (1 + specialCharRatio));
   }, []);
   
   // Find the file in allFiles when filePath changes and load content if needed
@@ -189,7 +190,7 @@ const FileViewModal = ({
     if (selectedLines.length === 0) return false;
     
     // For small arrays, linear scan is faster than binary search
-    if (selectedLines.length <= 3) {
+    if (selectedLines.length <= UI.MODAL.BINARY_SEARCH_THRESHOLD) {
       return selectedLines.some((range: LineRange) => 
         lineNumber >= range.start && lineNumber <= range.end
       );
@@ -337,7 +338,7 @@ const FileViewModal = ({
     let element = (node instanceof Element) ? node : node.parentElement;
     if (!element) return null;
     
-    const MAX_DEPTH = 3;
+    const MAX_DEPTH = UI.MODAL.MAX_DOM_DEPTH;
     let depth = 0;
     
     while (element && element !== containerRef.current && depth < MAX_DEPTH) {
@@ -412,7 +413,7 @@ const FileViewModal = ({
     
     let current = element;
     let traversalDepth = 0;
-    const MAX_DEPTH = 3;
+    const MAX_DEPTH = UI.MODAL.MAX_DOM_DEPTH;
     
     while (current && current !== containerRef.current && traversalDepth < MAX_DEPTH) {
       traversalDepth++;

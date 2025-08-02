@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS, FILE_PROCESSING } from '../constants';
 import { FileData, LineRange, SelectedFileReference } from '../types/file-types';
 import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/folder-selection-index';
 import { createDirectorySelectionCache, type DirectorySelectionCache } from '../utils/selection-cache';
@@ -251,7 +251,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           return next;
         });
         optimisticTimeoutsRef.current.delete(folderPath);
-      }, 500); // Increased from 100ms to 500ms for better stability
+      }, FILE_PROCESSING.DEBOUNCE_DELAY_MS); // Using centralized debounce delay for better stability
       
       optimisticTimeoutsRef.current.set(folderPath, timeout);
     }
