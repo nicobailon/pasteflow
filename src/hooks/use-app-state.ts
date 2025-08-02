@@ -132,6 +132,7 @@ const useAppState = () => {
   const clearSelectedFiles = fileSelection.clearSelectedFiles;
   const setSelectionState = fileSelection.setSelectionState;
   const cleanupStaleSelections = fileSelection.cleanupStaleSelections;
+  const validateSelectedFilesExist = fileSelection.validateSelectedFilesExist;
   const selectedFiles = fileSelection.selectedFiles;
   
   // Token counter hook - always enabled
@@ -1036,7 +1037,8 @@ const useAppState = () => {
           setCurrentWorkspace,
           persistWorkspace,
           getWorkspaceNames,
-          selectedFolderRef.current
+          selectedFolderRef.current,
+          validateSelectedFilesExist
         );
         
         // Dispatch a custom event when handlers are set up

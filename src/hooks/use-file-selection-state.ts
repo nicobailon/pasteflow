@@ -76,6 +76,36 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     };
   }, []);
 
+  // Validate selected files exist when allFiles changes
+  useEffect(() => {
+    // Skip validation if no files are loaded yet
+    if (!allFiles.length || !selectedFiles.length) return;
+    
+    // Create a Set of all current file paths for O(1) lookup
+    const existingFilePaths = new Set(allFiles.map(f => f.path));
+    
+    // Check if any selected files no longer exist
+    const hasStaleSelections = selectedFiles.some(selected => !existingFilePaths.has(selected.path));
+    
+    if (hasStaleSelections) {
+      // Use a small delay to batch potential multiple updates
+      const timeoutId = setTimeout(() => {
+        setSelectedFiles(prev => {
+          const validSelections = prev.filter(selected => {
+            const exists = existingFilePaths.has(selected.path);
+            if (!exists) {
+              console.log(`Removing stale selection after file removal: ${selected.path}`);
+            }
+            return exists;
+          });
+          return validSelections;
+        });
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [allFiles, selectedFiles, setSelectedFiles]);
+
   // Clean up files outside current workspace
   const cleanupStaleSelections = useCallback(() => {
     if (currentWorkspacePath) {
@@ -85,6 +115,31 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       });
     }
   }, [currentWorkspacePath, setSelectedFiles]);
+
+  // Validate selected files still exist in the file system
+  const validateSelectedFilesExist = useCallback(() => {
+    if (!allFiles.length) return;
+    
+    // Create a Set of all current file paths for O(1) lookup
+    const existingFilePaths = new Set(allFiles.map(f => f.path));
+    
+    setSelectedFiles(prev => {
+      // Filter out any selected files that no longer exist in allFiles
+      const validSelections = prev.filter(selected => {
+        const exists = existingFilePaths.has(selected.path);
+        if (!exists) {
+          console.log(`Removing stale selection: ${selected.path}`);
+        }
+        return exists;
+      });
+      
+      // Only update if there were changes to prevent unnecessary re-renders
+      if (validSelections.length !== prev.length) {
+        return validSelections;
+      }
+      return prev;
+    });
+  }, [allFiles, setSelectedFiles]);
 
   // Function to update a selected file with line selections
   const updateSelectedFile = useCallback((path: string, lines?: LineRange[]): void => {
@@ -354,6 +409,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     getSelectionState,
     setSelectionState,
     cleanupStaleSelections,
+    validateSelectedFilesExist,
     folderSelectionCache
   };
 };

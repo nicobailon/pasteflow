@@ -152,6 +152,7 @@ interface HandlerParams {
   persistWorkspace: (name: string, state: WorkspaceState) => void;
   getWorkspaceNames: () => Promise<string[]>;
   selectedFolder: string | null;
+  validateSelectedFilesExist?: () => void;
 }
 
 // Create the folder selected handler factory
@@ -256,7 +257,8 @@ export const setupElectronHandlers = (
   setCurrentWorkspace: (name: string | null) => void,
   persistWorkspace: (name: string, state: WorkspaceState) => void,
   getWorkspaceNames: () => Promise<string[]>,
-  selectedFolder: string | null
+  selectedFolder: string | null,
+  validateSelectedFilesExist?: () => void
 ): (() => void) => {
   if (!isElectron) return () => {};
 
@@ -275,7 +277,8 @@ export const setupElectronHandlers = (
     setCurrentWorkspace,
     persistWorkspace,
     getWorkspaceNames,
-    selectedFolder
+    selectedFolder,
+    validateSelectedFilesExist
   };
   
   const handlerId = Math.random().toString(36).slice(2, 11);
@@ -417,6 +420,14 @@ export const setupElectronHandlers = (
       
       params.setAllFiles(filesArray);
       params.applyFiltersAndSort(filesArray, params.sortOrder, params.searchTerm);
+      
+      // Validate that selected files still exist after file list update
+      if (params.validateSelectedFilesExist) {
+        // Use a small delay to ensure state has been updated
+        setTimeout(() => {
+          params.validateSelectedFilesExist?.();
+        }, 50);
+      }
 
       if (isComplete) {
         params.setProcessingStatus({
