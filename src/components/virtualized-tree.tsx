@@ -14,6 +14,7 @@ interface VirtualizedTreeProps {
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
   height: number;
+  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache;
 }
 
 interface ItemData {
@@ -24,6 +25,7 @@ interface ItemData {
   toggleExpanded: (path: string) => void;
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
+  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache;
 }
 
 const ITEM_HEIGHT = 32;
@@ -49,6 +51,7 @@ const Row = memo(({ index, style, data }: { index: number; style: React.CSSPrope
         toggleExpanded={data.toggleExpanded}
         onViewFile={data.onViewFile}
         loadFileContent={data.loadFileContent}
+        folderSelectionCache={data.folderSelectionCache}
       />
     </div>
   );
@@ -70,7 +73,8 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
     toggleExpanded,
     onViewFile,
     loadFileContent,
-    height
+    height,
+    folderSelectionCache
   } = props;
   const listRef = useRef<List<ItemData>>(null);
   const scrollOffsetRef = useRef(0);
@@ -84,20 +88,24 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
     }
   }), []);
   
-  // Save scroll position when tree changes and reset item cache
+  // Reset item cache only when tree length changes (not on every render)
+  const previousTreeLength = useRef(visibleTree.length);
+  
   useEffect(() => {
-    // Reset the item cache when tree structure changes
-    if (listRef.current) {
+    // Only reset if the tree size actually changed
+    if (previousTreeLength.current !== visibleTree.length && listRef.current) {
       listRef.current.resetAfterIndex(0);
+      previousTreeLength.current = visibleTree.length;
+      
+      // Restore scroll position after reset
+      const currentScrollOffset = scrollOffsetRef.current;
+      if (currentScrollOffset > 0) {
+        requestAnimationFrame(() => {
+          listRef.current?.scrollTo(currentScrollOffset);
+        });
+      }
     }
-    
-    const currentScrollOffset = scrollOffsetRef.current;
-    if (currentScrollOffset > 0 && listRef.current) {
-      requestAnimationFrame(() => {
-        listRef.current?.scrollTo(currentScrollOffset);
-      });
-    }
-  }, [visibleTree]);
+  }, [visibleTree.length]);
   
   const getItemSize = useCallback(() => ITEM_HEIGHT, []);
   
@@ -108,8 +116,9 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
     toggleFolderSelection,
     toggleExpanded,
     onViewFile,
-    loadFileContent
-  }), [visibleTree, selectedFiles, toggleFileSelection, toggleFolderSelection, toggleExpanded, onViewFile, loadFileContent]);
+    loadFileContent,
+    folderSelectionCache
+  }), [visibleTree, selectedFiles, toggleFileSelection, toggleFolderSelection, toggleExpanded, onViewFile, loadFileContent, folderSelectionCache]);
   
   const handleScroll = useCallback(({ scrollOffset }: { scrollOffset: number }) => {
     scrollOffsetRef.current = scrollOffset;

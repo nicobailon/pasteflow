@@ -6,6 +6,7 @@ interface ProcessingIndicatorProps {
   total?: number;
   isLoadingCancellable: boolean;
   onCancel: () => void;
+  treeProgress?: number;
 }
 
 const ProcessingIndicator = ({
@@ -15,7 +16,8 @@ const ProcessingIndicator = ({
   directories,
   total,
   isLoadingCancellable,
-  onCancel
+  onCancel,
+  treeProgress
 }: ProcessingIndicatorProps): JSX.Element | null => {
   if (status !== "processing") return null;
 
@@ -23,6 +25,17 @@ const ProcessingIndicator = ({
     <div className="processing-indicator">
       <div className="spinner"></div>
       <span>{message}</span>
+      {treeProgress !== undefined && treeProgress < 100 && (
+        <div className="progress-bar-container tree-progress">
+          <div 
+            className="progress-bar" 
+            style={{ width: `${treeProgress}%` }}
+          />
+          <span className="progress-details">
+            Building file tree: {Math.round(treeProgress)}%
+          </span>
+        </div>
+      )}
       {processed !== undefined && (
         <div className="progress-bar-container">
           <div 

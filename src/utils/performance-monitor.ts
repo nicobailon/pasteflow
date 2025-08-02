@@ -10,7 +10,7 @@ export class PerformanceMonitor {
   private metrics: Map<string, number[]> = new Map();
   private enabled: boolean;
   
-  constructor(enabled: boolean = process.env.NODE_ENV === 'development') {
+  constructor(enabled: boolean = (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development')) {
     this.enabled = enabled;
   }
   
@@ -216,7 +216,7 @@ export function usePerformanceMonitor(_componentName: string): PerformanceMonito
   const monitor = new PerformanceMonitor();
   
   // Log report on unmount in development
-  if (process.env.NODE_ENV === 'development') {
+  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
     // Using native useEffect would create circular dependency
     // This is meant to be used with React.useEffect in the component
   }

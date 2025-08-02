@@ -133,6 +133,26 @@ export class TokenCountCache {
       this.cache.delete(key);
     }
   }
+
+  /**
+   * Estimate memory usage in MB
+   */
+  estimateMemoryUsage(): number {
+    let totalBytes = 0;
+    
+    for (const [key, entry] of this.cache) {
+      // Key string memory (2 bytes per char)
+      totalBytes += key.length * 2;
+      
+      // Content memory (2 bytes per char)
+      totalBytes += entry.content.length * 2;
+      
+      // Overhead for object structure (roughly 100 bytes)
+      totalBytes += 100;
+    }
+    
+    return totalBytes / (1024 * 1024);
+  }
 }
 
 // Global singleton instance

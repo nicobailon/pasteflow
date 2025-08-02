@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   SYSTEM_PROMPTS: 'pasteflow.system_prompts',
   ROLE_PROMPTS: 'pasteflow.role_prompts',
   DOCS: 'pasteflow.docs',
+  INSTRUCTIONS: 'pasteflow.instructions',
   WORKSPACES: 'pasteflow.workspaces',
   CURRENT_WORKSPACE: 'pasteflow.current_workspace',
   WORKSPACE_SORT_MODE: 'pasteflow.workspace_sort_mode',

@@ -1,6 +1,22 @@
 import { useState, useEffect } from 'react';
 
+// Check if we should use the migrated version
+// In Electron renderer process, we don't have direct access to process.env
+// This should be configured through a different mechanism or always use localStorage for now
+const USE_DATABASE_STORAGE = false;
+
+// Import the migrated version conditionally
+const migratedHook = USE_DATABASE_STORAGE 
+  ? require('./use-local-storage-migrated').default 
+  : null;
+
 function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
+  // Use migrated version if enabled
+  if (migratedHook) {
+    return migratedHook(key, initialValue);
+  }
+  
+  // Original implementation below
   // Get stored value from localStorage or use initialValue
   const [storedValue, setStoredValue] = useState(() => {
     try {

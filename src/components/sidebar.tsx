@@ -40,6 +40,7 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
     onViewFile,
     processingStatus,
     loadFileContent,
+    folderSelectionCache,
   }: SidebarProps, ref) => {
   // State for the sidebar width and resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
@@ -55,13 +56,21 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
   );
 
   // Use the custom hook for file tree management
-  const { fileTree, visibleTree, isTreeBuildingComplete } = useFileTree({
+  const { fileTree, visibleTree, isTreeBuildingComplete, treeProgress } = useFileTree({
     allFiles,
     selectedFolder,
     expandedNodes,
     searchTerm,
     fileTreeSortOrder: currentSortOption
   });
+  
+  // Pass tree progress to parent if available
+  useEffect(() => {
+    if (processingStatus?.status === 'processing' && treeProgress < 100) {
+      // The tree is building, but we can't directly modify processingStatus here
+      // This would need to be handled by the parent component
+    }
+  }, [treeProgress, processingStatus]);
   
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
@@ -449,6 +458,17 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
               <div className="tree-loading">
                 <div className="spinner"></div>
                 <span>Building file tree...</span>
+                {treeProgress !== undefined && treeProgress < 100 && (
+                  <div className="tree-progress">
+                    <div className="progress-bar-container">
+                      <div 
+                        className="progress-bar" 
+                        style={{ width: `${treeProgress}%` }}
+                      />
+                    </div>
+                    <span className="progress-text">{Math.round(treeProgress)}%</span>
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -463,6 +483,7 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                     onViewFile={onViewFile}
                     loadFileContent={handleLoadFileContent}
                     height={treeHeight}
+                    folderSelectionCache={folderSelectionCache}
                   />
                 ) : (
                   <div className="no-results">

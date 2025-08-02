@@ -674,7 +674,7 @@ const FileViewModal = ({
   const processValidLineNumbers = useCallback((lineNumbers: {startLine: number | null; endLine: number | null}) => {
     if (!lineNumbers.startLine || !lineNumbers.endLine) return;
     
-    if (process.env.NODE_ENV !== 'production') {
+    if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
     }
     
     addLineRangeToSelection(lineNumbers.startLine, lineNumbers.endLine);

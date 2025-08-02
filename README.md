@@ -215,6 +215,7 @@ Code signing ensures users can install and run the application without security 
 - lucide-react (^0.477.0) - Icon library
 - react-syntax-highlighter (^15.6.1) - Code syntax highlighting
 - react-window (^1.8.11) - Virtualization for performance
+- better-sqlite3 (^11.7.0) - SQLite database for efficient data persistence
 
 ### Development Dependencies
 - Electron (^34.3.0) - Desktop application framework

@@ -227,7 +227,9 @@ const WorkspaceModal = ({
       customPrompts: {
         systemPrompts: appState.selectedSystemPrompts,
         rolePrompts: appState.selectedRolePrompts
-      }
+      },
+      instructions: appState.instructions,
+      selectedInstructions: appState.selectedInstructions
     };
 
     console.log('[WorkspaceModal.handleSave] Constructed workspace state object from appState:', {
@@ -237,6 +239,8 @@ const WorkspaceModal = ({
         userInstructionsLength: workspaceToSave.userInstructions?.length || 0,
         systemPromptsCount: workspaceToSave.customPrompts?.systemPrompts?.length || 0,
         rolePromptsCount: workspaceToSave.customPrompts?.rolePrompts?.length || 0,
+        instructionsCount: workspaceToSave.instructions?.length || 0,
+        selectedInstructionsCount: workspaceToSave.selectedInstructions?.length || 0,
     });
 
     try {

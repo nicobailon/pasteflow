@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { FileData, TreeNode } from '../types/file-types';
 import { normalizePath } from '../utils/path-utils';
+import { StreamingTreeBuilder } from '../utils/streaming-tree-builder';
 
 interface UseFileTreeProps {
   allFiles: FileData[];
@@ -44,6 +45,14 @@ function useFileTree({
   }, [allFiles]);
   const [isTreeBuildingComplete, setIsTreeBuildingComplete] = useState(false);
   const [fileTree, setFileTree] = useState([] as TreeNode[]);
+  const [treeProgress, setTreeProgress] = useState(0);
+  
+  // Animation frame ID for throttling tree updates
+  const rafIdRef = useRef<number>(0);
+  
+  // Streaming tree builder instance
+  const streamingBuilderRef = useRef<StreamingTreeBuilder | null>(null);
+  const hasTreeDataRef = useRef(false);
   
   // Reference to track previous sort order for cache invalidation
   const prevSortOrderRef = useRef(fileTreeSortOrder);
@@ -71,6 +80,34 @@ function useFileTree({
   useEffect(() => {
     filesByPathRef.current = filesByPath;
   }, [filesByPath]);
+  
+  // Throttled tree commit function using requestAnimationFrame
+  const commitTree = useCallback((nodes: TreeNode[]) => {
+    // Cancel any pending animation frame
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
+    
+    // Track if we have tree data
+    if (nodes.length > 0) {
+      hasTreeDataRef.current = true;
+    }
+    
+    // Schedule the tree update for the next animation frame
+    rafIdRef.current = requestAnimationFrame(() => {
+      setFileTree(nodes);
+      rafIdRef.current = 0;
+    });
+  }, []);
+  
+  // Clean up animation frame on unmount
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
   
   // Convert the nested object structure to the TreeNode array format
   // Now with deferred sorting
@@ -117,17 +154,109 @@ function useFileTree({
     });
   }, []);
 
+  // Create a stable reference for file paths to prevent unnecessary rebuilds
+  const filePathsRef = useRef<string[]>([]);
+  const currentFilePaths = useMemo(() => allFiles.map(f => f.path).sort(), [allFiles]);
+  
+  // Check if file structure actually changed (not just metadata)
+  const hasFileStructureChanged = useMemo(() => {
+    const prevPaths = filePathsRef.current;
+    if (prevPaths.length !== currentFilePaths.length) return true;
+    
+    for (let i = 0; i < prevPaths.length; i++) {
+      if (prevPaths[i] !== currentFilePaths[i]) return true;
+    }
+    
+    return false;
+  }, [currentFilePaths]);
+  
+  // Update the ref when structure changes
+  useEffect(() => {
+    if (hasFileStructureChanged) {
+      filePathsRef.current = currentFilePaths;
+    }
+  }, [hasFileStructureChanged, currentFilePaths]);
+
   // Process files in smaller batches for better responsiveness
   useEffect(() => {
+    // Skip rebuild if only metadata changed
+    if (!hasFileStructureChanged && hasTreeDataRef.current) {
+      return;
+    }
+    
     processingStartedRef.current = false;
+    hasTreeDataRef.current = false;
     setIsTreeBuildingComplete(false);
-    fileMapRef.current = {};
+    setTreeProgress(0);
     
-    const BATCH_SIZE = 50; // Reduced batch size
-    const BATCH_INTERVAL = 1; // Increased frequency (1ms)
-    let processedCount = 0;
+    // Small delay to prevent rapid rebuilds when toggling folders
+    const timeoutId = setTimeout(() => {
+      // Use StreamingTreeBuilder for large file sets
+      if (allFiles.length > 1000) {
+      // Cancel any existing builder
+      if (streamingBuilderRef.current) {
+        streamingBuilderRef.current.cancel();
+      }
+      
+      try {
+        streamingBuilderRef.current = new StreamingTreeBuilder(
+          allFiles,
+          500, // chunk size
+          selectedFolder,
+          expandedNodesRef.current
+        );
+        
+        streamingBuilderRef.current.start(
+          // onChunk
+          (chunk) => {
+            commitTree(chunk.nodes);
+            setTreeProgress(chunk.progress);
+          },
+          // onComplete
+          () => {
+            setIsTreeBuildingComplete(true);
+            setTreeProgress(100);
+            streamingBuilderRef.current = null;
+          },
+          // onError
+          (error) => {
+            console.error('StreamingTreeBuilder error:', error);
+            // Fall back to legacy batching
+            streamingBuilderRef.current = null;
+            processBatchLegacy();
+          }
+        );
+        
+        return () => {
+          processingStartedRef.current = false;
+          // Cancel any pending animation frame
+          if (rafIdRef.current) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = 0;
+          }
+          // Cancel streaming builder if active
+          if (streamingBuilderRef.current) {
+            streamingBuilderRef.current.cancel();
+            streamingBuilderRef.current = null;
+          }
+        };
+      } catch (error) {
+        console.error('Failed to initialize StreamingTreeBuilder:', error);
+        // Fall back to legacy batching
+      }
+    }
     
-    const processBatch = () => {
+    // Legacy batch processing for small file sets or fallback
+    processBatchLegacy();
+    
+    function processBatchLegacy() {
+      fileMapRef.current = {};
+      
+      const BATCH_SIZE = 50; // Reduced batch size
+      const BATCH_INTERVAL = 1; // Increased frequency (1ms)
+      let processedCount = 0;
+      
+      const processBatch = () => {
       if (!processingStartedRef.current) {
         processingStartedRef.current = true;
       }
@@ -198,29 +327,48 @@ function useFileTree({
       
       // Update tree without sorting for intermediate updates
       const intermediateTree = convertToTreeNodes(fileMapRef.current, 0, false);
-      setFileTree(intermediateTree);
+      commitTree(intermediateTree);
       
       if (processedCount >= allFiles.length) {
         // Only sort the final tree when all files are processed
         const finalTree = convertToTreeNodes(fileMapRef.current, 0, true);
-        setFileTree(finalTree);
+        commitTree(finalTree);
         setIsTreeBuildingComplete(true);
       } else {
         setTimeout(processBatch, BATCH_INTERVAL);
       }
     };
     
-    if (allFiles.length > 0) {
-      processBatch();
-    } else {
-      setFileTree([]);
-      setIsTreeBuildingComplete(true);
+      if (allFiles.length > 0) {
+        processBatch();
+      } else {
+        commitTree([]);
+        setIsTreeBuildingComplete(true);
+        setTreeProgress(100);
+      }
     }
+    }, 50); // 50ms delay to debounce rapid changes
     
     return () => {
+      clearTimeout(timeoutId);
       processingStartedRef.current = false;
+      // Cancel any pending animation frame
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      // Cancel streaming builder if active
+      if (streamingBuilderRef.current) {
+        streamingBuilderRef.current.cancel();
+        streamingBuilderRef.current = null;
+      }
+      // Ensure tree building state is not stuck
+      // Only set to complete if we have some tree data or no files
+      if (hasTreeDataRef.current || allFiles.length === 0) {
+        setIsTreeBuildingComplete(true);
+      }
     };
-  }, [allFiles, selectedFolder]);
+  }, [allFiles, selectedFolder, commitTree, convertToTreeNodes, hasFileStructureChanged]);
 
   // Effect to handle cleanup on sort order change
   useEffect(() => {
@@ -232,13 +380,14 @@ function useFileTree({
       // Re-sort the existing tree without rebuilding
       if (fileMapRef.current && Object.keys(fileMapRef.current).length > 0) {
         const sortedTree = convertToTreeNodes(fileMapRef.current, 0, true);
-        setFileTree(sortedTree);
+        commitTree(sortedTree);
       }
     }
-  }, [fileTreeSortOrder]);
+  }, [fileTreeSortOrder, commitTree, convertToTreeNodes]);
 
-  // Function to sort tree nodes based on sort order
-  const sortTreeNodes = (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
+  // Memoized function to sort tree nodes based on sort order
+  const sortTreeNodes = useMemo(() => {
+    return (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
     // If sortOrder is not 'default', use the existing sorting logic
     if (sortOrder !== 'default') {
       return nodes.sort((a, b) => {
@@ -453,7 +602,8 @@ function useFileTree({
       // Default fallback
       return a.name.localeCompare(b.name);
     });
-  };
+    };
+  }, [fileTreeSortOrder]);
 
   // Flatten the tree for rendering with proper indentation
   const flattenTree = useCallback((nodes: TreeNode[]): TreeNode[] => {
@@ -502,7 +652,7 @@ function useFileTree({
     };
 
     return flattenNodesRecursively(nodes);
-  }, [expandedNodes])
+  }, [expandedNodes, filesByPathRef])
 
   // Filter the tree based on search term
   const filterTree = useCallback((nodes: TreeNode[], term: string): TreeNode[] => {
@@ -563,12 +713,13 @@ function useFileTree({
     
     // Only apply filtering and sorting when needed
     return flattenTree(filterTree(fileTree, searchTerm));
-  }, [fileTree, searchTerm, isTreeBuildingComplete, filterTree, flattenTree, expandedNodes]);
+  }, [fileTree, searchTerm, isTreeBuildingComplete, filterTree, flattenTree, expandedNodes, allFiles]);
 
   return {
     fileTree,
     visibleTree,
-    isTreeBuildingComplete
+    isTreeBuildingComplete,
+    treeProgress
   };
 }
 
