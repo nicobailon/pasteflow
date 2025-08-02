@@ -16,6 +16,8 @@ export class StreamingTreeBuilder {
   private worker: Worker | null = null;
   private abortController = new AbortController();
   private id: string;
+  private messageHandler: ((e: MessageEvent<WorkerMessage>) => void) | null = null;
+  private errorHandler: ((error: ErrorEvent) => void) | null = null;
 
   constructor(
     private files: FileData[],
@@ -39,7 +41,7 @@ export class StreamingTreeBuilder {
       );
 
       // Set up message handlers
-      this.worker.addEventListener('message', (e: MessageEvent<WorkerMessage>) => {
+      this.messageHandler = (e: MessageEvent<WorkerMessage>) => {
         if (e.data.id !== this.id) return; // Ignore messages from other instances
 
         switch (e.data.type) {
@@ -66,14 +68,17 @@ export class StreamingTreeBuilder {
             break;
           }
         }
-      });
+      };
 
-      this.worker.addEventListener('error', (error) => {
+      this.errorHandler = (error) => {
         if (!this.abortController.signal.aborted) {
           onError(new Error(`Worker error: ${error.message || 'Unknown worker error'}`));
         }
         this.cleanup();
-      });
+      };
+
+      this.worker.addEventListener('message', this.messageHandler);
+      this.worker.addEventListener('error', this.errorHandler);
 
       // Start processing
       this.worker.postMessage({
@@ -96,6 +101,16 @@ export class StreamingTreeBuilder {
 
   private cleanup(): void {
     if (this.worker) {
+      // Remove event listeners before terminating to prevent memory leaks
+      if (this.messageHandler) {
+        this.worker.removeEventListener('message', this.messageHandler);
+        this.messageHandler = null;
+      }
+      if (this.errorHandler) {
+        this.worker.removeEventListener('error', this.errorHandler);
+        this.errorHandler = null;
+      }
+      
       this.worker.terminate();
       this.worker = null;
     }
