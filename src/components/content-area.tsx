@@ -108,7 +108,30 @@ const ContentArea = ({
   };
 
   const handleCopyFromPreview = async () => {
-    await navigator.clipboard.writeText(previewContent);
+    try {
+      await navigator.clipboard.writeText(previewContent);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      
+      const textarea = document.createElement('textarea');
+      textarea.value = previewContent;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-99999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        if (!successful) {
+          throw new Error('Fallback copy method failed');
+        }
+      } catch (fallbackErr) {
+        console.error('Fallback copy method also failed:', fallbackErr);
+        alert('Failed to copy to clipboard. Please try selecting and copying the text manually.');
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
   };
 
   return (
