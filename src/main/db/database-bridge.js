@@ -162,6 +162,21 @@ class DatabaseBridge {
   }
 
   /**
+   * Deletes a workspace by its ID or name.
+   * This operation cannot be undone.
+   * 
+   * @param {string} id - Workspace ID (UUID) or name to delete
+   * @returns {Promise<void>} Promise that resolves when deletion completes
+   * @throws {Error} If database operation fails
+   * @example
+   * await bridge.deleteWorkspaceById('550e8400-e29b-41d4-a716-446655440000');
+   * await bridge.deleteWorkspaceById('my-workspace');
+   */
+  async deleteWorkspaceById(id) {
+    return this.db.deleteWorkspaceById(id);
+  }
+
+  /**
    * Renames a workspace with collision detection.
    * 
    * @param {string} oldName - Current workspace name

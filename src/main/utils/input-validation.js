@@ -88,7 +88,7 @@ const WorkspaceUpdateSchema = {
 };
 
 const WorkspaceDeleteSchema = {
-  name: { type: 'string', required: true, minLength: 1, maxLength: 255 }
+  id: { type: 'string', required: true, minLength: 1, maxLength: 255 }  // Can be UUID or name
 };
 
 const WorkspaceRenameSchema = {
