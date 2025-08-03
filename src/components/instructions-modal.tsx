@@ -22,7 +22,7 @@ const InstructionsModal = ({
   const [newInstructionName, setNewInstructionName] = useState("");
   const [newInstructionContent, setNewInstructionContent] = useState("");
 
-  const handleAddInstruction = () => {
+  const handleAddInstruction = async () => {
     if (!newInstructionName || !newInstructionContent) return;
     
     const newInstruction: Instruction = {
@@ -31,17 +31,25 @@ const InstructionsModal = ({
       content: newInstructionContent
     };
     
-    onAddInstruction(newInstruction);
-    setNewInstructionName("");
-    setNewInstructionContent("");
-    setEditingInstruction(null);
+    try {
+      await onAddInstruction(newInstruction);
+      setNewInstructionName("");
+      setNewInstructionContent("");
+      setEditingInstruction(null);
+    } catch (error) {
+      console.error('Failed to add instruction:', error);
+    }
   };
 
-  const handleUpdateInstruction = () => {
+  const handleUpdateInstruction = async () => {
     if (!editingInstruction || !editingInstruction.name || !editingInstruction.content) return;
     
-    onUpdateInstruction(editingInstruction);
-    setEditingInstruction(null);
+    try {
+      await onUpdateInstruction(editingInstruction);
+      setEditingInstruction(null);
+    } catch (error) {
+      console.error('Failed to update instruction:', error);
+    }
   };
 
   const startEdit = (instruction: Instruction) => {
@@ -121,9 +129,13 @@ const InstructionsModal = ({
                       </button>
                       <button 
                         className="prompt-action-button delete-button"
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          onDeleteInstruction(instruction.id);
+                          try {
+                            await onDeleteInstruction(instruction.id);
+                          } catch (error) {
+                            console.error('Failed to delete instruction:', error);
+                          }
                         }}
                         title="Delete this instruction"
                       >

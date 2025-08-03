@@ -657,6 +657,43 @@ export class StateHandlers {
       }
     });
 
+    // Instructions handlers
+    this.ipc.setHandler('/instructions/list', async () => {
+      try {
+        const instructions = await this.db.database.listInstructions();
+        return instructions;
+      } catch (error) {
+        throw new Error(`Failed to list instructions: ${(error as Error).message}`);
+      }
+    });
+
+    this.ipc.setHandler('/instructions/create', async (input: { id: string; name: string; content: string }) => {
+      try {
+        await this.db.database.createInstruction(input.id, input.name, input.content);
+        return { success: true };
+      } catch (error) {
+        throw new Error(`Failed to create instruction: ${(error as Error).message}`);
+      }
+    });
+
+    this.ipc.setHandler('/instructions/update', async (input: { id: string; name: string; content: string }) => {
+      try {
+        await this.db.database.updateInstruction(input.id, input.name, input.content);
+        return { success: true };
+      } catch (error) {
+        throw new Error(`Failed to update instruction: ${(error as Error).message}`);
+      }
+    });
+
+    this.ipc.setHandler('/instructions/delete', async (input: { id: string }) => {
+      try {
+        await this.db.database.deleteInstruction(input.id);
+        return { success: true };
+      } catch (error) {
+        throw new Error(`Failed to delete instruction: ${(error as Error).message}`);
+      }
+    });
+
     // Preference handlers
     this.ipc.setHandler('/prefs/get', async (input: { key: string }) => {
       try {

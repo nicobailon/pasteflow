@@ -261,9 +261,9 @@ export interface InstructionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   instructions: Instruction[];
-  onAddInstruction: (instruction: Instruction) => void;
-  onDeleteInstruction: (id: string) => void;
-  onUpdateInstruction: (instruction: Instruction) => void;
+  onAddInstruction: (instruction: Instruction) => Promise<void>;
+  onDeleteInstruction: (id: string) => Promise<void>;
+  onUpdateInstruction: (instruction: Instruction) => Promise<void>;
   selectedInstructions: Instruction[];
   toggleInstructionSelection: (instruction: Instruction) => void;
 }
@@ -284,7 +284,7 @@ export interface WorkspaceState {
     systemPrompts: SystemPrompt[];
     rolePrompts: RolePrompt[];
   };
-  instructions?: Instruction[]; // Optional for backward compatibility
+  // instructions are now stored in database, not in workspace
   selectedInstructions?: Instruction[]; // Optional for backward compatibility
   savedAt?: number; // Added timestamp for sorting
 }

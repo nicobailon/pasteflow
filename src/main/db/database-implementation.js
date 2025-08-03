@@ -113,6 +113,13 @@ class PasteFlowDatabase {
           updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
         );
 
+        CREATE TABLE IF NOT EXISTS instructions (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+          updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        );
 
         -- Create indexes
         CREATE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(name);
@@ -121,6 +128,8 @@ class PasteFlowDatabase {
         CREATE INDEX IF NOT EXISTS idx_preferences_key ON preferences(key);
         CREATE INDEX IF NOT EXISTS idx_preferences_updated_at ON preferences(updated_at);
         CREATE INDEX IF NOT EXISTS idx_prompts_name ON custom_prompts(name);
+        CREATE INDEX IF NOT EXISTS idx_instructions_name ON instructions(name);
+        CREATE INDEX IF NOT EXISTS idx_instructions_updated_at ON instructions(updated_at DESC);
       `);
     }, {
       operation: 'create_database_schema',
@@ -190,6 +199,34 @@ class PasteFlowDatabase {
         // Optimized query for getting workspace names only
         getWorkspaceNames: this.db.prepare(`
           SELECT name FROM workspaces ORDER BY last_accessed DESC
+        `),
+        
+        // Instructions operations
+        listInstructions: this.db.prepare(`
+          SELECT id, name, content, created_at, updated_at 
+          FROM instructions 
+          ORDER BY updated_at DESC
+        `),
+        
+        getInstruction: this.db.prepare(`
+          SELECT id, name, content, created_at, updated_at 
+          FROM instructions 
+          WHERE id = ?
+        `),
+        
+        createInstruction: this.db.prepare(`
+          INSERT INTO instructions (id, name, content) 
+          VALUES (?, ?, ?)
+        `),
+        
+        updateInstruction: this.db.prepare(`
+          UPDATE instructions 
+          SET name = ?, content = ?, updated_at = strftime('%s', 'now') * 1000 
+          WHERE id = ?
+        `),
+        
+        deleteInstruction: this.db.prepare(`
+          DELETE FROM instructions WHERE id = ?
         `),
         
       };
@@ -482,6 +519,96 @@ class PasteFlowDatabase {
     }
   }
 
+  // Instructions methods
+  /**
+   * Retrieves all instructions ordered by last updated time (most recent first).
+   * 
+   * @returns {Promise<Array<Object>>} Array of instruction objects
+   * @throws {Error} If database query fails after all retry attempts
+   */
+  async listInstructions() {
+    this.ensureInitialized();
+    
+    const retryResult = await executeWithRetry(async () => {
+      const rows = this.statements.listInstructions.all();
+      return rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        content: row.content,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      }));
+    }, {
+      operation: 'list_instructions',
+      maxRetries: 3
+    });
+    
+    return retryResult.result;
+  }
+
+  /**
+   * Creates a new instruction in the database.
+   * 
+   * @param {string} id - Unique instruction identifier
+   * @param {string} name - Instruction name
+   * @param {string} content - Instruction content
+   * @returns {Promise<void>}
+   * @throws {Error} If instruction creation fails
+   */
+  async createInstruction(id, name, content) {
+    this.ensureInitialized();
+    
+    try {
+      this.statements.createInstruction.run(id, name, content);
+    } catch (error) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new Error(`Instruction with id '${id}' already exists`);
+      }
+      throw new Error(`Failed to create instruction: ${error.message}`);
+    }
+  }
+
+  /**
+   * Updates an existing instruction.
+   * 
+   * @param {string} id - Instruction identifier
+   * @param {string} name - New instruction name
+   * @param {string} content - New instruction content
+   * @returns {Promise<void>}
+   * @throws {Error} If update fails
+   */
+  async updateInstruction(id, name, content) {
+    this.ensureInitialized();
+    
+    try {
+      const result = this.statements.updateInstruction.run(name, content, id);
+      if (result.changes === 0) {
+        throw new Error(`Instruction with id '${id}' not found`);
+      }
+    } catch (error) {
+      throw new Error(`Failed to update instruction: ${error.message}`);
+    }
+  }
+
+  /**
+   * Deletes an instruction from the database.
+   * 
+   * @param {string} id - Instruction identifier
+   * @returns {Promise<void>}
+   * @throws {Error} If deletion fails
+   */
+  async deleteInstruction(id) {
+    this.ensureInitialized();
+    
+    try {
+      const result = this.statements.deleteInstruction.run(id);
+      if (result.changes === 0) {
+        throw new Error(`Instruction with id '${id}' not found`);
+      }
+    } catch (error) {
+      throw new Error(`Failed to delete instruction: ${error.message}`);
+    }
+  }
 
   // Transaction support for complex operations
   /**
