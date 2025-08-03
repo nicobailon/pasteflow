@@ -79,19 +79,20 @@ const formatSelectedLines = (selectedFile?: { path: string; lines?: { start: num
 
 // Handle specific item actions independently to reduce complexity
 const handleTreeItemActions = {
-  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string) => void, path: string) => {
+  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string, currentState?: boolean) => void, path: string, isExpanded?: boolean) => {
     e.stopPropagation();
     e.preventDefault(); // Also prevent default to avoid any bubbling issues
-    toggleExpanded(path);
+    toggleExpanded(path, isExpanded);
   },
   
   handleItemClick: (
     type: "file" | "directory", 
-    toggleExpanded: (path: string) => void, 
-    path: string
+    toggleExpanded: (path: string, currentState?: boolean) => void, 
+    path: string,
+    isExpanded?: boolean
   ) => {
     if (type === "directory") {
-      toggleExpanded(path);
+      toggleExpanded(path, isExpanded);
     }
     // Removed automatic file selection - files should only be selected via checkbox
   },
@@ -531,7 +532,7 @@ const TreeItem = memo(({
 
   const handleTreeItemClick = () => {
     handleTreeItemActions.handleItemClick(
-      type, toggleExpanded, path
+      type, toggleExpanded, path, isExpanded
     );
   };
 
@@ -561,15 +562,15 @@ const TreeItem = memo(({
       toggleFolderSelection(path, isChecked, { optimistic: true });
       // Auto-expand folder when checking it
       if (isChecked && !isExpanded) {
-        toggleExpanded(path);
+        toggleExpanded(path, isExpanded);
       }
     }
   }, [type, path, toggleFileSelection, loadFileContent, fileData?.isContentLoaded, toggleFolderSelection, toggleExpanded, isExpanded]);
 
   const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     // Pass both the path and current expanded state
-    handleTreeItemActions.handleToggle(e, toggleExpanded, path);
-  }, [toggleExpanded, path, name, isExpanded]);
+    handleTreeItemActions.handleToggle(e, toggleExpanded, path, isExpanded);
+  }, [toggleExpanded, path, isExpanded]);
 
   const handleNameClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     handleTreeItemActions.handleFileNameClick(e, type, state.isDisabled, onViewFile, path);
