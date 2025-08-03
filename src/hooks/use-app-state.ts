@@ -319,12 +319,22 @@ const useAppState = () => {
   }, [isElectron, selectedFolder, exclusionPatterns, fileSelection.clearSelectedFiles]);
 
   // Toggle expand/collapse state changes
-  const toggleExpanded = useCallback((nodeId: string) => {
+  const toggleExpanded = useCallback((nodeId: string, currentState?: boolean) => {
     setExpandedNodes((prev: Record<string, boolean>) => {
-      // If the node is not in expandedNodes, we need to set it to false
-      // because it was expanded by default and user wants to collapse it
-      // If it's already in expandedNodes, just toggle it
-      const newValue = prev[nodeId] === undefined ? false : !prev[nodeId];
+      // If currentState is provided, use it to determine the new state
+      // Otherwise fall back to the old logic for backward compatibility
+      let newValue: boolean;
+      
+      if (currentState !== undefined) {
+        // We know the exact current state, so just invert it
+        newValue = !currentState;
+      } else {
+        // Fallback to old logic if currentState not provided
+        // If the node is not in expandedNodes, we need to set it to false
+        // because it was expanded by default and user wants to collapse it
+        // If it's already in expandedNodes, just toggle it
+        newValue = prev[nodeId] === undefined ? false : !prev[nodeId];
+      }
       
       const newState = {
         ...prev,

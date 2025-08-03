@@ -149,7 +149,7 @@ export interface TreeItemProps {
   selectedFiles: SelectedFileReference[]; // Updated type
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
-  toggleExpanded: (path: string) => void;
+  toggleExpanded: (path: string, currentState?: boolean) => void;
   expandedNodes?: Record<string, boolean>;
   onViewFile?: (filePath: string) => void; // New prop
   loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property
