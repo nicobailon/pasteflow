@@ -29,3 +29,18 @@
   font-style: normal;
   font-display: swap;
 }
+
+/* SF Mono for technical elements - using system font fallbacks */
+@font-face {
+  font-family: 'SF Mono';
+  src: local('SF Mono'), local('Monaco'), local('Inconsolata'), local('Consolas'), local('Courier New');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'SF Mono';
+  src: local('SF Mono Medium'), local('Monaco'), local('Inconsolata'), local('Consolas'), local('Courier New');
+  font-weight: 500;
+  font-style: normal;
+}
