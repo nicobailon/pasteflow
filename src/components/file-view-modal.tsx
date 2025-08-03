@@ -8,6 +8,7 @@ import { useTheme } from '../context/theme-context';
 import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
 import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 import { TOKEN_COUNTING, UI } from '../constants/app-constants';
+import './file-view-modal.css';
 
 // Map file extensions to language identifiers for syntax highlighting
 const getLanguageFromPath = (filePath: string): string => {
