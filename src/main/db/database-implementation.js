@@ -220,7 +220,7 @@ class PasteFlowDatabase {
   async listWorkspaces() {
     this.ensureInitialized();
     
-    return await executeWithRetry(async () => {
+    const retryResult = await executeWithRetry(async () => {
       const rows = this.statements.listWorkspaces.all();
       return rows.map(row => ({
         ...row,
@@ -232,6 +232,8 @@ class PasteFlowDatabase {
       operation: 'list_workspaces',
       maxRetries: 3
     });
+    
+    return retryResult.result;
   }
 
   /**
