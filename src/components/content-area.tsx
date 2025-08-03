@@ -1,10 +1,11 @@
-import { Check, ChevronDown, FileText, Settings, User } from 'lucide-react';
+import { Check, ChevronDown, Eye, FileText, Settings, User } from 'lucide-react';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
 
 import CopyButton from './copy-button';
 import Dropdown from './dropdown';
 import FileList from './file-list';
+import ClipboardPreviewModal from './clipboard-preview-modal';
 
 interface ContentAreaProps {
   selectedFiles: SelectedFileReference[];
@@ -40,6 +41,11 @@ interface ContentAreaProps {
   setRolePromptsModalOpen: (open: boolean) => void;
   setInstructionsModalOpen: (open: boolean) => void;
   loadFileContent: (filePath: string) => Promise<void>;
+  clipboardPreviewModalOpen: boolean;
+  previewContent: string;
+  previewTokenCount: number;
+  openClipboardPreviewModal: (content: string, tokenCount: number) => void;
+  closeClipboardPreviewModal: () => void;
 }
 
 const ContentArea = ({
@@ -70,7 +76,12 @@ const ContentArea = ({
   setSystemPromptsModalOpen,
   setRolePromptsModalOpen,
   setInstructionsModalOpen,
-  loadFileContent
+  loadFileContent,
+  clipboardPreviewModalOpen,
+  previewContent,
+  previewTokenCount,
+  openClipboardPreviewModal,
+  closeClipboardPreviewModal
 }: ContentAreaProps) => {
   
   const handleCopyWithLoading = async (getContent: () => string): Promise<string> => {
@@ -87,6 +98,40 @@ const ContentArea = ({
       await Promise.all(unloadedFiles.map((f) => loadFileContent(f.path)));
     }
     return getContent();
+  };
+
+  const handlePreview = async () => {
+    const content = await handleCopyWithLoading(getSelectedFilesContent);
+    const totalTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens + 
+                       (userInstructions.trim() ? instructionsTokenCount : 0);
+    openClipboardPreviewModal(content, totalTokens);
+  };
+
+  const handleCopyFromPreview = async () => {
+    try {
+      await navigator.clipboard.writeText(previewContent);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      
+      const textarea = document.createElement('textarea');
+      textarea.value = previewContent;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-99999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        if (!successful) {
+          throw new Error('Fallback copy method failed');
+        }
+      } catch (fallbackErr) {
+        console.error('Fallback copy method also failed:', fallbackErr);
+        alert('Failed to copy to clipboard. Please try selecting and copying the text manually.');
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
   };
 
   return (
@@ -179,6 +224,14 @@ const ContentArea = ({
         />
         <div className="copy-button-container">
           <div className="copy-button-group">
+            <button 
+              className="preview-button"
+              onClick={handlePreview}
+              disabled={selectedFiles.length === 0}
+            >
+              <Eye size={16} />
+              <span>Preview</span>
+            </button>
             <CopyButton
               text={() => handleCopyWithLoading(getSelectedFilesContent)}
               className="primary copy-selected-files-btn"
@@ -204,6 +257,14 @@ const ContentArea = ({
           </div>
         </div>
       </div>
+      
+      <ClipboardPreviewModal
+        isOpen={clipboardPreviewModalOpen}
+        onClose={closeClipboardPreviewModal}
+        content={previewContent}
+        tokenCount={previewTokenCount}
+        onCopy={handleCopyFromPreview}
+      />
     </div>
   );
 };

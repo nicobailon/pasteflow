@@ -114,23 +114,32 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
     }
   }, [options.optimisticUpdate, fetchData]);
 
+  const handleUpdate = useCallback((_event: Electron.IpcRendererEvent, updatedData?: T) => {
+    if (updatedData !== undefined) {
+      setData(updatedData);
+    }
+    cache.current.clear();
+    // If no data provided, trigger a refetch
+    if (updatedData === undefined) {
+      fetchData().catch(error => {
+        console.error('Error refetching data on update:', error);
+      });
+    }
+  }, [fetchData]);
+
   useEffect(() => {
     const updateChannel = `${channel}:update`;
-    
-    const handleUpdate = (_event: Electron.IpcRendererEvent, updatedData: T) => {
-      setData(updatedData);
-      cache.current.clear();
-    };
 
-    // Store the handler to ensure we remove the exact same function
-    const boundHandler = handleUpdate.bind(null);
-    
-    window.electron.ipcRenderer.on(updateChannel, boundHandler);
-    
+    window.electron.ipcRenderer.on(updateChannel, handleUpdate);
+
     return () => {
-      window.electron.ipcRenderer.removeListener(updateChannel, boundHandler);
+      try {
+        window.electron.ipcRenderer.removeListener(updateChannel, handleUpdate);
+      } catch (error) {
+        console.error(`Error removing listener for channel ${updateChannel}:`, error);
+      }
     };
-  }, [channel]);
+  }, [channel, handleUpdate]);
 
   return {
     data,

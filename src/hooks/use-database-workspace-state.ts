@@ -101,7 +101,6 @@ export const useDatabaseWorkspaceState = () => {
         
         // Check if cancelled before updating state
         if (token.cancelled) {
-          console.log('[useDatabaseWorkspaceState] Workspace list refresh cancelled');
           return;
         }
         

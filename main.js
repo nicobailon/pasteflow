@@ -1179,6 +1179,14 @@ ipcMain.handle('/instructions/delete', async (event, params) => {
   }
 });
 
+// Helper function to broadcast updates to all renderer processes
+function broadcastUpdate(channel, data) {
+  const windows = BrowserWindow.getAllWindows();
+  for (const window of windows) {
+    window.webContents.send(channel, data);
+  }
+}
+
 // Preferences handlers
 ipcMain.handle('/prefs/get', async (event, params) => {
   try {
@@ -1234,11 +1242,15 @@ ipcMain.handle('/prefs/set', async (event, params) => {
     // Use database if available
     if (database && database.initialized) {
       await database.setPreference(key, value);
+      // Broadcast update to notify all renderer processes
+      broadcastUpdate('/prefs/get:update');
       return true;
     }
-    
+
     // Fallback to in-memory store
     preferencesStore.set(key, value);
+    // Broadcast update to notify all renderer processes
+    broadcastUpdate('/prefs/get:update');
     // Return boolean to match expected behavior
     return true;
   } catch (error) {

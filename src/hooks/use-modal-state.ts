@@ -13,9 +13,14 @@ const useModalState = () => {
   const [systemPromptsModalOpen, setSystemPromptsModalOpen] = useState(false);
   const [rolePromptsModalOpen, setRolePromptsModalOpen] = useState(false);
   const [instructionsModalOpen, setInstructionsModalOpen] = useState(false);
+  const [clipboardPreviewModalOpen, setClipboardPreviewModalOpen] = useState(false);
   
   // Track currently viewed file path for file view modal
   const [currentViewedFilePath, setCurrentViewedFilePath] = useState("");
+  
+  // Track clipboard preview content and token count
+  const [previewContent, setPreviewContent] = useState<string>("");
+  const [previewTokenCount, setPreviewTokenCount] = useState<number>(0);
 
   // Modal toggle functions
   const toggleApplyChangesModal = useCallback(() => {
@@ -38,6 +43,10 @@ const useModalState = () => {
     setInstructionsModalOpen((prev: boolean) => !prev);
   }, []);
 
+  const toggleClipboardPreviewModal = useCallback(() => {
+    setClipboardPreviewModalOpen((prev: boolean) => !prev);
+  }, []);
+
   // Function to open the file view modal
   const openFileViewModal = useCallback((filePath: string) => {
     setCurrentViewedFilePath(filePath);
@@ -49,6 +58,18 @@ const useModalState = () => {
     setFileViewModalOpen(false);
   }, []);
 
+  // Function to open the clipboard preview modal
+  const openClipboardPreviewModal = useCallback((content: string, tokenCount: number) => {
+    setPreviewContent(content);
+    setPreviewTokenCount(tokenCount);
+    setClipboardPreviewModalOpen(true);
+  }, []);
+
+  // Function to close the clipboard preview modal
+  const closeClipboardPreviewModal = useCallback(() => {
+    setClipboardPreviewModalOpen(false);
+  }, []);
+
   return {
     // Modal visibility states
     showApplyChangesModal,
@@ -57,7 +78,10 @@ const useModalState = () => {
     systemPromptsModalOpen,
     rolePromptsModalOpen,
     instructionsModalOpen,
+    clipboardPreviewModalOpen,
     currentViewedFilePath,
+    previewContent,
+    previewTokenCount,
     
     // Toggle functions
     toggleApplyChangesModal,
@@ -65,8 +89,11 @@ const useModalState = () => {
     toggleSystemPromptsModal,
     toggleRolePromptsModal,
     toggleInstructionsModal,
+    toggleClipboardPreviewModal,
     openFileViewModal,
     closeFileViewModal,
+    openClipboardPreviewModal,
+    closeClipboardPreviewModal,
     
     // Direct setters
     setShowApplyChangesModal,
@@ -75,7 +102,10 @@ const useModalState = () => {
     setSystemPromptsModalOpen,
     setRolePromptsModalOpen,
     setInstructionsModalOpen,
-    setCurrentViewedFilePath
+    setClipboardPreviewModalOpen,
+    setCurrentViewedFilePath,
+    setPreviewContent,
+    setPreviewTokenCount
   };
 };
 

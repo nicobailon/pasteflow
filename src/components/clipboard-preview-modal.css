@@ -1,0 +1,197 @@
+.clipboard-preview-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clipboard-preview-modal {
+  width: 85%;
+  max-width: 1200px;
+  height: 85%;
+  max-height: 800px;
+  background-color: var(--background-primary);
+  border-radius: 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.clipboard-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--background-secondary);
+}
+
+.clipboard-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clipboard-preview-title svg {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.clipboard-preview-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 4px;
+  margin-left: 0.5rem;
+}
+
+.clipboard-preview-close:hover {
+  background-color: var(--hover-color);
+}
+
+.clipboard-preview-token-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--background-primary);
+}
+
+.clipboard-preview-token-label {
+  color: var(--text-secondary);
+}
+
+.clipboard-preview-token-count {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.clipboard-preview-content-wrapper {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background-color: var(--background-primary);
+  padding: 16px;
+}
+
+.clipboard-preview-content {
+  margin: 0;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background-color: transparent;
+}
+
+.clipboard-preview-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--background-primary);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+
+.clipboard-preview-close-btn,
+.clipboard-preview-copy-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clipboard-preview-close-btn {
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.clipboard-preview-close-btn:hover {
+  background-color: var(--hover-color);
+}
+
+.clipboard-preview-copy-btn {
+  background-color: var(--primary-button-background);
+  color: var(--primary-button-text);
+  border: none;
+}
+
+.clipboard-preview-copy-btn:hover {
+  background-color: var(--accent-blue);
+}
+
+.clipboard-preview-copy-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.clipboard-preview-copy-btn.copied {
+  background-color: var(--success-color, #28a745);
+}
+
+.clipboard-preview-copy-btn.copied:hover {
+  background-color: var(--success-color, #28a745);
+}
+
+.clipboard-preview-warning {
+  color: var(--warning-color, #ff9800);
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.clipboard-preview-truncated {
+  margin-top: 16px;
+  padding: 12px;
+  background-color: var(--background-secondary);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+  font-family: inherit;
+}
+
+@media (max-width: 768px) {
+  .clipboard-preview-modal {
+    width: 95%;
+    height: 90vh;
+    max-width: none;
+  }
+  
+  .clipboard-preview-header,
+  .clipboard-preview-token-info,
+  .clipboard-preview-content-wrapper,
+  .clipboard-preview-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}

@@ -133,6 +133,11 @@ const App = () => {
             setRolePromptsModalOpen={appState.setRolePromptsModalOpen}
             setInstructionsModalOpen={appState.setInstructionsModalOpen}
             loadFileContent={appState.loadFileContent}
+            clipboardPreviewModalOpen={appState.clipboardPreviewModalOpen}
+            previewContent={appState.previewContent}
+            previewTokenCount={appState.previewTokenCount}
+            openClipboardPreviewModal={appState.openClipboardPreviewModal}
+            closeClipboardPreviewModal={appState.closeClipboardPreviewModal}
           />
         </div>
         

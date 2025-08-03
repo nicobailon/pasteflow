@@ -15,10 +15,11 @@
 
 .copy-button-group {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
+  gap: 0.75rem;
   width: 100%;
-  max-width: 25rem;
+  max-width: 30rem;
 }
 
 .copy-button-container .copy-button {
@@ -100,4 +101,43 @@
 /* Additional specific button style */
 .copy-selected-files-btn {
   padding: 0.625rem 1rem;
+  flex: 1;
+}
+
+/* Preview button styles */
+.preview-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  border-radius: 0.375rem;
+  background-color: var(--background-secondary);
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.preview-button:hover:not(:disabled) {
+  background-color: var(--hover-bg);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.preview-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.preview-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.preview-button svg {
+  width: 16px;
+  height: 16px;
 }
