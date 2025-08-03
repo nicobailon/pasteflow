@@ -1,15 +1,79 @@
 import { SecureDatabase } from './secure-database';
 import { SecureIpcLayer } from '../ipc/secure-ipc';
 import { StateHandlers } from '../handlers/state-handlers';
-import { MigrationOrchestrator } from '../migration/migration-orchestrator';
 import * as path from 'path';
 import { app } from 'electron';
+
+// Type definitions for IPC handler inputs
+interface WorkspaceCreateInput {
+  name: string;
+  folderPath: string;
+  state?: Record<string, unknown>;
+}
+
+interface WorkspaceLoadInput {
+  id: string;
+}
+
+interface WorkspaceUpdateInput {
+  id: string;
+  state: Record<string, unknown>;
+}
+
+interface WorkspaceDeleteInput {
+  id: string;
+}
+
+interface FileContentInput {
+  workspaceId: string;
+  filePath: string;
+  lineRanges?: Array<{ start: number; end: number }>;
+}
+
+interface FileSaveInput {
+  workspaceId: string;
+  filePath: string;
+  content: string;
+  tokenCount: number;
+}
+
+interface PreferenceGetInput {
+  key: string;
+}
+
+interface PreferenceSetInput {
+  key: string;
+  value: unknown;
+  encrypted?: boolean;
+}
+
+interface PromptListInput {
+  type?: 'system' | 'role';
+}
+
+interface PromptCreateInput {
+  type: 'system' | 'role';
+  name: string;
+  content: string;
+  tokenCount?: number;
+  isActive?: boolean;
+}
+
+interface PromptUpdateInput {
+  id: string;
+  name: string;
+  content: string;
+  tokenCount?: number;
+  isActive?: boolean;
+}
+
+interface PromptDeleteInput {
+  id: string;
+}
 
 export class DatabaseManager {
   private db!: SecureDatabase;
   private ipc!: SecureIpcLayer;
-  private stateHandlers!: StateHandlers;
-  private migrationOrchestrator!: MigrationOrchestrator;
   private static instance: DatabaseManager;
 
   private constructor() {}
@@ -29,26 +93,11 @@ export class DatabaseManager {
     console.log('Initializing PasteFlow database at:', dbPath);
     this.db = await SecureDatabase.create(dbPath);
     
-    // Initialize migration orchestrator
-    this.migrationOrchestrator = new MigrationOrchestrator(this.db);
-    
-    // Check if migration is needed
-    const needsMigration = await this.migrationOrchestrator.checkMigrationNeeded();
-    if (needsMigration) {
-      console.log('Data migration required, starting migration process...');
-      const result = await this.migrationOrchestrator.startMigration();
-      if (!result.success) {
-        console.error('Migration failed:', result.error);
-        throw new Error(`Data migration failed: ${result.error}`);
-      }
-      console.log('Migration completed successfully', result.stats);
-    }
-    
     // Initialize IPC layer
     this.ipc = new SecureIpcLayer();
     
-    // Initialize state handlers
-    this.stateHandlers = new StateHandlers(this.db, this.ipc);
+    // Initialize state handlers (they register their own IPC handlers)
+    new StateHandlers(this.db, this.ipc);
     
     // Wire up legacy IPC handlers to database operations
     this.setupHandlers();
@@ -62,11 +111,12 @@ export class DatabaseManager {
       return this.db.listWorkspaces();
     });
 
-    this.ipc.setHandler('/workspace/create', async (input) => {
+    this.ipc.setHandler('/workspace/create', async (input: unknown) => {
+      const validatedInput = input as WorkspaceCreateInput;
       const id = await this.db.createWorkspace(
-        input.name,
-        input.folderPath,
-        input.state || {}
+        validatedInput.name,
+        validatedInput.folderPath,
+        validatedInput.state || {}
       );
       
       const workspace = await this.db.getWorkspace(id);
@@ -77,29 +127,33 @@ export class DatabaseManager {
       return workspace;
     });
 
-    this.ipc.setHandler('/workspace/load', async (input) => {
-      const workspace = await this.db.getWorkspace(input.id);
+    this.ipc.setHandler('/workspace/load', async (input: unknown) => {
+      const validatedInput = input as WorkspaceLoadInput;
+      const workspace = await this.db.getWorkspace(validatedInput.id);
       if (!workspace) {
         throw new Error('Workspace not found');
       }
       return workspace;
     });
 
-    this.ipc.setHandler('/workspace/update', async (input) => {
-      await this.db.updateWorkspace(input.id, input.state);
+    this.ipc.setHandler('/workspace/update', async (input: unknown) => {
+      const validatedInput = input as WorkspaceUpdateInput;
+      await this.db.updateWorkspace(validatedInput.id, validatedInput.state);
       return true;
     });
 
-    this.ipc.setHandler('/workspace/delete', async (input) => {
-      await this.db.deleteWorkspace(input.id);
+    this.ipc.setHandler('/workspace/delete', async (input: unknown) => {
+      const validatedInput = input as WorkspaceDeleteInput;
+      await this.db.deleteWorkspace(validatedInput.id);
       return true;
     });
 
     // File handlers
-    this.ipc.setHandler('/file/content', async (input) => {
+    this.ipc.setHandler('/file/content', async (input: unknown) => {
+      const validatedInput = input as FileContentInput;
       const content = await this.db.getFileContent(
-        input.workspaceId,
-        input.filePath
+        validatedInput.workspaceId,
+        validatedInput.filePath
       );
       
       if (!content) {
@@ -107,8 +161,8 @@ export class DatabaseManager {
       }
       
       // TODO: Handle line ranges if specified
-      const tokenCount = input.lineRanges ? 
-        this.calculateTokensForLineRanges(content, input.lineRanges) : 
+      const tokenCount = validatedInput.lineRanges ? 
+        this.calculateTokensForLineRanges(content, validatedInput.lineRanges) : 
         this.estimateTokenCount(content);
       
       return {
@@ -119,32 +173,36 @@ export class DatabaseManager {
       };
     });
 
-    this.ipc.setHandler('/file/save', async (input) => {
+    this.ipc.setHandler('/file/save', async (input: unknown) => {
+      const validatedInput = input as FileSaveInput;
       await this.db.saveFileContent(
-        input.workspaceId,
-        input.filePath,
-        input.content,
-        input.tokenCount
+        validatedInput.workspaceId,
+        validatedInput.filePath,
+        validatedInput.content,
+        validatedInput.tokenCount
       );
       return true;
     });
 
     // Preference handlers
-    this.ipc.setHandler('/prefs/get', async (input) => {
-      return this.db.getPreference(input.key);
+    this.ipc.setHandler('/prefs/get', async (input: unknown) => {
+      const validatedInput = input as PreferenceGetInput;
+      return this.db.getPreference(validatedInput.key);
     });
 
-    this.ipc.setHandler('/prefs/set', async (input) => {
+    this.ipc.setHandler('/prefs/set', async (input: unknown) => {
+      const validatedInput = input as PreferenceSetInput;
       await this.db.setPreference(
-        input.key,
-        input.value,
-        input.encrypted
+        validatedInput.key,
+        validatedInput.value,
+        validatedInput.encrypted
       );
       return true;
     });
 
     // Prompt handlers
-    this.ipc.setHandler('/prompt/list', async (input) => {
+    this.ipc.setHandler('/prompt/list', async (input: unknown) => {
+      const validatedInput = input as PromptListInput;
       const allPrompts = await this.db.database.all<{
         id: string;
         type: string;
@@ -157,7 +215,7 @@ export class DatabaseManager {
       }>('SELECT * FROM prompts WHERE is_active = 1');
       
       const prompts = allPrompts
-        .filter(p => !input.type || p.type === input.type)
+        .filter(p => !validatedInput.type || p.type === validatedInput.type)
         .map(p => ({
           id: p.id,
           type: p.type as 'system' | 'role',
@@ -172,14 +230,15 @@ export class DatabaseManager {
       return prompts;
     });
 
-    this.ipc.setHandler('/prompt/create', async (input) => {
+    this.ipc.setHandler('/prompt/create', async (input: unknown) => {
+      const validatedInput = input as PromptCreateInput;
       const id = require('crypto').randomUUID();
-      const tokenCount = input.tokenCount || this.estimateTokenCount(input.content);
+      const tokenCount = validatedInput.tokenCount || this.estimateTokenCount(validatedInput.content);
       
       await this.db.database.run(
         `INSERT INTO prompts (id, type, name, content, token_count, is_active)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [id, input.type, input.name, input.content, tokenCount, input.isActive ? 1 : 0]
+        [id, validatedInput.type, validatedInput.name, validatedInput.content, tokenCount, validatedInput.isActive ? 1 : 0]
       );
       
       const created = await this.db.database.get<{
@@ -209,39 +268,25 @@ export class DatabaseManager {
       };
     });
 
-    this.ipc.setHandler('/prompt/update', async (input) => {
+    this.ipc.setHandler('/prompt/update', async (input: unknown) => {
+      const validatedInput = input as PromptUpdateInput;
       await this.db.database.run(
         `UPDATE prompts 
          SET name = ?, content = ?, token_count = ?, is_active = ?
          WHERE id = ?`,
-        [input.name, input.content, input.tokenCount, input.isActive ? 1 : 0, input.id]
+        [validatedInput.name, validatedInput.content, validatedInput.tokenCount, validatedInput.isActive ? 1 : 0, validatedInput.id]
       );
       return true;
     });
 
-    this.ipc.setHandler('/prompt/delete', async (input) => {
-      await this.db.database.run('DELETE FROM prompts WHERE id = ?', [input.id]);
+    this.ipc.setHandler('/prompt/delete', async (input: unknown) => {
+      const validatedInput = input as PromptDeleteInput;
+      await this.db.database.run('DELETE FROM prompts WHERE id = ?', [validatedInput.id]);
       return true;
     });
 
-    // Migration handlers
-    this.ipc.setHandler('/migration/retry', async () => {
-      const result = await this.migrationOrchestrator.startMigration();
-      return result;
-    });
-
-    this.ipc.setHandler('/migration/restore', async () => {
-      const backupManager = await import('../migration/backup-manager');
-      const manager = new backupManager.BackupManager();
-      const backups = await manager.getBackupList();
-      
-      if (backups.length > 0) {
-        await manager.restoreFromBackup(backups[0].path);
-        return { success: true, message: 'Restored from latest backup' };
-      }
-      
-      return { success: false, message: 'No backups available' };
-    });
+    // Migration handlers (currently disabled - migration modules not present)
+    // These handlers are kept for future implementation when migration is needed
   }
 
   // Helper methods
