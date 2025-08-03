@@ -1,4 +1,6 @@
+import { ArrowUpDown, Clock, SortAsc, GripVertical } from 'lucide-react';
 import { WorkspaceSortMode } from '../utils/workspace-sorting';
+import Dropdown, { DropdownOption } from './dropdown';
 
 interface WorkspaceHeaderProps {
   workspaceCount: number;
@@ -8,6 +10,12 @@ interface WorkspaceHeaderProps {
   onSelectAll: () => void;
 }
 
+const sortOptions: DropdownOption[] = [
+  { value: 'recent', label: 'Most Recent', icon: <Clock size={14} /> },
+  { value: 'alphabetical', label: 'Alphabetical', icon: <SortAsc size={14} /> },
+  { value: 'manual', label: 'Manual Order', icon: <GripVertical size={14} /> }
+];
+
 export const WorkspaceHeader = ({
   workspaceCount,
   sortMode,
@@ -15,21 +23,28 @@ export const WorkspaceHeader = ({
   onSortModeChange,
   onSelectAll
 }: WorkspaceHeaderProps): JSX.Element => {
+  const currentOption = sortOptions.find(opt => opt.value === sortMode);
+  const buttonLabel = currentOption?.label || 'Sort';
+  
   return (
     <div className="workspace-header">
       <div className="workspace-header-left">
         <h3 className="workspace-subtitle">Saved Workspaces</h3>
         {workspaceCount > 0 && (
           <div className="workspace-sort-selector">
-            <select
+            <Dropdown
+              options={sortOptions}
               value={sortMode}
-              onChange={(e) => onSortModeChange(e.target.value as WorkspaceSortMode)}
-              className="workspace-sort-dropdown"
-            >
-              <option value="recent">Most Recent</option>
-              <option value="alphabetical">Alphabetical</option>
-              <option value="manual">Manual Order</option>
-            </select>
+              onChange={(value) => onSortModeChange(value as WorkspaceSortMode)}
+              buttonLabel={buttonLabel}
+              buttonIcon={<ArrowUpDown size={14} />}
+              buttonClassName="workspace-sort-dropdown-button"
+              menuClassName="workspace-sort-dropdown-menu"
+              containerClassName="workspace-sort-dropdown-container"
+              showCheckmark={true}
+              glassEffect={true}
+              animationType="scale"
+            />
           </div>
         )}
       </div>

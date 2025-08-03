@@ -29,6 +29,65 @@
   --workspace-item-height: 44px;
   --workspace-drag-opacity: 0.5;
   --workspace-drag-transition: 200ms;
+  
+  /* Dropdown Typography Scale */
+  --dropdown-font-size-xs: 11px;
+  --dropdown-font-size-sm: 12px;
+  --dropdown-font-size-base: 12px;
+  --dropdown-font-size-md: 14px;
+  
+  /* Dropdown Font Weights */
+  --dropdown-font-light: 300;
+  --dropdown-font-regular: 400;
+  --dropdown-font-medium: 500;
+  
+  /* Dropdown Line Heights */
+  --dropdown-line-height-tight: 1.3;
+  --dropdown-line-height-base: 1.5;
+  --dropdown-line-height-relaxed: 1.6;
+  
+  /* Dropdown Letter Spacing */
+  --dropdown-letter-spacing-tight: -0.01em;
+  --dropdown-letter-spacing-base: 0.02em;
+  --dropdown-letter-spacing-wide: 0.04em;
+  
+  /* Glass & Transparency Effects */
+  --dropdown-glass-bg: rgba(245, 245, 247, 0.85);
+  --dropdown-glass-bg-dark: rgba(30, 30, 30, 0.85);
+  --dropdown-glass-border: rgba(255, 255, 255, 0.18);
+  --dropdown-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  
+  /* Backdrop Effects */
+  --dropdown-backdrop-blur: 20px;
+  --dropdown-backdrop-saturate: 180%;
+  
+  /* Gradients */
+  --dropdown-gradient-subtle: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.1) 0%, 
+    rgba(255, 255, 255, 0.05) 100%);
+  --dropdown-gradient-hover: linear-gradient(90deg,
+    rgba(14, 99, 156, 0.08) 0%,
+    rgba(14, 99, 156, 0.12) 100%);
+  --dropdown-gradient-active: linear-gradient(135deg,
+    rgba(14, 99, 156, 0.15) 0%,
+    rgba(14, 99, 156, 0.25) 100%);
+  
+  /* Accent Colors */
+  --dropdown-accent-primary: #0E639C;
+  --dropdown-accent-glow: rgba(14, 99, 156, 0.4);
+  --dropdown-accent-subtle: rgba(14, 99, 156, 0.06);
+  
+  /* State Colors */
+  --dropdown-hover-bg: rgba(14, 99, 156, 0.08);
+  --dropdown-active-bg: rgba(14, 99, 156, 0.15);
+  --dropdown-focus-glow: 0 0 0 3px rgba(14, 99, 156, 0.25);
+  
+  /* Animation Timing */
+  --dropdown-easing-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --dropdown-easing-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --dropdown-duration-fast: 0.15s;
+  --dropdown-duration-base: 0.2s;
+  --dropdown-duration-slow: 0.3s;
 }
 
 .dark-mode {
@@ -62,4 +121,25 @@
   --workspace-item-height: 44px;
   --workspace-drag-opacity: 0.5;
   --workspace-drag-transition: 200ms;
+  
+  /* Dark Mode Glass Effects */
+  --dropdown-glass-bg: rgba(40, 40, 40, 0.85);
+  --dropdown-glass-border: rgba(255, 255, 255, 0.08);
+  --dropdown-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  
+  /* Dark Mode Gradients */
+  --dropdown-gradient-subtle: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.05) 0%, 
+    rgba(255, 255, 255, 0.02) 100%);
+  --dropdown-gradient-hover: linear-gradient(90deg,
+    rgba(14, 99, 156, 0.12) 0%,
+    rgba(14, 99, 156, 0.18) 100%);
+  --dropdown-gradient-active: linear-gradient(135deg,
+    rgba(14, 99, 156, 0.2) 0%,
+    rgba(14, 99, 156, 0.3) 100%);
+  
+  /* Dark Mode States */
+  --dropdown-hover-bg: rgba(255, 255, 255, 0.08);
+  --dropdown-active-bg: rgba(14, 99, 156, 0.25);
+  --dropdown-accent-subtle: rgba(14, 99, 156, 0.08);
 } 

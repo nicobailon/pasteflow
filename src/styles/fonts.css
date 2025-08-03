@@ -1,0 +1,46 @@
+@font-face {
+  font-family: 'Roboto';
+  src: url('../assets/fonts/Roboto-Light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src: url('../assets/fonts/Roboto-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src: url('../assets/fonts/Roboto-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src: url('../assets/fonts/Roboto-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* SF Mono for technical elements - using system font fallbacks */
+@font-face {
+  font-family: 'SF Mono';
+  src: local('SF Mono'), local('Monaco'), local('Inconsolata'), local('Consolas'), local('Courier New');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'SF Mono';
+  src: local('SF Mono Medium'), local('Monaco'), local('Inconsolata'), local('Consolas'), local('Courier New');
+  font-weight: 500;
+  font-style: normal;
+}

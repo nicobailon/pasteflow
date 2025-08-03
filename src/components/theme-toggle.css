@@ -1,0 +1,64 @@
+/* 
+ * Theme Toggle Component Styles
+ * Migrated from src/styles/index.css (lines 1284-1341)
+ * Migration Date: 2025-08-03
+ */
+
+/* macOS-style segmented control for theme toggle */
+.theme-segmented-control {
+  display: flex;
+  background-color: var(--background-secondary);
+  border-radius: 0.375rem;
+  padding: 0.125rem;
+  box-shadow: 0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.1);
+  width: fit-content;
+  position: relative;
+  height: 2rem;
+  overflow: hidden;
+  margin-left: auto;
+}
+
+.theme-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0 0.75rem;
+  height: 1.75rem;
+  border: none;
+  background: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  position: relative;
+  z-index: 1;
+  transition: color 0.2s ease;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 4.375rem;
+}
+
+.theme-segment:focus {
+  outline: none;
+}
+
+.theme-segment span {
+  font-size: 0.6875rem;
+}
+
+.theme-segment.active {
+  color: var(--text-primary);
+  background-color: var(--background-primary);
+  box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.1);
+}
+
+/* For dark mode, adjust active segment appearance */
+.dark-mode .theme-segment.active {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Animation for segment transition */
+.theme-segment {
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}

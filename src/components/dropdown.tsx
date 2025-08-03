@@ -23,6 +23,9 @@ interface DropdownProps {
   renderCustomOption?: (option: DropdownOption, isActive: boolean) => JSX.Element;
   position?: "left" | "right";
   closeOnChange?: boolean;
+  animationType?: "scale" | "fade" | "slide";
+  glassEffect?: boolean;
+  variant?: "default" | "primary" | "subtle";
 }
 
 export interface DropdownRef {
@@ -46,6 +49,9 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(
       renderCustomOption,
       position = "left",
       closeOnChange = true,
+      animationType = "scale",
+      glassEffect = true,
+      variant = "default",
     },
     ref
   ) => {
@@ -100,13 +106,35 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(
     };
   }, [isOpen]);
 
+  const getAnimationClass = () => {
+    switch (animationType) {
+      case "fade": {
+        return "dropdown-menu-fade";
+      }
+      case "slide": {
+        return "dropdown-menu-slide";
+      }
+      default: {
+        return "";
+      }
+    }
+  };
+
+  const getButtonClass = () => {
+    let className = "dropdown-button";
+    if (glassEffect) className += " glass-effect";
+    if (variant !== "default") className += ` dropdown-${variant}`;
+    if (buttonClassName) className += ` ${buttonClassName}`;
+    return className;
+  };
+
   return (
     <div 
       ref={dropdownRef}
       className={`dropdown-container ${containerClassName}`}
     >
       <button
-        className={`dropdown-button ${buttonClassName}`}
+        className={getButtonClass()}
         onClick={handleToggle}
         onKeyDown={handleKeyDown}
         aria-haspopup="true"
@@ -119,7 +147,7 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(
       {isOpen && (
         <div 
           ref={menuRef}
-          className={`dropdown-menu ${menuClassName}`}
+          className={`dropdown-menu ${getAnimationClass()} ${menuClassName}`}
           style={position === "right" ? { right: 0, left: "auto" } : {}}
           role="menu"
         >
