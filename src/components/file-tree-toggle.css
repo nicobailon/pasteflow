@@ -1,0 +1,7 @@
+/* File tree toggle specific styles */
+.theme-segment .file-tree-token-count {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  margin-left: 0.375rem;
+  white-space: nowrap;
+}

@@ -4,6 +4,8 @@ import { useRef, useState } from 'react';
 import { FileTreeMode } from '../types/file-types';
 import type { AppState } from '../hooks/use-app-state';
 
+import "./app-header.css";
+
 import FileTreeToggle from './file-tree-toggle';
 import ThemeToggle from './theme-toggle';
 import WorkspaceDropdown, { WorkspaceDropdownRef } from './workspace-dropdown';

@@ -2,6 +2,8 @@ import { ChevronDown } from "lucide-react";
 import * as React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
+import "./dropdown.css";
+
 export interface DropdownOption {
   value: string;
   label: string;
