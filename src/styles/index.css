@@ -2,6 +2,8 @@
 @import './radix-modal.css';
 /* Import color variables */
 @import './colors.css';
+/* Import local fonts */
+@import './fonts.css';
 
 * {
   box-sizing: border-box;
