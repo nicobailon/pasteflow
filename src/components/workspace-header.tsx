@@ -1,6 +1,7 @@
 import { ArrowUpDown, Clock, SortAsc, GripVertical } from 'lucide-react';
 import { WorkspaceSortMode } from '../utils/workspace-sorting';
 import Dropdown, { DropdownOption } from './dropdown';
+import './workspace-header.css';
 
 interface WorkspaceHeaderProps {
   workspaceCount: number;
