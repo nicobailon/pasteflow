@@ -2336,46 +2336,6 @@ input[type="search"]:focus {
   text-overflow: ellipsis;
 }
 
-/* Save button animation states */
-.save-button {
-  position: relative;
-  overflow: hidden;
-  transition: all 0.2s ease;
-}
-
-.save-button.save-saving {
-  background-color: var(--accent-blue);
-  pointer-events: none;
-}
-
-.save-button.save-success {
-  background-color: var(--success-color);
-  pointer-events: none;
-}
-
-.save-button .button-text {
-  transition: opacity 0.2s ease;
-}
-
-.save-button .button-text.hide {
-  opacity: 0;
-}
-
-.save-button .button-icon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.save-button .button-icon.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: translate(-50%, -50%) rotate(0deg); }
-  to { transform: translate(-50%, -50%) rotate(360deg); }
-}
 
 /* Workspace action buttons */
 .workspace-actions .prompt-action-button {
@@ -2491,22 +2451,6 @@ input[type="search"]:focus {
   color: white;
 }
 
-/* Success check animation */
-.success-check {
-  animation: checkmark 0.3s ease-in-out;
-}
-
-@keyframes checkmark {
-  0% {
-    transform: translate(-50%, -50%) scale(0);
-  }
-  50% {
-    transform: translate(-50%, -50%) scale(1.2);
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(1);
-  }
-}
 
 .workspace-dropdown {
   position: relative;

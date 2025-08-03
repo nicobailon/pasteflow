@@ -1,0 +1,81 @@
+/* Workspace Save Button Styles */
+
+/* Base button styles - extending apply-button */
+.save-button {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  
+  /* Apply button base styles */
+  background-color: var(--primary-button-background);
+  color: var(--primary-button-text);
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.save-button:hover:not(:disabled) {
+  background-color: var(--primary-button-background);
+}
+
+.save-button:disabled {
+  background-color: var(--text-disabled);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* State variants */
+.save-button.save-saving {
+  background-color: var(--accent-blue);
+  pointer-events: none;
+}
+
+.save-button.save-success {
+  background-color: var(--success-color);
+  pointer-events: none;
+}
+
+/* Text transitions */
+.save-button .button-text {
+  transition: opacity 0.2s ease;
+}
+
+.save-button .button-text.hide {
+  opacity: 0;
+}
+
+/* Icon positioning */
+.save-button .button-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.save-button .button-icon.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Success check animation */
+.success-check {
+  animation: checkmark 0.3s ease-in-out;
+}
+
+/* Animations */
+@keyframes spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes checkmark {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
