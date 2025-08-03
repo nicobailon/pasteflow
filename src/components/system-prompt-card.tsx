@@ -3,6 +3,7 @@ import { MessageSquareCode, X } from "lucide-react";
 import { SystemPrompt } from "../types/file-types";
 
 import CopyButton from "./copy-button";
+import "./system-prompt-card.css";
 
 // Estimate token count for the prompt (simple calculation)
 const estimateTokenCount = (text: string) => {

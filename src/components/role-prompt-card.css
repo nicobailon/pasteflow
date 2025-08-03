@@ -1,0 +1,30 @@
+/* Role Prompt Card Styling */
+.file-card.role-prompt-card {
+  border-color: #e67e22;
+  background-color: rgba(230, 126, 34, 0.05);
+}
+
+.dark-theme .file-card.role-prompt-card {
+  background-color: rgba(230, 126, 34, 0.1);
+  border-color: #f39c12;
+}
+
+.file-card-line-badge.role-prompt-badge {
+  background-color: #e67e22;
+  color: white;
+}
+
+.dark-theme .file-card-line-badge.role-prompt-badge {
+  background-color: #f39c12;
+}
+
+/* Selected state for role prompts in the modal */
+.role-prompt-item.selected {
+  background-color: rgba(230, 126, 34, 0.1);
+  border-left: 3px solid #e67e22;
+}
+
+.dark-theme .role-prompt-item.selected {
+  background-color: rgba(230, 126, 34, 0.15);
+  border-left: 3px solid #f39c12;
+}
