@@ -569,7 +569,8 @@ export class TokenWorkerPool {
   }
   
   private enforceQueueSizeLimit(): void {
-    if (this.queue.length >= this.MAX_QUEUE_SIZE) {
+    // Use while loop to ensure we drop all excess items
+    while (this.queue.length >= this.MAX_QUEUE_SIZE) {
       // Drop the lowest priority item (highest priority value)
       // Since queue is sorted by priority ascending, find the item with highest priority value
       let lowestPriorityIndex = this.queue.length - 1;

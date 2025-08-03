@@ -665,4 +665,4 @@ const TreeItem = memo(({
 
 TreeItem.displayName = 'TreeItem';
 
-export default TreeItem;
+export default memo(TreeItem);

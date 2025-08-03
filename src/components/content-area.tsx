@@ -1,4 +1,5 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User } from 'lucide-react';
+import { memo } from 'react';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
 
@@ -269,4 +270,4 @@ const ContentArea = ({
   );
 };
 
-export default ContentArea;
+export default memo(ContentArea);

@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import { retryWorkerOperation, executeWithRetry, retryUtility, DatabaseErrorType } from './retry-utils.js';
+import { sharedBufferManager } from './shared-buffer-utils.js';
 
 interface WorkerRequest {
   id: string;

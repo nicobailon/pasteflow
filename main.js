@@ -680,9 +680,24 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
       }
 
       let processedDirsCount = 0;
-      const BATCH_SIZE = 50; // Smaller batches for faster initial display
       const MAX_DIRS_PER_BATCH = 10;
       const currentBatchFiles = [];
+      
+      // Create adaptive batcher for optimized IPC communication
+      const batcher = {
+        TARGET_BATCH_SIZE: 100 * 1024, // 100KB target
+        MIN_FILES: 10,
+        MAX_FILES: 200,
+        calculateBatchSize: function(files) {
+          if (!files.length) return this.MIN_FILES;
+          const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
+          const avgFileSize = totalSize / files.length || 1024;
+          const optimalCount = Math.floor(this.TARGET_BATCH_SIZE / avgFileSize);
+          return Math.max(this.MIN_FILES, Math.min(this.MAX_FILES, optimalCount));
+        }
+      };
+      
+      let dynamicBatchSize = batcher.calculateBatchSize(currentBatchFiles);
       
       while (directoryQueue.length > 0 && processedDirsCount < MAX_DIRS_PER_BATCH) {
         directoryQueue.sort((a, b) => a.depth - b.depth);
@@ -699,6 +714,9 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
         try {
           const dirents = await fs.promises.readdir(dirPath, { withFileTypes: true });
           
+          // Process files in parallel for better performance
+          const filePromises = [];
+          
           for (const dirent of dirents) {
             const fullPath = path.join(dirPath, dirent.name);
             const relativePath = path.relative(folderPath, fullPath);
@@ -710,25 +728,43 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
             if (dirent.isDirectory()) {
               directoryQueue.push({ path: fullPath, depth: depth + 1 });
             } else if (dirent.isFile()) {
-              // Get file stats asynchronously
-              try {
-                const stats = await fs.promises.stat(fullPath);
-                const fileInfo = processFile(dirent, fullPath, folderPath, stats.size);
-                currentBatchFiles.push(fileInfo);
-                allFiles.push(fileInfo);
-              } catch (error) {
-                console.error(`Error processing file ${fullPath}:`, error);
+              // Queue file processing for parallel execution
+              filePromises.push(
+                fs.promises.stat(fullPath).then(stats => {
+                  const fileInfo = processFile(dirent, fullPath, folderPath, stats.size);
+                  currentBatchFiles.push(fileInfo);
+                  allFiles.push(fileInfo);
+                }).catch(error => {
+                  console.error(`Error processing file ${fullPath}:`, error);
+                })
+              );
+              
+              // Process in chunks to avoid overwhelming the system
+              if (filePromises.length >= 10) {
+                await Promise.all(filePromises);
+                filePromises.length = 0;
               }
             }
+          }
+          
+          // Process any remaining file promises
+          if (filePromises.length > 0) {
+            await Promise.all(filePromises);
           }
         } catch (error) {
           console.error(`Error reading directory ${dirPath}:`, error);
         }
 
-        // Send batch when we have enough files
-        if (currentBatchFiles.length >= BATCH_SIZE) {
+        // Recalculate batch size based on current files
+        dynamicBatchSize = batcher.calculateBatchSize(currentBatchFiles);
+        
+        // Send batch when we have enough files (using adaptive size)
+        if (currentBatchFiles.length >= dynamicBatchSize) {
           sendBatch(currentBatchFiles, false);
           currentBatchFiles.length = 0; // Clear the batch
+          
+          // Add small delay to prevent IPC flooding
+          await new Promise(resolve => setTimeout(resolve, 10));
         }
       }
 

@@ -1,5 +1,5 @@
 import { Eye, FileText, Plus, X } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, memo } from "react";
 
 import { FileCardProps, LineRange } from "../types/file-types";
 
@@ -133,4 +133,4 @@ const FileCard = ({
   );
 };
 
-export default FileCard;
+export default memo(FileCard);

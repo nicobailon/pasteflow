@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FileData, TreeNode } from '../types/file-types';
 import { normalizePath } from '../utils/path-utils';
 import { StreamingTreeBuilder } from '../utils/streaming-tree-builder';
+import { BoundedLRUCache } from '../utils/bounded-lru-cache';
 
 interface UseFileTreeProps {
   allFiles: FileData[];
@@ -19,7 +20,8 @@ interface UseFileTreeResult {
 }
 
 // Cache for directory and file priorities to improve performance
-const nodePriorityCache = new Map<string, number>();
+// Using bounded LRU cache to prevent unbounded memory growth
+const nodePriorityCache = new BoundedLRUCache<string, number>(1000);
 
 // Function to clear the cache when sort order changes
 const clearNodePriorityCache = () => {
