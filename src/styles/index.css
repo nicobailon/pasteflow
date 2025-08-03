@@ -1184,72 +1184,6 @@ input[type="search"]:focus {
   }
 }
 
-.search-bar {
-  position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  background-color: var(--background-primary);
-  border-radius: 0.25rem;
-  box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.05);
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.search-icon {
-  position: absolute;
-  left: 0.625rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--icon-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 2;
-  width: 1rem;
-  height: 1rem;
-}
-
-.search-bar .search-input,
-input[type="search"].search-input,
-input[type="text"].search-input {
-  width: 100%;
-  padding: 0.5rem 2rem 0.5rem 2.25rem !important;
-  border: none;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
-  line-height: 1.75;
-  outline: none;
-  background-color: transparent;
-  color: var(--text-primary);
-}
-
-.search-bar .search-input:focus,
-input[type="search"].search-input:focus,
-input[type="text"].search-input:focus {
-  box-shadow: none;
-}
-
-.search-clear-btn {
-  position: absolute;
-  right: 0.5rem;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  padding: 0.25rem;
-  color: var(--icon-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  cursor: pointer;
-  z-index: 2;
-}
-
-.search-clear-btn:hover {
-  background-color: var(--hover-color);
-}
 
 .sidebar-resize-handle {
   position: absolute;
@@ -1980,106 +1914,7 @@ input[type="text"].search-input:focus {
   font-style: italic;
 }
 
-/* System Prompt Card Styling */
-.system-prompt-card {
-  border-color: #6a3ecf;
-  background-color: rgba(106, 62, 207, 0.05);
-}
 
-.dark-theme .system-prompt-card {
-  background-color: rgba(143, 107, 224, 0.1);
-  border-color: #8f6be0;
-}
-
-.system-prompt-badge {
-  background-color: #6a3ecf;
-  color: white;
-}
-
-.dark-theme .system-prompt-badge {
-  background-color: #8f6be0;
-}
-
-/* Role Prompt Card Styling */
-.role-prompt-card {
-  border-color: #e67e22;
-  background-color: rgba(230, 126, 34, 0.05);
-}
-
-.dark-theme .role-prompt-card {
-  background-color: rgba(230, 126, 34, 0.1);
-  border-color: #f39c12;
-}
-
-.role-prompt-badge {
-  background-color: #e67e22;
-  color: white;
-}
-
-.dark-theme .role-prompt-badge {
-  background-color: #f39c12;
-}
-
-/* Selected state for system prompts in the modal */
-.system-prompt-item.selected {
-  background-color: rgba(106, 62, 207, 0.1);
-  border-left: 3px solid #6a3ecf;
-}
-
-.dark-theme .system-prompt-item.selected {
-  background-color: rgba(143, 107, 224, 0.15);
-  border-left: 3px solid #8f6be0;
-}
-
-/* Selected state for role prompts in the modal */
-.role-prompt-item.selected {
-  background-color: rgba(230, 126, 34, 0.1);
-  border-left: 3px solid #e67e22;
-}
-
-.dark-theme .role-prompt-item.selected {
-  background-color: rgba(230, 126, 34, 0.15);
-  border-left: 3px solid #f39c12;
-}
-
-/* Instruction Card Styling */
-.instruction-card {
-  border-color: #2980b9;
-  background-color: rgba(41, 128, 185, 0.05);
-}
-
-.dark-theme .instruction-card {
-  background-color: rgba(52, 152, 219, 0.1);
-  border-color: #3498db;
-}
-
-.instruction-badge {
-  background-color: #2980b9;
-  color: white;
-}
-
-.dark-theme .instruction-badge {
-  background-color: #3498db;
-}
-
-/* Selected state for instructions in the modal */
-.instruction-item.selected {
-  background-color: rgba(41, 128, 185, 0.1);
-  border-left: 3px solid #2980b9;
-}
-
-.dark-theme .instruction-item.selected {
-  background-color: rgba(52, 152, 219, 0.15);
-  border-left: 3px solid #3498db;
-}
-
-.toggle-selection-button.selected {
-  color: white;
-}
-
-/* .dark-theme .toggle-selection-button.selected {
-  outline: 1px solid var(--option-selected-bg);
-} */
 
 /* Prompts Buttons and Modals */
 .prompts-buttons-container {
@@ -2398,14 +2233,6 @@ input[type="text"].search-input:focus {
   gap: 12px;
 }
 
-.workspace-subtitle {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
 
 .workspace-list {
   display: flex;
@@ -2509,46 +2336,6 @@ input[type="text"].search-input:focus {
   text-overflow: ellipsis;
 }
 
-/* Save button animation states */
-.save-button {
-  position: relative;
-  overflow: hidden;
-  transition: all 0.2s ease;
-}
-
-.save-button.save-saving {
-  background-color: var(--accent-blue);
-  pointer-events: none;
-}
-
-.save-button.save-success {
-  background-color: var(--success-color);
-  pointer-events: none;
-}
-
-.save-button .button-text {
-  transition: opacity 0.2s ease;
-}
-
-.save-button .button-text.hide {
-  opacity: 0;
-}
-
-.save-button .button-icon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.save-button .button-icon.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: translate(-50%, -50%) rotate(0deg); }
-  to { transform: translate(-50%, -50%) rotate(360deg); }
-}
 
 /* Workspace action buttons */
 .workspace-actions .prompt-action-button {
@@ -2593,78 +2380,17 @@ input[type="text"].search-input:focus {
 }
 
 /* Workspace checkbox styles */
-.workspace-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  margin-top: 20px;
-}
 
-.workspace-header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: 1;
-}
 
-.workspace-sort-selector {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 12px;
-}
 
-/* Workspace Sort Dropdown Styles */
-.workspace-sort-dropdown-container {
-  position: relative;
-  display: inline-block;
-}
 
-.workspace-sort-dropdown-button {
-  min-width: 140px;
-  padding: 6px 10px;
-  font-size: var(--dropdown-font-size-sm);
-  font-weight: var(--dropdown-font-regular);
-  text-transform: none;
-  justify-content: space-between;
-}
 
-.workspace-sort-dropdown-menu {
-  min-width: 180px;
-}
 
-.workspace-sort-dropdown-menu .dropdown-item {
-  padding: 8px 12px;
-  font-size: var(--dropdown-font-size-sm);
-}
 
-.workspace-sort-dropdown-menu .dropdown-item-icon {
-  width: 14px;
-  height: 14px;
-  opacity: 0.7;
-}
 
-.workspace-sort-dropdown-menu .dropdown-item.active .dropdown-item-icon {
-  opacity: 1;
-  color: var(--dropdown-accent-primary);
-}
 
-.workspace-select-all {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 
-.select-all-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
-}
 
-.workspace-select-all .workspace-checkbox-container {
-  margin-right: 8px;
-}
 
 .workspace-checkbox-container {
   margin-right: 12px;
@@ -2725,22 +2451,6 @@ input[type="text"].search-input:focus {
   color: white;
 }
 
-/* Success check animation */
-.success-check {
-  animation: checkmark 0.3s ease-in-out;
-}
-
-@keyframes checkmark {
-  0% {
-    transform: translate(-50%, -50%) scale(0);
-  }
-  50% {
-    transform: translate(-50%, -50%) scale(1.2);
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(1);
-  }
-}
 
 .workspace-dropdown {
   position: relative;

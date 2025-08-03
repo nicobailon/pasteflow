@@ -1,0 +1,30 @@
+/* System Prompt Card Styling */
+.file-card.system-prompt-card {
+  border-color: #6a3ecf;
+  background-color: rgba(106, 62, 207, 0.05);
+}
+
+.dark-theme .file-card.system-prompt-card {
+  background-color: rgba(143, 107, 224, 0.1);
+  border-color: #8f6be0;
+}
+
+.file-card-line-badge.system-prompt-badge {
+  background-color: #6a3ecf;
+  color: white;
+}
+
+.dark-theme .file-card-line-badge.system-prompt-badge {
+  background-color: #8f6be0;
+}
+
+/* Selected state for system prompts in the modal */
+.system-prompt-item.selected {
+  background-color: rgba(106, 62, 207, 0.1);
+  border-left: 3px solid #6a3ecf;
+}
+
+.dark-theme .system-prompt-item.selected {
+  background-color: rgba(143, 107, 224, 0.15);
+  border-left: 3px solid #8f6be0;
+}

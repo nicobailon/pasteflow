@@ -138,6 +138,46 @@ export class AsyncDatabase extends EventEmitter {
     });
   }
 
+  // Instructions methods
+  async listInstructions(): Promise<Array<{
+    id: string;
+    name: string;
+    content: string;
+    created_at: number;
+    updated_at: number;
+  }>> {
+    return await this.all(
+      'SELECT id, name, content, created_at, updated_at FROM instructions ORDER BY updated_at DESC'
+    );
+  }
+
+  async createInstruction(id: string, name: string, content: string): Promise<void> {
+    await this.run(
+      'INSERT INTO instructions (id, name, content) VALUES (?, ?, ?)',
+      [id, name, content]
+    );
+  }
+
+  async updateInstruction(id: string, name: string, content: string): Promise<void> {
+    const result = await this.run(
+      "UPDATE instructions SET name = ?, content = ?, updated_at = strftime('%s', 'now') * 1000 WHERE id = ?",
+      [name, content, id]
+    );
+    if (result.changes === 0) {
+      throw new Error(`Instruction with id '${id}' not found`);
+    }
+  }
+
+  async deleteInstruction(id: string): Promise<void> {
+    const result = await this.run(
+      'DELETE FROM instructions WHERE id = ?',
+      [id]
+    );
+    if (result.changes === 0) {
+      throw new Error(`Instruction with id '${id}' not found`);
+    }
+  }
+
   // Enhanced transaction support with retry
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     return await executeWithRetry(async () => {

@@ -1127,6 +1127,58 @@ ipcMain.handle('/workspace/rename', async (event, params) => {
   }
 });
 
+// Instructions handlers
+ipcMain.handle('/instructions/list', async () => {
+  try {
+    if (database && database.initialized) {
+      return await database.listInstructions();
+    }
+    throw new Error('Database not initialized');
+  } catch (error) {
+    console.error('Failed to list instructions:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('/instructions/create', async (event, params) => {
+  try {
+    if (database && database.initialized) {
+      await database.createInstruction(params.id, params.name, params.content);
+      return { success: true };
+    }
+    throw new Error('Database not initialized');
+  } catch (error) {
+    console.error('Failed to create instruction:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('/instructions/update', async (event, params) => {
+  try {
+    if (database && database.initialized) {
+      await database.updateInstruction(params.id, params.name, params.content);
+      return { success: true };
+    }
+    throw new Error('Database not initialized');
+  } catch (error) {
+    console.error('Failed to update instruction:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('/instructions/delete', async (event, params) => {
+  try {
+    if (database && database.initialized) {
+      await database.deleteInstruction(params.id);
+      return { success: true };
+    }
+    throw new Error('Database not initialized');
+  } catch (error) {
+    console.error('Failed to delete instruction:', error);
+    throw error;
+  }
+});
+
 // Preferences handlers
 ipcMain.handle('/prefs/get', async (event, params) => {
   try {

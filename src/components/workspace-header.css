@@ -1,0 +1,83 @@
+/* Workspace Header Component Styles */
+
+.workspace-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  margin-top: 20px;
+}
+
+.workspace-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.workspace-sort-selector {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 12px;
+}
+
+/* Workspace Sort Dropdown Styles */
+.workspace-sort-dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.workspace-sort-dropdown-button {
+  min-width: 140px;
+  padding: 6px 10px;
+  font-size: var(--dropdown-font-size-sm);
+  font-weight: var(--dropdown-font-regular);
+  text-transform: none;
+  justify-content: space-between;
+}
+
+.workspace-sort-dropdown-menu {
+  min-width: 180px;
+}
+
+.workspace-sort-dropdown-menu .dropdown-item {
+  padding: 8px 12px;
+  font-size: var(--dropdown-font-size-sm);
+}
+
+.workspace-sort-dropdown-menu .dropdown-item-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+}
+
+.workspace-sort-dropdown-menu .dropdown-item.active .dropdown-item-icon {
+  opacity: 1;
+  color: var(--dropdown-accent-primary);
+}
+
+.workspace-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-all-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.workspace-select-all .workspace-checkbox-container {
+  margin-right: 8px;
+}

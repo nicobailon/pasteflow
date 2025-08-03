@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Search, X } from "lucide-react";
+import "./search-bar.css";
 
 interface SearchBarProps {
   searchTerm: string;

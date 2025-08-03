@@ -3,6 +3,7 @@ import { FileText, X } from "lucide-react";
 import { Instruction } from "../types/file-types";
 
 import CopyButton from "./copy-button";
+import "./instruction-card.css";
 
 // Estimate token count for the instruction (simple calculation)
 const estimateTokenCount = (text: string) => {

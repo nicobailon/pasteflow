@@ -259,6 +259,53 @@ class DatabaseBridge {
     return this.db.setPreference(key, value);
   }
 
+  // Instructions operations
+  /**
+   * Retrieves all instructions ordered by last updated time.
+   * 
+   * @returns {Promise<Array<Object>>} Array of instruction objects
+   * @throws {Error} If database query fails
+   */
+  async listInstructions() {
+    return this.db.listInstructions();
+  }
+
+  /**
+   * Creates a new instruction in the database.
+   * 
+   * @param {string} id - Unique instruction identifier
+   * @param {string} name - Instruction name
+   * @param {string} content - Instruction content
+   * @returns {Promise<void>}
+   * @throws {Error} If instruction creation fails
+   */
+  async createInstruction(id, name, content) {
+    return this.db.createInstruction(id, name, content);
+  }
+
+  /**
+   * Updates an existing instruction.
+   * 
+   * @param {string} id - Instruction identifier
+   * @param {string} name - New instruction name
+   * @param {string} content - New instruction content
+   * @returns {Promise<void>}
+   * @throws {Error} If update fails
+   */
+  async updateInstruction(id, name, content) {
+    return this.db.updateInstruction(id, name, content);
+  }
+
+  /**
+   * Deletes an instruction from the database.
+   * 
+   * @param {string} id - Instruction identifier
+   * @returns {Promise<void>}
+   * @throws {Error} If deletion fails
+   */
+  async deleteInstruction(id) {
+    return this.db.deleteInstruction(id);
+  }
 
   // Cleanup
   /**

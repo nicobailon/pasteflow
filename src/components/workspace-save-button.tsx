@@ -1,4 +1,5 @@
 import { Check, Loader2 } from 'lucide-react';
+import './workspace-save-button.css';
 
 interface WorkspaceSaveButtonProps {
   saveState: 'idle' | 'saving' | 'success';

@@ -22,6 +22,7 @@ import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
 import { useTokenCounter } from './use-token-counter';
 import { useCancellableOperation, CancellationToken } from './use-cancellable-operation';
+import { useInstructionsState } from './use-instructions-state';
 
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
@@ -154,11 +155,8 @@ const useAppState = () => {
   const [userInstructions, setUserInstructions] = useState('');
   const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
   
-  // Instructions (docs) state
-  const [instructions, setInstructions] = usePersistentState<Instruction[]>(
-    STORAGE_KEYS.INSTRUCTIONS,
-    []
-  );
+  // Instructions (docs) state - now from database
+  const instructionsState = useInstructionsState();
   const [selectedInstructions, setSelectedInstructions] = useState(() => [] as Instruction[]);
 
   const handleResetFolderState = useCallback(() => {
@@ -769,7 +767,7 @@ const useAppState = () => {
         systemPrompts: promptState.selectedSystemPrompts,
         rolePrompts: promptState.selectedRolePrompts
       },
-      instructions: instructions,
+      // Don't save instructions - they're now in database
       selectedInstructions: selectedInstructions
     };
 
@@ -787,7 +785,7 @@ const useAppState = () => {
     userInstructions,
     promptState.selectedSystemPrompts,
     promptState.selectedRolePrompts,
-    instructions,
+    instructionsState.instructions,
     selectedInstructions,
     persistWorkspace
   ]);
@@ -941,7 +939,6 @@ const useAppState = () => {
       selectedFilesCount: workspaceData.selectedFiles?.length || 0,
       systemPromptsCount: workspaceData.customPrompts?.systemPrompts?.length || 0,
       rolePromptsCount: workspaceData.customPrompts?.rolePrompts?.length || 0,
-      instructionsCount: workspaceData.instructions?.length || 0,
       selectedInstructionsCount: workspaceData.selectedInstructions?.length || 0
     });
 
@@ -975,8 +972,7 @@ const useAppState = () => {
     setUserInstructions(workspaceData.userInstructions || '');
     applyPrompts(workspaceData.customPrompts);
     
-    // Restore instructions - always set them to ensure clearing when empty
-    setInstructions(workspaceData.instructions || []);
+    // Only restore selectedInstructions (instructions are now in database)
     setSelectedInstructions(workspaceData.selectedInstructions || []);
     
     // Reset the flag after applying
@@ -988,8 +984,7 @@ const useAppState = () => {
     handleFolderChange,
     applyExpandedNodes,
     applySelectedFiles,
-    applyPrompts,
-    setInstructions
+    applyPrompts
   ]);
 
   // Store refs to get latest values in handlers
@@ -1275,19 +1270,19 @@ const useAppState = () => {
     };
   }, [expandedNodes, sortOrder, searchTerm, fileTreeMode, exclusionPatterns, fileSelection.selectedFiles]);
 
-  const onAddInstruction = useCallback((instruction: Instruction) => {
-    setInstructions((prev: Instruction[]) => [...prev, instruction]);
-  }, []);
+  const onAddInstruction = useCallback(async (instruction: Instruction) => {
+    await instructionsState.createInstruction(instruction);
+  }, [instructionsState]);
 
-  const onDeleteInstruction = useCallback((id: string) => {
-    setInstructions((prev: Instruction[]) => prev.filter(instruction => instruction.id !== id));
+  const onDeleteInstruction = useCallback(async (id: string) => {
+    await instructionsState.deleteInstruction(id);
     setSelectedInstructions((prev: Instruction[]) => prev.filter(instruction => instruction.id !== id));
-  }, []);
+  }, [instructionsState]);
 
-  const onUpdateInstruction = useCallback((instruction: Instruction) => {
-    setInstructions((prev: Instruction[]) => prev.map(i => i.id === instruction.id ? instruction : i));
+  const onUpdateInstruction = useCallback(async (instruction: Instruction) => {
+    await instructionsState.updateInstruction(instruction);
     setSelectedInstructions((prev: Instruction[]) => prev.map(i => i.id === instruction.id ? instruction : i));
-  }, []);
+  }, [instructionsState]);
 
   const toggleInstructionSelection = useCallback((instruction: Instruction) => {
     setSelectedInstructions((prev: Instruction[]) => {
@@ -1371,7 +1366,7 @@ const useAppState = () => {
     totalTokensForSystemPrompt,
     totalTokensForRolePrompt,
 
-    instructions,
+    instructions: instructionsState.instructions,
     selectedInstructions,
     onAddInstruction,
     onDeleteInstruction,
