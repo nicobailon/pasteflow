@@ -2042,8 +2042,8 @@ input[type="text"].search-input:focus {
   border-left: 3px solid #f39c12;
 }
 
-/* Instruction Card Styling */
-.instruction-card {
+/* Instruction Card Styling - MIGRATED to src/components/instruction-card.css */
+/* .instruction-card {
   border-color: #2980b9;
   background-color: rgba(41, 128, 185, 0.05);
 }
@@ -2062,7 +2062,6 @@ input[type="text"].search-input:focus {
   background-color: #3498db;
 }
 
-/* Selected state for instructions in the modal */
 .instruction-item.selected {
   background-color: rgba(41, 128, 185, 0.1);
   border-left: 3px solid #2980b9;
@@ -2075,7 +2074,7 @@ input[type="text"].search-input:focus {
 
 .toggle-selection-button.selected {
   color: white;
-}
+} */
 
 /* .dark-theme .toggle-selection-button.selected {
   outline: 1px solid var(--option-selected-bg);

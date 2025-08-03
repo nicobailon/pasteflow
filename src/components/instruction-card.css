@@ -1,0 +1,38 @@
+/* Instruction Card Styling */
+.file-card.instruction-card {
+  border-color: #2980b9;
+  background-color: rgba(41, 128, 185, 0.05);
+}
+
+.dark-theme .file-card.instruction-card {
+  background-color: rgba(52, 152, 219, 0.1);
+  border-color: #3498db;
+}
+
+.file-card-line-badge.instruction-badge {
+  background-color: #2980b9;
+  color: white;
+}
+
+.dark-theme .file-card-line-badge.instruction-badge {
+  background-color: #3498db;
+}
+
+/* Selected state for instructions in the modal */
+.instruction-item.selected {
+  background-color: rgba(41, 128, 185, 0.1);
+  border-left: 3px solid #2980b9;
+}
+
+.dark-theme .instruction-item.selected {
+  background-color: rgba(52, 152, 219, 0.15);
+  border-left: 3px solid #3498db;
+}
+
+.toggle-selection-button.selected {
+  color: white;
+}
+
+/* .dark-theme .toggle-selection-button.selected {
+  outline: 1px solid var(--option-selected-bg);
+} */
