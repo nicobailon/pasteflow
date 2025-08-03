@@ -13,6 +13,7 @@ import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-
 import { mapFileTreeSortToContentSort } from '../utils/sort-utils';
 import { tokenCountCache } from '../utils/token-cache';
 import { buildFolderIndex } from '../utils/folder-selection-index';
+import { VirtualFileLoader } from '../utils/virtual-file-loader';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
@@ -86,6 +87,25 @@ const useAppState = () => {
       "**/package-lock.json",
     ]
   );
+  
+  // Initialize virtual file loader
+  const virtualFileLoaderRef = useRef<VirtualFileLoader | null>(null);
+  const getVirtualFileLoader = useCallback(() => {
+    if (!virtualFileLoaderRef.current) {
+      virtualFileLoaderRef.current = new VirtualFileLoader(
+        async (path: string) => {
+          const result = await requestFileContent(path);
+          if (result.success && result.content !== undefined) {
+            const tokenCount = estimateTokenCount(result.content);
+            return { content: result.content, tokenCount };
+          }
+          throw new Error(result.error || 'Failed to load file');
+        },
+        estimateTokenCount
+      );
+    }
+    return virtualFileLoaderRef.current;
+  }, []);
 
   // Non-persistent state
   const [allFiles, setAllFiles] = useState([] as FileData[]);

@@ -76,11 +76,11 @@ export class SecureDatabase {
 
   private async initializeSchema() {
     // Check if schema exists
-    const version = await this.db.get<{ version: number }>(
+    const versionRow = await this.db.get<{ version: number }>(
       'SELECT version FROM schema_version ORDER BY version DESC LIMIT 1'
     ).catch(() => null);
     
-    if (!version) {
+    if (!versionRow) {
       // Load and execute schema
       const schemaSQL = await fs.readFile(
         path.join(__dirname, 'schema.sql'),
@@ -89,6 +89,54 @@ export class SecureDatabase {
       
       await this.db.exec(schemaSQL);
       console.log('Database schema initialized');
+    }
+    
+    // Apply any pending migrations
+    await this.applyMigrations();
+  }
+  
+  private async applyMigrations() {
+    // Get current schema version
+    const versionRow = await this.db.get<{ version: number }>(
+      'SELECT version FROM schema_version ORDER BY version DESC LIMIT 1'
+    );
+    
+    const currentVersion = versionRow?.version || 1;
+    
+    // Check for migration files
+    const migrationsDir = path.join(__dirname, 'migrations');
+    
+    try {
+      const files = await fs.readdir(migrationsDir).catch(() => []);
+      const migrationFiles = files
+        .filter(f => f.endsWith('.sql'))
+        .sort(); // Ensure migrations run in order
+      
+      for (const file of migrationFiles) {
+        // Extract version from filename (e.g., "002_add_performance_indexes.sql" -> 2)
+        const versionMatch = file.match(/^(\d+)_/);
+        if (!versionMatch) continue;
+        
+        const migrationVersion = parseInt(versionMatch[1], 10);
+        
+        // Skip if already applied
+        if (migrationVersion <= currentVersion) continue;
+        
+        // Apply migration
+        console.log(`Applying migration ${file}...`);
+        const migrationSQL = await fs.readFile(
+          path.join(migrationsDir, file),
+          'utf8'
+        );
+        
+        await this.db.exec(migrationSQL);
+        console.log(`Migration ${file} applied successfully`);
+      }
+    } catch (err) {
+      // Migrations directory doesn't exist yet - that's okay
+      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error('Error applying migrations:', err);
+      }
     }
   }
 
@@ -197,6 +245,74 @@ export class SecureDatabase {
     return this.decompressContent(content.content);
   }
 
+  // Batch query method to eliminate N+1 patterns
+  async getFilesContentBatch(workspaceId: string, filePaths: string[]): Promise<Map<string, string | null>> {
+    if (!filePaths.length) {
+      return new Map();
+    }
+
+    // Create placeholders for the IN clause
+    const placeholders = filePaths.map(() => '?').join(',');
+    
+    // Fetch all file records in one query
+    const files = await this.db.all<{ path: string; content_hash: string }>(
+      `SELECT path, content_hash 
+       FROM files 
+       WHERE workspace_id = ? AND path IN (${placeholders})`,
+      [workspaceId, ...filePaths]
+    );
+    
+    // Create a map of path to content hash
+    const pathToHash = new Map<string, string>();
+    const uniqueHashes = new Set<string>();
+    
+    for (const file of files) {
+      if (file.content_hash) {
+        pathToHash.set(file.path, file.content_hash);
+        uniqueHashes.add(file.content_hash);
+      }
+    }
+    
+    // Fetch all unique content hashes in one query
+    const hashArray = Array.from(uniqueHashes);
+    const contentMap = new Map<string, string>();
+    
+    if (hashArray.length > 0) {
+      const contentPlaceholders = hashArray.map(() => '?').join(',');
+      const contents = await this.db.all<{ hash: string; content: Buffer }>(
+        `SELECT hash, content 
+         FROM file_contents 
+         WHERE hash IN (${contentPlaceholders})`,
+        hashArray
+      );
+      
+      // Decompress and store content
+      for (const content of contents) {
+        try {
+          const decompressed = await this.decompressContent(content.content);
+          contentMap.set(content.hash, decompressed);
+        } catch (error) {
+          console.error(`Error decompressing content for hash ${content.hash}:`, error);
+          // Mark this content as corrupted/unavailable
+          contentMap.set(content.hash, '');
+        }
+      }
+    }
+    
+    // Build the result map
+    const result = new Map<string, string | null>();
+    for (const path of filePaths) {
+      const hash = pathToHash.get(path);
+      if (hash && contentMap.has(hash)) {
+        result.set(path, contentMap.get(hash)!);
+      } else {
+        result.set(path, null);
+      }
+    }
+    
+    return result;
+  }
+
   // Preference operations
   async getPreference(key: string): Promise<unknown> {
     const row = await this.db.get<{ value: string; encrypted: number }>(
@@ -237,7 +353,7 @@ export class SecureDatabase {
   }
 
   // Additional helpers for state handlers
-  async saveFileContentByHash(content: string, filePath: string): Promise<string> {
+  async saveFileContentByHash(content: string, _filePath: string): Promise<string> {
     const hash = crypto.createHash('sha256').update(content).digest('hex');
     
     // Save content if new
