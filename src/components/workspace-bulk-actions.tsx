@@ -1,3 +1,5 @@
+import './workspace-bulk-actions.css';
+
 interface WorkspaceBulkActionsProps {
   selectedCount: number;
   onDelete: () => void;

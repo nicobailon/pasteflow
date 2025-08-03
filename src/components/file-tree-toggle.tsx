@@ -1,6 +1,8 @@
 
 import { FileTreeMode } from "../types/file-types";
 
+import "./file-tree-toggle.css";
+
 interface FileTreeToggleProps {
   currentMode: FileTreeMode;
   onChange: (mode: FileTreeMode) => void;

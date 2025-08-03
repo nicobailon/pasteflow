@@ -1118,15 +1118,15 @@ ipcMain.handle('/workspace/delete', async (event, params) => {
   try {
     // Validate input
     const validated = validateInput(WorkspaceDeleteSchema, params);
-    const { name } = validated;
+    const { id } = validated;
     // Use database if available
     if (database && database.initialized) {
-      await database.deleteWorkspace(name);
+      await database.deleteWorkspaceById(id);
       return { success: true };
     }
     
-    // Fallback to in-memory store
-    workspaceStore.delete(name);
+    // Fallback to in-memory store (for backward compatibility, treat id as name)
+    workspaceStore.delete(id);
     return { success: true };
   } catch (error) {
     console.error('Error deleting workspace:', error);

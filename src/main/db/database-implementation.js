@@ -171,6 +171,10 @@ class PasteFlowDatabase {
           DELETE FROM workspaces WHERE name = ?
         `),
         
+        deleteWorkspaceById: this.db.prepare(`
+          DELETE FROM workspaces WHERE id = ? OR name = ?
+        `),
+        
         renameWorkspace: this.db.prepare(`
           UPDATE workspaces 
           SET name = ?, updated_at = strftime('%s', 'now') * 1000 
@@ -381,6 +385,31 @@ class PasteFlowDatabase {
         throw error;
       }
       throw new Error(`Failed to delete workspace '${name}': ${error.message}. Check database permissions and workspace references.`);
+    }
+  }
+
+  /**
+   * Deletes a workspace by its ID or name.
+   * This operation cannot be undone.
+   * 
+   * @param {string} id - Workspace ID (UUID) or name to delete
+   * @throws {Error} If database operation fails
+   * @example
+   * db.deleteWorkspaceById('550e8400-e29b-41d4-a716-446655440000');
+   * db.deleteWorkspaceById('my-workspace');
+   */
+  deleteWorkspaceById(id) {
+    try {
+      // Try to delete by ID or name (the prepared statement handles both)
+      const result = this.statements.deleteWorkspaceById.run(id, id);
+      if (result.changes === 0) {
+        throw new Error(`Workspace with ID or name '${id}' not found during delete operation. Workspace may have already been deleted.`);
+      }
+    } catch (error) {
+      if (error.message.includes('not found')) {
+        throw error;
+      }
+      throw new Error(`Failed to delete workspace '${id}': ${error.message}. Check database permissions and workspace references.`);
     }
   }
 
