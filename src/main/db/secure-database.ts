@@ -289,10 +289,12 @@ export class SecureDatabase {
       // Decompress and store content
       for (const content of contents) {
         try {
-          const decompressed = this.decompressContent(content.content);
+          const decompressed = await this.decompressContent(content.content);
           contentMap.set(content.hash, decompressed);
         } catch (error) {
           console.error(`Error decompressing content for hash ${content.hash}:`, error);
+          // Mark this content as corrupted/unavailable
+          contentMap.set(content.hash, '');
         }
       }
     }
@@ -351,7 +353,7 @@ export class SecureDatabase {
   }
 
   // Additional helpers for state handlers
-  async saveFileContentByHash(content: string, filePath: string): Promise<string> {
+  async saveFileContentByHash(content: string, _filePath: string): Promise<string> {
     const hash = crypto.createHash('sha256').update(content).digest('hex');
     
     // Save content if new

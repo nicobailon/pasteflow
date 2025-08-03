@@ -917,15 +917,23 @@ export class TokenWorkerPool {
     await this.acquireRecyclingLock();
     if (this.recyclingLock) return;
     
+    // Enter shutdown state atomically before any async operations
     const previousAcceptingState = this.enterShutdownState();
+    
+    // Small delay to ensure state propagation
+    await new Promise(resolve => setTimeout(resolve, 10));
+    
     const jobCountAtStart = this.activeJobs.size;
     
     try {
+      // Drain queue after state is fully propagated
       await this.drainQueue();
       
       // Verify no jobs were added during initial state change
       if (this.activeJobs.size > jobCountAtStart) {
         console.error(`Race condition detected: jobs added during recycling initialization (${jobCountAtStart} -> ${this.activeJobs.size})`);
+        // Force resolve any new jobs that slipped through
+        await this.forceResolveActiveJobs();
       }
       
       await this.waitForActiveJobs(WORKER_POOL.JOB_WAIT_TIMEOUT_MS); // 10 seconds max wait

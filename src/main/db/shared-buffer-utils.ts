@@ -1,13 +1,3 @@
-import { Worker } from 'worker_threads';
-
-interface SharedBufferMessage {
-  type: 'shared_buffer_response';
-  id: string;
-  buffer?: SharedArrayBuffer;
-  byteLength?: number;
-  error?: string;
-}
-
 interface SerializedData {
   buffer: SharedArrayBuffer;
   byteLength: number;
@@ -17,14 +7,24 @@ interface SerializedData {
 const SHARED_BUFFER_THRESHOLD = 10 * 1024 * 1024;
 
 export class SharedBufferManager {
-  private bufferPool: SharedArrayBuffer[] = [];
-  private readonly maxPoolSize = 5;
   private readonly bufferSize = 1024 * 1024; // 1MB chunks
+  
+  /**
+   * Check if SharedArrayBuffer is available in the current context
+   */
+  private static isSharedArrayBufferSupported(): boolean {
+    return typeof SharedArrayBuffer !== 'undefined' &&
+           (typeof self !== 'undefined' ? self.crossOriginIsolated === true : true);
+  }
   
   /**
    * Determines if data is large enough to benefit from SharedArrayBuffer
    */
   shouldUseSharedBuffer(data: unknown): boolean {
+    if (!SharedBufferManager.isSharedArrayBufferSupported()) {
+      return false;
+    }
+    
     try {
       const serialized = JSON.stringify(data);
       return serialized.length > SHARED_BUFFER_THRESHOLD;
@@ -37,6 +37,10 @@ export class SharedBufferManager {
    * Serializes data to SharedArrayBuffer for efficient transfer
    */
   serializeToSharedBuffer(data: unknown): SerializedData | null {
+    if (!SharedBufferManager.isSharedArrayBufferSupported()) {
+      return null;
+    }
+    
     try {
       const jsonStr = JSON.stringify(data);
       const encoder = new TextEncoder();
@@ -73,30 +77,13 @@ export class SharedBufferManager {
   }
   
   /**
-   * Gets a buffer from the pool or creates a new one
-   */
-  private getBuffer(size: number): SharedArrayBuffer {
-    // For now, always create new buffers
-    // Pool management could be added for optimization
-    return new SharedArrayBuffer(size);
-  }
-  
-  /**
-   * Returns a buffer to the pool for reuse
-   */
-  private returnBuffer(buffer: SharedArrayBuffer): void {
-    if (this.bufferPool.length < this.maxPoolSize) {
-      // Clear the buffer before returning to pool
-      const view = new Uint8Array(buffer);
-      view.fill(0);
-      this.bufferPool.push(buffer);
-    }
-  }
-  
-  /**
    * Chunks large data for streaming transfer
    */
   *chunkData(data: unknown, chunkSize: number = this.bufferSize): Generator<SerializedData> {
+    if (!SharedBufferManager.isSharedArrayBufferSupported()) {
+      return;
+    }
+    
     const jsonStr = JSON.stringify(data);
     const encoder = new TextEncoder();
     const encoded = encoder.encode(jsonStr);

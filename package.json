@@ -165,6 +165,7 @@
     "react-dom": "^18.2.0",
     "react-modal": "^3.16.3",
     "react-syntax-highlighter": "^15.6.1",
+    "react-virtualized-auto-sizer": "^1.0.26",
     "react-window": "^1.8.11",
     "tiktoken": "^1.0.20",
     "uuid": "^11.1.0",

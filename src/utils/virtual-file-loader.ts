@@ -1,4 +1,4 @@
-import { FileData, SelectedFileWithLines } from '../types/file-types';
+import { FileData } from '../types/file-types';
 
 interface VirtualFileData {
   metadata: {
@@ -22,8 +22,7 @@ export class VirtualFileLoader {
   private loadQueue = new Map<string, Promise<{ content: string; tokenCount: number }>>();
   
   constructor(
-    private loadContentFn: (path: string) => Promise<{ content: string; tokenCount: number }>,
-    private countTokensFn: (content: string) => number
+    private loadContentFn: (path: string) => Promise<{ content: string; tokenCount: number }>
   ) {}
 
   createVirtualFile(file: FileData): VirtualFileData {
@@ -39,7 +38,7 @@ export class VirtualFileLoader {
         isDirectory: file.isDirectory,
         size: file.size,
         isBinary: file.isBinary,
-        lastModified: file.lastModified
+        lastModified: undefined
       },
       isContentLoaded: false,
       content: file.content,
@@ -48,7 +47,8 @@ export class VirtualFileLoader {
 
     if (file.content) {
       virtualFile.isContentLoaded = true;
-      this.currentCacheSize += file.size;
+      // Use actual memory size, not disk size (UTF-16 strings use ~2x bytes)
+      this.currentCacheSize += new Blob([file.content]).size;
     }
 
     this.fileCache.set(file.path, virtualFile);
@@ -86,7 +86,8 @@ export class VirtualFileLoader {
       virtualFile.content = result.content;
       virtualFile.tokenCount = result.tokenCount;
       virtualFile.isContentLoaded = true;
-      this.currentCacheSize += virtualFile.metadata.size;
+      // Use actual memory size, not disk size
+      this.currentCacheSize += new Blob([result.content]).size;
       delete virtualFile.contentPromise;
       
       this.enforceMemoryLimit();
@@ -132,9 +133,11 @@ export class VirtualFileLoader {
     
     // Remove least recently used files until under limit
     while (this.currentCacheSize > this.maxCacheSize && entries.length > 0) {
-      const [path, file] = entries.shift()!;
+      const [_path, file] = entries.shift()!;
       if (file.isContentLoaded && file.content) {
-        this.currentCacheSize -= file.metadata.size;
+        // Calculate actual memory size before clearing
+        const contentSize = new Blob([file.content]).size;
+        this.currentCacheSize -= contentSize;
         file.content = undefined;
         file.tokenCount = undefined;
         file.isContentLoaded = false;
@@ -144,8 +147,10 @@ export class VirtualFileLoader {
 
   unloadFileContent(path: string): void {
     const virtualFile = this.fileCache.get(path);
-    if (virtualFile && virtualFile.isContentLoaded) {
-      this.currentCacheSize -= virtualFile.metadata.size;
+    if (virtualFile && virtualFile.isContentLoaded && virtualFile.content) {
+      // Calculate actual memory size before clearing
+      const contentSize = new Blob([virtualFile.content]).size;
+      this.currentCacheSize -= contentSize;
       virtualFile.content = undefined;
       virtualFile.tokenCount = undefined;
       virtualFile.isContentLoaded = false;

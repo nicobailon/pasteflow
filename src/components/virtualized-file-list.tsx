@@ -1,5 +1,6 @@
 import { useMemo, memo, useRef, forwardRef, useImperativeHandle } from "react";
 import { VariableSizeList as List } from 'react-window';
+import AutoSizer from 'react-virtualized-auto-sizer';
 import { FolderOpen } from "lucide-react";
 
 import { FileData, FileListProps, LineRange, SelectedFileWithLines } from "../types/file-types";
@@ -259,16 +260,22 @@ const VirtualizedFileList = forwardRef<VirtualizedFileListHandle, FileListProps>
       
       {/* Virtualized file list */}
       {expandedCards.length > 0 && (
-        <List
-          ref={listRef}
-          height={600} // This should be calculated based on container height
-          itemCount={expandedCards.length}
-          itemSize={getItemSize}
-          width="100%"
-          itemData={itemData}
-        >
-          {Row}
-        </List>
+        <div style={{ flex: 1, minHeight: 400 }}>
+          <AutoSizer>
+            {({ height, width }) => (
+              <List
+                ref={listRef}
+                height={height}
+                itemCount={expandedCards.length}
+                itemSize={getItemSize}
+                width={width}
+                itemData={itemData}
+              >
+                {Row}
+              </List>
+            )}
+          </AutoSizer>
+        </div>
       )}
     </div>
   );

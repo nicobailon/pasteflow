@@ -8,10 +8,18 @@ export class BoundedLRUCache<K, V> {
   private accessOrder: K[] = [];
 
   constructor(maxSize: number = 1000) {
+    const MAX_REASONABLE_SIZE = 100000;
+    
     if (maxSize <= 0) {
       throw new Error('Cache size must be positive');
     }
-    this.maxSize = maxSize;
+    
+    if (maxSize > MAX_REASONABLE_SIZE) {
+      console.warn(`Large cache size (${maxSize}) may cause memory issues. Capping at ${MAX_REASONABLE_SIZE}`);
+      this.maxSize = MAX_REASONABLE_SIZE;
+    } else {
+      this.maxSize = maxSize;
+    }
   }
 
   /**
