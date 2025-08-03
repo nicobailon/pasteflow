@@ -154,7 +154,10 @@ export class StateHandlers {
         if (result.changes === 0) {
           throw new Error(`Workspace '${validated.id}' not found during update operation. Verify workspace exists before updating.`);
         }
-        
+
+        // Broadcast update to notify all renderer processes
+        this.broadcastUpdate('/workspace/current:update');
+
         return true;
       } catch (error) {
         const errorMessage = (error as Error).message;
@@ -276,7 +279,10 @@ export class StateHandlers {
         if (result.changes === 0) {
           throw new Error(`Workspace '${input.id}' not found during access time update. Workspace may have been deleted.`);
         }
-        
+
+        // Broadcast update to notify all renderer processes
+        this.broadcastUpdate('/workspace/current:update');
+
         return true;
       } catch (error) {
         const errorMessage = (error as Error).message;
@@ -670,6 +676,10 @@ export class StateHandlers {
     this.ipc.setHandler('/instructions/create', async (input: { id: string; name: string; content: string }) => {
       try {
         await this.db.database.createInstruction(input.id, input.name, input.content);
+
+        // Broadcast update to notify all renderer processes
+        this.broadcastUpdate('/instructions/list:update');
+
         return { success: true };
       } catch (error) {
         throw new Error(`Failed to create instruction: ${(error as Error).message}`);
@@ -679,6 +689,10 @@ export class StateHandlers {
     this.ipc.setHandler('/instructions/update', async (input: { id: string; name: string; content: string }) => {
       try {
         await this.db.database.updateInstruction(input.id, input.name, input.content);
+
+        // Broadcast update to notify all renderer processes
+        this.broadcastUpdate('/instructions/list:update');
+
         return { success: true };
       } catch (error) {
         throw new Error(`Failed to update instruction: ${(error as Error).message}`);
@@ -722,19 +736,22 @@ export class StateHandlers {
     this.ipc.setHandler('/prefs/set', async (input: { key: string; value: unknown; encrypted?: boolean }) => {
       try {
         let value = JSON.stringify(input.value);
-        
+
         if (input.encrypted) {
           // Encrypt sensitive values
           value = await this.db.encryptValue(value);
         }
-        
+
         const now = Math.floor(Date.now() / 1000);
-        
+
         await this.db.database.run(
           'INSERT OR REPLACE INTO preferences (key, value, encrypted, updated_at) VALUES (?, ?, ?, ?)',
           [input.key, value, input.encrypted ? 1 : 0, now]
         );
-        
+
+        // Broadcast update to notify all renderer processes
+        this.broadcastUpdate('/prefs/get:update');
+
         return true;
       } catch (error) {
         throw new Error(`Failed to set preference '${input.key}': ${(error as Error).message}. Check value format and database permissions.`);

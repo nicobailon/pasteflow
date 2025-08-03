@@ -1,6 +1,15 @@
 // Preload script
 const { contextBridge, ipcRenderer } = require("electron");
 
+// Increase max listeners for development mode to handle React StrictMode double mounting
+// In development, React StrictMode intentionally double-mounts components to detect side effects
+// This causes temporary listener accumulation during the mount/unmount/remount cycle
+if (process.env.NODE_ENV === 'development') {
+  // Set a higher limit to accommodate StrictMode behavior
+  // We have ~13 usePersistentState hooks, so 30 should be safe for double mounting
+  ipcRenderer.setMaxListeners(30);
+}
+
 // Helper function to ensure data is serializable
 function ensureSerializable(data) {
   if (data === null || data === undefined) {

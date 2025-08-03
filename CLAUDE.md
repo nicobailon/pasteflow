@@ -429,3 +429,7 @@ The application supports different file tree inclusion modes:
 - Include multiple system prompts with code selections
 - Token counting includes system prompt overhead
 - Persistent storage of custom prompts
+
+I am usually running the dev server already via `npm run dev:electron` - so no need for you to run that command unless I specically ask you. Just ask me to test the app manually when necessary.
+
+Do not commit without being asked to do so.

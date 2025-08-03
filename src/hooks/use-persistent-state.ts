@@ -112,7 +112,8 @@ export function usePersistentState<T>(
         setHasInitialized(true);
       } catch (error) {
         // Only log error if it's not about missing key
-        if (!error?.message?.includes('key is required')) {
+        const errorMessage = (error as Error)?.message;
+        if (!errorMessage?.includes('key is required')) {
           console.error(`Error loading preference "${key}":`, error);
         }
         setHasInitialized(true);
@@ -148,7 +149,8 @@ export function usePersistentState<T>(
           encrypted: false
         }).catch(error => {
           // Only log error if it's not about missing key
-          if (!error?.message?.includes('key is required')) {
+          const errorMessage = (error as Error)?.message;
+          if (!errorMessage?.includes('key is required')) {
             console.error(`Error saving preference "${key}":`, error);
           }
         });

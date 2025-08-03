@@ -218,11 +218,6 @@ const WorkspaceModal = ({
     }
   }, [workspaceNames, sortMode, manualOrder, isOpen, getSortedWorkspaces]);
 
-  // Debug manual order changes
-  useEffect(() => {
-    console.log('[WorkspaceModal] Manual order changed:', manualOrder);
-  }, [manualOrder]);
-
   // Clear timeout on unmount or when modal closes
   useEffect(() => {
     return () => {

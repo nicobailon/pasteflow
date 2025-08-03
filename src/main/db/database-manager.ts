@@ -2,7 +2,7 @@ import { SecureDatabase } from './secure-database';
 import { SecureIpcLayer } from '../ipc/secure-ipc';
 import { StateHandlers } from '../handlers/state-handlers';
 import * as path from 'path';
-import { app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 
 // Type definitions for IPC handler inputs
 interface WorkspaceCreateInput {
@@ -197,6 +197,10 @@ export class DatabaseManager {
         validatedInput.value,
         validatedInput.encrypted
       );
+
+      // Broadcast update to notify all renderer processes
+      this.broadcastUpdate('/prefs/get:update');
+
       return true;
     });
 
@@ -255,7 +259,11 @@ export class DatabaseManager {
       if (!created) {
         throw new Error('Failed to create prompt');
       }
-      
+
+      // Broadcast update to notify all renderer processes
+      const updateChannel = created.type === 'system' ? '/prompts/system:update' : '/prompts/role:update';
+      this.broadcastUpdate(updateChannel);
+
       return {
         id: created.id,
         type: created.type as 'system' | 'role',
@@ -271,17 +279,33 @@ export class DatabaseManager {
     this.ipc.setHandler('/prompt/update', async (input: unknown) => {
       const validatedInput = input as PromptUpdateInput;
       await this.db.database.run(
-        `UPDATE prompts 
+        `UPDATE prompts
          SET name = ?, content = ?, token_count = ?, is_active = ?
          WHERE id = ?`,
         [validatedInput.name, validatedInput.content, validatedInput.tokenCount, validatedInput.isActive ? 1 : 0, validatedInput.id]
       );
+
+      // Broadcast update to notify all renderer processes
+      const updateChannel = validatedInput.type === 'system' ? '/prompts/system:update' : '/prompts/role:update';
+      this.broadcastUpdate(updateChannel);
+
       return true;
     });
 
     this.ipc.setHandler('/prompt/delete', async (input: unknown) => {
       const validatedInput = input as PromptDeleteInput;
+
+      // Get the prompt type before deleting for broadcast
+      const prompt = await this.db.database.get<{ type: string }>('SELECT type FROM prompts WHERE id = ?', [validatedInput.id]);
+
       await this.db.database.run('DELETE FROM prompts WHERE id = ?', [validatedInput.id]);
+
+      // Broadcast update to notify all renderer processes
+      if (prompt) {
+        const updateChannel = prompt.type === 'system' ? '/prompts/system:update' : '/prompts/role:update';
+        this.broadcastUpdate(updateChannel);
+      }
+
       return true;
     });
 
@@ -323,5 +347,13 @@ export class DatabaseManager {
   // Getter for database (for direct access if needed)
   get database(): SecureDatabase {
     return this.db;
+  }
+
+  // Helper method to broadcast updates to all renderer processes
+  private broadcastUpdate(channel: string, data?: unknown) {
+    const windows = BrowserWindow.getAllWindows();
+    for (const window of windows) {
+      window.webContents.send(channel, data);
+    }
   }
 }
