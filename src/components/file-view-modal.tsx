@@ -8,9 +8,10 @@ import { useTheme } from '../context/theme-context';
 import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
 import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 import { useOptimizedSelection } from '../hooks/use-optimized-selection';
-import { TOKEN_COUNTING, UI } from '../constants/app-constants';
+import { UI } from '../constants/app-constants';
 import { fileViewerPerformance } from '../utils/file-viewer-performance';
 import { throttle } from '../utils/throttle';
+import { estimateTokenCount } from '../utils/token-utils';
 
 import VirtualizedFileViewer from './virtualized-file-viewer';
 import { FileViewerErrorBoundary } from './file-viewer-error-boundary';
@@ -62,21 +63,6 @@ const formatLineRanges = (lines?: LineRange[]): string => {
     .join(', ');
 };
 
-const calculateTokenCount = (content: string): number => {
-  if (!content) return 0;
-  
-  if (content.length < TOKEN_COUNTING.SMALL_CONTENT_THRESHOLD) {
-    return Math.ceil(content.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
-  }
-  
-  const wordCount = content.split(/\s+/).length;
-  const charCount = content.length;
-  
-  const specialChars = content.replace(/[\d\sA-Za-z]/g, '').length;
-  const specialCharRatio = specialChars / charCount;
-  
-  return Math.ceil(wordCount * TOKEN_COUNTING.WORD_TO_TOKEN_RATIO * (1 + specialCharRatio));
-};
 
 const FileViewModal = ({
   isOpen,
@@ -95,7 +81,6 @@ const FileViewModal = ({
   const [shiftKeyPressed, setShiftKeyPressed] = useState(false);
   const [lastSelectedLine, setLastSelectedLine] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [totalTokenCount, setTotalTokenCount] = useState(0);
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartLine, setDragStartLine] = useState<number | null>(null);
@@ -145,7 +130,6 @@ const FileViewModal = ({
           if (token.cancelled) return;
         } else {
           setFile(foundFile ?? null);
-          setTotalTokenCount(foundFile?.content ? calculateTokenCount(foundFile.content) : 0);
         }
       });
     }
@@ -156,7 +140,6 @@ const FileViewModal = ({
       const updatedFile = allFiles.find((f: FileData) => f.path === filePath);
       if (updatedFile && updatedFile.isContentLoaded && updatedFile.content && updatedFile.content !== file.content) {
         setFile(updatedFile);
-        setTotalTokenCount(calculateTokenCount(updatedFile.content));
       }
     }
   }, [allFiles, filePath, isOpen, file]);
@@ -617,11 +600,11 @@ const FileViewModal = ({
             
             {selectionMode === 'specific' && selectedLines.length > 0 ? (
               <div className="token-estimate">
-                ~{calculateTokenCount(getSelectedContent()).toLocaleString()} tokens selected / {totalTokenCount.toLocaleString()} total tokens
+                ~{estimateTokenCount(getSelectedContent()).toLocaleString()} tokens selected / {(file?.tokenCount || 0).toLocaleString()} total tokens
               </div>
             ) : (
               <div className="token-estimate">
-                ~{totalTokenCount.toLocaleString()} total tokens
+                ~{(file?.tokenCount || 0).toLocaleString()} total tokens
               </div>
             )}
           </div>
