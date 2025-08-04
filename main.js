@@ -680,14 +680,14 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
       }
 
       let processedDirsCount = 0;
-      const MAX_DIRS_PER_BATCH = 10;
+      const MAX_DIRS_PER_BATCH = 20; // Increased for faster directory traversal
       const currentBatchFiles = [];
       
       // Create adaptive batcher for optimized IPC communication
       const batcher = {
-        TARGET_BATCH_SIZE: 100 * 1024, // 100KB target
-        MIN_FILES: 10,
-        MAX_FILES: 200,
+        TARGET_BATCH_SIZE: 200 * 1024, // 200KB target for faster initial display
+        MIN_FILES: 50,  // Increased minimum for instant display
+        MAX_FILES: 500,  // Increased maximum for large directories
         calculateBatchSize: function(files) {
           if (!files.length) return this.MIN_FILES;
           const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
