@@ -100,6 +100,9 @@ const App = () => {
             processingStatus={appState.processingStatus}
             loadFileContent={appState.loadFileContent}
             folderSelectionCache={appState.folderSelectionCache}
+            handleFileHover={appState.handleFileHover}
+            handleFileUnhover={appState.handleFileUnhover}
+            isCalculatingTokens={appState.isCalculatingTokens}
           />
           
           <ContentArea 
@@ -162,6 +165,7 @@ const App = () => {
           selectedFile={appState.findSelectedFile(appState.currentViewedFilePath)}
           onUpdateSelectedFile={appState.updateSelectedFile}
           loadFileContent={appState.loadFileContent}
+          requestTokenCount={appState.requestTokenCount}
         />
         
         <SystemPromptsModal

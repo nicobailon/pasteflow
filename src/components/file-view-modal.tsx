@@ -8,6 +8,7 @@ import { useTheme } from '../context/theme-context';
 import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
 import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 import { useOptimizedSelection } from '../hooks/use-optimized-selection';
+import { TokenPriority } from '../hooks/use-token-counting-on-demand';
 import { UI } from '../constants/app-constants';
 import { fileViewerPerformance } from '../utils/file-viewer-performance';
 import { throttle } from '../utils/throttle';
@@ -72,6 +73,7 @@ const FileViewModal = ({
   selectedFile,
   onUpdateSelectedFile,
   loadFileContent,
+  requestTokenCount,
 }: FileViewModalProps): JSX.Element => {
   const { currentTheme } = useTheme();
   const { runCancellableOperation } = useCancellableOperation();
@@ -110,7 +112,9 @@ const FileViewModal = ({
   }, [isDragging, dragStartLine, dragCurrentLine]);
   
   const lineCount = useMemo(() => {
-    return file?.content ? file.content.split('\n').length : 0;
+    if (!file?.content) return 0;
+    const contentStr = typeof file.content === 'string' ? file.content : '';
+    return contentStr.split('\n').length;
   }, [file]);
   
   const shouldUseVirtualization = useMemo(() => {
@@ -136,14 +140,31 @@ const FileViewModal = ({
   }, [filePath, isOpen, allFiles, loadFileContent, runCancellableOperation]);
 
   useEffect(() => {
-    if (filePath && isOpen && file) {
+    if (filePath && isOpen) {
       const updatedFile = allFiles.find((f: FileData) => f.path === filePath);
-      if (updatedFile && updatedFile.isContentLoaded && updatedFile.content && updatedFile.content !== file.content) {
+      if (updatedFile && (
+        !file || // No file set yet
+        updatedFile.isContentLoaded !== file.isContentLoaded || // Content loaded state changed
+        updatedFile.content !== file.content || // Content changed
+        updatedFile.tokenCount !== file.tokenCount // Token count changed
+      )) {
         setFile(updatedFile);
       }
     }
   }, [allFiles, filePath, isOpen, file]);
   
+  // Trigger token counting when file is loaded but doesn't have token count
+  useEffect(() => {
+    if (file && file.isContentLoaded && file.tokenCount === undefined && requestTokenCount) {
+      requestTokenCount(file.path, TokenPriority.IMMEDIATE, true).then((tokenCount) => {
+        if (tokenCount !== undefined) {
+          // Token count will be updated in allFiles by the requestTokenCount function
+          // The second useEffect above will detect the change and update our local file state
+        }
+      });
+    }
+  }, [file, requestTokenCount]);
+
   useEffect(() => {
     setSelectionMode('none');
     setIsDragging(false);
@@ -350,7 +371,8 @@ const FileViewModal = ({
   const selectAllLines = () => {
     if (!file || !file.content) return;
     
-    const lineCount = file.content.split('\n').length;
+    const contentStr = typeof file.content === 'string' ? file.content : '';
+    const lineCount = contentStr.split('\n').length;
     setSelectedLines([{ start: 1, end: lineCount }]);
   };
   
@@ -363,7 +385,8 @@ const FileViewModal = ({
     if (selectionMode === 'entire') return true;
     if (selectedLines.length === 0) return false;
     
-    const lineCount = file.content.split('\n').length;
+    const contentStr = typeof file.content === 'string' ? file.content : '';
+    const lineCount = contentStr.split('\n').length;
     
     return selectedLines.length === 1 && 
            selectedLines[0].start === 1 && 
@@ -374,10 +397,11 @@ const FileViewModal = ({
     if (!file || !file.content) return '';
     
     if (selectionMode === 'entire' || selectedLines.length === 0) {
-      return file.content;
+      return typeof file.content === 'string' ? file.content : '';
     }
     
-    const lines = file.content.split('\n');
+    const contentStr = typeof file.content === 'string' ? file.content : '';
+    const lines = contentStr.split('\n');
     const selectedLinesArray: string[] = [];
     
     const allSelectedLines = new Set([...selectedLinesSet, ...dragSelectedLinesSet]);
@@ -434,7 +458,8 @@ const FileViewModal = ({
   
   useEffect(() => {
     if (file?.content) {
-      const lineCount = file.content.split('\n').length;
+      const contentStr = typeof file.content === 'string' ? file.content : '';
+      const lineCount = contentStr.split('\n').length;
       fileViewerPerformance.measureRenderTime(lineCount, () => {});
     }
   }, [file]);

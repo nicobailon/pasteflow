@@ -114,6 +114,9 @@ export interface SidebarProps {
     total?: number;
   };
   loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property
+  handleFileHover?: (filePath: string) => void; // For lazy token counting
+  handleFileUnhover?: (filePath: string) => void; // Cancel hover timeout
+  isCalculatingTokens?: (filePath: string) => boolean; // Check if tokens are being calculated
 }
 
 export interface FileListProps {
@@ -154,6 +157,9 @@ export interface TreeItemProps {
   onViewFile?: (filePath: string) => void; // New prop
   loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property
   folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache; // Cache for instant folder selection UI updates
+  handleFileHover?: (filePath: string) => void; // For lazy token counting
+  handleFileUnhover?: (filePath: string) => void; // Cancel hover timeout
+  isCalculatingTokens?: (filePath: string) => boolean; // Check if tokens are being calculated
 }
 
 export interface SortOption {
@@ -200,6 +206,7 @@ export interface FileViewModalProps {
   selectedFile: SelectedFileWithLines | undefined;
   onUpdateSelectedFile: (path: string, lines?: LineRange[]) => void;
   loadFileContent: (filePath: string) => Promise<void>;
+  requestTokenCount?: (filePath: string, priority?: number, immediate?: boolean) => Promise<number | undefined>;
 }
 
 // Interface for system prompts
