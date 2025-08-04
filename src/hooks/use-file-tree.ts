@@ -702,7 +702,7 @@ function useFileTree({
         if (node.type === "directory" && node.children) {
           return {
             ...node,
-            children: sortTreeNodes(filterNodesRecursively(node.children), fileTreeSortOrderRef.current),
+            children: filterNodesRecursively(node.children), // Already sorted in the tree
             isExpanded: true, // Auto-expand directories when searching
           };
         }
@@ -710,9 +710,10 @@ function useFileTree({
       });
     };
 
-    // Filter the nodes and maintain the same sort order
+    // Filter the nodes - they maintain their existing sort order from the tree
     const filteredNodes = filterNodesRecursively(nodes);
-    return sortTreeNodes(filteredNodes, fileTreeSortOrderRef.current);
+    // No need to re-sort since nodes are already sorted when tree is built
+    return filteredNodes;
   }, [filesByPath]);
 
   // The final tree to render, filtered and flattened
