@@ -161,6 +161,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       // Add new file
       return [...prev, { path, lines }];
     });
+    
+    // If lines are selected, we need to ensure content is loaded
+    // This is handled by the tree item component which watches for line selections
   }, [setSelectedFiles]);
 
   // Function to find a selected file by path
