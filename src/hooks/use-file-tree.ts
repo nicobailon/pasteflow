@@ -221,7 +221,7 @@ function useFileTree({
       try {
         streamingBuilderRef.current = new StreamingTreeBuilder(
           allFilesRef.current,
-          500, // chunk size
+          1000, // Increased chunk size for faster initial display
           selectedFolder,
           expandedNodesRef.current
         );
@@ -272,8 +272,8 @@ function useFileTree({
     function processBatchLegacy() {
       fileMapRef.current = {};
       
-      const BATCH_SIZE = 50; // Reduced batch size
-      const BATCH_INTERVAL = 1; // Increased frequency (1ms)
+      const BATCH_SIZE = 200; // Increased batch size for faster initial display
+      const BATCH_INTERVAL = 1; // Fast processing (1ms)
       let processedCount = 0;
       
       const processBatch = () => {
