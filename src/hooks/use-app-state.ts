@@ -996,17 +996,36 @@ const useAppState = () => {
     setCurrentWorkspace(workspaceName);
     setPendingWorkspaceData(null);
 
-    
+    // Two-stage loading for better performance
+    // Stage 1: Apply essential UI state immediately (expanded nodes)
     applyExpandedNodes(workspaceData.expandedNodes);
-    applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
-    setUserInstructions(workspaceData.userInstructions || '');
-    applyPrompts(workspaceData.customPrompts);
     
-    // Only restore selectedInstructions (instructions are now in database)
-    setSelectedInstructions(workspaceData.selectedInstructions || []);
-    
-    // Reset the flag after applying
-    isApplyingWorkspaceDataRef.current = false;
+    // Stage 2: Apply selections and prompts after a small delay
+    // This allows the tree to render first before applying selections
+    requestAnimationFrame(() => {
+      applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
+      setUserInstructions(workspaceData.userInstructions || '');
+      applyPrompts(workspaceData.customPrompts);
+      
+      // Only restore selectedInstructions (instructions are now in database)
+      setSelectedInstructions(workspaceData.selectedInstructions || []);
+      
+      // Queue token counting for selected files if they don't have tokens yet
+      if (workspaceData.selectedFiles && window.electron?.ipcRenderer?.invoke) {
+        const filesToCount = workspaceData.selectedFiles
+          .filter(f => !f.tokenCount && f.path)
+          .map(f => f.path);
+        
+        if (filesToCount.length > 0) {
+          // Request token counting with high priority for selected files
+          window.electron.ipcRenderer.invoke('request-token-count-batch', filesToCount, 8)
+            .catch(error => console.error('Error requesting token counts:', error));
+        }
+      }
+      
+      // Reset the flag after applying
+      isApplyingWorkspaceDataRef.current = false;
+    });
   }, [
     setPendingWorkspaceData,
     setCurrentWorkspace,

@@ -111,6 +111,9 @@ const preferencesStore = new Map();
 // Database instance
 let database = null;
 
+// Main window reference (global for access in TokenCountingQueue)
+let mainWindow = null;
+
 try {
   ignore = require("ignore");
   console.log("Successfully loaded ignore module");
@@ -214,6 +217,195 @@ const { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } = require('./src/constants/a
 // Max file size to read
 const MAX_FILE_SIZE = FILE_PROCESSING.MAX_FILE_SIZE_BYTES;
 
+// TokenCountingQueue for background token counting
+class TokenCountingQueue {
+  constructor() {
+    this.queue = [];
+    this.processing = false;
+    this.batchSize = 50;
+    this.intervalId = null;
+    this.tokenCache = new Map();
+    this.pendingRequests = new Map(); // Track pending requests
+    this.sorted = false; // Track if queue needs sorting
+  }
+
+  // Add files to the queue for token counting
+  enqueue(files, priority = 5) {
+    const entries = files.map(file => ({
+      path: file.path,
+      content: file.content,
+      priority,
+      timestamp: Date.now()
+    }));
+    
+    this.queue.push(...entries);
+    
+    // Only sort if high priority items are added, otherwise defer sorting
+    if (priority > 5) {
+      this.queue.sort((a, b) => {
+        // Higher priority first, then older requests first
+        if (a.priority !== b.priority) {
+          return b.priority - a.priority;
+        }
+        return a.timestamp - b.timestamp;
+      });
+      this.sorted = true;
+    } else {
+      // Mark as unsorted for deferred sorting
+      this.sorted = false;
+    }
+    
+    // Start processing asynchronously to avoid blocking
+    setTimeout(() => this.startProcessing(), 0);
+  }
+
+  // Process the queue in batches
+  async processBatch() {
+    if (this.processing || this.queue.length === 0) {
+      return;
+    }
+
+    this.processing = true;
+    
+    // Sort queue before processing if needed (deferred from enqueue)
+    if (this.queue.length > 0 && !this.sorted) {
+      this.queue.sort((a, b) => {
+        if (a.priority !== b.priority) {
+          return b.priority - a.priority;
+        }
+        return a.timestamp - b.timestamp;
+      });
+      this.sorted = true;
+    }
+    
+    const batch = this.queue.splice(0, this.batchSize);
+    
+    try {
+      const results = await Promise.all(
+        batch.map(async (item) => {
+          try {
+            // Check cache first
+            if (this.tokenCache.has(item.path)) {
+              return {
+                path: item.path,
+                tokenCount: this.tokenCache.get(item.path),
+                cached: true
+              };
+            }
+            
+            // Count tokens if content is provided
+            if (item.content) {
+              const tokenCount = countTokens(item.content);
+              this.tokenCache.set(item.path, tokenCount);
+              return {
+                path: item.path,
+                tokenCount,
+                cached: false
+              };
+            }
+            
+            // Load content if not provided
+            const content = await fs.promises.readFile(item.path, 'utf8');
+            if (isLikelyBinaryContent(content, item.path)) {
+              return {
+                path: item.path,
+                tokenCount: 0,
+                error: 'Binary file'
+              };
+            }
+            
+            const tokenCount = countTokens(content);
+            this.tokenCache.set(item.path, tokenCount);
+            return {
+              path: item.path,
+              tokenCount,
+              content,
+              cached: false
+            };
+          } catch (error) {
+            return {
+              path: item.path,
+              tokenCount: 0,
+              error: error.message
+            };
+          }
+        })
+      );
+      
+      // Send results back to renderer (check if window exists)
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+        mainWindow.webContents.send('token-count-update', results);
+      }
+      
+      // Resolve any pending requests
+      results.forEach(result => {
+        if (this.pendingRequests.has(result.path)) {
+          const resolve = this.pendingRequests.get(result.path);
+          resolve(result);
+          this.pendingRequests.delete(result.path);
+        }
+      });
+    } finally {
+      this.processing = false;
+      
+      // Continue processing if there are more items
+      if (this.queue.length > 0) {
+        setTimeout(() => this.processBatch(), 10);
+      }
+    }
+  }
+
+  // Start processing the queue
+  startProcessing() {
+    if (!this.intervalId) {
+      this.intervalId = setInterval(() => this.processBatch(), 50);
+      // Don't call processBatch immediately to avoid blocking
+      setTimeout(() => this.processBatch(), 10);
+    }
+  }
+
+  // Stop processing
+  stopProcessing() {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+
+  // Clear the queue
+  clear() {
+    this.queue = [];
+    this.tokenCache.clear();
+    this.pendingRequests.clear();
+  }
+
+  // Request token count for specific files with priority
+  async requestTokenCount(filePath, priority = 10) {
+    // Check cache first
+    if (this.tokenCache.has(filePath)) {
+      return {
+        path: filePath,
+        tokenCount: this.tokenCache.get(filePath),
+        cached: true
+      };
+    }
+    
+    // Create a promise to track this request
+    const promise = new Promise((resolve) => {
+      this.pendingRequests.set(filePath, resolve);
+    });
+    
+    // Add to queue with high priority
+    this.enqueue([{ path: filePath }], priority);
+    
+    // Wait for result
+    return promise;
+  }
+}
+
+// Global instance of TokenCountingQueue
+const tokenCountingQueue = new TokenCountingQueue();
+
 // Special file extensions to skip (not even try to read)
 const SPECIAL_FILE_EXTENSIONS = new Set(['.asar', '.bin', '.dll', '.exe', '.so', '.dylib']);
 
@@ -260,7 +452,7 @@ function isSpecialFile(filePath) {
 }
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: ELECTRON.WINDOW.WIDTH,
     height: ELECTRON.WINDOW.HEIGHT,
     webPreferences: {
@@ -351,6 +543,15 @@ function createWindow() {
       }
     },
   );
+  
+  // Clean up when window is closed
+  mainWindow.on('closed', () => {
+    // Stop and clear token counting queue
+    tokenCountingQueue.stopProcessing();
+    tokenCountingQueue.clear();
+    // Clear the reference
+    mainWindow = null;
+  });
 }
 
 // Replace the top-level await with a proper async function
@@ -375,12 +576,20 @@ app.on("activate", () => {
 });
 
 app.on("window-all-closed", () => {
+  // Clear token counting queue when window closes
+  tokenCountingQueue.stopProcessing();
+  tokenCountingQueue.clear();
+  
   if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
 app.on("before-quit", async () => {
+  // Stop token counting queue
+  tokenCountingQueue.stopProcessing();
+  tokenCountingQueue.clear();
+  
   // Clean up database connection
   if (database && database.initialized) {
     try {
@@ -801,6 +1010,19 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 
       // Send final complete signal
       sendBatch([], true); // Empty batch with complete flag
+      
+      // Queue all files for token counting AFTER tree is fully loaded and displayed
+      // This happens completely in the background
+      setTimeout(() => {
+        const filesToCount = allFiles
+          .filter(f => !f.isDirectory && !f.isBinary && !f.isSkipped)
+          .map(f => ({ path: f.path }));
+        
+        if (filesToCount.length > 0) {
+          // Queue with low priority for background processing
+          tokenCountingQueue.enqueue(filesToCount, 2);
+        }
+      }, 500); // Small delay to ensure UI has rendered
     };
 
     // Start processing
@@ -933,6 +1155,77 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+// Add batch token counting handler for background processing
+ipcMain.handle('request-token-count-batch', async (event, filePaths, priority = 5) => {
+  try {
+    // Validate input
+    if (!Array.isArray(filePaths)) {
+      return { success: false, error: 'Invalid input: filePaths must be an array' };
+    }
+    
+    // Validate paths
+    const validator = getPathValidator(currentWorkspacePaths);
+    const validFiles = [];
+    
+    for (const filePath of filePaths) {
+      const validation = validator.validatePath(filePath);
+      if (validation.valid) {
+        validFiles.push({ path: validation.sanitizedPath });
+      }
+    }
+    
+    if (validFiles.length === 0) {
+      return { success: false, error: 'No valid files to process' };
+    }
+    
+    // Queue files for background token counting
+    tokenCountingQueue.enqueue(validFiles, priority);
+    
+    return { 
+      success: true, 
+      queued: validFiles.length,
+      message: 'Files queued for token counting' 
+    };
+  } catch (error) {
+    console.error('Error in request-token-count-batch:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Request immediate token count for a specific file (high priority)
+ipcMain.handle('request-token-count-immediate', async (event, filePath) => {
+  try {
+    // Validate input
+    if (!filePath || typeof filePath !== 'string') {
+      return { success: false, error: 'Invalid file path' };
+    }
+    
+    // Validate path
+    const validator = getPathValidator(currentWorkspacePaths);
+    const validation = validator.validatePath(filePath);
+    
+    if (!validation.valid) {
+      return { success: false, error: 'Access denied', reason: validation.reason };
+    }
+    
+    // Request immediate token count with high priority
+    const result = await tokenCountingQueue.requestTokenCount(validation.sanitizedPath, 10);
+    
+    return { 
+      success: true,
+      ...result
+    };
+  } catch (error) {
+    console.error('Error in request-token-count-immediate:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Clear token counting queue and cache
+ipcMain.on('clear-token-queue', () => {
+  tokenCountingQueue.clear();
 });
 
 // Workspace management handlers

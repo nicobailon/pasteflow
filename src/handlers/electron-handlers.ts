@@ -476,10 +476,60 @@ export const setupElectronHandlers = (
   globalWindow[HANDLER_KEY] = true;
   
   // Register IPC handlers
+  // Create token count update handler
+  const handleTokenCountUpdate = (updates: Array<{ path: string; tokenCount: number; error?: string }>) => {
+    if (!Array.isArray(updates)) return;
+    
+    // Update files with new token counts
+    params.setAllFiles((prevFiles: FileData[]) => {
+      const updatedFiles = [...prevFiles];
+      const pathToUpdate = new Map(updates.map(u => [u.path, u]));
+      
+      for (let i = 0; i < updatedFiles.length; i++) {
+        const update = pathToUpdate.get(updatedFiles[i].path);
+        if (update) {
+          updatedFiles[i] = {
+            ...updatedFiles[i],
+            tokenCount: update.tokenCount,
+            isCountingTokens: false,
+            error: update.error
+          };
+        }
+      }
+      
+      return updatedFiles;
+    });
+  };
+  
+  // Handler for marking files as counting tokens
+  const handleFilesCountingTokens = (updates: Array<{ path: string; isCountingTokens: boolean }>) => {
+    if (!Array.isArray(updates)) return;
+    
+    // Update files to show they're counting tokens
+    params.setAllFiles((prevFiles: FileData[]) => {
+      const updatedFiles = [...prevFiles];
+      const pathToUpdate = new Map(updates.map(u => [u.path, u]));
+      
+      for (let i = 0; i < updatedFiles.length; i++) {
+        const update = pathToUpdate.get(updatedFiles[i].path);
+        if (update) {
+          updatedFiles[i] = {
+            ...updatedFiles[i],
+            isCountingTokens: update.isCountingTokens
+          };
+        }
+      }
+      
+      return updatedFiles;
+    });
+  };
+
   const registerHandlers = () => {
     window.electron.ipcRenderer.on("folder-selected", handleFolderSelected);
     window.electron.ipcRenderer.on("file-list-data", handleFileListData);
     window.electron.ipcRenderer.on("file-processing-status", handleProcessingStatus);
+    window.electron.ipcRenderer.on("token-count-update", handleTokenCountUpdate);
+    window.electron.ipcRenderer.on("files-counting-tokens", handleFilesCountingTokens);
   };
 
   registerHandlers();
@@ -497,6 +547,8 @@ export const setupElectronHandlers = (
     window.electron.ipcRenderer.removeListener("folder-selected", handleFolderSelected);
     window.electron.ipcRenderer.removeListener("file-list-data", handleFileListData);
     window.electron.ipcRenderer.removeListener("file-processing-status", handleProcessingStatus);
+    window.electron.ipcRenderer.removeListener("token-count-update", handleTokenCountUpdate);
+    window.electron.ipcRenderer.removeListener("files-counting-tokens", handleFilesCountingTokens);
   };
 };
 
