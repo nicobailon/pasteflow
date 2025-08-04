@@ -180,6 +180,12 @@ function useFileTree({
     }
   }, [hasFileStructureChanged, currentFilePaths]);
 
+  // Store allFiles in a ref to use the latest version without triggering rebuilds
+  const allFilesRef = useRef(allFiles);
+  useEffect(() => {
+    allFilesRef.current = allFiles;
+  }, [allFiles]);
+
   // Process files in smaller batches for better responsiveness
   useEffect(() => {
     // Skip rebuild if only metadata changed
@@ -195,7 +201,7 @@ function useFileTree({
     // Small delay to prevent rapid rebuilds when toggling folders
     const timeoutId = setTimeout(() => {
       // Use StreamingTreeBuilder for large file sets
-      if (allFiles.length > 1000) {
+      if (allFilesRef.current.length > 1000) {
       // Cancel any existing builder
       if (streamingBuilderRef.current) {
         streamingBuilderRef.current.cancel();
@@ -203,7 +209,7 @@ function useFileTree({
       
       try {
         streamingBuilderRef.current = new StreamingTreeBuilder(
-          allFiles,
+          allFilesRef.current,
           500, // chunk size
           selectedFolder,
           expandedNodesRef.current
@@ -264,8 +270,8 @@ function useFileTree({
         processingStartedRef.current = true;
       }
 
-      const endIdx = Math.min(processedCount + BATCH_SIZE, allFiles.length);
-      const batch = allFiles.slice(processedCount, endIdx);
+      const endIdx = Math.min(processedCount + BATCH_SIZE, allFilesRef.current.length);
+      const batch = allFilesRef.current.slice(processedCount, endIdx);
       
       for (const file of batch) {
         if (!file.path) continue;
@@ -332,7 +338,7 @@ function useFileTree({
       const intermediateTree = convertToTreeNodes(fileMapRef.current, 0, false);
       commitTree(intermediateTree);
       
-      if (processedCount >= allFiles.length) {
+      if (processedCount >= allFilesRef.current.length) {
         // Only sort the final tree when all files are processed
         const finalTree = convertToTreeNodes(fileMapRef.current, 0, true);
         commitTree(finalTree);
@@ -342,7 +348,7 @@ function useFileTree({
       }
     };
     
-      if (allFiles.length > 0) {
+      if (allFilesRef.current.length > 0) {
         processBatch();
       } else {
         commitTree([]);
@@ -367,11 +373,11 @@ function useFileTree({
       }
       // Ensure tree building state is not stuck
       // Only set to complete if we have some tree data or no files
-      if (hasTreeDataRef.current || allFiles.length === 0) {
+      if (hasTreeDataRef.current || allFilesRef.current.length === 0) {
         setIsTreeBuildingComplete(true);
       }
     };
-  }, [allFiles, selectedFolder, commitTree, convertToTreeNodes, hasFileStructureChanged]);
+  }, [hasFileStructureChanged, selectedFolder, commitTree, convertToTreeNodes]);
 
   // Effect to handle cleanup on sort order change
   useEffect(() => {
@@ -718,7 +724,7 @@ function useFileTree({
     
     // Only apply filtering and sorting when needed
     return flattenTree(filterTree(fileTree, searchTerm));
-  }, [fileTree, searchTerm, isTreeBuildingComplete, filterTree, flattenTree, expandedNodes, allFiles]);
+  }, [fileTree, searchTerm, isTreeBuildingComplete, filterTree, flattenTree, expandedNodes]);
 
   return {
     fileTree,
