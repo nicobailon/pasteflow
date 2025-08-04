@@ -17,6 +17,7 @@ interface UseFileTreeResult {
   fileTree: TreeNode[];
   visibleTree: TreeNode[];
   isTreeBuildingComplete: boolean;
+  treeProgress: number;
 }
 
 // Cache for directory and file priorities to improve performance
