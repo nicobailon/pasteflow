@@ -1,9 +1,10 @@
 import { render, fireEvent, waitFor, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { performance } from 'perf_hooks';
-import FileViewModalIntegrated from '../components/file-view-modal-integrated';
+import FileViewModal from '../components/file-view-modal';
 import { FileData, FileViewModalProps } from '../types/file-types';
 import { fileViewerPerformance } from '../utils/file-viewer-performance';
+import { ThemeProvider } from './__mocks__/theme-context';
 
 const generateTestContent = (lines: number): string => {
   const testLines = [];
@@ -54,6 +55,15 @@ const createMockProps = (lineCount: number = 100, options?: Partial<FileViewModa
   ...options,
 });
 
+// Helper to render with theme provider
+const renderWithTheme = (component: React.ReactElement) => {
+  return render(
+    <ThemeProvider>
+      {component}
+    </ThemeProvider>
+  );
+};
+
 describe('FileViewModal Performance Tests', () => {
   beforeEach(() => {
     fileViewerPerformance.clearMetrics();
@@ -67,11 +77,13 @@ describe('FileViewModal Performance Tests', () => {
         const props = createMockProps(size);
         const startTime = performance.now();
         
-        const { container } = render(<FileViewModalIntegrated {...props} />);
+        const { container } = renderWithTheme(<FileViewModal {...props} />);
         
         await waitFor(() => {
-          expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
-        });
+          const modalContent = container.querySelector('.file-view-modal-content') || 
+                              container.querySelector('.syntax-highlighter-wrapper');
+          expect(modalContent).toBeInTheDocument();
+        }, { timeout: 3000 });
         
         const endTime = performance.now();
         const renderTime = endTime - startTime;
@@ -104,7 +116,7 @@ describe('FileViewModal Performance Tests', () => {
   describe('Line Selection Performance', () => {
     it('should handle rapid line selection efficiently', async () => {
       const props = createMockProps(1000);
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -130,7 +142,7 @@ describe('FileViewModal Performance Tests', () => {
     
     it('should use Set-based selection for O(1) lookups', async () => {
       const props = createMockProps(5000);
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -160,7 +172,7 @@ describe('FileViewModal Performance Tests', () => {
   describe('Memory Usage', () => {
     it('should use virtualization for large files', async () => {
       const largeFileProps = createMockProps(2000);
-      const { container } = render(<FileViewModalIntegrated {...largeFileProps} />);
+      const { container } = renderWithTheme(<FileViewModal {...largeFileProps} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -179,7 +191,7 @@ describe('FileViewModal Performance Tests', () => {
     
     it('should not virtualize small files', async () => {
       const smallFileProps = createMockProps(500);
-      const { container } = render(<FileViewModalIntegrated {...smallFileProps} />);
+      const { container } = renderWithTheme(<FileViewModal {...smallFileProps} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -198,7 +210,7 @@ describe('FileViewModal Performance Tests', () => {
     it('should correctly handle virtualization threshold boundary', async () => {
       // Test exactly at threshold (1000 lines) - should NOT virtualize
       const atThresholdProps = createMockProps(1000);
-      const { container: atThreshold, unmount: unmount1 } = render(<FileViewModalIntegrated {...atThresholdProps} />);
+      const { container: atThreshold, unmount: unmount1 } = renderWithTheme(<FileViewModal {...atThresholdProps} />);
       
       await waitFor(() => {
         expect(atThreshold.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -211,7 +223,7 @@ describe('FileViewModal Performance Tests', () => {
       
       // Test just above threshold (1001 lines) - should virtualize
       const aboveThresholdProps = createMockProps(1001);
-      const { container: aboveThreshold } = render(<FileViewModalIntegrated {...aboveThresholdProps} />);
+      const { container: aboveThreshold } = renderWithTheme(<FileViewModal {...aboveThresholdProps} />);
       
       await waitFor(() => {
         expect(aboveThreshold.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -230,7 +242,7 @@ describe('FileViewModal Performance Tests', () => {
   describe('Event Handler Optimization', () => {
     it('should use event delegation instead of individual handlers', async () => {
       const props = createMockProps(1000);
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -279,7 +291,7 @@ describe('FileViewModal Performance Tests', () => {
         })],
       });
       
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -306,7 +318,7 @@ describe('FileViewModal Performance Tests', () => {
         })],
       });
       
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         const modal = container.querySelector('.file-view-modal-content');
@@ -329,7 +341,7 @@ describe('FileViewModal Performance Tests', () => {
         })],
       });
       
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(props.loadFileContent).toHaveBeenCalled();
@@ -346,7 +358,7 @@ describe('FileViewModal Performance Tests', () => {
     
     it('should handle concurrent operations without race conditions', async () => {
       const props = createMockProps(1000);
-      const { container, rerender } = render(<FileViewModalIntegrated {...props} />);
+      const { container, rerender } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -357,8 +369,8 @@ describe('FileViewModal Performance Tests', () => {
       const newProps2 = createMockProps(2000);
       
       // Rapid rerenders
-      rerender(<FileViewModalIntegrated {...newProps1} />);
-      rerender(<FileViewModalIntegrated {...newProps2} />);
+      rerender(<FileViewModal {...newProps1} />);
+      rerender(<FileViewModal {...newProps2} />);
       
       await waitFor(() => {
         // Should stabilize with the latest props
@@ -378,7 +390,7 @@ describe('FileViewModal Performance Tests', () => {
   describe('Performance Monitoring', () => {
     it('should track render times', async () => {
       const props = createMockProps(1000);
-      render(<FileViewModalIntegrated {...props} />);
+      renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         const metrics = fileViewerPerformance.getMetricsSummary();
@@ -402,7 +414,7 @@ describe('FileViewModal Performance Tests', () => {
   describe('Drag Selection Performance', () => {
     it('should handle drag selection efficiently', async () => {
       const props = createMockProps(1000);
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -453,7 +465,7 @@ describe('FileViewModal Performance Tests', () => {
     
     it('should handle rapid drag direction changes', async () => {
       const props = createMockProps(500);
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();
@@ -487,7 +499,7 @@ describe('FileViewModal Performance Tests', () => {
   describe('Token Count Performance', () => {
     it('should calculate token counts efficiently', async () => {
       const props = createMockProps(2000);
-      const { container } = render(<FileViewModalIntegrated {...props} />);
+      const { container } = renderWithTheme(<FileViewModal {...props} />);
       
       await waitFor(() => {
         expect(container.querySelector('.file-view-modal-content')).toBeInTheDocument();

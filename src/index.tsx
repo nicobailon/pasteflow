@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
 import InstructionsModal from "./components/instructions-modal";
-import FileViewModal from "./components/file-view-modal-integrated";
+import FileViewModal from "./components/file-view-modal";
 import FilterModal from "./components/filter-modal";
 import ProcessingIndicator from "./components/processing-indicator";
 import RolePromptsModal from "./components/role-prompts-modal";

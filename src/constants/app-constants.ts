@@ -222,7 +222,11 @@ export const UI = {
     /** Binary search threshold for line selection */
     BINARY_SEARCH_THRESHOLD: 3,
     /** Maximum DOM depth for line traversal */
-    MAX_DOM_DEPTH: 3,
+    MAX_DOM_DEPTH: 5,
+    /** Virtualization threshold - number of lines before switching to virtualized rendering */
+    VIRTUALIZATION_THRESHOLD: 1000,
+    /** Throttle delay for DOM queries during drag operations (milliseconds) */
+    DOM_QUERY_THROTTLE_MS: 16, // ~60fps
   },
   
   /** Icon sizes */
