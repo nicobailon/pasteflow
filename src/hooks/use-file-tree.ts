@@ -66,6 +66,13 @@ function useFileTree({
   // Reference to store the complete file map
   const fileMapRef = useRef<Record<string, any>>({});
   
+  // Cache for flattened tree results
+  const flattenCacheRef = useRef<{
+    nodes: TreeNode[];
+    expandedKeys: string;
+    result: TreeNode[];
+  } | null>(null);
+  
   // Stable refs to avoid infinite loops
   const expandedNodesRef = useRef(expandedNodes);
   const fileTreeSortOrderRef = useRef(fileTreeSortOrder);
@@ -177,6 +184,10 @@ function useFileTree({
   useEffect(() => {
     if (hasFileStructureChanged) {
       filePathsRef.current = currentFilePaths;
+      // Clear flatten cache when structure changes
+      if (flattenCacheRef.current) {
+        flattenCacheRef.current = null;
+      }
     }
   }, [hasFileStructureChanged, currentFilePaths]);
 
@@ -616,6 +627,39 @@ function useFileTree({
 
   // Flatten the tree for rendering with proper indentation
   const flattenTree = useCallback((nodes: TreeNode[]): TreeNode[] => {
+    // Create a stable key from expanded nodes for cache comparison
+    const expandedKeys = Object.entries(expandedNodes)
+      .filter(([_, expanded]) => expanded)
+      .map(([path]) => path)
+      .sort()
+      .join('|');
+    
+    // Check cache first
+    if (flattenCacheRef.current && 
+        flattenCacheRef.current.nodes === nodes && 
+        flattenCacheRef.current.expandedKeys === expandedKeys) {
+      // Update file data in cached results if needed
+      const cachedResult = flattenCacheRef.current.result;
+      let needsUpdate = false;
+      
+      const updatedResult = cachedResult.map(node => {
+        if (node.type === "file" && node.path) {
+          const latestFileData = filesByPath.get(node.path);
+          if (latestFileData && latestFileData !== node.fileData) {
+            needsUpdate = true;
+            return { ...node, fileData: latestFileData };
+          }
+        }
+        return node;
+      });
+      
+      if (needsUpdate) {
+        flattenCacheRef.current.result = updatedResult;
+        return updatedResult;
+      }
+      
+      return cachedResult;
+    }
     // Define recursive flatten function inside to avoid dependency issue
     const flattenNodesRecursively = (nodesToFlatten: TreeNode[]): TreeNode[] => {
       let result: TreeNode[] = [];
@@ -661,7 +705,16 @@ function useFileTree({
       return result;
     };
 
-    return flattenNodesRecursively(nodes);
+    const flattened = flattenNodesRecursively(nodes);
+    
+    // Cache the result
+    flattenCacheRef.current = {
+      nodes,
+      expandedKeys,
+      result: flattened
+    };
+    
+    return flattened;
   }, [expandedNodes, filesByPathRef, filesByPath])
 
   // Filter the tree based on search term
