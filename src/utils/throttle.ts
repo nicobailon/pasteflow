@@ -1,0 +1,27 @@
+export function throttle<Args extends unknown[], Return>(
+  func: (...args: Args) => Return,
+  wait: number
+): (...args: Args) => void {
+  let lastTime = 0;
+  let timeout: NodeJS.Timeout | null = null;
+  
+  return (...args: Args): void => {
+    const now = Date.now();
+    const remaining = wait - (now - lastTime);
+    
+    if (remaining <= 0 || remaining > wait) {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      lastTime = now;
+      func(...args);
+    } else if (!timeout) {
+      timeout = setTimeout(() => {
+        lastTime = Date.now();
+        timeout = null;
+        func(...args);
+      }, remaining);
+    }
+  };
+}
