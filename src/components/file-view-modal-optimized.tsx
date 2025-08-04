@@ -1,0 +1,620 @@
+import * as Dialog from '@radix-ui/react-dialog';
+import { CheckSquare, Square, Trash, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+import { useTheme } from '../context/theme-context';
+import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
+import { useCancellableOperation } from '../hooks/use-cancellable-operation';
+import { useOptimizedSelection } from '../hooks/use-optimized-selection';
+import { TOKEN_COUNTING, UI } from '../constants/app-constants';
+import { fileViewerPerformance } from '../utils/file-viewer-performance';
+import './file-view-modal.css';
+
+const getLanguageFromPath = (filePath: string): string => {
+  const extension = filePath.split('.').pop()?.toLowerCase() || '';
+  
+  const languageMap: Record<string, string> = {
+    'js': 'javascript',
+    'jsx': 'jsx',
+    'ts': 'typescript',
+    'tsx': 'tsx',
+    'html': 'html',
+    'css': 'css',
+    'scss': 'scss',
+    'json': 'json',
+    'md': 'markdown',
+    'py': 'python',
+    'java': 'java',
+    'c': 'c',
+    'cpp': 'cpp',
+    'cs': 'csharp',
+    'go': 'go',
+    'rb': 'ruby',
+    'php': 'php',
+    'swift': 'swift',
+    'rs': 'rust',
+    'sh': 'bash',
+    'yaml': 'yaml',
+    'yml': 'yaml',
+    'xml': 'xml',
+    'sql': 'sql',
+    'kt': 'kotlin',
+    'dart': 'dart',
+  };
+  
+  return languageMap[extension] || 'text';
+};
+
+const formatLineRanges = (lines?: LineRange[]): string => {
+  if (!lines || lines.length === 0) return 'Entire file';
+  
+  return lines
+    .map(range => range.start === range.end 
+      ? `Line ${range.start}` 
+      : `Lines ${range.start}-${range.end}`)
+    .join(', ');
+};
+
+const calculateTokenCount = (content: string): number => {
+  if (!content) return 0;
+  
+  if (content.length < TOKEN_COUNTING.SMALL_CONTENT_THRESHOLD) {
+    return Math.ceil(content.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
+  }
+  
+  const wordCount = content.split(/\s+/).length;
+  const charCount = content.length;
+  
+  const specialChars = content.replace(/[\d\sA-Za-z]/g, '').length;
+  const specialCharRatio = specialChars / charCount;
+  
+  return Math.ceil(wordCount * TOKEN_COUNTING.WORD_TO_TOKEN_RATIO * (1 + specialCharRatio));
+};
+
+interface LineRendererProps {
+  lineNumber: number;
+  isSelected: boolean;
+  isDragSelected: boolean;
+  selectionMode: 'none' | 'entire' | 'specific';
+  currentTheme: 'light' | 'dark';
+}
+
+const LineRenderer = React.memo(({ 
+  lineNumber, 
+  isSelected, 
+  isDragSelected,
+  selectionMode,
+  currentTheme 
+}) => {
+  const isHighlighted = isSelected || isDragSelected;
+  
+  const backgroundColor = useMemo(() => {
+    if (!isHighlighted) return;
+    return currentTheme === 'dark' 
+      ? 'rgba(62, 68, 82, 0.5)' 
+      : 'rgba(230, 242, 255, 0.5)';
+  }, [isHighlighted, currentTheme]);
+  
+  const lineNumberColor = useMemo(() => {
+    if (isHighlighted) {
+      return currentTheme === 'dark' ? '#61afef' : '#0366d6';
+    }
+    return currentTheme === 'dark' ? '#636d83' : '#999';
+  }, [isHighlighted, currentTheme]);
+  
+  return {
+    lineProps: {
+      style: { 
+        display: 'block',
+        cursor: selectionMode === 'specific' ? 'pointer' : 'default',
+        backgroundColor,
+      },
+      'data-line-number': lineNumber
+    },
+    lineNumberStyle: {
+      minWidth: '3em',
+      paddingRight: '1em',
+      textAlign: 'right' as const,
+      userSelect: 'none' as const,
+      cursor: selectionMode === 'specific' ? 'pointer' : 'default',
+      color: lineNumberColor,
+      backgroundColor,
+    }
+  };
+});
+
+LineRenderer.displayName = 'LineRenderer';
+
+const FileViewModalOptimized = ({
+  isOpen,
+  onClose,
+  filePath,
+  allFiles,
+  selectedFile,
+  onUpdateSelectedFile,
+  loadFileContent,
+}: FileViewModalProps): JSX.Element => {
+  const { currentTheme } = useTheme();
+  const { runCancellableOperation } = useCancellableOperation();
+  const [file, setFile] = useState<FileData | null>(null);
+  const [initialSelection, setInitialSelection] = useState<LineRange[]>([]);
+  const [selectionMode, setSelectionMode] = useState<'none'|'entire'|'specific'>('none');
+  const [shiftKeyPressed, setShiftKeyPressed] = useState(false);
+  const [lastSelectedLine, setLastSelectedLine] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [totalTokenCount, setTotalTokenCount] = useState(0);
+  
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStartLine, setDragStartLine] = useState<number | null>(null);
+  const [dragCurrentLine, setDragCurrentLine] = useState<number | null>(null);
+  
+  const {
+    selectedLines,
+    selectedLinesSet,
+    selectRange,
+    toggleLine,
+    isLineSelected,
+    clearSelection,
+    setSelectedLines,
+    mergeLineRanges,
+  } = useOptimizedSelection(initialSelection);
+  
+  useEffect(() => {
+    if (filePath && isOpen) {
+      runCancellableOperation(async (token) => {
+        const foundFile = allFiles.find((file: FileData) => file.path === filePath);
+        
+        if (token.cancelled) return;
+        
+        if (foundFile && !foundFile.isContentLoaded) {
+          setFile(foundFile);
+          await loadFileContent(filePath);
+          if (token.cancelled) return;
+        } else {
+          setFile(foundFile ?? null);
+          setTotalTokenCount(foundFile?.content ? calculateTokenCount(foundFile.content) : 0);
+        }
+      });
+    }
+  }, [filePath, isOpen, allFiles, loadFileContent, runCancellableOperation]);
+
+  useEffect(() => {
+    if (filePath && isOpen && file) {
+      const updatedFile = allFiles.find((f: FileData) => f.path === filePath);
+      if (updatedFile && updatedFile.isContentLoaded && updatedFile.content && updatedFile.content !== file.content) {
+        setFile(updatedFile);
+        setTotalTokenCount(calculateTokenCount(updatedFile.content));
+      }
+    }
+  }, [allFiles, filePath, isOpen, file]);
+  
+  useEffect(() => {
+    setSelectionMode('none');
+    setIsDragging(false);
+    
+    if (selectedFile && selectedFile.lines && selectedFile.lines.length > 0) {
+      setSelectedLines([...selectedFile.lines]);
+      setInitialSelection([...selectedFile.lines]);
+    } else {
+      setSelectedLines([]);
+      setInitialSelection([]);
+    }
+  }, [selectedFile, setSelectedLines]);
+  
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setShiftKeyPressed(true);
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setShiftKeyPressed(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+  
+  const isLineDragSelected = useCallback((lineNumber: number): boolean => {
+    if (!isDragging || dragStartLine === null || dragCurrentLine === null) {
+      return false;
+    }
+    
+    return lineNumber >= Math.min(dragStartLine, dragCurrentLine) && 
+           lineNumber <= Math.max(dragStartLine, dragCurrentLine);
+  }, [isDragging, dragStartLine, dragCurrentLine]);
+  
+  const getLineNumberFromElement = useCallback((element: Element | null): number | null => {
+    if (!element) return null;
+    
+    let current = element;
+    let depth = 0;
+    const maxDepth = UI.MODAL.MAX_DOM_DEPTH;
+    
+    while (current && depth < maxDepth) {
+      const lineAttr = (current as HTMLElement).dataset?.lineNumber;
+      if (lineAttr) {
+        const lineNumber = Number.parseInt(lineAttr, 10);
+        if (!Number.isNaN(lineNumber)) return lineNumber;
+      }
+      
+      if (!current.parentElement) break;
+      current = current.parentElement;
+      depth++;
+    }
+    
+    return null;
+  }, []);
+  
+  const handleContainerClick = useCallback((e: React.MouseEvent) => {
+    if (selectionMode !== 'specific' || isDragging) return;
+    
+    const target = e.target as HTMLElement;
+    const lineNumber = getLineNumberFromElement(target);
+    
+    if (!lineNumber) return;
+    
+    if (shiftKeyPressed && lastSelectedLine !== null) {
+      selectRange(lastSelectedLine, lineNumber);
+    } else {
+      toggleLine(lineNumber);
+    }
+    
+    setLastSelectedLine(lineNumber);
+  }, [selectionMode, isDragging, shiftKeyPressed, lastSelectedLine, toggleLine, selectRange, getLineNumberFromElement]);
+  
+  const handleContainerMouseDown = useCallback((e: React.MouseEvent) => {
+    if (selectionMode !== 'specific' || e.button !== 0) return;
+    
+    const target = e.target as HTMLElement;
+    const lineNumber = getLineNumberFromElement(target);
+    
+    if (!lineNumber) return;
+    
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStartLine(lineNumber);
+    setDragCurrentLine(lineNumber);
+    setLastSelectedLine(lineNumber);
+  }, [selectionMode, getLineNumberFromElement]);
+  
+  const handleContainerMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging || dragStartLine === null) return;
+    
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const lineNumber = getLineNumberFromElement(target);
+    
+    if (lineNumber) {
+      setDragCurrentLine(lineNumber);
+    }
+  }, [isDragging, dragStartLine, getLineNumberFromElement]);
+  
+  const handleContainerMouseUp = useCallback(() => {
+    if (isDragging && dragStartLine !== null && dragCurrentLine !== null) {
+      const newRange = {
+        start: Math.min(dragStartLine, dragCurrentLine),
+        end: Math.max(dragStartLine, dragCurrentLine)
+      };
+      
+      setSelectedLines(mergeLineRanges([...selectedLines, newRange]));
+    }
+    
+    setIsDragging(false);
+    setDragStartLine(null);
+    setDragCurrentLine(null);
+  }, [isDragging, dragStartLine, dragCurrentLine, selectedLines, setSelectedLines, mergeLineRanges]);
+  
+  useEffect(() => {
+    if (!isDragging) return;
+    
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const lineNumber = getLineNumberFromElement(target);
+      
+      if (lineNumber) {
+        setDragCurrentLine(lineNumber);
+      }
+    };
+    
+    const handleGlobalMouseUp = () => {
+      handleContainerMouseUp();
+    };
+    
+    window.addEventListener('mousemove', handleGlobalMouseMove, { passive: true });
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isDragging, handleContainerMouseUp, getLineNumberFromElement]);
+  
+  const toggleSelectionMode = (mode: 'none' | 'entire' | 'specific') => {
+    setSelectionMode(mode);
+    
+    switch (mode) {
+      case 'none':
+        setSelectedLines([]);
+        setIsDragging(false);
+        break;
+      case 'entire':
+        setSelectedLines([]);
+        break;
+      case 'specific':
+        setIsDragging(false);
+        if (initialSelection.length > 0) {
+          setSelectedLines([...initialSelection]);
+        }
+        break;
+    }
+  };
+  
+  const selectAllLines = () => {
+    if (!file || !file.content) return;
+    
+    const lineCount = file.content.split('\n').length;
+    setSelectedLines([{ start: 1, end: lineCount }]);
+  };
+  
+  const resetSelection = () => {
+    setSelectedLines([...initialSelection]);
+  };
+  
+  const isEntireFileSelected = (): boolean => {
+    if (!file || !file.content) return false;
+    if (selectionMode === 'entire') return true;
+    if (selectedLines.length === 0) return false;
+    
+    const lineCount = file.content.split('\n').length;
+    
+    return selectedLines.length === 1 && 
+           selectedLines[0].start === 1 && 
+           selectedLines[0].end === lineCount;
+  };
+  
+  const getSelectedContent = useCallback((): string => {
+    if (!file || !file.content) return '';
+    
+    if (selectionMode === 'entire' || selectedLines.length === 0) {
+      return file.content;
+    }
+    
+    const lines = file.content.split('\n');
+    const selectedLinesArray: string[] = [];
+    
+    for (const lineNumber of selectedLinesSet) {
+      if (lineNumber > 0 && lineNumber <= lines.length) {
+        selectedLinesArray[lineNumber - 1] = lines[lineNumber - 1];
+      }
+    }
+    
+    return selectedLinesArray.filter(line => line !== undefined).join('\n');
+  }, [file, selectedLines, selectedLinesSet, selectionMode]);
+  
+  const getLineProps = useCallback((lineNumber: number) => {
+    const { lineProps } = LineRenderer({
+      lineNumber,
+      isSelected: isLineSelected(lineNumber),
+      isDragSelected: isLineDragSelected(lineNumber),
+      selectionMode,
+      currentTheme,
+    });
+    return lineProps;
+  }, [isLineSelected, isLineDragSelected, selectionMode, currentTheme]);
+  
+  const getLineNumberStyle = useCallback((lineNumber: number) => {
+    const { lineNumberStyle } = LineRenderer({
+      lineNumber,
+      isSelected: isLineSelected(lineNumber),
+      isDragSelected: isLineDragSelected(lineNumber),
+      selectionMode,
+      currentTheme,
+    });
+    return lineNumberStyle;
+  }, [isLineSelected, isLineDragSelected, selectionMode, currentTheme]);
+  
+  useEffect(() => {
+    if (file?.content) {
+      const lineCount = file.content.split('\n').length;
+      fileViewerPerformance.measureRenderTime(lineCount, () => {});
+    }
+  }, [file]);
+  
+  return (
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="modal-overlay" />
+        <Dialog.Content className="modal-content file-view-modal" aria-describedby={undefined}>
+          <div className="file-view-modal-header">
+            <Dialog.Title asChild>
+              <h2>{file?.name || 'File Viewer'}</h2>
+            </Dialog.Title>
+            <Dialog.Close asChild>
+              <button 
+                className="file-view-modal-close-btn" 
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </Dialog.Close>
+          </div>
+
+          <div className="file-view-modal-controls">
+            <div className="selection-mode-radio">
+              <label>
+                <input
+                  type="radio"
+                  checked={selectionMode === 'none'}
+                  onChange={() => toggleSelectionMode('none')}
+                />
+                <span>View only</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  checked={selectionMode === 'entire'}
+                  onChange={() => toggleSelectionMode('entire')}
+                />
+                <span>Select entire file</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  checked={selectionMode === 'specific'}
+                  onChange={() => toggleSelectionMode('specific')}
+                />
+                <span>Select specific lines</span>
+              </label>
+            </div>
+            
+            {selectionMode === 'specific' && (
+              <div className="file-view-modal-selection-actions">
+                <button 
+                  className="file-view-modal-action-btn" 
+                  onClick={selectAllLines}
+                  title="Select All Lines"
+                >
+                  <CheckSquare size={16} />
+                  <span>Select All</span>
+                </button>
+                <button 
+                  className="file-view-modal-action-btn" 
+                  onClick={clearSelection}
+                  title="Clear Selection"
+                >
+                  <Square size={16} />
+                  <span>Clear</span>
+                </button>
+                {initialSelection.length > 0 && (
+                  <button 
+                    className="file-view-modal-action-btn" 
+                    onClick={resetSelection}
+                    title="Reset to Previous Selection"
+                  >
+                    <Trash size={16} />
+                    <span>Reset</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          
+          <div className="file-view-modal-selection-info">
+            <div className="selection-status">
+              {selectionMode === 'none' ? (
+                <span>Viewing file (no selection)</span>
+              ) : selectionMode === 'entire' ? (
+                <span>Selecting entire file</span>
+              ) : (
+                <>
+                  <span>Selection: {formatLineRanges(selectedLines)}</span>
+                  {isEntireFileSelected() && (
+                    <span className="file-view-modal-entire-file">(Entire File)</span>
+                  )}
+                </>
+              )}
+            </div>
+            
+            {selectionMode === 'specific' && selectedLines.length > 0 ? (
+              <div className="token-estimate">
+                ~{calculateTokenCount(getSelectedContent()).toLocaleString()} tokens selected / {totalTokenCount.toLocaleString()} total tokens
+              </div>
+            ) : (
+              <div className="token-estimate">
+                ~{totalTokenCount.toLocaleString()} total tokens
+              </div>
+            )}
+          </div>
+          
+          <div 
+            className={`file-view-modal-content ${selectionMode === 'specific' ? 'selection-active' : ''}`}
+            ref={containerRef}
+            onClick={handleContainerClick}
+            onMouseDown={handleContainerMouseDown}
+            onMouseMove={handleContainerMouseMove}
+            onMouseUp={handleContainerMouseUp}
+            role="presentation"
+            aria-label="File content viewer"
+          >
+            {file ? (
+              <div className="syntax-highlighter-wrapper">
+                <SyntaxHighlighter
+                  language={getLanguageFromPath(file.path)}
+                  style={currentTheme === 'dark' ? oneDark : oneLight}
+                  showLineNumbers={true}
+                  wrapLines={true}
+                  lineProps={getLineProps}
+                  lineNumberStyle={getLineNumberStyle}
+                  customStyle={{
+                    margin: 0,
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    overflow: 'auto'
+                  }}
+                >
+                  {file.content || ''}
+                </SyntaxHighlighter>
+              </div>
+            ) : (
+              <div className="file-view-modal-loading">Loading file...</div>
+            )}
+          </div>
+          
+          <div className="file-view-modal-footer">
+            <div className="selection-help">
+              {selectionMode === 'specific' && (
+                <span>
+                  Click to select a line. Shift+click to select ranges. Click line numbers and drag to select multiple lines.
+                  Click selected lines to deselect.
+                </span>
+              )}
+            </div>
+            <div className="file-view-modal-buttons">
+              <Dialog.Close asChild>
+                <button 
+                  className="file-view-modal-btn cancel" 
+                  title="Cancel"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button 
+                className="file-view-modal-btn apply" 
+                onClick={() => {
+                  if (!file) return;
+                  
+                  if (selectionMode === 'none') {
+                    onClose();
+                    return;
+                  }
+                  
+                  onUpdateSelectedFile(
+                    file.path,
+                    selectionMode === 'specific' && selectedLines.length > 0 ? [...selectedLines] : undefined
+                  );
+                  
+                  onClose();
+                }}
+                title={selectionMode === 'none' ? 'Close' : 'Apply Selection'}
+              >
+                {selectionMode === 'none' ? 'Close' : 'Apply'}
+              </button>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+};
+
+export default FileViewModalOptimized;

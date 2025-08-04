@@ -697,6 +697,7 @@ const FileViewModal = ({
     if (!lineNumbers.startLine || !lineNumbers.endLine) return;
     
     if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      // Debug logging can be added here if needed
     }
     
     addLineRangeToSelection(lineNumbers.startLine, lineNumbers.endLine);
@@ -997,21 +998,25 @@ const FileViewModal = ({
   const toggleSelectionMode = (mode: 'none' | 'entire' | 'specific') => {
     setSelectionMode(mode);
     
-    if (mode === 'none') {
-      // View-only mode - clear all selections
-      setSelectedLines([]);
-      setIsDragging(false);
-    } else if (mode === 'entire') {
-      // When switching to entire file mode, clear line selections and deactivate selection
-      setSelectedLines([]);
-    } else if (mode === 'specific') {
-      // When entering specific line mode, automatically activate selection mode
-      setIsDragging(false);
-      
-      // Restore initial selection if available
-      if (initialSelection.length > 0) {
-        setSelectedLines([...initialSelection]);
-      }
+    switch (mode) {
+      case 'none':
+        // View-only mode - clear all selections
+        setSelectedLines([]);
+        setIsDragging(false);
+        break;
+      case 'entire':
+        // When switching to entire file mode, clear line selections and deactivate selection
+        setSelectedLines([]);
+        break;
+      case 'specific':
+        // When entering specific line mode, automatically activate selection mode
+        setIsDragging(false);
+        
+        // Restore initial selection if available
+        if (initialSelection.length > 0) {
+          setSelectedLines([...initialSelection]);
+        }
+        break;
     }
   };
   
