@@ -634,9 +634,10 @@ function useFileTree({
         };
         
         // For file nodes, ensure we have the latest file data
+        // Use filesByPath directly instead of the ref to ensure we get the latest data
         if (node.type === "file" && node.path) {
-          const latestFileData = filesByPathRef.current.get(node.path);
-          if (latestFileData) {
+          const latestFileData = filesByPath.get(node.path);
+          if (latestFileData && latestFileData !== node.fileData) {
             nodeWithUpdatedExpanded = { ...nodeWithUpdatedExpanded, fileData: latestFileData };
           }
         }
@@ -654,7 +655,7 @@ function useFileTree({
     };
 
     return flattenNodesRecursively(nodes);
-  }, [expandedNodes, filesByPathRef])
+  }, [expandedNodes, filesByPathRef, filesByPath])
 
   // Filter the tree based on search term
   const filterTree = useCallback((nodes: TreeNode[], term: string): TreeNode[] => {
@@ -682,9 +683,10 @@ function useFileTree({
     const filterNodesRecursively = (nodesToFilter: TreeNode[]): TreeNode[] => {
       return nodesToFilter.filter(node => nodeMatches(node)).map((node) => {
         // For file nodes, ensure we have the latest file data
+        // Use filesByPath directly instead of the ref to ensure we get the latest data
         if (node.type === "file" && node.path) {
-          const latestFileData = filesByPathRef.current.get(node.path);
-          if (latestFileData) {
+          const latestFileData = filesByPath.get(node.path);
+          if (latestFileData && latestFileData !== node.fileData) {
             node = { ...node, fileData: latestFileData };
           }
         }
@@ -704,7 +706,7 @@ function useFileTree({
     // Filter the nodes and maintain the same sort order
     const filteredNodes = filterNodesRecursively(nodes);
     return sortTreeNodes(filteredNodes, fileTreeSortOrderRef.current);
-  }, []);
+  }, [filesByPath]);
 
   // The final tree to render, filtered and flattened
   const visibleTree = useMemo(() => {

@@ -364,13 +364,20 @@ const hasFileDataChanged = (
   if ((prevFileData && !nextFileData) || (!prevFileData && nextFileData)) return true;
   
   if (prevFileData && nextFileData) {
+    // CRITICAL: Check for content loading state transitions first
+    const contentTransition = (!prevFileData.content && nextFileData.content) ||
+                            (prevFileData.content && !nextFileData.content);
+    
     return prevFileData.tokenCount !== nextFileData.tokenCount ||
            prevFileData.isCountingTokens !== nextFileData.isCountingTokens ||
            prevFileData.isContentLoaded !== nextFileData.isContentLoaded ||
            prevFileData.isBinary !== nextFileData.isBinary ||
            prevFileData.isSkipped !== nextFileData.isSkipped ||
-           // Check if content changed (important for line-selected files)
-           prevFileData.content !== nextFileData.content;
+           // Enhanced content change detection
+           prevFileData.content !== nextFileData.content ||
+           contentTransition ||
+           // Also check content length changes as a fallback
+           (prevFileData.content?.length || 0) !== (nextFileData.content?.length || 0);
   }
   
   return false;
@@ -505,8 +512,8 @@ const useTreeItemState = (
   // Get computed state
   const state = getTreeItemState(node, selectedFiles, folderSelectionCache);
 
-  // Track if we're loading content for line-selected files
-  const [isLoadingForLines, setIsLoadingForLines] = useState(false);
+  // Track content loading state for line-selected files
+  const [contentLoadingState, setContentLoadingState] = useState<'idle' | 'loading' | 'loaded'>('idle');
   
   // Calculate token count for line-selected files
   const lineSelectedTokenCount = useMemo(() => {
@@ -529,21 +536,24 @@ const useTreeItemState = (
     }
     
     return totalTokens;
-  }, [type, state.isPartiallySelected, state.selectedFile, fileData?.content]);
+  }, [type, state.isPartiallySelected, state.selectedFile, fileData?.content, contentLoadingState]);
 
   // Load content when file has line ranges but no content
   useEffect(() => {
     if (state.isPartiallySelected && state.selectedFile?.lines?.length && 
         !fileData?.isContentLoaded && !fileData?.isCountingTokens && 
-        loadFileContent && type === 'file' && !isLoadingForLines) {
+        loadFileContent && type === 'file' && contentLoadingState === 'idle') {
+      
       // Load content to calculate token count for line ranges
-      setIsLoadingForLines(true);
-      loadFileContent(path).finally(() => {
-        setIsLoadingForLines(false);
+      setContentLoadingState('loading');
+      loadFileContent(path).then(() => {
+        setContentLoadingState('loaded');
+      }).catch(() => {
+        setContentLoadingState('idle');
       });
     }
   }, [state.isPartiallySelected, state.selectedFile, fileData?.isContentLoaded, 
-      fileData?.isCountingTokens, loadFileContent, type, path, isLoadingForLines]);
+      fileData?.isCountingTokens, loadFileContent, type, path, contentLoadingState]);
 
   // Update local token count when fileData changes
   useEffect(() => {
@@ -565,7 +575,7 @@ const useTreeItemState = (
 
   return {
     ...state,
-    isLoading: isLoadingForLines, // Show loading state when loading content for line ranges
+    isLoading: contentLoadingState === 'loading', // Show loading state when loading content for line ranges
     localTokenCount: displayTokenCount
   };
 };
