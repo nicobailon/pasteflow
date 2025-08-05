@@ -22,12 +22,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   // Build folder index if not provided
   const folderIndex = useMemo(() => {
     if (providedFolderIndex) {
-      console.log('[useFileSelectionState] Using provided folder index');
       return providedFolderIndex;
     }
-    console.log('[useFileSelectionState] Building folder index from', allFiles.length, 'files');
     const index = buildFolderIndex(allFiles);
-    console.log('[useFileSelectionState] Built folder index with', index.size, 'keys');
     return index;
   }, [allFiles, providedFolderIndex]);
   
@@ -98,7 +95,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           return prev.filter(selected => {
             const exists = existingFilePaths.has(selected.path);
             if (!exists) {
-              console.log(`Removing stale selection after file removal: ${selected.path}`);
             }
             return exists;
           });
@@ -130,7 +126,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       const validSelections = prev.filter(selected => {
         const exists = existingFilePaths.has(selected.path);
         if (!exists) {
-          console.log(`Removing stale selection: ${selected.path}`);
         }
         return exists;
       });
@@ -248,8 +243,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
   // Toggle folder selection (select/deselect all files in folder)
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
-    console.log('[toggleFolderSelection] Called with:', { folderPath, isSelected, opts });
-    console.log('[toggleFolderSelection] Folder index keys:', Array.from(folderIndex.keys()));
     
     // Convert absolute path to relative if needed
     // The folder index uses paths without leading slashes
@@ -258,16 +251,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (folderPath.startsWith('/')) {
       // Remove the leading slash to match the folder index keys
       lookupPath = folderPath.slice(1);
-      console.log('[toggleFolderSelection] Converted absolute to relative:', { folderPath, lookupPath });
     }
     
     // Use folder index for O(1) lookup
     let filesInFolderPaths = getFilesInFolder(folderIndex, lookupPath);
-    console.log('[toggleFolderSelection] Files found in folder:', filesInFolderPaths.length);
     
     // If no files in folder, bail early
     if (filesInFolderPaths.length === 0) {
-      console.log('[toggleFolderSelection] No files found, bailing out');
       return;
     }
     

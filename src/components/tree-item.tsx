@@ -418,9 +418,6 @@ const getTreeItemState = (
       }
       
       const selectionState = folderSelectionCache.get(cacheLookupPath);
-      if (level === 0) {
-        console.log('[TreeItem] Top-level folder cache check:', { path, cacheLookupPath, selectionState, level });
-      }
       isDirectorySelected = selectionState === 'full';
       isDirectoryPartiallySelected = selectionState === 'partial';
     } else {
@@ -502,7 +499,6 @@ const TreeItem = memo(({
       toggleFileSelection(path);
     } else if (type === "directory") {
       const isChecked = e.target.checked;
-      console.log('[TreeItem] Checkbox clicked:', { path, isChecked, level, name });
       // Toggle folder selection with optimistic update for immediate UI feedback
       toggleFolderSelection(path, isChecked, { optimistic: true });
       // Auto-expand folder when checking it

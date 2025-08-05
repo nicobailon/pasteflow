@@ -12,8 +12,6 @@ export type FolderIndex = Map<string, string[]>;
 export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
   const index: FolderIndex = new Map();
   
-  console.log('[buildFolderIndex] Building index for', allFiles.length, 'files');
-  console.log('[buildFolderIndex] Sample file paths:', allFiles.slice(0, 3).map(f => f.path));
   
   // Process each file to build the folder index
   for (const file of allFiles) {
@@ -47,7 +45,6 @@ export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
     }
   }
   
-  console.log('[buildFolderIndex] Final index keys:', Array.from(index.keys()).slice(0, 10));
   return index;
 }
 
