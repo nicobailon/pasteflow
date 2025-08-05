@@ -407,15 +407,8 @@ const getTreeItemState = (
   
   if (type === "directory") {
     if (folderSelectionCache) {
-      // For absolute paths, we need to find the relative path from workspace root
-      let cacheLookupPath = path;
-      if (path.startsWith('/')) {
-        // This is an absolute path - need to extract the relative path
-        // So we just need to remove the leading slash
-        cacheLookupPath = path.slice(1);
-      }
-      
-      const selectionState = folderSelectionCache.get(cacheLookupPath);
+      // Use the path directly - folder cache now uses absolute paths
+      const selectionState = folderSelectionCache.get(path);
       isDirectorySelected = selectionState === 'full';
       isDirectoryPartiallySelected = selectionState === 'partial';
     } else {

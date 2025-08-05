@@ -244,17 +244,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   // Toggle folder selection (select/deselect all files in folder)
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
     
-    // Convert absolute path to relative if needed
-    // The folder index uses paths without leading slashes
-    let lookupPath = folderPath;
-    
-    if (folderPath.startsWith('/')) {
-      // Remove the leading slash to match the folder index keys
-      lookupPath = folderPath.slice(1);
-    }
-    
-    // Use folder index for O(1) lookup
-    let filesInFolderPaths = getFilesInFolder(folderIndex, lookupPath);
+    // Use folder index for O(1) lookup with absolute paths
+    let filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
     
     // If no files in folder, bail early
     if (filesInFolderPaths.length === 0) {
@@ -288,20 +279,19 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     }
 
     // Optimistically update the cache if requested
-    // Use the lookupPath for cache consistency
     if (opts?.optimistic !== false) {
       const newState = isSelected ? 'full' : 'none';
       
       // Clear any existing timeout for this path
-      const existingTimeout = optimisticTimeoutsRef.current.get(lookupPath);
+      const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
       if (existingTimeout) {
         clearTimeout(existingTimeout);
       }
       
-      // Set optimistic state using the normalized path
+      // Set optimistic state using the folder path
       setOptimisticFolderStates(prev => {
         const next = new Map(prev);
-        next.set(lookupPath, newState);
+        next.set(folderPath, newState);
         return next;
       });
       
@@ -309,13 +299,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       const timeout = setTimeout(() => {
         setOptimisticFolderStates(prev => {
           const next = new Map(prev);
-          next.delete(lookupPath);
+          next.delete(folderPath);
           return next;
         });
-        optimisticTimeoutsRef.current.delete(lookupPath);
+        optimisticTimeoutsRef.current.delete(folderPath);
       }, FILE_PROCESSING.DEBOUNCE_DELAY_MS); // Using centralized debounce delay for better stability
       
-      optimisticTimeoutsRef.current.set(lookupPath, timeout);
+      optimisticTimeoutsRef.current.set(folderPath, timeout);
     }
     
     // Perform the actual update

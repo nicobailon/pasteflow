@@ -197,9 +197,7 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
   const areAllFilesSelected = useCallback(() => {
     // Check the folder selection cache for the root folder
     if (folderSelectionCache && selectedFolder) {
-      // Normalize the path for cache lookup
-      const cacheLookupPath = selectedFolder.startsWith('/') ? selectedFolder.slice(1) : selectedFolder;
-      const rootFolderState = folderSelectionCache.get(cacheLookupPath);
+      const rootFolderState = folderSelectionCache.get(selectedFolder);
       return rootFolderState === 'full';
     }
     // Fallback to checking if all files are selected
@@ -420,8 +418,7 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                     checked={areAllFilesSelected}
                     ref={(el) => {
                       if (el && folderSelectionCache && selectedFolder) {
-                        const cacheLookupPath = selectedFolder.startsWith('/') ? selectedFolder.slice(1) : selectedFolder;
-                        const rootFolderState = folderSelectionCache.get(cacheLookupPath);
+                        const rootFolderState = folderSelectionCache.get(selectedFolder);
                         el.indeterminate = rootFolderState === 'partial';
                       }
                     }}

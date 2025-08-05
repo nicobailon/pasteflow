@@ -19,14 +19,14 @@ export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
       continue; // Skip non-selectable files
     }
     
-    // Extract all parent folder paths for this file
+    // Split path and keep the absolute path structure
+    const isAbsolute = file.path.startsWith('/');
     const parts = file.path.split('/').filter(Boolean);
-    let currentPath = '';
     
-    
-    // Build up each parent folder path
+    // Build up each parent folder path maintaining absolute/relative nature
     for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      const pathParts = parts.slice(0, i + 1);
+      const currentPath = isAbsolute ? '/' + pathParts.join('/') : pathParts.join('/');
       
       // Add this file to the folder's file list
       if (!index.has(currentPath)) {
@@ -35,8 +35,8 @@ export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
       index.get(currentPath)!.push(file.path);
     }
     
-    // Also handle the case where the file is in the root
-    if (parts.length === 1) {
+    // Also handle files directly in the root
+    if (isAbsolute && parts.length === 1) {
       const rootPath = '/';
       if (!index.has(rootPath)) {
         index.set(rootPath, []);
