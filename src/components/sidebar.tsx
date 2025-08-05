@@ -88,12 +88,10 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
   const showLoadingIndicator = isTreeLoading || !isTreeBuildingComplete;
   
   // Wrapper functions to adapt prop signatures for VirtualizedTree
-  const handleToggleFolderSelection = useCallback((path: string) => {
-    // VirtualizedTree expects single param, but SidebarProps has two params
-    // We'll determine selection state based on current state
-    const isCurrentlySelected = selectedFiles.some(file => file.path.startsWith(path + '/'));
-    toggleFolderSelection(path, !isCurrentlySelected);
-  }, [selectedFiles, toggleFolderSelection]);
+  const handleToggleFolderSelection = useCallback((path: string, isSelected: boolean, opts?: { optimistic?: boolean }) => {
+    // Pass through to the original toggleFolderSelection
+    toggleFolderSelection(path, isSelected, opts);
+  }, [toggleFolderSelection]);
   
   const handleLoadFileContent = useCallback(async (path: string): Promise<void> => {
     // VirtualizedTree expects Promise<void>

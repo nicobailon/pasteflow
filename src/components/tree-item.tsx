@@ -633,7 +633,7 @@ const TreeItem = memo(({
       toggleFolderSelection(path, isChecked, { optimistic: true });
       // Auto-expand folder when checking it
       if (isChecked && !isExpanded) {
-        toggleExpanded(path, isExpanded);
+        toggleExpanded(path);
       }
     }
   }, [type, path, toggleFileSelection, loadFileContent, fileData?.isContentLoaded, toggleFolderSelection, toggleExpanded, isExpanded]);

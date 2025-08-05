@@ -7,7 +7,7 @@ export class BoundedLRUCache<K, V> {
   private readonly maxSize: number;
   private accessOrder: K[] = [];
 
-  constructor(maxSize = 1_000) {
+  constructor(maxSize = 1000) {
     const MAX_REASONABLE_SIZE = 100_000;
     
     if (maxSize <= 0) {

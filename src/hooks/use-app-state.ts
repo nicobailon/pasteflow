@@ -868,12 +868,6 @@ const useAppState = () => {
   }, [setExpandedNodes]);
 
   const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileReference[], availableFiles: FileData[]): void => {
-    console.log('[useAppState.applySelectedFiles] Called with:', {
-      selectedFilesToApplyCount: selectedFilesToApply?.length || 0,
-      availableFilesCount: availableFiles?.length || 0,
-      selectedFiles: selectedFilesToApply
-    });
-    
     // Deduplicate input files before applying
     const uniqueFiles = [...new Map(selectedFilesToApply.map(file => [file.path, file])).values()];
     
@@ -893,12 +887,6 @@ const useAppState = () => {
         } as SelectedFileReference;
       })
       .filter((file): file is SelectedFileReference => !!file);
-
-    
-    console.log('[useAppState.applySelectedFiles] Files to select:', {
-      filesToSelectCount: filesToSelect.length,
-      filesToSelect
-    });
     
     // Always call setSelectionState even with empty array to ensure proper clearing
     // Batch state updates
@@ -908,11 +896,6 @@ const useAppState = () => {
   }, [setSelectionState]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
-    console.log('[useAppState.applyPrompts] Called with:', {
-      systemPromptsCount: promptsToApply?.systemPrompts?.length || 0,
-      rolePromptsCount: promptsToApply?.rolePrompts?.length || 0,
-      promptsToApply
-    });
     
     const currentPrompts = promptStateRef.current;
 
@@ -960,14 +943,6 @@ const useAppState = () => {
     }
 
     isApplyingWorkspaceDataRef.current = true;
-
-    console.log('[useAppState.applyWorkspaceData] Applying workspace data:', {
-      workspaceName,
-      selectedFilesCount: workspaceData.selectedFiles?.length || 0,
-      systemPromptsCount: workspaceData.customPrompts?.systemPrompts?.length || 0,
-      rolePromptsCount: workspaceData.customPrompts?.rolePrompts?.length || 0,
-      selectedInstructionsCount: workspaceData.selectedInstructions?.length || 0
-    });
 
     const currentSelectedFolder = selectedFolderRef.current;
     const currentProcessingStatus = processingStatusRef.current;

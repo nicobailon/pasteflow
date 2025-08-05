@@ -22,9 +22,10 @@ export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
     const parts = file.path.split('/').filter(Boolean);
     let currentPath = '';
     
+    
     // Build up each parent folder path
     for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      currentPath = currentPath ? `${currentPath}/${parts[i]}` : `/${parts[i]}`;
       
       // Add this file to the folder's file list
       if (!index.has(currentPath)) {
