@@ -195,20 +195,27 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
 
   // Check if all files are selected (memoized)
   const areAllFilesSelected = useCallback(() => {
+    // Check the folder selection cache for the root folder
+    if (folderSelectionCache && selectedFolder) {
+      // Normalize the path for cache lookup
+      const cacheLookupPath = selectedFolder.startsWith('/') ? selectedFolder.slice(1) : selectedFolder;
+      const rootFolderState = folderSelectionCache.get(cacheLookupPath);
+      return rootFolderState === 'full';
+    }
+    // Fallback to checking if all files are selected
     return allFiles.length > 0 && selectedFiles.length === allFiles.length;
-  }, [allFiles.length, selectedFiles.length])();
+  }, [allFiles.length, selectedFiles.length, folderSelectionCache, selectedFolder])();
 
   /**
    * Handles the toggle of the "Select All" checkbox.
-   * Calls selectAllFiles when checked and deselectAllFiles when unchecked.
+   * Uses toggleFolderSelection for the root folder to ensure proper cache updates.
    * 
-   * @param {any} e - The change event from the checkbox
+   * @param {React.ChangeEvent<HTMLInputElement>} e - The change event from the checkbox
    */
-  const handleSelectAllToggle = (e: any) => {
-    if (e.target.checked) {
-      selectAllFiles();
-    } else {
-      deselectAllFiles();
+  const handleSelectAllToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (selectedFolder) {
+      // Use toggleFolderSelection for the root folder to ensure proper cache updates
+      toggleFolderSelection(selectedFolder, e.target.checked, { optimistic: true });
     }
   };
 
@@ -411,6 +418,13 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                     type="checkbox"
                     className="tree-item-checkbox"
                     checked={areAllFilesSelected}
+                    ref={(el) => {
+                      if (el && folderSelectionCache && selectedFolder) {
+                        const cacheLookupPath = selectedFolder.startsWith('/') ? selectedFolder.slice(1) : selectedFolder;
+                        const rootFolderState = folderSelectionCache.get(cacheLookupPath);
+                        el.indeterminate = rootFolderState === 'partial';
+                      }
+                    }}
                     onChange={handleSelectAllToggle}
                     title={areAllFilesSelected ? "Deselect all files" : "Select all files"}
                   />
