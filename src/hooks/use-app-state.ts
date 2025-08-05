@@ -269,25 +269,35 @@ const useAppState = () => {
     return getFileTreeModeTokens(allFiles, fileSelection.selectedFiles, selectedFolder, fileTreeMode);
   }, [allFiles, fileSelection.selectedFiles, selectedFolder, fileTreeMode]);
 
-  // Handle token calculations
+  // Handle token calculations - now uses estimation when content not loaded
   const calculateTotalTokens = useCallback(() => {
     const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
     
     return fileSelection.selectedFiles.reduce((total, selectedFile) => {
       const fileData = allFilesMap.get(selectedFile.path);
-      if (fileData && fileData.tokenCount) {
-        // If the selection has specific line ranges, estimate token count for those
-        if (selectedFile.lines && selectedFile.lines.length > 0 && fileData.content) {
-          const lines = fileData.content.split('\n');
-          let selectedContent = '';
-          for (const range of selectedFile.lines) {
-            selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
+      if (fileData) {
+        // If content is loaded and we have actual token count
+        if (fileData.isContentLoaded && fileData.tokenCount) {
+          // If the selection has specific line ranges, estimate token count for those
+          if (selectedFile.lines && selectedFile.lines.length > 0 && fileData.content) {
+            const lines = fileData.content.split('\n');
+            let selectedContent = '';
+            for (const range of selectedFile.lines) {
+              selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
+            }
+            // Simple estimation: ~4 characters per token
+            return total + Math.ceil(selectedContent.length / 4);
+          } else {
+            // Full file selected
+            return total + fileData.tokenCount;
           }
-          // Simple estimation: ~4 characters per token
-          return total + Math.ceil(selectedContent.length / 4);
         } else {
-          // Full file selected
-          return total + fileData.tokenCount;
+          // If content not loaded, estimate based on file size
+          // Skip binary and skipped files
+          if (!fileData.isBinary && !fileData.isSkipped) {
+            // Rough estimation: 1 token per 4 characters
+            return total + Math.round(fileData.size / 4);
+          }
         }
       }
       return total;

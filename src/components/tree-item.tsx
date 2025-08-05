@@ -1,10 +1,9 @@
 import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
-import { useEffect, useRef, useState, memo, useMemo, useCallback } from "react";
+import { useEffect, useRef, memo, useCallback, useMemo } from "react";
 
 import { debounce } from "../utils/debounce";
 import { TreeItemProps, TreeNode, SelectedFileReference } from "../types/file-types";
 import type { DirectorySelectionCache } from "../utils/selection-cache";
-import { estimateTokenCount } from "../utils/token-utils";
 
 // Helper function to check if a node is fully selected - moved outside component
 const isNodeFullySelected = (node: TreeNode, selectedFiles: { path: string; lines?: { start: number; end: number }[] }[]): boolean => {
@@ -116,16 +115,11 @@ const handleTreeItemActions = {
     type: "file" | "directory", 
     toggleFileSelection: (path: string) => void, 
     toggleFolderSelection: (path: string, isChecked: boolean, opts?: { optimistic?: boolean }) => void, 
-    path: string,
-    loadFileContent?: (filePath: string) => Promise<void>
+    path: string
   ) => {
     e.stopPropagation();
     if (type === "file") {
       toggleFileSelection(path);
-      // If this is a newly checked file, load its content
-      if (e.target.checked && loadFileContent) {
-        loadFileContent(path);
-      }
     } else if (type === "directory") {
       toggleFolderSelection(path, e.target.checked, { optimistic: true });
     }
@@ -268,43 +262,21 @@ const TreeItemContent = ({
 // Sub-component for metadata badges
 interface TreeItemMetadataProps {
   type: "file" | "directory";
-  isLoading: boolean;
   isDisabled: boolean;
   isExcludedByDefault: boolean;
   fileData?: TreeNode['fileData'];
-  tokenCount?: number;
 }
 
 const TreeItemMetadata = ({
   type,
-  isLoading,
   isDisabled,
   isExcludedByDefault,
-  fileData,
-  tokenCount
+  fileData
 }: TreeItemMetadataProps) => {
-  const getTokenCountDisplay = () => {
-    // For directories, only show token count if available, don't show "Counting..."
-    if (type === "directory") {
-      return tokenCount ? `(~${tokenCount.toLocaleString()})` : null;
-    }
-    
-    // For files, show loading state
-    if (isLoading || fileData?.isCountingTokens) return "Counting...";
-    if (tokenCount) return `(~${tokenCount.toLocaleString()})`;
-    if (fileData?.tokenCount) return `(~${fileData.tokenCount.toLocaleString()})`;
-    if (fileData?.isContentLoaded && fileData.isBinary) return "(binary)";
-    return null;
-  };
-
-  const tokenDisplay = getTokenCountDisplay();
   const disabledBadgeText = fileData?.isBinary ? "Binary" : "Skipped";
 
   return (
     <>
-      {tokenDisplay && (
-        <span className="tree-item-tokens">{tokenDisplay}</span>
-      )}
       {isDisabled && fileData && (
         <span className="tree-item-badge">{disabledBadgeText}</span>
       )}
@@ -464,118 +436,11 @@ const useTreeItemState = (
   loadFileContent?: (filePath: string) => Promise<void>,
   folderSelectionCache?: DirectorySelectionCache
 ) => {
-  const { fileData, type, path, children } = node;
-  // Removed isLoading state as content loading is now handled directly in checkbox handler
-  const [localTokenCount, setLocalTokenCount] = useState(fileData?.tokenCount);
-  
-  // Calculate directory token count from selected children
-  const directoryTokenCount = useMemo(() => {
-    if (type !== 'directory' || !children) return;
-    
-    let totalTokens = 0;
-    let hasAnySelectedFiles = false;
-    
-    const calculateTokensRecursive = (nodes: TreeNode[]): void => {
-      for (const child of nodes) {
-        if (child.type === 'file') {
-          // Check if this file is selected
-          const selectedFile = selectedFiles.find(f => f.path === child.path);
-          if (selectedFile) {
-            hasAnySelectedFiles = true;
-            // If file has line ranges, calculate tokens for those lines
-            if (selectedFile.lines?.length && child.fileData?.content) {
-              let rangeTokens = 0;
-              const lines = child.fileData.content.split('\n');
-              for (const lineRange of selectedFile.lines) {
-                const rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
-                rangeTokens += estimateTokenCount(rangeContent);
-              }
-              totalTokens += rangeTokens;
-            }
-            // Otherwise use full file token count
-            else if (child.fileData?.isContentLoaded && child.fileData?.tokenCount && !child.fileData?.isCountingTokens) {
-              totalTokens += child.fileData.tokenCount;
-            }
-          }
-        } else if (child.type === 'directory' && child.children) {
-          calculateTokensRecursive(child.children);
-        }
-      }
-    };
-    
-    calculateTokensRecursive(children);
-    // Only return a token count if we have selected files and a non-zero count
-    return hasAnySelectedFiles && totalTokens > 0 ? totalTokens : undefined;
-  }, [type, children, selectedFiles]);
-
   // Get computed state
   const state = getTreeItemState(node, selectedFiles, folderSelectionCache);
 
-  // Track content loading state for line-selected files
-  const [contentLoadingState, setContentLoadingState] = useState<'idle' | 'loading' | 'loaded'>('idle');
-  
-  // Calculate token count for line-selected files
-  const lineSelectedTokenCount = useMemo(() => {
-    if (type !== 'file' || !state.isPartiallySelected || !state.selectedFile?.lines?.length) {
-      return;
-    }
-    
-    // Only calculate if we have content
-    if (!fileData?.content) {
-      return;
-    }
-    
-    // Calculate tokens for the selected line ranges
-    let totalTokens = 0;
-    const lines = fileData.content.split('\n');
-    
-    for (const lineRange of state.selectedFile.lines) {
-      const rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
-      totalTokens += estimateTokenCount(rangeContent);
-    }
-    
-    return totalTokens;
-  }, [type, state.isPartiallySelected, state.selectedFile, fileData?.content, contentLoadingState]);
-
-  // Load content when file has line ranges but no content
-  useEffect(() => {
-    if (state.isPartiallySelected && state.selectedFile?.lines?.length && 
-        !fileData?.isContentLoaded && !fileData?.isCountingTokens && 
-        loadFileContent && type === 'file' && contentLoadingState === 'idle') {
-      
-      // Load content to calculate token count for line ranges
-      setContentLoadingState('loading');
-      loadFileContent(path).then(() => {
-        setContentLoadingState('loaded');
-      }).catch(() => {
-        setContentLoadingState('idle');
-      });
-    }
-  }, [state.isPartiallySelected, state.selectedFile, fileData?.isContentLoaded, 
-      fileData?.isCountingTokens, loadFileContent, type, path, contentLoadingState]);
-
-  // Update local token count when fileData changes
-  useEffect(() => {
-    // Always sync token count from fileData when it's available
-    // This ensures UI updates immediately when token counting completes
-    if (fileData?.tokenCount !== undefined) {
-      setLocalTokenCount(fileData.tokenCount);
-    }
-  }, [fileData?.tokenCount]);
-
-  // Determine the final token count to display
-  const displayTokenCount = useMemo(() => {
-    if (type === 'directory') return directoryTokenCount;
-    if (state.isPartiallySelected && lineSelectedTokenCount !== undefined) {
-      return lineSelectedTokenCount;
-    }
-    return localTokenCount;
-  }, [type, directoryTokenCount, state.isPartiallySelected, lineSelectedTokenCount, localTokenCount]);
-
   return {
-    ...state,
-    isLoading: contentLoadingState === 'loading', // Show loading state when loading content for line ranges
-    localTokenCount: displayTokenCount
+    ...state
   };
 };
 
@@ -621,12 +486,7 @@ const TreeItem = memo(({
   const handleCheckboxChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
     e.stopPropagation();
     if (type === "file") {
-      const isChecked = e.target.checked;
       toggleFileSelection(path);
-      // Load content when file is selected
-      if (isChecked && loadFileContent && !fileData?.isContentLoaded) {
-        loadFileContent(path);
-      }
     } else if (type === "directory") {
       const isChecked = e.target.checked;
       // Toggle folder selection with optimistic update for immediate UI feedback
@@ -636,7 +496,7 @@ const TreeItem = memo(({
         toggleExpanded(path);
       }
     }
-  }, [type, path, toggleFileSelection, loadFileContent, fileData?.isContentLoaded, toggleFolderSelection, toggleExpanded, isExpanded]);
+  }, [type, path, toggleFileSelection, toggleFolderSelection, toggleExpanded, isExpanded]);
 
   const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     // Pass both the path and current expanded state
@@ -712,11 +572,9 @@ const TreeItem = memo(({
       
       <TreeItemMetadata
         type={type}
-        isLoading={state.isLoading}
         isDisabled={state.isDisabled}
         isExcludedByDefault={state.isExcludedByDefault}
         fileData={fileData}
-        tokenCount={state.localTokenCount}
       />
       
       {shouldShowViewButton && (

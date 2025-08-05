@@ -1,5 +1,5 @@
 import { Eye, FileText, Plus, X } from "lucide-react";
-import { useEffect, memo } from "react";
+import { memo } from "react";
 
 import { FileCardProps, LineRange } from "../types/file-types";
 
@@ -22,65 +22,9 @@ const FileCard = ({
   onViewFile,
   loadFileContent
 }: FileCardProps) => {
-  const { name, path: filePath, isContentLoaded, tokenCount, error, isCountingTokens, tokenCountError } = file;
-  const { lines, content: selectedContent, isContentLoaded: selectedIsContentLoaded, tokenCount: selectedTokenCount, isCountingTokens: selectedIsCountingTokens } = selectedFile || {};
+  const { name, path: filePath } = file;
+  const { lines, content: selectedContent } = selectedFile || {};
   const isSelected = !!selectedFile;
-
-  // Trigger content loading if needed when the component mounts or file path changes
-  useEffect(() => {
-    if (!isContentLoaded && !error && filePath) {
-      loadFileContent(filePath);
-    }
-    // Only re-run if filePath, isContentLoaded, or error changes
-  }, [filePath, isContentLoaded, error, loadFileContent]);
-
-  // Get the appropriate token count (selected lines or full file)
-  const getDisplayTokenCount = (): string => {
-    // Check if we're currently counting tokens
-    if (isCountingTokens || selectedIsCountingTokens) {
-      return "Counting...";
-    }
-    // Use selected file's count if loaded
-    if (selectedIsContentLoaded && selectedTokenCount !== undefined) {
-      return selectedTokenCount.toLocaleString();
-    }
-    // Use the general file's count if loaded
-    if (isContentLoaded && tokenCount !== undefined) {
-      return tokenCount.toLocaleString();
-    }
-    // Show error if loading failed or token counting failed
-    if (error || tokenCountError) {
-      return "Error";
-    }
-    // Show loading indicator if content is not yet loaded and no error
-    if (!isContentLoaded) {
-      return "...";
-    }
-    // Fallback if something unexpected happens
-    return "N/A";
-  };
-
-  // Helper function to format the token count display text
-  const getTokenDisplayText = (): string => {
-    const count = getDisplayTokenCount();
-    switch (count) {
-      case "...": {
-        return "Loading...";
-      }
-      case "Counting...": {
-        return "Counting tokens...";
-      }
-      case "Error": {
-        return tokenCountError || "Error loading";
-      }
-      case "N/A": {
-        return "N/A tokens";
-      }
-      default: {
-        return `~${count} tokens`;
-      }
-    }
-  };
 
   // Determine if we should display the line information
   const showLineInfo = isSelected && 
@@ -102,11 +46,6 @@ const FileCard = ({
           {formatLineRanges(lines)}
         </div>
       )}
-      <div className="file-card-info">
-        <div className="file-card-tokens">
-          {getTokenDisplayText()}
-        </div>
-      </div>
 
       <div className="file-card-actions">
         {onViewFile && (
