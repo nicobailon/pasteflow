@@ -396,7 +396,7 @@ const getTreeItemState = (
   selectedFiles: SelectedFileReference[],
   folderSelectionCache?: DirectorySelectionCache
 ) => {
-  const { path, type, fileData } = node;
+  const { path, type, fileData, level } = node;
   const selectedFile = selectedFiles.find(f => f.path === path);
   const isSelected = !!selectedFile;
   const isPartiallySelected = isSelected && !!selectedFile?.lines?.length;
@@ -407,7 +407,20 @@ const getTreeItemState = (
   
   if (type === "directory") {
     if (folderSelectionCache) {
-      const selectionState = folderSelectionCache.get(path);
+      // For absolute paths, we need to find the relative path from workspace root
+      let cacheLookupPath = path;
+      if (path.startsWith('/')) {
+        // This is an absolute path - need to extract the relative path
+        // The folder structure in the cache is like "Users/nicobailon/Documents/development/LibreChat/.devcontainer"
+        // But the tree node path is like "/Users/nicobailon/Documents/development/LibreChat/.devcontainer"
+        // So we just need to remove the leading slash
+        cacheLookupPath = path.slice(1);
+      }
+      
+      const selectionState = folderSelectionCache.get(cacheLookupPath);
+      if (level === 0) {
+        console.log('[TreeItem] Top-level folder cache check:', { path, cacheLookupPath, selectionState, level });
+      }
       isDirectorySelected = selectionState === 'full';
       isDirectoryPartiallySelected = selectionState === 'partial';
     } else {
@@ -489,6 +502,7 @@ const TreeItem = memo(({
       toggleFileSelection(path);
     } else if (type === "directory") {
       const isChecked = e.target.checked;
+      console.log('[TreeItem] Checkbox clicked:', { path, isChecked, level, name });
       // Toggle folder selection with optimistic update for immediate UI feedback
       toggleFolderSelection(path, isChecked, { optimistic: true });
       // Auto-expand folder when checking it
@@ -496,7 +510,7 @@ const TreeItem = memo(({
         toggleExpanded(path);
       }
     }
-  }, [type, path, toggleFileSelection, toggleFolderSelection, toggleExpanded, isExpanded]);
+  }, [type, path, level, name, toggleFileSelection, toggleFolderSelection, toggleExpanded, isExpanded]);
 
   const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     // Pass both the path and current expanded state

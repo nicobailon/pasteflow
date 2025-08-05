@@ -22,9 +22,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   // Build folder index if not provided
   const folderIndex = useMemo(() => {
     if (providedFolderIndex) {
+      console.log('[useFileSelectionState] Using provided folder index');
       return providedFolderIndex;
     }
-    return buildFolderIndex(allFiles);
+    console.log('[useFileSelectionState] Building folder index from', allFiles.length, 'files');
+    const index = buildFolderIndex(allFiles);
+    console.log('[useFileSelectionState] Built folder index with', index.size, 'keys');
+    return index;
   }, [allFiles, providedFolderIndex]);
   
   // Track optimistic folder updates separately with timestamps
@@ -244,11 +248,26 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
   // Toggle folder selection (select/deselect all files in folder)
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
+    console.log('[toggleFolderSelection] Called with:', { folderPath, isSelected, opts });
+    console.log('[toggleFolderSelection] Folder index keys:', Array.from(folderIndex.keys()));
+    
+    // Convert absolute path to relative if needed
+    // The folder index uses paths without leading slashes
+    let lookupPath = folderPath;
+    
+    if (folderPath.startsWith('/')) {
+      // Remove the leading slash to match the folder index keys
+      lookupPath = folderPath.slice(1);
+      console.log('[toggleFolderSelection] Converted absolute to relative:', { folderPath, lookupPath });
+    }
+    
     // Use folder index for O(1) lookup
-    const filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
+    let filesInFolderPaths = getFilesInFolder(folderIndex, lookupPath);
+    console.log('[toggleFolderSelection] Files found in folder:', filesInFolderPaths.length);
     
     // If no files in folder, bail early
     if (filesInFolderPaths.length === 0) {
+      console.log('[toggleFolderSelection] No files found, bailing out');
       return;
     }
     
@@ -267,31 +286,32 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       (f: SelectedFileReference) => selectableFiles.includes(f.path)
     );
     
-    // Early bailout conditions
-    if (isSelected && selectedFilesInFolder.length === selectableFiles.length) {
-      // All files in folder are already selected
-      return;
-    }
+    // Determine if we should actually toggle
+    // If selecting and all files are already selected, OR
+    // If deselecting and no files are selected, then bail out
+    const allFilesSelected = selectedFilesInFolder.length === selectableFiles.length;
+    const noFilesSelected = selectedFilesInFolder.length === 0;
     
-    if (!isSelected && selectedFilesInFolder.length === 0) {
-      // No files from folder are selected
+    if ((isSelected && allFilesSelected) || (!isSelected && noFilesSelected)) {
+      // Nothing to do - state is already as requested
       return;
     }
 
     // Optimistically update the cache if requested
+    // Use the lookupPath for cache consistency
     if (opts?.optimistic !== false) {
       const newState = isSelected ? 'full' : 'none';
       
       // Clear any existing timeout for this path
-      const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
+      const existingTimeout = optimisticTimeoutsRef.current.get(lookupPath);
       if (existingTimeout) {
         clearTimeout(existingTimeout);
       }
       
-      // Set optimistic state
+      // Set optimistic state using the normalized path
       setOptimisticFolderStates(prev => {
         const next = new Map(prev);
-        next.set(folderPath, newState);
+        next.set(lookupPath, newState);
         return next;
       });
       
@@ -299,13 +319,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       const timeout = setTimeout(() => {
         setOptimisticFolderStates(prev => {
           const next = new Map(prev);
-          next.delete(folderPath);
+          next.delete(lookupPath);
           return next;
         });
-        optimisticTimeoutsRef.current.delete(folderPath);
+        optimisticTimeoutsRef.current.delete(lookupPath);
       }, FILE_PROCESSING.DEBOUNCE_DELAY_MS); // Using centralized debounce delay for better stability
       
-      optimisticTimeoutsRef.current.set(folderPath, timeout);
+      optimisticTimeoutsRef.current.set(lookupPath, timeout);
     }
     
     // Perform the actual update

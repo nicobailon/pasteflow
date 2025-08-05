@@ -12,6 +12,9 @@ export type FolderIndex = Map<string, string[]>;
 export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
   const index: FolderIndex = new Map();
   
+  console.log('[buildFolderIndex] Building index for', allFiles.length, 'files');
+  console.log('[buildFolderIndex] Sample file paths:', allFiles.slice(0, 3).map(f => f.path));
+  
   // Process each file to build the folder index
   for (const file of allFiles) {
     if (!file.path || file.isBinary || file.isSkipped) {
@@ -25,7 +28,7 @@ export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
     
     // Build up each parent folder path
     for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : `/${parts[i]}`;
+      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
       
       // Add this file to the folder's file list
       if (!index.has(currentPath)) {
@@ -44,6 +47,7 @@ export function buildFolderIndex(allFiles: FileData[]): FolderIndex {
     }
   }
   
+  console.log('[buildFolderIndex] Final index keys:', Array.from(index.keys()).slice(0, 10));
   return index;
 }
 
