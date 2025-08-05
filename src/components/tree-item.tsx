@@ -411,8 +411,6 @@ const getTreeItemState = (
       let cacheLookupPath = path;
       if (path.startsWith('/')) {
         // This is an absolute path - need to extract the relative path
-        // The folder structure in the cache is like "Users/nicobailon/Documents/development/LibreChat/.devcontainer"
-        // But the tree node path is like "/Users/nicobailon/Documents/development/LibreChat/.devcontainer"
         // So we just need to remove the leading slash
         cacheLookupPath = path.slice(1);
       }
