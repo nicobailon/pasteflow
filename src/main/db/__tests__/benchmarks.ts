@@ -1,8 +1,9 @@
-import { performance } from 'perf_hooks';
+import { performance } from 'node:perf_hooks';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
 import { AsyncDatabase } from '../async-database';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
 
 interface BenchmarkResult {
   operation: string;
@@ -59,10 +60,10 @@ export class DatabaseBenchmarks {
     console.log('Benchmarking INSERT operations...');
     
     // Prepare test data
-    const testFiles = Array.from({ length: 10000 }, (_, i) => ({
+    const testFiles = Array.from({ length: 10_000 }, (_, i) => ({
       path: `/test/file${i}.ts`,
       workspaceId: 'bench-workspace',
-      size: Math.floor(Math.random() * 100000),
+      size: Math.floor(Math.random() * 100_000),
       isBinary: false,
       tokenCount: Math.floor(Math.random() * 1000)
     }));
@@ -99,10 +100,10 @@ export class DatabaseBenchmarks {
     this.results.push({
       operation: 'bulk_insert_10k_files',
       duration,
-      opsPerSecond: 10000 / (duration / 1000),
+      opsPerSecond: 10_000 / (duration / 1000),
       details: {
-        totalRecords: 10000,
-        avgTimePerRecord: duration / 10000
+        totalRecords: 10_000,
+        avgTimePerRecord: duration / 10_000
       }
     });
   }
@@ -165,7 +166,7 @@ export class DatabaseBenchmarks {
         WHERE f.size > ? AND f.is_binary = 0
         ORDER BY f.token_count DESC
         LIMIT 50
-      `, [50000]);
+      `, [50_000]);
     }
     const complexQueryDuration = performance.now() - complexQueryStart;
     
@@ -211,7 +212,7 @@ export class DatabaseBenchmarks {
       for (let i = 0; i < 1000; i++) {
         await this.db.run(
           'UPDATE files SET size = ? WHERE path = ?',
-          [Math.floor(Math.random() * 100000), `/test/file${i}.ts`]
+          [Math.floor(Math.random() * 100_000), `/test/file${i}.ts`]
         );
       }
     });
@@ -312,7 +313,7 @@ export class DatabaseBenchmarks {
     
     for (let i = 0; i < 100; i++) {
       for (const content of contents) {
-        const hash = require('crypto').createHash('sha256').update(content).digest('hex');
+        const hash = require('node:crypto').createHash('sha256').update(content).digest('hex');
         hashes.push(hash);
       }
     }
@@ -332,7 +333,7 @@ export class DatabaseBenchmarks {
     const storageStart = performance.now();
     for (let i = 0; i < 100; i++) {
       const content = contents[i % 3];
-      const hash = require('crypto').createHash('sha256').update(content).digest('hex');
+      const hash = require('node:crypto').createHash('sha256').update(content).digest('hex');
       
       await this.db.run(
         'INSERT OR IGNORE INTO file_contents (hash, content, original_size, compressed_size, compression_ratio) VALUES (?, ?, ?, ?, ?)',

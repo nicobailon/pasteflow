@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+
 import { Instruction } from '../types/file-types';
 
 interface UseInstructionsStateReturn {
@@ -22,9 +23,9 @@ export function useInstructionsState(): UseInstructionsStateReturn {
     try {
       const result = await window.electron.ipcRenderer.invoke('/instructions/list');
       setInstructions(result);
-    } catch (err) {
-      setError(err as Error);
-      console.error('Failed to fetch instructions:', err);
+    } catch (error_) {
+      setError(error_ as Error);
+      console.error('Failed to fetch instructions:', error_);
     } finally {
       setLoading(false);
     }
@@ -38,10 +39,10 @@ export function useInstructionsState(): UseInstructionsStateReturn {
         content: instruction.content
       });
       await fetchInstructions();
-    } catch (err) {
-      setError(err as Error);
-      console.error('Failed to create instruction:', err);
-      throw err;
+    } catch (error_) {
+      setError(error_ as Error);
+      console.error('Failed to create instruction:', error_);
+      throw error_;
     }
   }, [fetchInstructions]);
 
@@ -53,10 +54,10 @@ export function useInstructionsState(): UseInstructionsStateReturn {
         content: instruction.content
       });
       await fetchInstructions();
-    } catch (err) {
-      setError(err as Error);
-      console.error('Failed to update instruction:', err);
-      throw err;
+    } catch (error_) {
+      setError(error_ as Error);
+      console.error('Failed to update instruction:', error_);
+      throw error_;
     }
   }, [fetchInstructions]);
 
@@ -64,10 +65,10 @@ export function useInstructionsState(): UseInstructionsStateReturn {
     try {
       await window.electron.ipcRenderer.invoke('/instructions/delete', { id });
       await fetchInstructions();
-    } catch (err) {
-      setError(err as Error);
-      console.error('Failed to delete instruction:', err);
-      throw err;
+    } catch (error_) {
+      setError(error_ as Error);
+      console.error('Failed to delete instruction:', error_);
+      throw error_;
     }
   }, [fetchInstructions]);
 

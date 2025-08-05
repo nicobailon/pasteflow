@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+
 import { WorkspaceState } from '../types/file-types';
+
 import { useCancellableOperation } from './use-cancellable-operation';
 
 /**
@@ -142,8 +144,7 @@ export const useDatabaseWorkspaceState = () => {
       if (!window.electron) return null;
       
       // Use the direct load method instead of listing all workspaces
-      const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', { id: name });
-      return workspace;
+      return await window.electron.ipcRenderer.invoke('/workspace/load', { id: name });
     } catch (error) {
       // Workspace not found is expected, don't log as error
       if (error.message !== 'Workspace not found') {
@@ -187,18 +188,14 @@ export const useDatabaseWorkspaceState = () => {
           return;
         }
         
-        if (existing) {
-          await window.electron.ipcRenderer.invoke('/workspace/update', {
+        await (existing ? window.electron.ipcRenderer.invoke('/workspace/update', {
             id: existing.id,
             state: workspace
-          });
-        } else {
-          await window.electron.ipcRenderer.invoke('/workspace/create', {
+          }) : window.electron.ipcRenderer.invoke('/workspace/create', {
             name,
             folderPath: workspace.selectedFolder || '',
             state: workspace
-          });
-        }
+          }));
         
         // Check if cancelled before dispatching event
         if (token.cancelled) {

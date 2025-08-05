@@ -2,7 +2,6 @@ import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
 import { useEffect, useRef, useState, memo, useMemo, useCallback } from "react";
 
 import { debounce } from "../utils/debounce";
-
 import { TreeItemProps, TreeNode, SelectedFileReference } from "../types/file-types";
 import type { DirectorySelectionCache } from "../utils/selection-cache";
 import { estimateTokenCount } from "../utils/token-utils";
@@ -471,7 +470,7 @@ const useTreeItemState = (
   
   // Calculate directory token count from selected children
   const directoryTokenCount = useMemo(() => {
-    if (type !== 'directory' || !children) return undefined;
+    if (type !== 'directory' || !children) return;
     
     let totalTokens = 0;
     let hasAnySelectedFiles = false;
@@ -518,12 +517,12 @@ const useTreeItemState = (
   // Calculate token count for line-selected files
   const lineSelectedTokenCount = useMemo(() => {
     if (type !== 'file' || !state.isPartiallySelected || !state.selectedFile?.lines?.length) {
-      return undefined;
+      return;
     }
     
     // Only calculate if we have content
     if (!fileData?.content) {
-      return undefined;
+      return;
     }
     
     // Calculate tokens for the selected line ranges
@@ -609,7 +608,7 @@ const TreeItem = memo(({
   };
 
   // Create debounced toggle function - no dependencies on changing state
-  const debouncedToggle = useMemo(
+  const _debouncedToggle = useMemo(
     () => debounce((filePath: unknown) => {
       if (typeof filePath === 'string') {
         toggleFileSelection(filePath);

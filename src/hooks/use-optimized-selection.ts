@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+
 import { LineRange } from '../types/file-types';
 
 interface OptimizedSelectionHook {
@@ -19,11 +20,11 @@ export const useOptimizedSelection = (initialSelection: LineRange[] = []): Optim
   
   const selectedLinesSet = useMemo(() => {
     const set = new Set<number>();
-    selectedLines.forEach(range => {
+    for (const range of selectedLines) {
       for (let i = range.start; i <= range.end; i++) {
         set.add(i);
       }
-    });
+    }
     return set;
   }, [selectedLines]);
   

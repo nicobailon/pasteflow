@@ -40,7 +40,7 @@ async function initializeEncoder(): Promise<boolean> {
       o200k_base.pat_str
     );
     return true;
-  } catch (error) {
+  } catch {
     encoder = null;
     return false;
   }

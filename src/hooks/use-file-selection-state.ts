@@ -79,7 +79,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   // Validate selected files exist when allFiles changes
   useEffect(() => {
     // Skip validation if no files are loaded yet
-    if (!allFiles.length || !selectedFiles.length) return;
+    if (allFiles.length === 0 || selectedFiles.length === 0) return;
     
     // Create a Set of all current file paths for O(1) lookup
     const existingFilePaths = new Set(allFiles.map(f => f.path));
@@ -91,14 +91,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       // Use a small delay to batch potential multiple updates
       const timeoutId = setTimeout(() => {
         setSelectedFiles(prev => {
-          const validSelections = prev.filter(selected => {
+          return prev.filter(selected => {
             const exists = existingFilePaths.has(selected.path);
             if (!exists) {
               console.log(`Removing stale selection after file removal: ${selected.path}`);
             }
             return exists;
           });
-          return validSelections;
         });
       }, 100);
       
@@ -110,15 +109,14 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const cleanupStaleSelections = useCallback(() => {
     if (currentWorkspacePath) {
       setSelectedFiles(prev => {
-        const filtered = prev.filter(file => file.path.startsWith(currentWorkspacePath));
-        return filtered;
+        return prev.filter(file => file.path.startsWith(currentWorkspacePath));
       });
     }
   }, [currentWorkspacePath, setSelectedFiles]);
 
   // Validate selected files still exist in the file system
   const validateSelectedFilesExist = useCallback(() => {
-    if (!allFiles.length) return;
+    if (allFiles.length === 0) return;
     
     // Create a Set of all current file paths for O(1) lookup
     const existingFilePaths = new Set(allFiles.map(f => f.path));
@@ -206,11 +204,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
       if (!lineRange) {
         // If no line range, toggle the entire file
-        if (existingIndex >= 0) {
-          return prev.filter((f) => f.path !== filePath);
-        } else {
-          return [...prev, { path: filePath }];
-        }
+        return existingIndex >= 0 ? prev.filter((f) => f.path !== filePath) : [...prev, { path: filePath }];
       }
 
       // With a line range

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, CSSProperties
 import { FixedSizeList as List } from 'react-window';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
 import { useTheme } from '../context/theme-context';
 import { UI } from '../constants/app-constants';
 
@@ -42,40 +43,40 @@ const VirtualizedLineRenderer = React.memo<RowRendererProps>(({ index, style, da
   const { lines, language, theme, selectionMode, onLineClick, onLineMouseDown, onLineMouseMove } = data;
   const line = lines[index];
   
+  const handleClick = useCallback((e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    if (selectionMode === 'specific' && onLineClick && line) {
+      onLineClick(line.lineNumber);
+    }
+  }, [selectionMode, onLineClick, line]);
+  
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    if (selectionMode === 'specific' && onLineMouseDown && line) {
+      onLineMouseDown(line.lineNumber, e);
+    }
+  }, [selectionMode, onLineMouseDown, line]);
+  
+  const handleMouseMove = useCallback(() => {
+    if (onLineMouseMove && line) {
+      onLineMouseMove(line.lineNumber);
+    }
+  }, [onLineMouseMove, line]);
+  
   if (!line) return null;
   
   const { content, lineNumber, isSelected, isDragSelected } = line;
   const isHighlighted = isSelected || isDragSelected;
   
   const backgroundColor = isHighlighted
-    ? theme === 'dark' 
+    ? (theme === 'dark' 
       ? 'rgba(62, 68, 82, 0.5)' 
-      : 'rgba(230, 242, 255, 0.5)'
+      : 'rgba(230, 242, 255, 0.5)')
     : undefined;
   
   const lineNumberColor = isHighlighted
-    ? theme === 'dark' ? '#61afef' : '#0366d6'
-    : theme === 'dark' ? '#636d83' : '#999';
-  
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    if (selectionMode === 'specific' && onLineClick) {
-      onLineClick(lineNumber);
-    }
-  }, [selectionMode, onLineClick, lineNumber]);
-  
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    if (selectionMode === 'specific' && onLineMouseDown) {
-      onLineMouseDown(lineNumber, e);
-    }
-  }, [selectionMode, onLineMouseDown, lineNumber]);
-  
-  const handleMouseMove = useCallback(() => {
-    if (onLineMouseMove) {
-      onLineMouseMove(lineNumber);
-    }
-  }, [onLineMouseMove, lineNumber]);
+    ? (theme === 'dark' ? '#61afef' : '#0366d6')
+    : (theme === 'dark' ? '#636d83' : '#999');
   
   return (
     <div
@@ -92,6 +93,14 @@ const VirtualizedLineRenderer = React.memo<RowRendererProps>(({ index, style, da
       onClick={handleClick}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleClick();
+        }
+      }}
+      role="button"
+      tabIndex={selectionMode === 'specific' ? 0 : -1}
       data-line-number={lineNumber}
     >
       <span

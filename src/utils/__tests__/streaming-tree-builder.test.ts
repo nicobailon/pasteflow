@@ -51,7 +51,7 @@ class MockWorker {
           progress: 50,
         };
 
-        handlers.forEach(handler => {
+        for (const handler of handlers) {
           handler({
             data: {
               type: 'TREE_CHUNK',
@@ -59,19 +59,19 @@ class MockWorker {
               payload: chunk,
             },
           });
-        });
+        }
 
         // Simulate completion
         setTimeout(() => {
           if (this.terminated) return;
-          handlers.forEach(handler => {
+          for (const handler of handlers) {
             handler({
               data: {
                 type: 'TREE_COMPLETE',
                 id: data.id,
               },
             });
-          });
+          }
         }, 10);
       }
     }, 10);
@@ -85,7 +85,7 @@ class MockWorker {
   triggerError(error: string, id: string) {
     const handlers = this.listeners.get('message');
     if (handlers && !this.terminated) {
-      handlers.forEach(handler => {
+      for (const handler of handlers) {
         handler({
           data: {
             type: 'TREE_ERROR',
@@ -93,16 +93,16 @@ class MockWorker {
             error,
           },
         });
-      });
+      }
     }
   }
 
   triggerWorkerError(message: string) {
     const handlers = this.listeners.get('error');
     if (handlers && !this.terminated) {
-      handlers.forEach(handler => {
+      for (const handler of handlers) {
         handler({ message });
-      });
+      }
     }
   }
 }

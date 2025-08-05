@@ -74,7 +74,7 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
 
   if (!isOpen) return null;
 
-  const isLargeContent = content.length > 100000;
+  const isLargeContent = content.length > 100_000;
 
   return (
     <div 
@@ -88,6 +88,7 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="clipboard-preview-title"
+      tabIndex={-1}
     >
       <div 
         ref={modalRef}
@@ -95,6 +96,7 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
         role="document"
+        tabIndex={-1}
       >
         <div className="clipboard-preview-header">
           <div className="clipboard-preview-title" id="clipboard-preview-title">
@@ -123,8 +125,8 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
         
         <div className="clipboard-preview-content-wrapper">
           <pre className="clipboard-preview-content">
-            {isLargeContent ? content.slice(0, 500000) : content}
-            {isLargeContent && content.length > 500000 && (
+            {isLargeContent ? content.slice(0, 500_000) : content}
+            {isLargeContent && content.length > 500_000 && (
               <div className="clipboard-preview-truncated">
                 ... Content truncated for display (full content will be copied) ...
               </div>

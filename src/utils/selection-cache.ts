@@ -121,7 +121,7 @@ export function createDirectorySelectionCache(
       
       // Try without leading slash if not found
       if (path.startsWith('/')) {
-        const withoutSlash = path.substring(1);
+        const withoutSlash = path.slice(1);
         const noSlashResult = cache.get(withoutSlash);
         if (noSlashResult) return noSlashResult;
       }
@@ -135,7 +135,7 @@ export function createDirectorySelectionCache(
       
       // Also set the alternative format for consistency
       if (path.startsWith('/')) {
-        cache.set(path.substring(1), state);
+        cache.set(path.slice(1), state);
       } else {
         cache.set(`/${path}`, state);
       }

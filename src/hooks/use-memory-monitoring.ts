@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+
 import { memoryMonitor } from '../utils/memory-monitor';
 import { fileContentCache } from '../utils/file-cache';
 import { tokenCountCache } from '../utils/token-cache';
@@ -49,7 +50,7 @@ export function useMemoryMonitoring(
     memoryMonitor.setThresholds(50, 100); // Warn at 50MB, critical at 100MB
 
     // Start periodic monitoring (every 30 seconds in production, every 5 seconds in dev)
-    const intervalMs = process.env.NODE_ENV === 'development' ? 5000 : 30000;
+    const intervalMs = process.env.NODE_ENV === 'development' ? 5000 : 30_000;
     const cleanup = memoryMonitor.startPeriodicMonitoring(intervalMs);
 
     // Log initial stats in development

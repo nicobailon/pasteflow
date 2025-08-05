@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { STORAGE_KEYS } from '../constants';
 import { WorkspaceState } from '../types/file-types';
 import { getPathValidator } from '../security/path-validator';
+
 import { useDatabaseWorkspaceState } from './use-database-workspace-state';
 import { usePersistentState } from './use-persistent-state';
 import { useCancellableOperation } from './use-cancellable-operation';
@@ -129,10 +130,8 @@ export const useWorkspaceState = () => {
 
   const getWorkspaceNames = useCallback(async (): Promise<string[]> => {
     try {
-      const names = await db.getWorkspaceNames();
-      
       // Sort by last accessed time (database already returns them sorted)
-      return names;
+      return await db.getWorkspaceNames();
     } catch (error) {
       console.error(`Failed to get workspace names: ${error.message}`);
       return [];

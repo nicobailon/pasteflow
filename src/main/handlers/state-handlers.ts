@@ -666,8 +666,7 @@ export class StateHandlers {
     // Instructions handlers
     this.ipc.setHandler('/instructions/list', async () => {
       try {
-        const instructions = await this.db.database.listInstructions();
-        return instructions;
+        return await this.db.database.listInstructions();
       } catch (error) {
         throw new Error(`Failed to list instructions: ${(error as Error).message}`);
       }

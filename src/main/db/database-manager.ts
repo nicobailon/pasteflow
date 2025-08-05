@@ -1,8 +1,11 @@
-import { SecureDatabase } from './secure-database';
+import * as path from 'node:path';
+
+import { app, BrowserWindow } from 'electron';
+
 import { SecureIpcLayer } from '../ipc/secure-ipc';
 import { StateHandlers } from '../handlers/state-handlers';
-import * as path from 'path';
-import { app, BrowserWindow } from 'electron';
+
+import { SecureDatabase } from './secure-database';
 
 // Type definitions for IPC handler inputs
 interface WorkspaceCreateInput {
@@ -27,7 +30,7 @@ interface WorkspaceDeleteInput {
 interface FileContentInput {
   workspaceId: string;
   filePath: string;
-  lineRanges?: Array<{ start: number; end: number }>;
+  lineRanges?: { start: number; end: number }[];
 }
 
 interface FileSaveInput {
@@ -218,7 +221,7 @@ export class DatabaseManager {
         updated_at: number;
       }>('SELECT * FROM prompts WHERE is_active = 1');
       
-      const prompts = allPrompts
+      return allPrompts
         .filter(p => !validatedInput.type || p.type === validatedInput.type)
         .map(p => ({
           id: p.id,
@@ -230,13 +233,11 @@ export class DatabaseManager {
           createdAt: p.created_at,
           updatedAt: p.updated_at
         }));
-      
-      return prompts;
     });
 
     this.ipc.setHandler('/prompt/create', async (input: unknown) => {
       const validatedInput = input as PromptCreateInput;
-      const id = require('crypto').randomUUID();
+      const id = require('node:crypto').randomUUID();
       const tokenCount = validatedInput.tokenCount || this.estimateTokenCount(validatedInput.content);
       
       await this.db.database.run(
@@ -315,7 +316,7 @@ export class DatabaseManager {
 
   // Helper methods
   private calculateHash(content: string): string {
-    return require('crypto').createHash('sha256').update(content).digest('hex');
+    return require('node:crypto').createHash('sha256').update(content).digest('hex');
   }
 
   private estimateTokenCount(text: string): number {
@@ -325,7 +326,7 @@ export class DatabaseManager {
 
   private calculateTokensForLineRanges(
     content: string,
-    lineRanges: Array<{ start: number; end: number }>
+    lineRanges: { start: number; end: number }[]
   ): number {
     const lines = content.split('\n');
     let selectedContent = '';

@@ -1,4 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
+
 import { useDatabaseWorkspaceState } from '../use-database-workspace-state';
 import { WorkspaceState } from '../../types/file-types';
 
@@ -43,8 +44,8 @@ describe('useDatabaseWorkspaceState', () => {
     
     // Default mock implementations
     mockInvoke.mockResolvedValue([]);
-    mockOn.mockImplementation(() => undefined);
-    mockRemoveListener.mockImplementation(() => undefined);
+    mockOn.mockImplementation(() => {});
+    mockRemoveListener.mockImplementation(() => {});
   });
 
   const mockWorkspaceState: WorkspaceState = {
@@ -70,7 +71,7 @@ describe('useDatabaseWorkspaceState', () => {
     name: 'Test Workspace',
     folderPath: '/test/folder',
     state: mockWorkspaceState,
-    createdAt: Date.now() - 10000,
+    createdAt: Date.now() - 10_000,
     updatedAt: Date.now() - 5000,
     lastAccessed: Date.now() - 1000
   };
@@ -147,7 +148,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(undefined); // update workspace
+        .mockResolvedValueOnce(); // update workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -173,7 +174,7 @@ describe('useDatabaseWorkspaceState', () => {
       await act(async () => {
         try {
           await result.current.saveWorkspace('Failed Workspace', mockWorkspaceState);
-        } catch (error) {
+        } catch {
           // Error handling is graceful - hook logs and continues
         }
       });
@@ -188,7 +189,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // load workspace
-        .mockResolvedValueOnce(undefined); // touch workspace
+        .mockResolvedValueOnce(); // touch workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -248,7 +249,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(undefined); // delete workspace
+        .mockResolvedValueOnce(); // delete workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -289,7 +290,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(undefined); // rename workspace
+        .mockResolvedValueOnce(); // rename workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -474,8 +475,8 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(workspaces) // list workspaces
-        .mockResolvedValueOnce(undefined) // delete workspace 1
-        .mockResolvedValueOnce(undefined); // delete workspace 2
+        .mockResolvedValueOnce() // delete workspace 1
+        .mockResolvedValueOnce(); // delete workspace 2
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 

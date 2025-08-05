@@ -273,7 +273,7 @@ export class SecureIpcLayer {
         console.error(`IPC error on ${channel}:`, error);
         
         if (error instanceof z.ZodError) {
-          throw new Error(`Validation error: ${error.message}`);
+          throw new TypeError(`Validation error: ${error.message}`);
         }
         
         throw error;
@@ -324,7 +324,7 @@ export class SecureIpcLayer {
 
   // Get registered channels (for testing/documentation)
   getChannels(): string[] {
-    return Array.from(this.channels.keys());
+    return [...this.channels.keys()];
   }
 
   // Unregister all handlers (for cleanup)

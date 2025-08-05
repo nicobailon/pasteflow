@@ -106,18 +106,18 @@ export class VirtualFileLoader {
     for (let i = 0; i < paths.length; i += concurrency) {
       const batch = paths.slice(i, i + concurrency);
       const batchResults = await Promise.all(
-        batch.map(path => this.loadFileContent(path).catch(err => {
-          console.error(`Failed to load ${path}:`, err);
+        batch.map(path => this.loadFileContent(path).catch(error => {
+          console.error(`Failed to load ${path}:`, error);
           return null;
         }))
       );
       
-      batch.forEach((path, index) => {
+      for (const [index, path] of batch.entries()) {
         const result = batchResults[index];
         if (result) {
           results.set(path, result);
         }
-      });
+      }
     }
     
     return results;
@@ -129,7 +129,7 @@ export class VirtualFileLoader {
     }
 
     // Sort by last access (approximated by iteration order)
-    const entries = Array.from(this.fileCache.entries());
+    const entries = [...this.fileCache.entries()];
     
     // Remove least recently used files until under limit
     while (this.currentCacheSize > this.maxCacheSize && entries.length > 0) {
@@ -162,15 +162,15 @@ export class VirtualFileLoader {
   }
 
   getAllVirtualFiles(): VirtualFileData[] {
-    return Array.from(this.fileCache.values());
+    return [...this.fileCache.values()];
   }
 
-  getMetadataOnly(): Array<VirtualFileData['metadata']> {
-    return Array.from(this.fileCache.values()).map(f => f.metadata);
+  getMetadataOnly(): VirtualFileData['metadata'][] {
+    return [...this.fileCache.values()].map(f => f.metadata);
   }
 
   getCacheStats() {
-    const loadedFiles = Array.from(this.fileCache.values()).filter(f => f.isContentLoaded);
+    const loadedFiles = [...this.fileCache.values()].filter(f => f.isContentLoaded);
     return {
       totalFiles: this.fileCache.size,
       loadedFiles: loadedFiles.length,

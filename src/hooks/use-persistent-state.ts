@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+
 import { useDatabaseState } from './use-database-state';
 
 // Constants
 /** Cache time-to-live for database preferences (5 minutes) */
-const CACHE_TTL_MS = 300000; // 5 minutes in milliseconds
+const CACHE_TTL_MS = 300_000; // 5 minutes in milliseconds
 
 /**
  * Parameters for retrieving a preference from the database.

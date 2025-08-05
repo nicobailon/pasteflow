@@ -59,46 +59,6 @@ The application uses a custom hook architecture instead of traditional state man
 Directory Scan → Batch Processing → Lazy Content Loading → Token Counting → UI Display
 ```
 
-#### 4. Database Architecture
-- **SQLite Integration** - All persistent data stored in SQLite database
-- **Worker Thread** - Database operations run in separate thread to prevent blocking
-- **Migration System** - Automatic migration from localStorage to SQLite
-- **Performance** - 25-40x improvement in workspace save/load operations
-
-### Key Data Types
-
-The application revolves around these core types (`src/types/file-types.ts`):
-
-```typescript
-interface FileData {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  isContentLoaded?: boolean;
-  tokenCount?: number;
-  content?: string;
-  size: number;
-  isBinary: boolean;
-  // ... additional metadata
-}
-
-interface SelectedFileWithLines {
-  path: string;
-  lines?: LineRange[];      // Undefined means entire file
-  content?: string;
-  tokenCount?: number;
-  isFullFile?: boolean;
-  isContentLoaded?: boolean;
-}
-
-interface WorkspaceState {
-  selectedFolder: string | null;
-  selectedFiles: SelectedFileWithLines[];
-  expandedNodes: Record<string, boolean>;
-  // ... workspace configuration
-}
-```
-
 ## Development Environment
 
 ### Prerequisites
@@ -322,7 +282,6 @@ const estimate = estimateTokenCount(text); // Fallback estimation
 
 ### AI Platform Integration
 - **Content Formatting** - Files are formatted for AI consumption
-- **XML Diff Application** - AI-generated changes can be applied back to files
 - **Token Awareness** - All content includes token estimates for LLM limits
 
 ### File System Integration
@@ -397,19 +356,6 @@ When referencing code locations, always use VS Code-compatible format:
 Understanding these files will provide a solid foundation for working with the PasteFlow codebase.
 
 ## Key Features to Understand
-
-### XML Diff Application
-PasteFlow can apply AI-generated code changes directly to files using XML format:
-```xml
-<changed_files>
-  <file>
-    <file_summary>Brief description of changes</file_summary>
-    <file_operation>CREATE|UPDATE|DELETE</file_operation>
-    <file_path>relative/path/to/file.ext</file_path>
-    <file_code>Complete new content for the file</file_code>
-  </file>
-</changed_files>
-```
 
 ### Advanced File Selection Features
 - **Line Range Selection**: Select specific line ranges within files, not just entire files

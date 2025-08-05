@@ -1,4 +1,5 @@
 import { renderHook, act } from '@testing-library/react-hooks';
+
 import { useDatabaseState } from '../use-database-state';
 import { useFileSelectionState } from '../use-file-selection-state';
 
@@ -56,12 +57,12 @@ describe('State Management Performance Tests', () => {
 
   describe('Database State Hook Performance', () => {
     it('should handle large file lists efficiently (10,000 files)', async () => {
-      const fileCount = 10000;
+      const fileCount = 10_000;
       const largeFileList = Array.from({ length: fileCount }, (_, i) => ({
         path: `/workspace/project/src/file${i}.ts`,
         name: `file${i}.ts`,
         isDirectory: false,
-        size: Math.floor(Math.random() * 100000),
+        size: Math.floor(Math.random() * 100_000),
         isBinary: false,
         tokenCount: Math.floor(Math.random() * 1000)
       }));
@@ -83,7 +84,7 @@ describe('State Management Performance Tests', () => {
       // Performance assertions
       expect(result.current.data.files).toHaveLength(fileCount);
       expect(metrics.duration).toBeLessThan(100); // Should complete within 100ms
-      expect(metrics.throughput).toBeGreaterThan(50000); // At least 50k files/second
+      expect(metrics.throughput).toBeGreaterThan(50_000); // At least 50k files/second
       
       // Memory efficiency - verify we're not duplicating data
       const dataSize = JSON.stringify(result.current.data).length;
@@ -132,7 +133,7 @@ describe('State Management Performance Tests', () => {
       const { result } = renderHook(() => 
         useDatabaseState('/cached/data', {}, {
           cache: true,
-          cacheTTL: 60000 // 1 minute
+          cacheTTL: 60_000 // 1 minute
         })
       );
 
@@ -168,7 +169,7 @@ describe('State Management Performance Tests', () => {
       
       // Memory usage should be reasonable
       const cacheSize = uniqueRequests * 100; // Approximate bytes per cached entry
-      expect(cacheSize).toBeLessThan(100000); // Less than 100KB for 500 entries
+      expect(cacheSize).toBeLessThan(100_000); // Less than 100KB for 500 entries
     });
   });
 
@@ -203,7 +204,7 @@ describe('State Management Performance Tests', () => {
       // Batch operations should be efficient
       expect(mockInvoke).toHaveBeenCalledTimes(1); // Single batch call, not 1000 individual calls
       expect(metrics.duration).toBeLessThan(50); // Batch of 1000 in under 50ms
-      expect(metrics.throughput).toBeGreaterThan(20000); // At least 20k ops/second
+      expect(metrics.throughput).toBeGreaterThan(20_000); // At least 20k ops/second
     });
 
     it('should maintain performance with concurrent operations', async () => {
@@ -257,7 +258,7 @@ describe('State Management Performance Tests', () => {
       expect(mockOn).toHaveBeenCalledTimes(subscriptionCount);
 
       // Cleanup all hooks
-      hooks.forEach(hook => hook.unmount());
+      for (const hook of hooks) hook.unmount();
 
       // Verify all subscriptions cleaned up
       expect(mockRemoveListener).toHaveBeenCalledTimes(subscriptionCount);
@@ -271,7 +272,7 @@ describe('State Management Performance Tests', () => {
     it('should handle large data payloads efficiently', async () => {
       // Create a large payload (1MB of data)
       const largePayload = {
-        data: Array.from({ length: 10000 }, (_, i) => ({
+        data: Array.from({ length: 10_000 }, (_, i) => ({
           id: i,
           name: `Item ${i}`,
           description: 'A'.repeat(100), // 100 chars per item
@@ -322,7 +323,7 @@ describe('State Management Performance Tests', () => {
           name: `file${i}.ts`,
           content: '// File content...',
           tokenCount: Math.floor(Math.random() * 500) + 100,
-          size: Math.floor(Math.random() * 10000) + 1000
+          size: Math.floor(Math.random() * 10_000) + 1000
         })),
         selectedFiles: [] as string[],
         expandedNodes: {} as Record<string, boolean>

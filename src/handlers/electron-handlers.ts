@@ -330,12 +330,10 @@ export const setupElectronHandlers = (
     }
     
     // Clear accumulated files on first batch of new request
-    if ('requestId' in data && data.requestId === currentRequestId.value && data.files && data.files.length > 0) {
-      // Check if this looks like the first batch (small file count and low processed count)
-      if (data.processed && data.processed <= data.files.length && data.processed < 50) {
+    if ('requestId' in data && data.requestId === currentRequestId.value && data.files && data.files.length > 0 && // Check if this looks like the first batch (small file count and low processed count)
+      data.processed && data.processed <= data.files.length && data.processed < 50) {
         accumulatedFiles.length = 0;
       }
-    }
     
     // Progressive loading format
     let newFiles = (data.files || []).map(file => ({ 

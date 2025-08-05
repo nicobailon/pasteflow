@@ -1,10 +1,12 @@
-import { SecureDatabase } from '../secure-database';
-import { AsyncDatabase } from '../async-database';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as crypto from 'node:crypto';
+
 import * as keytar from 'keytar';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
-import * as crypto from 'crypto';
+
+import { AsyncDatabase } from '../async-database';
+import { SecureDatabase } from '../secure-database';
 
 describe('Database Security', () => {
   let tempDir: string;
@@ -110,7 +112,7 @@ describe('Database Security', () => {
       expect(contentString).not.toContain('confidential information');
       
       // Should look like encrypted/binary data
-      expect(contentString).toMatch(/[\x00-\x1F\x7F-\xFF]/);
+      expect(contentString).toMatch(/[\u0000-\u001F\u007F-\u00FF]/);
     });
 
     it('should fail to access encrypted database without proper key', async () => {
@@ -166,7 +168,7 @@ describe('Database Security', () => {
       expect(rawPref?.value).not.toContain('secure-password');
       
       // Should look like encrypted data (format: iv:encrypted)
-      expect(rawPref?.value).toMatch(/^[0-9a-f]{32}:[0-9a-f]+$/);
+      expect(rawPref?.value).toMatch(/^[\da-f]{32}:[\da-f]+$/);
 
       await rawDb.close();
       await db.close();

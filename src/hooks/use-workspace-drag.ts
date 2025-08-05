@@ -160,12 +160,10 @@ export const useWorkspaceDrag = ({
   
   const handleDragLeave = useCallback((e: DragEvent) => {
     // Only stop scrolling if we're leaving the container itself
-    if (e.currentTarget === e.target) {
-      if (scrollIntervalRef.current) {
+    if (e.currentTarget === e.target && scrollIntervalRef.current) {
         clearInterval(scrollIntervalRef.current);
         scrollIntervalRef.current = null;
       }
-    }
   }, []);
 
   const getItemTransform = useCallback((index: number): string => {

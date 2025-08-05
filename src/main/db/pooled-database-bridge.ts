@@ -1,8 +1,10 @@
-import { PooledDatabase, PooledDatabaseConfig } from './pooled-database';
-import { EventEmitter } from 'events';
-import * as path from 'path';
+import { EventEmitter } from 'node:events';
+import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
+
 import { app } from 'electron';
-import * as fs from 'fs/promises';
+
+import { PooledDatabase, PooledDatabaseConfig } from './pooled-database';
 import { QueryResult, SqlParameters } from './connection-pool';
 
 export interface DatabaseBridgeConfig extends PooledDatabaseConfig {
@@ -32,10 +34,10 @@ export interface PreferenceRecord extends QueryResult {
 
 export interface WorkspaceState {
   selectedFolder?: string;
-  selectedFiles?: Array<{
+  selectedFiles?: {
     path: string;
-    lines?: Array<{ start: number; end: number }>;
-  }>;
+    lines?: { start: number; end: number }[];
+  }[];
   expandedNodes?: Record<string, boolean>;
   userInstructions?: string;
   customPrompts?: Record<string, string>;
@@ -56,21 +58,21 @@ export class PooledDatabaseBridge extends EventEmitter {
       minReadConnections: 3,
       maxReadConnections: 15,
       maxWaitingClients: 50,
-      acquireTimeout: 15000,
-      idleTimeout: 300000,
-      healthCheckInterval: 30000,
+      acquireTimeout: 15_000,
+      idleTimeout: 300_000,
+      healthCheckInterval: 30_000,
       enablePerformanceMonitoring: true,
       logSlowQueries: true,
       slowQueryThreshold: 100,
       enableQueryCache: true,
       queryCacheSize: 1000,
-      queryCacheTTL: 300000,
+      queryCacheTTL: 300_000,
       maxRetries: 3,
       retryDelay: 1000,
       enableBackup: true,
-      backupInterval: 3600000, // 1 hour
+      backupInterval: 3_600_000, // 1 hour
       enableMaintenance: true,
-      maintenanceInterval: 1800000, // 30 minutes
+      maintenanceInterval: 1_800_000, // 30 minutes
       ...config
     };
 
@@ -195,7 +197,7 @@ export class PooledDatabaseBridge extends EventEmitter {
       const backupDir = path.join(path.dirname(this.dbPath), 'backups');
       await fs.mkdir(backupDir, { recursive: true });
       
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const timestamp = new Date().toISOString().replace(/[.:]/g, '-');
       const backupPath = path.join(backupDir, `pasteflow-${timestamp}.db`);
       
       // Simple file copy backup (SQLite handles this well)
@@ -235,7 +237,7 @@ export class PooledDatabaseBridge extends EventEmitter {
       
       // Vacuum if database is large enough
       const pageCount = await this.db.get<{ page_count: number }>('PRAGMA page_count');
-      if (pageCount && pageCount.page_count > 10000) {
+      if (pageCount && pageCount.page_count > 10_000) {
         await this.db.exec('VACUUM');
       }
       
@@ -243,7 +245,7 @@ export class PooledDatabaseBridge extends EventEmitter {
       
       this.emit('maintenanceCompleted', {
         duration,
-        operations: ['wal_checkpoint', 'analyze', pageCount && pageCount.page_count > 10000 ? 'vacuum' : null].filter(Boolean),
+        operations: ['wal_checkpoint', 'analyze', pageCount && pageCount.page_count > 10_000 ? 'vacuum' : null].filter(Boolean),
         stats: this.db.getStats()
       });
     } catch (error) {
@@ -430,8 +432,7 @@ export class PooledDatabaseBridge extends EventEmitter {
     
     // Handle JSON parsing with fallback
     try {
-      const parsed = JSON.parse(row.value);
-      return parsed;
+      return JSON.parse(row.value);
     } catch {
       return row.value; // Return as string if not valid JSON
     }

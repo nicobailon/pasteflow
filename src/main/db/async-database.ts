@@ -1,7 +1,9 @@
-import { Worker } from 'worker_threads';
-import { EventEmitter } from 'events';
+import { Worker } from 'node:worker_threads';
+import { EventEmitter } from 'node:events';
+import * as path from 'node:path';
+
 import { v4 as uuidv4 } from 'uuid';
-import * as path from 'path';
+
 import { retryWorkerOperation, executeWithRetry, retryUtility, DatabaseErrorType } from './retry-utils.js';
 import { sharedBufferManager } from './shared-buffer-utils.js';
 
@@ -103,7 +105,7 @@ export class AsyncDatabase extends EventEmitter {
         console.warn('Database worker health check failed:', error);
         retryUtility.emit('worker:health_check_failed', { error });
       }
-    }, 30000);
+    }, 30_000);
   }
 
   private async performHealthCheck(): Promise<void> {
@@ -140,13 +142,13 @@ export class AsyncDatabase extends EventEmitter {
   }
 
   // Instructions methods
-  async listInstructions(): Promise<Array<{
+  async listInstructions(): Promise<{
     id: string;
     name: string;
     content: string;
     created_at: number;
     updated_at: number;
-  }>> {
+  }[]> {
     return await this.all(
       'SELECT id, name, content, created_at, updated_at FROM instructions ORDER BY updated_at DESC'
     );
@@ -251,17 +253,17 @@ export class AsyncDatabase extends EventEmitter {
 
   private getTimeoutForOperation(method: string): number {
     const timeouts: Record<string, number> = {
-      'exec': 60000,        // Schema operations may take longer
-      'run': 30000,         // Standard operations
-      'get': 15000,         // Quick reads
-      'all': 45000,         // Bulk reads
-      'prepare': 10000,     // Statement preparation
-      'stmt_run': 30000,    // Prepared statement execution
-      'stmt_get': 15000,    // Prepared statement reads
-      'stmt_all': 45000,    // Prepared statement bulk reads
+      'exec': 60_000,        // Schema operations may take longer
+      'run': 30_000,         // Standard operations
+      'get': 15_000,         // Quick reads
+      'all': 45_000,         // Bulk reads
+      'prepare': 10_000,     // Statement preparation
+      'stmt_run': 30_000,    // Prepared statement execution
+      'stmt_get': 15_000,    // Prepared statement reads
+      'stmt_all': 45_000,    // Prepared statement bulk reads
     };
     
-    return timeouts[method] || 30000; // Default 30 seconds
+    return timeouts[method] || 30_000; // Default 30 seconds
   }
 
   private handleWorkerError(error: Error): void {

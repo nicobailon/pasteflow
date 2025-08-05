@@ -1,7 +1,9 @@
-import { ConnectionPool, ConnectionPoolConfig, PoolStats, SqlParameters, QueryResult } from './connection-pool';
-import { EventEmitter } from 'events';
-import * as crypto from 'crypto';
+import { EventEmitter } from 'node:events';
+import * as crypto from 'node:crypto';
+
 import Database from 'better-sqlite3';
+
+import { ConnectionPool, ConnectionPoolConfig, PoolStats, SqlParameters, QueryResult } from './connection-pool';
 
 // Precise types for cache and configuration
 export type CacheableResult = QueryResult | QueryResult[];
@@ -55,15 +57,15 @@ export class PooledDatabase extends EventEmitter {
       minReadConnections: 3,
       maxReadConnections: 15,
       maxWaitingClients: 50,
-      acquireTimeout: 15000,
-      idleTimeout: 300000,
-      healthCheckInterval: 30000,
+      acquireTimeout: 15_000,
+      idleTimeout: 300_000,
+      healthCheckInterval: 30_000,
       enablePerformanceMonitoring: true,
       logSlowQueries: true,
       slowQueryThreshold: 100, // 100ms
       enableQueryCache: true,
       queryCacheSize: 1000,
-      queryCacheTTL: 300000, // 5 minutes
+      queryCacheTTL: 300_000, // 5 minutes
       ...config
     };
 
@@ -123,7 +125,7 @@ export class PooledDatabase extends EventEmitter {
 
     // Limit cache size
     if (this.queryCache.size > this.config.queryCacheSize!) {
-      const sortedEntries = Array.from(this.queryCache.entries())
+      const sortedEntries = [...this.queryCache.entries()]
         .sort((a, b) => a[1].timestamp - b[1].timestamp);
       
       const toRemove = sortedEntries.slice(0, sortedEntries.length - this.config.queryCacheSize!);
@@ -166,7 +168,7 @@ export class PooledDatabase extends EventEmitter {
         this.totalCacheHits++;
         
         this.emit('cacheHit', {
-          sql: sql.substring(0, 100),
+          sql: sql.slice(0, 100),
           hitCount: cached.hitCount,
           age: Date.now() - cached.timestamp
         });
@@ -180,13 +182,12 @@ export class PooledDatabase extends EventEmitter {
     const duration = Date.now() - startTime;
 
     // Performance monitoring
-    if (this.config.enablePerformanceMonitoring) {
-      if (duration > this.config.slowQueryThreshold!) {
+    if (this.config.enablePerformanceMonitoring && duration > this.config.slowQueryThreshold!) {
         this.slowQueries++;
         
         if (this.config.logSlowQueries) {
           console.warn(`Slow query detected (${duration}ms):`, {
-            sql: sql.substring(0, 200),
+            sql: sql.slice(0, 200),
             params: params.length,
             duration
           });
@@ -199,7 +200,6 @@ export class PooledDatabase extends EventEmitter {
           threshold: this.config.slowQueryThreshold
         });
       }
-    }
 
     // Cache result for read queries
     if (cacheable && this.config.enableQueryCache) {
@@ -247,7 +247,7 @@ export class PooledDatabase extends EventEmitter {
 
     // Invalidate cache for write operations
     if (this.config.enableQueryCache) {
-      const isWriteOperation = /^(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)/i.test(sql.trim());
+      const isWriteOperation = /^(insert|update|delete|create|drop|alter)/i.test(sql.trim());
       if (isWriteOperation) {
         this.invalidateCache();
       }
@@ -297,13 +297,13 @@ export class PooledDatabase extends EventEmitter {
         }
         
         // Exponential backoff
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10_000);
         await new Promise(resolve => setTimeout(resolve, delay));
         
         this.emit('transactionRetry', {
           attempt,
           error: error.message,
-          nextDelay: attempt < retries ? Math.min(1000 * Math.pow(2, attempt), 10000) : null
+          nextDelay: attempt < retries ? Math.min(1000 * Math.pow(2, attempt), 10_000) : null
         });
       }
     }
@@ -329,14 +329,18 @@ export class PooledDatabase extends EventEmitter {
     }
 
     switch (operation) {
-      case 'get':
+      case 'get': {
         return this.get<T>(sql, params) as Promise<T>;
-      case 'all':
+      }
+      case 'all': {
         return this.all<T>(sql, params) as Promise<T>;
-      case 'run':
+      }
+      case 'run': {
         return this.run(sql, params) as Promise<T>;
-      default:
+      }
+      default: {
         throw new Error(`Invalid operation: ${operation}`);
+      }
     }
   }
 
@@ -437,7 +441,7 @@ export class PooledDatabase extends EventEmitter {
         performance,
         cache
       };
-    } catch (error) {
+    } catch {
       return {
         isHealthy: false,
         stats: this.getStats(),

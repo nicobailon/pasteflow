@@ -336,7 +336,7 @@ export function useTokenCounter() {
     };
   }, []);
   
-  const countTokens = useCallback(async (text: string, priority: number = 0): Promise<number> => {
+  const countTokens = useCallback(async (text: string, priority = 0): Promise<number> => {
     // Update activity time on usage
     updateActivityTime();
     
@@ -456,28 +456,28 @@ export function useTokenCounter() {
       const validIndices: number[] = [];
       const validTexts: string[] = [];
       
-      validatedTexts.forEach((text, index) => {
+      for (const [index, text] of validatedTexts.entries()) {
         if (text !== null) {
           validIndices.push(index);
           validTexts.push(text);
         }
-      });
+      }
       
       // Count tokens for valid texts using batch method with priority
       const validResults = await workerPoolRef.current.countTokensBatch(validTexts, { signal, priority: options?.priority });
       
       // Combine results, using estimation for oversized texts
-      const results: number[] = new Array(texts.length);
-      validIndices.forEach((originalIndex, validIndex) => {
+      const results: number[] = Array.from({length: texts.length});
+      for (const [validIndex, originalIndex] of validIndices.entries()) {
         results[originalIndex] = validResults[validIndex];
-      });
+      }
       
       // Fill in estimations for oversized texts
-      texts.forEach((text, index) => {
+      for (const [index, text] of texts.entries()) {
         if (validatedTexts[index] === null) {
           results[index] = estimateTokenCount(text);
         }
-      });
+      }
       
       return results;
     } catch (error) {

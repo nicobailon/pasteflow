@@ -19,7 +19,7 @@ try {
 function sanitizeTextForTokenCount(text: string): string {
   // Remove null characters and other problematic special characters
   return text
-    .replace(/\x00/g, '') // Remove null characters
+    .replace(/\u0000/g, '') // Remove null characters
     .replace(/[\uFFF0-\uFFFF]/g, '') // Remove special use area
     .replace(/[\u{10000}-\u{10FFFF}]/gu, ''); // Remove supplementary private use area
 }

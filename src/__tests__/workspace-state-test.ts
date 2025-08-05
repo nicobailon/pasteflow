@@ -19,7 +19,7 @@ describe('useWorkspaceState hook', () => {
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
         expandedNodes: { 'src': true },
-        selectedFiles: [{ path: 'src/file.ts', content: 'test' }],
+        selectedFiles: [{ path: 'src/file.ts' }],
         selectedFolder: '/test/folder',
         userInstructions: 'test instructions',
         tokenCounts: { 'src/file.ts': 100 },
@@ -52,7 +52,7 @@ describe('useWorkspaceState hook', () => {
         selectedFolder: '/test/folder',
         userInstructions: 'test instructions',
         expandedNodes: { 'src': true },
-        selectedFiles: [{ path: 'src/file.ts', content: 'test' }],
+        selectedFiles: [{ path: 'src/file.ts' }],
         tokenCounts: { 'src/file.ts': 100 },
         savedAt: mockTime
       });
@@ -142,7 +142,7 @@ describe('useWorkspaceState hook', () => {
       const { result } = renderHook(() => useWorkspaceState());
       const workspaceData: WorkspaceState = {
         expandedNodes: { 'src': true },
-        selectedFiles: [{ path: 'src/file.ts', content: 'test' }],
+        selectedFiles: [{ path: 'src/file.ts' }],
         selectedFolder: '/valid/test',
         userInstructions: 'valid test',
         tokenCounts: { 'src/file.ts': 200 },

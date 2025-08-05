@@ -1,10 +1,12 @@
-import { AsyncDatabase } from './async-database';
-import * as keytar from 'keytar';
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
+import * as os from 'node:os';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
 import { machineIdSync } from 'node-machine-id';
-import * as os from 'os';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import * as keytar from 'keytar';
+
+import { AsyncDatabase } from './async-database';
 
 export class SecureDatabase {
   private db!: AsyncDatabase;
@@ -52,7 +54,7 @@ export class SecureDatabase {
     const derivedKey = crypto.pbkdf2Sync(
       baseSecret,
       deviceSalt,
-      100000,  // iterations
+      100_000,  // iterations
       32,      // key length
       'sha256'
     );
@@ -117,7 +119,7 @@ export class SecureDatabase {
         const versionMatch = file.match(/^(\d+)_/);
         if (!versionMatch) continue;
         
-        const migrationVersion = parseInt(versionMatch[1], 10);
+        const migrationVersion = Number.parseInt(versionMatch[1], 10);
         
         // Skip if already applied
         if (migrationVersion <= currentVersion) continue;
@@ -132,10 +134,10 @@ export class SecureDatabase {
         await this.db.exec(migrationSQL);
         console.log(`Migration ${file} applied successfully`);
       }
-    } catch (err) {
+    } catch (error) {
       // Migrations directory doesn't exist yet - that's okay
-      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.error('Error applying migrations:', err);
+      if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error('Error applying migrations:', error);
       }
     }
   }
@@ -247,7 +249,7 @@ export class SecureDatabase {
 
   // Batch query method to eliminate N+1 patterns
   async getFilesContentBatch(workspaceId: string, filePaths: string[]): Promise<Map<string, string | null>> {
-    if (!filePaths.length) {
+    if (filePaths.length === 0) {
       return new Map();
     }
 
@@ -274,7 +276,7 @@ export class SecureDatabase {
     }
     
     // Fetch all unique content hashes in one query
-    const hashArray = Array.from(uniqueHashes);
+    const hashArray = [...uniqueHashes];
     const contentMap = new Map<string, string>();
     
     if (hashArray.length > 0) {
@@ -338,15 +340,15 @@ export class SecureDatabase {
 
   // Compression helpers
   private async compressContent(content: string): Promise<Buffer> {
-    const { promisify } = await import('util');
-    const zlib = await import('zlib');
+    const { promisify } = await import('node:util');
+    const zlib = await import('node:zlib');
     const deflate = promisify(zlib.deflate);
     return deflate(Buffer.from(content, 'utf8'));
   }
 
   private async decompressContent(compressed: Buffer): Promise<string> {
-    const { promisify } = await import('util');
-    const zlib = await import('zlib');
+    const { promisify } = await import('node:util');
+    const zlib = await import('node:zlib');
     const inflate = promisify(zlib.inflate);
     const decompressed = await inflate(compressed);
     return decompressed.toString('utf8');

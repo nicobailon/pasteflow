@@ -118,7 +118,7 @@ export class PerformanceMonitor {
     if (!this.enabled) return;
     
     const allStats = this.getAllStats();
-    const entries = Array.from(allStats.entries());
+    const entries = [...allStats.entries()];
     
     if (filter) {
       const filtered = entries.filter(([label]) => label.includes(filter));
@@ -170,9 +170,9 @@ export class PerformanceMonitor {
   }
   
   // Get metrics that exceed a threshold
-  getSlowOperations(thresholdMs: number): Array<[string, PerformanceStats]> {
+  getSlowOperations(thresholdMs: number): [string, PerformanceStats][] {
     const allStats = this.getAllStats();
-    const slow: Array<[string, PerformanceStats]> = [];
+    const slow: [string, PerformanceStats][] = [];
     
     for (const [label, stats] of allStats) {
       if (stats.avg > thresholdMs || stats.max > thresholdMs * 2) {

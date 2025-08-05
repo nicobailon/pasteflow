@@ -1,8 +1,9 @@
+import { EventEmitter } from 'node:events';
+import { performance } from 'node:perf_hooks';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
+
 import Database from 'better-sqlite3';
-import { EventEmitter } from 'events';
-import { performance } from 'perf_hooks';
-import * as path from 'path';
-import * as crypto from 'crypto';
 
 export interface PoolConnectionOptions {
   encryptionKey?: string;
@@ -88,9 +89,9 @@ export class ConnectionPool extends EventEmitter {
       minReadConnections: 2,
       maxReadConnections: 10,
       maxWaitingClients: 100,
-      acquireTimeout: 30000, // 30 seconds
-      idleTimeout: 300000, // 5 minutes
-      healthCheckInterval: 60000, // 1 minute
+      acquireTimeout: 30_000, // 30 seconds
+      idleTimeout: 300_000, // 5 minutes
+      healthCheckInterval: 60_000, // 1 minute
       ...config
     };
 
@@ -287,11 +288,7 @@ export class ConnectionPool extends EventEmitter {
 
     // Check if there are queued requests
     const queuedRequest = this.waitingQueue.find(req => {
-      if (connection.isWriteConnection) {
-        return req.requestType === 'write';
-      } else {
-        return req.requestType === 'read';
-      }
+      return connection.isWriteConnection ? req.requestType === 'write' : req.requestType === 'read';
     });
 
     if (queuedRequest) {
@@ -439,7 +436,7 @@ export class ConnectionPool extends EventEmitter {
     const metrics = this.queryMetrics.get(queryType) || {
       count: 0,
       totalTime: 0,
-      minTime: Infinity,
+      minTime: Number.POSITIVE_INFINITY,
       maxTime: 0
     };
 
@@ -486,7 +483,7 @@ export class ConnectionPool extends EventEmitter {
     }
 
     // Ensure minimum read connections
-    const healthyReadConnections = Array.from(this.readConnections).filter(c => c.isHealthy);
+    const healthyReadConnections = [...this.readConnections].filter(c => c.isHealthy);
     if (healthyReadConnections.length < this.config.minReadConnections) {
       const needed = this.config.minReadConnections - healthyReadConnections.length;
       for (let i = 0; i < needed; i++) {
@@ -561,7 +558,7 @@ export class ConnectionPool extends EventEmitter {
   }
 
   getStats(): PoolStats {
-    const activeConnections = Array.from(this.connections.values()).filter(c => c.isActive).length;
+    const activeConnections = [...this.connections.values()].filter(c => c.isActive).length;
     
     return {
       totalConnections: this.connections.size,
@@ -616,7 +613,7 @@ export class ConnectionPool extends EventEmitter {
     this.waitingQueue.length = 0;
 
     // Wait for active connections to be released (with timeout)
-    const shutdownTimeout = 10000; // 10 seconds
+    const shutdownTimeout = 10_000; // 10 seconds
     const start = Date.now();
     
     while (this.getStats().activeConnections > 0 && (Date.now() - start) < shutdownTimeout) {

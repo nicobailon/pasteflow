@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from '../constants';
+
 import { WorkspaceCacheManager } from './workspace-cache-manager';
 import { sortWorkspaces, WorkspaceInfo } from './workspace-sorting';
 import { PerformanceMonitor } from './performance-monitor';
@@ -60,7 +61,7 @@ export class WorkspacePerformanceComparison {
   /**
    * Run performance comparison
    */
-  runComparison(workspaceCount: number = 100, iterations: number = 100): void {
+  runComparison(workspaceCount = 100, iterations = 100): void {
     
     // Setup test data
     const testWorkspaces = this.generateTestWorkspaces(workspaceCount);
@@ -135,12 +136,15 @@ export class WorkspacePerformanceComparison {
     const dragCached = this.perfMonitor.getStats('drag-cached');
     
     if (nonCachedRecent && cachedRecent && cachedFirstLoad) {
+      // Performance comparison logic to be implemented
     }
     
     if (nonCachedAlpha && cachedAlpha) {
+      // Alpha performance comparison logic to be implemented
     }
     
     if (dragNonCached && dragCached) {
+      // Drag performance comparison logic to be implemented
     }
     
     this.perfMonitor.logReport();

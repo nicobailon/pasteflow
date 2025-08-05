@@ -10,9 +10,9 @@ export const HIGH_LOAD_CONFIG: DatabaseBridgeConfig = {
   minReadConnections: 5,
   maxReadConnections: 25,
   maxWaitingClients: 100,
-  acquireTimeout: 10000, // 10 seconds
-  idleTimeout: 180000, // 3 minutes
-  healthCheckInterval: 30000, // 30 seconds
+  acquireTimeout: 10_000, // 10 seconds
+  idleTimeout: 180_000, // 3 minutes
+  healthCheckInterval: 30_000, // 30 seconds
   
   // Performance monitoring
   enablePerformanceMonitoring: true,
@@ -22,7 +22,7 @@ export const HIGH_LOAD_CONFIG: DatabaseBridgeConfig = {
   // Aggressive caching
   enableQueryCache: true,
   queryCacheSize: 2000,
-  queryCacheTTL: 600000, // 10 minutes
+  queryCacheTTL: 600_000, // 10 minutes
   
   // Reliability settings
   maxRetries: 5,
@@ -30,9 +30,9 @@ export const HIGH_LOAD_CONFIG: DatabaseBridgeConfig = {
   
   // Background maintenance
   enableBackup: true,
-  backupInterval: 1800000, // 30 minutes
+  backupInterval: 1_800_000, // 30 minutes
   enableMaintenance: true,
-  maintenanceInterval: 900000 // 15 minutes
+  maintenanceInterval: 900_000 // 15 minutes
 };
 
 // Standard usage - balanced performance and resource usage
@@ -41,9 +41,9 @@ export const STANDARD_CONFIG: DatabaseBridgeConfig = {
   minReadConnections: 3,
   maxReadConnections: 15,
   maxWaitingClients: 50,
-  acquireTimeout: 15000, // 15 seconds
-  idleTimeout: 300000, // 5 minutes
-  healthCheckInterval: 60000, // 1 minute
+  acquireTimeout: 15_000, // 15 seconds
+  idleTimeout: 300_000, // 5 minutes
+  healthCheckInterval: 60_000, // 1 minute
   
   // Performance monitoring
   enablePerformanceMonitoring: true,
@@ -53,7 +53,7 @@ export const STANDARD_CONFIG: DatabaseBridgeConfig = {
   // Moderate caching
   enableQueryCache: true,
   queryCacheSize: 1000,
-  queryCacheTTL: 300000, // 5 minutes
+  queryCacheTTL: 300_000, // 5 minutes
   
   // Standard reliability
   maxRetries: 3,
@@ -61,9 +61,9 @@ export const STANDARD_CONFIG: DatabaseBridgeConfig = {
   
   // Background maintenance
   enableBackup: true,
-  backupInterval: 3600000, // 1 hour
+  backupInterval: 3_600_000, // 1 hour
   enableMaintenance: true,
-  maintenanceInterval: 1800000 // 30 minutes
+  maintenanceInterval: 1_800_000 // 30 minutes
 };
 
 // Light usage - minimal resource consumption for simple scenarios
@@ -72,9 +72,9 @@ export const LIGHT_CONFIG: DatabaseBridgeConfig = {
   minReadConnections: 2,
   maxReadConnections: 8,
   maxWaitingClients: 20,
-  acquireTimeout: 20000, // 20 seconds
-  idleTimeout: 600000, // 10 minutes
-  healthCheckInterval: 120000, // 2 minutes
+  acquireTimeout: 20_000, // 20 seconds
+  idleTimeout: 600_000, // 10 minutes
+  healthCheckInterval: 120_000, // 2 minutes
   
   // Basic monitoring
   enablePerformanceMonitoring: false,
@@ -84,7 +84,7 @@ export const LIGHT_CONFIG: DatabaseBridgeConfig = {
   // Limited caching
   enableQueryCache: true,
   queryCacheSize: 500,
-  queryCacheTTL: 180000, // 3 minutes
+  queryCacheTTL: 180_000, // 3 minutes
   
   // Basic reliability
   maxRetries: 2,
@@ -92,7 +92,7 @@ export const LIGHT_CONFIG: DatabaseBridgeConfig = {
   
   // Minimal background tasks
   enableBackup: true,
-  backupInterval: 7200000, // 2 hours
+  backupInterval: 7_200_000, // 2 hours
   enableMaintenance: false
 };
 
@@ -102,9 +102,9 @@ export const DEVELOPMENT_CONFIG: DatabaseBridgeConfig = {
   minReadConnections: 2,
   maxReadConnections: 5,
   maxWaitingClients: 10,
-  acquireTimeout: 30000, // 30 seconds for debugging
-  idleTimeout: 120000, // 2 minutes
-  healthCheckInterval: 30000, // 30 seconds
+  acquireTimeout: 30_000, // 30 seconds for debugging
+  idleTimeout: 120_000, // 2 minutes
+  healthCheckInterval: 30_000, // 30 seconds
   
   // Extensive monitoring for debugging
   enablePerformanceMonitoring: true,
@@ -114,7 +114,7 @@ export const DEVELOPMENT_CONFIG: DatabaseBridgeConfig = {
   // No caching to ensure fresh data
   enableQueryCache: false,
   queryCacheSize: 100,
-  queryCacheTTL: 60000, // 1 minute
+  queryCacheTTL: 60_000, // 1 minute
   
   // Quick retries for development
   maxRetries: 1,
@@ -132,8 +132,8 @@ export const TEST_CONFIG: DatabaseBridgeConfig = {
   maxReadConnections: 3,
   maxWaitingClients: 5,
   acquireTimeout: 5000, // 5 seconds
-  idleTimeout: 30000, // 30 seconds
-  healthCheckInterval: 10000, // 10 seconds
+  idleTimeout: 30_000, // 30 seconds
+  healthCheckInterval: 10_000, // 10 seconds
   
   // No monitoring to avoid noise in tests
   enablePerformanceMonitoring: false,
@@ -143,7 +143,7 @@ export const TEST_CONFIG: DatabaseBridgeConfig = {
   // No caching for predictable test results
   enableQueryCache: false,
   queryCacheSize: 50,
-  queryCacheTTL: 10000, // 10 seconds
+  queryCacheTTL: 10_000, // 10 seconds
   
   // No retries to fail fast in tests
   maxRetries: 1,
@@ -159,16 +159,21 @@ export const TEST_CONFIG: DatabaseBridgeConfig = {
  */
 export function getConfigForEnvironment(env?: string): DatabaseBridgeConfig {
   switch (env) {
-    case 'production':
+    case 'production': {
       return HIGH_LOAD_CONFIG;
-    case 'staging':
+    }
+    case 'staging': {
       return STANDARD_CONFIG;
-    case 'development':
+    }
+    case 'development': {
       return DEVELOPMENT_CONFIG;
-    case 'test':
+    }
+    case 'test': {
       return TEST_CONFIG;
-    default:
+    }
+    default: {
       return STANDARD_CONFIG;
+    }
   }
 }
 
@@ -194,7 +199,7 @@ export function createCustomConfig(
     throw new Error('acquireTimeout must be at least 1000ms');
   }
   
-  if (config.idleTimeout! < 30000) {
+  if (config.idleTimeout! < 30_000) {
     throw new Error('idleTimeout must be at least 30000ms');
   }
   
@@ -202,7 +207,7 @@ export function createCustomConfig(
     throw new Error('queryCacheSize must be at least 10');
   }
   
-  if (config.queryCacheTTL! < 10000) {
+  if (config.queryCacheTTL! < 10_000) {
     throw new Error('queryCacheTTL must be at least 10000ms');
   }
   
@@ -213,8 +218,8 @@ export function createCustomConfig(
  * Configuration recommendations based on system specs
  */
 export function getRecommendedConfig(): DatabaseBridgeConfig {
-  const totalMemory = require('os').totalmem();
-  const cpuCount = require('os').cpus().length;
+  const totalMemory = require('node:os').totalmem();
+  const cpuCount = require('node:os').cpus().length;
   
   // Memory in GB
   const memoryGB = totalMemory / (1024 * 1024 * 1024);

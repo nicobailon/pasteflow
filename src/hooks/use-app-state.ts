@@ -325,25 +325,23 @@ const useAppState = () => {
       // Otherwise fall back to the old logic for backward compatibility
       let newValue: boolean;
       
-      if (currentState !== undefined) {
-        // We know the exact current state, so just invert it
-        newValue = !currentState;
-      } else {
+      if (currentState === undefined) {
         // Fallback to old logic if currentState not provided
         // If the node is not in expandedNodes, we need to set it to false
         // because it was expanded by default and user wants to collapse it
         // If it's already in expandedNodes, just toggle it
         newValue = prev[nodeId] === undefined ? false : !prev[nodeId];
+      } else {
+        // We know the exact current state, so just invert it
+        newValue = !currentState;
       }
       
-      const newState = {
+      // The usePersistentState hook will handle persistence
+
+      return {
         ...prev,
         [nodeId]: newValue,
       };
-
-      // The usePersistentState hook will handle persistence
-
-      return newState;
     });
   }, []);
 
@@ -428,7 +426,7 @@ const useAppState = () => {
   const processFileTokens = useCallback(async (
     content: string,
     filePath: string,
-    priority: number = 0
+    priority = 0
   ): Promise<{ tokenCount: number; error?: string }> => {
     try {
       if (isTokenWorkerReady) {
@@ -757,8 +755,7 @@ const useAppState = () => {
   
   // Set up file-list-updated event listener to handle pending workspace data
   useEffect(() => {
-    const handleFileListUpdated = () => {
-    };
+    const handleFileListUpdated = () => {};
     
     // Add event listener
     window.addEventListener('file-list-updated', handleFileListUpdated);
@@ -1124,7 +1121,7 @@ const useAppState = () => {
   }, [currentWorkspace, saveWorkspace]);
 
   const loadWorkspace = useCallback(async (name: string) => {
-    const result = await runCancellableOperation(async (token) => {
+    return await runCancellableOperation(async (token) => {
       try {
         const workspaceData = await loadPersistedWorkspace(name);
         
@@ -1136,8 +1133,7 @@ const useAppState = () => {
         
         if (workspaceData) {
             // Ensure we have the folder path before applying
-            if (workspaceData.selectedFolder) {
-            } else {
+            if (workspaceData.selectedFolder) {} else {
                 console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
             }
             
@@ -1157,8 +1153,6 @@ const useAppState = () => {
         return null;
       }
     });
-    
-    return result;
   }, [loadPersistedWorkspace, applyWorkspaceData, runCancellableOperation]);
 
   // Clean up selected files when workspace changes

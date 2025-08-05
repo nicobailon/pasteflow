@@ -7,8 +7,8 @@ export class BoundedLRUCache<K, V> {
   private readonly maxSize: number;
   private accessOrder: K[] = [];
 
-  constructor(maxSize: number = 1000) {
-    const MAX_REASONABLE_SIZE = 100000;
+  constructor(maxSize = 1_000) {
+    const MAX_REASONABLE_SIZE = 100_000;
     
     if (maxSize <= 0) {
       throw new Error('Cache size must be positive');

@@ -31,15 +31,15 @@ interface RowData {
 }
 
 const ITEM_HEIGHT = 120; // Base height for file cards
-const PROMPT_HEIGHT = 80; // Height for prompt cards
+const _PROMPT_HEIGHT = 80; // Height for prompt cards
 
 const Row = memo(({ index, style, data }: { index: number; style: React.CSSProperties; data: RowData }) => {
-  const { expandedCards, selectedFiles, toggleSelection, onViewFile, loadFileContent, allFilesMap } = data;
+  const { expandedCards, selectedFiles, toggleSelection, onViewFile, loadFileContent } = data;
   const expandedCard = expandedCards[index];
   
   if (!expandedCard) return null;
   
-  const selectedFile = selectedFiles.find(f => f.path === expandedCard.selectedFilePath);
+  const _selectedFile = selectedFiles.find(f => f.path === expandedCard.selectedFilePath);
   
   return (
     <div style={style}>
@@ -65,6 +65,12 @@ const Row = memo(({ index, style, data }: { index: number; style: React.CSSPrope
 
 Row.displayName = 'VirtualizedFileRow';
 
+// Calculate item size based on content
+const getItemSize = (_index: number) => {
+  // Could be made more dynamic based on actual content
+  return ITEM_HEIGHT;
+};
+
 export interface VirtualizedFileListHandle {
   scrollToItem: (index: number, align?: "start" | "center" | "end" | "auto") => void;
   scrollTo: (scrollTop: number) => void;
@@ -74,7 +80,7 @@ const VirtualizedFileList = forwardRef<VirtualizedFileListHandle, FileListProps>
   const {
     files,
     selectedFiles,
-    toggleFileSelection,
+    toggleFileSelection: _toggleFileSelection,
     toggleSelection,
     openFolder,
     onViewFile,
@@ -188,12 +194,6 @@ const VirtualizedFileList = forwardRef<VirtualizedFileListHandle, FileListProps>
     loadFileContent,
     allFilesMap
   }), [expandedCards, selectedFiles, toggleSelection, onViewFile, loadFileContent, allFilesMap]);
-  
-  // Calculate item size based on content
-  const getItemSize = (index: number) => {
-    // Could be made more dynamic based on actual content
-    return ITEM_HEIGHT;
-  };
   
   // Show empty state if no files
   if (displayableFiles.length === 0 && !processingStatus?.status) {

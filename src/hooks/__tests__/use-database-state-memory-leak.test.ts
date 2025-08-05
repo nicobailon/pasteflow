@@ -1,4 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
+
 import { useDatabaseState } from '../use-database-state';
 
 // Mock electron IPC
@@ -174,7 +175,7 @@ describe('useDatabaseState Memory Leak Prevention', () => {
       mockInvoke.mockResolvedValue({ cached: 'data' });
 
       const { result } = renderHook(() => 
-        useDatabaseState('/prefs/get', null, { cache: true, cacheTTL: 60000 })
+        useDatabaseState('/prefs/get', null, { cache: true, cacheTTL: 60_000 })
       );
 
       // Fetch data to populate cache

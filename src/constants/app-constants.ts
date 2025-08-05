@@ -349,7 +349,7 @@ export const HASHING = {
   /** Hash calculation constants */
   SHIFT_BITS: 5,
   /** Convert to 32-bit integer mask */
-  INTEGER_MASK: 0xFFFFFFFF,
+  INTEGER_MASK: 0xFF_FF_FF_FF,
 } as const;
 
 // ==================== TIME CONVERSIONS ====================

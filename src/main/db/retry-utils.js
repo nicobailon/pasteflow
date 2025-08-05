@@ -165,7 +165,7 @@ class DatabaseRetryUtility extends EventEmitter {
     const result = await this.executeWithRetry(connectionFn, {
       maxRetries,
       baseDelay: 500,
-      maxDelay: 10000,
+      maxDelay: 10_000,
       exponentialBase: 2.5,
       jitterFactor: 0.2,
       operation: 'database_connection',

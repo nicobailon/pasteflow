@@ -1,7 +1,8 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
 import { AsyncDatabase } from '../async-database';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
 
 describe('AsyncDatabase', () => {
   let db: AsyncDatabase;
@@ -195,8 +196,8 @@ describe('AsyncDatabase', () => {
             ['rollback-1', 'Duplicate ID', '/rollback2', '{}']
           );
         });
-      } catch (e) {
-        error = e as Error;
+      } catch (error_) {
+        error = error_ as Error;
       }
 
       // Verify error occurred
@@ -253,7 +254,7 @@ describe('AsyncDatabase', () => {
       const files = Array.from({ length: 100 }, (_, i) => ({
         path: `/test/file${i}.ts`,
         workspaceId: 'perf-test',
-        size: Math.floor(Math.random() * 10000),
+        size: Math.floor(Math.random() * 10_000),
         isBinary: false
       }));
 
@@ -326,9 +327,9 @@ describe('AsyncDatabase', () => {
 
       // Verify all reads succeeded
       expect(results).toHaveLength(10);
-      results.forEach((result, i) => {
+      for (const [i, result] of results.entries()) {
         expect(result?.name).toBe(`Concurrent Test ${i}`);
-      });
+      }
     });
 
     it('should serialize writes to prevent conflicts', async () => {
@@ -350,9 +351,9 @@ describe('AsyncDatabase', () => {
 
       // Verify all updates succeeded
       expect(results).toHaveLength(50);
-      results.forEach(result => {
+      for (const result of results) {
         expect(result.changes).toBe(1);
-      });
+      }
 
       // Check final state
       const final = await db.get<{ state_json: string }>(
@@ -408,13 +409,13 @@ describe('AsyncDatabase', () => {
       const startTime = Date.now();
       try {
         await db.get(longRunningQuery);
-      } catch (error) {
+      } catch {
         // Expected to timeout or error
       }
       const duration = Date.now() - startTime;
       
       // Should not take more than 35 seconds (30s timeout + overhead)
-      expect(duration).toBeLessThan(35000);
+      expect(duration).toBeLessThan(35_000);
     });
   });
 });

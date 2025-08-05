@@ -82,14 +82,14 @@ describe('folder-selection-index', () => {
 
       expect(index.get('/valid')).toEqual(['/valid/file.ts']);
       expect(index.get('/another')).toEqual(['/another/file.ts']);
-      expect(Array.from(index.values()).flat()).not.toContain('');
+      expect([...index.values()].flat()).not.toContain('');
     });
 
     it('should handle empty file array', () => {
       const index = buildFolderIndex([]);
 
       expect(index.size).toBe(0);
-      expect(Array.from(index.keys())).toEqual([]);
+      expect([...index.keys()]).toEqual([]);
     });
 
     it('should deduplicate files in the same folder', () => {

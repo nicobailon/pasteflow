@@ -14,7 +14,7 @@ export class SharedBufferManager {
    */
   private static isSharedArrayBufferSupported(): boolean {
     return typeof SharedArrayBuffer !== 'undefined' &&
-           (typeof self !== 'undefined' ? self.crossOriginIsolated === true : true);
+           (typeof self === 'undefined' ? true : self.crossOriginIsolated === true);
   }
   
   /**

@@ -100,7 +100,7 @@ export const sortWorkspaces = (
         }
       }
       
-      const remaining = Array.from(remainingNames).sort((a, b) => 
+      const remaining = [...remainingNames].sort((a, b) => 
         a.toLowerCase().localeCompare(b.toLowerCase())
       );
       

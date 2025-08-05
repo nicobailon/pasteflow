@@ -1,10 +1,11 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
 import { ConnectionPool } from '../connection-pool';
 import { PooledDatabase } from '../pooled-database';
 import { PooledDatabaseBridge } from '../pooled-database-bridge';
 import { TEST_CONFIG, HIGH_LOAD_CONFIG } from '../pool-config';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
 
 describe('Connection Pool', () => {
   let tempDir: string;
@@ -111,7 +112,7 @@ describe('Connection Pool', () => {
       const db = new PooledDatabase(dbPath, {
         enableQueryCache: true,
         queryCacheSize: 100,
-        queryCacheTTL: 60000
+        queryCacheTTL: 60_000
       });
 
       await db.initialize();
@@ -140,7 +141,7 @@ describe('Connection Pool', () => {
       const db = new PooledDatabase(dbPath, {
         enableQueryCache: true,
         queryCacheSize: 100,
-        queryCacheTTL: 60000
+        queryCacheTTL: 60_000
       });
 
       await db.initialize();

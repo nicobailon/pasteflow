@@ -54,7 +54,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
     cache.current.set(key, {
       data: value,
       timestamp: Date.now(),
-      ttl: options.cacheTTL || 60000
+      ttl: options.cacheTTL || 60_000
     });
   }, [options.cache, options.cacheTTL]);
 
@@ -75,9 +75,9 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
       setData(result);
       setCached(cacheKey, result);
       return result;
-    } catch (err) {
-      setError(err as Error);
-      throw err;
+    } catch (error_) {
+      setError(error_ as Error);
+      throw error_;
     } finally {
       setLoading(false);
     }
@@ -103,14 +103,14 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
       await fetchData();
       
       return result;
-    } catch (err) {
+    } catch (error_) {
       if (pendingUpdates.current.has(updateId)) {
         pendingUpdates.current.delete(updateId);
         await fetchData();
       }
       
-      setError(err as Error);
-      throw err;
+      setError(error_ as Error);
+      throw error_;
     }
   }, [options.optimisticUpdate, fetchData]);
 

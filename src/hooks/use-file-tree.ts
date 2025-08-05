@@ -173,8 +173,8 @@ function useFileTree({
     const prevPaths = filePathsRef.current;
     if (prevPaths.length !== currentFilePaths.length) return true;
     
-    for (let i = 0; i < prevPaths.length; i++) {
-      if (prevPaths[i] !== currentFilePaths[i]) return true;
+    for (const [i, prevPath] of prevPaths.entries()) {
+      if (prevPath !== currentFilePaths[i]) return true;
     }
     
     return false;
@@ -764,9 +764,8 @@ function useFileTree({
     };
 
     // Filter the nodes - they maintain their existing sort order from the tree
-    const filteredNodes = filterNodesRecursively(nodes);
     // No need to re-sort since nodes are already sorted when tree is built
-    return filteredNodes;
+    return filterNodesRecursively(nodes);
   }, [filesByPath]);
 
   // The final tree to render, filtered and flattened
