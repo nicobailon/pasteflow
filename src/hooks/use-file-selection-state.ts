@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { STORAGE_KEYS, FILE_PROCESSING } from '../constants';
 import { FileData, LineRange, SelectedFileReference } from '../types/file-types';
 import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/folder-selection-index';
-import { createDirectorySelectionCache, type DirectorySelectionCache } from '../utils/selection-cache';
+import { createDirectorySelectionCache } from '../utils/selection-cache';
+import { BoundedLRUCache } from '../utils/bounded-lru-cache';
 
 import usePersistentState from './use-persistent-state';
 
@@ -28,9 +29,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     return index;
   }, [allFiles, providedFolderIndex]);
   
-  // Track optimistic folder updates separately with timestamps
-  const [optimisticFolderStates, setOptimisticFolderStates] = useState<Map<string, 'full' | 'none'>>(new Map());
+  // Track optimistic folder updates with bounded cache to prevent unbounded memory growth
+  const optimisticFolderStatesRef = useRef(new BoundedLRUCache<string, 'full' | 'none'>(100));
+  const [optimisticStateVersion, setOptimisticStateVersion] = useState(0);
   const optimisticTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const pendingOperationsRef = useRef<Set<string>>(new Set());
   
   // Build folder selection cache for instant UI updates
   const baseFolderSelectionCache = useMemo(() => {
@@ -42,7 +45,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     return {
       get(path: string): 'full' | 'partial' | 'none' {
         // Check optimistic updates first
-        const optimisticState = optimisticFolderStates.get(path);
+        const optimisticState = optimisticFolderStatesRef.current.get(path);
         if (optimisticState !== undefined) {
           return optimisticState;
         }
@@ -53,7 +56,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       bulkUpdate: baseFolderSelectionCache.bulkUpdate,
       clear: baseFolderSelectionCache.clear
     };
-  }, [baseFolderSelectionCache, optimisticFolderStates]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseFolderSelectionCache, optimisticStateVersion]);
 
   // Immediate cleanup on mount if workspace is provided
   useEffect(() => {
@@ -288,21 +292,21 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         clearTimeout(existingTimeout);
       }
       
+      // Mark operation as pending
+      pendingOperationsRef.current.add(folderPath);
+      
       // Set optimistic state using the folder path
-      setOptimisticFolderStates(prev => {
-        const next = new Map(prev);
-        next.set(folderPath, newState);
-        return next;
-      });
+      optimisticFolderStatesRef.current.set(folderPath, newState);
+      setOptimisticStateVersion(v => v + 1); // Trigger re-render
       
       // Schedule cleanup with a longer timeout to ensure state has settled
       const timeout = setTimeout(() => {
-        setOptimisticFolderStates(prev => {
-          const next = new Map(prev);
-          next.delete(folderPath);
-          return next;
-        });
-        optimisticTimeoutsRef.current.delete(folderPath);
+        // Only clean up if no pending operations for this path
+        if (!pendingOperationsRef.current.has(folderPath)) {
+          optimisticFolderStatesRef.current.delete(folderPath);
+          setOptimisticStateVersion(v => v + 1); // Trigger re-render
+          optimisticTimeoutsRef.current.delete(folderPath);
+        }
       }, FILE_PROCESSING.DEBOUNCE_DELAY_MS); // Using centralized debounce delay for better stability
       
       optimisticTimeoutsRef.current.set(folderPath, timeout);
@@ -337,6 +341,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         // Keep only paths that are not in the folder
         return prev.filter(f => !folderPathsSet.has(f.path));
       });
+    }
+    
+    // Mark operation as complete
+    if (opts?.optimistic !== false) {
+      pendingOperationsRef.current.delete(folderPath);
     }
   }, [allFiles, selectedFiles, setSelectedFiles, folderIndex, folderSelectionCache]);
 

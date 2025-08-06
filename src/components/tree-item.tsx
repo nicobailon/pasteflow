@@ -475,11 +475,9 @@ const TreeItem = memo(({
 
   // Create debounced toggle function - no dependencies on changing state
   const _debouncedToggle = useMemo(
-    () => debounce((filePath: unknown) => {
-      if (typeof filePath === 'string') {
-        toggleFileSelection(filePath);
-        // Load content will be triggered by the checkbox handler directly
-      }
+    () => debounce((filePath: string) => {
+      toggleFileSelection(filePath);
+      // Load content will be triggered by the checkbox handler directly
     }, 100),
     [toggleFileSelection] // Only depend on stable function reference
   );
