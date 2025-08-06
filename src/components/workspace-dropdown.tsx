@@ -85,7 +85,6 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
   const handleSelectAndLoadWorkspace = useCallback(async (name: string) => {
     // Prevent concurrent workspace loads
     if (isLoadingWorkspace) {
-      console.log(`[WorkspaceDropdown] Ignoring workspace load request for "${name}" - already loading`);
       return;
     }
     
@@ -98,7 +97,6 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
           
           // Check if cancelled before dispatching event
           if (token.cancelled) {
-            console.log(`[WorkspaceDropdown] Workspace load cancelled for "${name}"`);
             return;
           }
           

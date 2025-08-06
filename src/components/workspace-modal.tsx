@@ -140,13 +140,11 @@ const WorkspaceModal = ({
   });
   
   const handleRenameStart = (wsName: string) => {
-    console.log(`[WorkspaceModal.handleRenameStart] Initiating rename for: ${wsName}`);
     setRenamingWsName(wsName);
     setNewName(wsName); // Pre-fill input with current name
   };
 
   const handleRenameCancel = () => {
-    console.log("[WorkspaceModal.handleRenameCancel] Cancelling rename operation.");
     setRenamingWsName(null);
     setNewName('');
   };
@@ -178,7 +176,6 @@ const WorkspaceModal = ({
 
   useEffect(() => {
     if (isOpen) {
-      console.log("[WorkspaceModal] Modal opened. Refreshing workspace list and resetting state.");
       refreshWorkspaceList().catch(error => 
         console.error('[WorkspaceModal] Error refreshing workspace list:', error)
       );
@@ -197,7 +194,6 @@ const WorkspaceModal = ({
       // Check if we need to start in rename mode
       if (!initialRenameTarget || !onClearInitialRenameTarget) return;
       
-      console.log(`[WorkspaceModal] Modal opened with initial rename target: ${initialRenameTarget}`);
       // Need a slight delay or ensure the list is rendered before starting rename
       // Using setTimeout to ensure the component has rendered and state updates are processed
       setTimeout(() => {
@@ -235,7 +231,6 @@ const WorkspaceModal = ({
         return;
     }
 
-    console.log(`[WorkspaceModal.handleSave] Attempting to save workspace: ${trimmedName}`);
     setSaveState('saving'); // Indicate saving process start
 
     // Clear any existing timeout
@@ -245,13 +240,10 @@ const WorkspaceModal = ({
 
     if (workspaceNames.includes(trimmedName)) {
         if (!window.confirm(`Workspace "${trimmedName}" already exists. Overwrite?`)) {
-            console.log("[WorkspaceModal.handleSave] Overwrite cancelled by user.");
             return;
         }
-        console.log(`[WorkspaceModal.handleSave] User confirmed overwrite for "${trimmedName}".`);
     }
 
-    console.log('[WorkspaceModal.handleSave] Reading current application state from appState hook...');
     const workspaceToSave: WorkspaceState = {
       selectedFolder: appState.selectedFolder,
       expandedNodes: appState.expandedNodes,
@@ -279,20 +271,8 @@ const WorkspaceModal = ({
       selectedInstructions: appState.selectedInstructions
     };
 
-    console.log('[WorkspaceModal.handleSave] Constructed workspace state object from appState:', {
-        name: trimmedName,
-        expandedNodesKeys: Object.keys(workspaceToSave.expandedNodes || {}).length,
-        selectedFilesCount: workspaceToSave.selectedFiles.length,
-        userInstructionsLength: workspaceToSave.userInstructions?.length || 0,
-        systemPromptsCount: workspaceToSave.customPrompts?.systemPrompts?.length || 0,
-        rolePromptsCount: workspaceToSave.customPrompts?.rolePrompts?.length || 0,
-        instructionsCount: workspaceToSave.instructions?.length || 0,
-        selectedInstructionsCount: workspaceToSave.selectedInstructions?.length || 0,
-    });
-
     try {
       persistWorkspace(trimmedName, workspaceToSave);
-      console.log(`[WorkspaceModal.handleSave] persistWorkspace successful for "${trimmedName}".`);
       setSaveState('success'); // Set state to success
       refreshWorkspaceList().catch(error => 
         console.error('[WorkspaceModal] Error refreshing workspace list:', error)
@@ -302,7 +282,6 @@ const WorkspaceModal = ({
       saveTimeoutRef.current = setTimeout(() => {
         setSaveState('idle');
         setName(''); // Clear the input field
-        console.log(`[WorkspaceModal.handleSave] Save success state finished for "${trimmedName}". Form cleared.`);
       }, 1500); // Duration for the checkmark visibility
 
     } catch (error) {
@@ -314,30 +293,23 @@ const WorkspaceModal = ({
   };
   
   const handleDelete = async (wsName: string) => {
-    console.log(`[WorkspaceModal.handleDelete] Attempting to delete workspace: ${wsName}`);
     if (window.confirm(`Are you sure you want to delete workspace "${wsName}"? This cannot be undone.`)) {
-      console.log(`[WorkspaceModal.handleDelete] User confirmed deletion for "${wsName}".`);
       try {
         await deletePersistedWorkspace(wsName);
         refreshWorkspaceList().catch(error => 
           console.error('[WorkspaceModal] Error refreshing workspace list:', error)
         );
-        console.log(`[WorkspaceModal.handleDelete] Deletion process complete for "${wsName}".`);
       } catch (error) {
         console.error(`[WorkspaceModal.handleDelete] Error deleting workspace "${wsName}":`, error);
         alert(`Failed to delete workspace "${wsName}". Please try again.`);
       }
     } else {
-       console.log(`[WorkspaceModal.handleDelete] Deletion cancelled by user for "${wsName}".`);
     }
   };
 
   const handleLoad = useCallback(async (wsName: string) => {
-    console.log(`[WorkspaceModal.handleLoad] Attempting to load workspace: ${wsName}`);
-    
     // Prevent concurrent workspace loads
     if (isLoadingWorkspace) {
-      console.log(`[WorkspaceModal.handleLoad] Ignoring workspace load request for "${wsName}" - already loading`);
       return;
     }
     
@@ -350,15 +322,12 @@ const WorkspaceModal = ({
           
           // Check if cancelled before proceeding
           if (token.cancelled) {
-            console.log(`[WorkspaceModal.handleLoad] Workspace load cancelled for "${wsName}"`);
             return;
           }
           
           if (workspaceData) {
-            console.log(`[WorkspaceModal.handleLoad] Workspace "${wsName}" loaded successfully via hook. Dispatching 'workspaceLoaded' event.`);
             window.dispatchEvent(new CustomEvent('workspaceLoaded', { detail: { name: wsName, workspace: workspaceData } }));
             onClose();
-            console.log(`[WorkspaceModal.handleLoad] Load process complete for "${wsName}". Modal closed.`);
           } else {
             console.error(`[WorkspaceModal.handleLoad] loadPersistedWorkspace returned null for "${wsName}". Load failed.`);
             // No alert - workspace has been auto-deleted if corrupted
@@ -386,8 +355,6 @@ const WorkspaceModal = ({
       return;
     }
     const trimmedNewName = newName.trim();
-    console.log(`[WorkspaceModal.handleRenameConfirm] Attempting rename: "${renamingWsName}" -> "${trimmedNewName}"`);
-    
     // Check if new name already exists (excluding the one being renamed)
     if (workspaceNames.filter((name: string) => name !== renamingWsName).includes(trimmedNewName)) { // Added type annotation
         alert(`Workspace name "${trimmedNewName}" already exists. Please choose a different name.`);
@@ -398,7 +365,6 @@ const WorkspaceModal = ({
     try {
       const success = await renamePersistedWorkspace(renamingWsName, trimmedNewName);
       if (success) {
-        console.log(`[WorkspaceModal.handleRenameConfirm] Rename successful via hook for "${renamingWsName}" -> "${trimmedNewName}".`);
         refreshWorkspaceList().catch(error => 
           console.error('[WorkspaceModal] Error refreshing workspace list:', error)
         );
