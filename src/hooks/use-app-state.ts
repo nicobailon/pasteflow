@@ -269,25 +269,35 @@ const useAppState = () => {
     return getFileTreeModeTokens(allFiles, fileSelection.selectedFiles, selectedFolder, fileTreeMode);
   }, [allFiles, fileSelection.selectedFiles, selectedFolder, fileTreeMode]);
 
-  // Handle token calculations
+  // Handle token calculations - now uses estimation when content not loaded
   const calculateTotalTokens = useCallback(() => {
     const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
     
     return fileSelection.selectedFiles.reduce((total, selectedFile) => {
       const fileData = allFilesMap.get(selectedFile.path);
-      if (fileData && fileData.tokenCount) {
-        // If the selection has specific line ranges, estimate token count for those
-        if (selectedFile.lines && selectedFile.lines.length > 0 && fileData.content) {
-          const lines = fileData.content.split('\n');
-          let selectedContent = '';
-          for (const range of selectedFile.lines) {
-            selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
+      if (fileData) {
+        // If content is loaded and we have actual token count
+        if (fileData.isContentLoaded && fileData.tokenCount) {
+          // If the selection has specific line ranges, estimate token count for those
+          if (selectedFile.lines && selectedFile.lines.length > 0 && fileData.content) {
+            const lines = fileData.content.split('\n');
+            let selectedContent = '';
+            for (const range of selectedFile.lines) {
+              selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
+            }
+            // Simple estimation: ~4 characters per token
+            return total + Math.ceil(selectedContent.length / 4);
+          } else {
+            // Full file selected
+            return total + fileData.tokenCount;
           }
-          // Simple estimation: ~4 characters per token
-          return total + Math.ceil(selectedContent.length / 4);
         } else {
-          // Full file selected
-          return total + fileData.tokenCount;
+          // If content not loaded, estimate based on file size
+          // Skip binary and skipped files
+          if (!fileData.isBinary && !fileData.isSkipped) {
+            // Rough estimation: 1 token per 4 characters
+            return total + Math.round(fileData.size / 4);
+          }
         }
       }
       return total;
@@ -868,12 +878,6 @@ const useAppState = () => {
   }, [setExpandedNodes]);
 
   const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileReference[], availableFiles: FileData[]): void => {
-    console.log('[useAppState.applySelectedFiles] Called with:', {
-      selectedFilesToApplyCount: selectedFilesToApply?.length || 0,
-      availableFilesCount: availableFiles?.length || 0,
-      selectedFiles: selectedFilesToApply
-    });
-    
     // Deduplicate input files before applying
     const uniqueFiles = [...new Map(selectedFilesToApply.map(file => [file.path, file])).values()];
     
@@ -893,12 +897,6 @@ const useAppState = () => {
         } as SelectedFileReference;
       })
       .filter((file): file is SelectedFileReference => !!file);
-
-    
-    console.log('[useAppState.applySelectedFiles] Files to select:', {
-      filesToSelectCount: filesToSelect.length,
-      filesToSelect
-    });
     
     // Always call setSelectionState even with empty array to ensure proper clearing
     // Batch state updates
@@ -908,11 +906,6 @@ const useAppState = () => {
   }, [setSelectionState]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
-    console.log('[useAppState.applyPrompts] Called with:', {
-      systemPromptsCount: promptsToApply?.systemPrompts?.length || 0,
-      rolePromptsCount: promptsToApply?.rolePrompts?.length || 0,
-      promptsToApply
-    });
     
     const currentPrompts = promptStateRef.current;
 
@@ -960,14 +953,6 @@ const useAppState = () => {
     }
 
     isApplyingWorkspaceDataRef.current = true;
-
-    console.log('[useAppState.applyWorkspaceData] Applying workspace data:', {
-      workspaceName,
-      selectedFilesCount: workspaceData.selectedFiles?.length || 0,
-      systemPromptsCount: workspaceData.customPrompts?.systemPrompts?.length || 0,
-      rolePromptsCount: workspaceData.customPrompts?.rolePrompts?.length || 0,
-      selectedInstructionsCount: workspaceData.selectedInstructions?.length || 0
-    });
 
     const currentSelectedFolder = selectedFolderRef.current;
     const currentProcessingStatus = processingStatusRef.current;

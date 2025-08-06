@@ -157,7 +157,16 @@ const ContentArea = ({
             />
             <div className="file-stats">
               {selectedFiles.length} files | ~
-              {calculateTotalTokens().toLocaleString()} tokens
+              {(() => {
+                // Calculate estimated tokens based on file sizes
+                const totalSize = selectedFiles.reduce((sum, selectedFile) => {
+                  const file = allFiles.find(f => f.path === selectedFile.path);
+                  return sum + (file?.size || 0);
+                }, 0);
+                // Rough estimation: 1 token per 4 characters
+                const estimatedTokens = Math.round(totalSize / 4);
+                return estimatedTokens.toLocaleString();
+              })()} tokens (estimated)
             </div>
           </div>
           <div className="prompts-buttons-container">

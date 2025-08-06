@@ -23,7 +23,7 @@ export function createDirectorySelectionCache(
   // Build a set of selected file paths for O(1) lookups
   const selectedPaths = new Set(selectedFiles.map(f => f.path));
   
-  // Build directory structure - we'll store both with and without leading slash
+  // Build directory structure using absolute paths
   const directoryMap = new Map<string, Set<string>>();
   const allDirectories = new Set<string>();
   
@@ -31,12 +31,13 @@ export function createDirectorySelectionCache(
   const directoryPaths = new Set<string>();
   
   for (const file of allFiles) {
+    const isAbsolute = file.path.startsWith('/');
     const parts = file.path.split('/').filter(Boolean);
-    let currentPath = '';
     
     // Add all parent directories
     for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      const pathParts = parts.slice(0, i + 1);
+      const currentPath = isAbsolute ? '/' + pathParts.join('/') : pathParts.join('/');
       directoryPaths.add(currentPath);
       allDirectories.add(currentPath);
     }
@@ -46,12 +47,13 @@ export function createDirectorySelectionCache(
   for (const file of allFiles) {
     if (file.isBinary || file.isSkipped) continue;
     
+    const isAbsolute = file.path.startsWith('/');
     const parts = file.path.split('/').filter(Boolean);
-    let currentPath = '';
     
     // Build up each parent directory path
     for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      const pathParts = parts.slice(0, i + 1);
+      const currentPath = isAbsolute ? '/' + pathParts.join('/') : pathParts.join('/');
       
       if (!directoryMap.has(currentPath)) {
         directoryMap.set(currentPath, new Set());
@@ -59,8 +61,8 @@ export function createDirectorySelectionCache(
       directoryMap.get(currentPath)!.add(file.path);
     }
     
-    // Handle root files
-    if (parts.length === 1) {
+    // Handle root files (files directly in root with absolute paths)
+    if (isAbsolute && parts.length === 1) {
       const rootPath = '/';
       allDirectories.add(rootPath);
       if (!directoryMap.has(rootPath)) {
@@ -108,37 +110,12 @@ export function createDirectorySelectionCache(
   
   return {
     get(path: string): SelectionState {
-      // Handle both with and without leading slash
-      const result = cache.get(path);
-      if (result) return result;
-      
-      // Try with leading slash if not found
-      if (!path.startsWith('/')) {
-        const withSlash = `/${path}`;
-        const slashResult = cache.get(withSlash);
-        if (slashResult) return slashResult;
-      }
-      
-      // Try without leading slash if not found
-      if (path.startsWith('/')) {
-        const withoutSlash = path.slice(1);
-        const noSlashResult = cache.get(withoutSlash);
-        if (noSlashResult) return noSlashResult;
-      }
-      
-      return 'none';
+      // Direct lookup with absolute paths
+      return cache.get(path) || 'none';
     },
     
     set(path: string, state: SelectionState): void {
-      // Normalize the path before setting
       cache.set(path, state);
-      
-      // Also set the alternative format for consistency
-      if (path.startsWith('/')) {
-        cache.set(path.slice(1), state);
-      } else {
-        cache.set(`/${path}`, state);
-      }
     },
     
     bulkUpdate(updates: Map<string, SelectionState>): void {

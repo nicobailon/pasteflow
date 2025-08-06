@@ -9,7 +9,7 @@ interface VirtualizedTreeProps {
   visibleTree: TreeNode[];
   selectedFiles: { path: string; lines?: { start: number; end: number }[] }[];
   toggleFileSelection: (path: string) => void;
-  toggleFolderSelection: (path: string) => void;
+  toggleFolderSelection: (path: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
   toggleExpanded: (path: string) => void;
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
@@ -21,7 +21,7 @@ interface ItemData {
   nodes: TreeNode[];
   selectedFiles: { path: string; lines?: { start: number; end: number }[] }[];
   toggleFileSelection: (path: string) => void;
-  toggleFolderSelection: (path: string) => void;
+  toggleFolderSelection: (path: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
   toggleExpanded: (path: string) => void;
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;

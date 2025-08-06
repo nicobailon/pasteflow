@@ -88,12 +88,10 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
   const showLoadingIndicator = isTreeLoading || !isTreeBuildingComplete;
   
   // Wrapper functions to adapt prop signatures for VirtualizedTree
-  const handleToggleFolderSelection = useCallback((path: string) => {
-    // VirtualizedTree expects single param, but SidebarProps has two params
-    // We'll determine selection state based on current state
-    const isCurrentlySelected = selectedFiles.some(file => file.path.startsWith(path + '/'));
-    toggleFolderSelection(path, !isCurrentlySelected);
-  }, [selectedFiles, toggleFolderSelection]);
+  const handleToggleFolderSelection = useCallback((path: string, isSelected: boolean, opts?: { optimistic?: boolean }) => {
+    // Pass through to the original toggleFolderSelection
+    toggleFolderSelection(path, isSelected, opts);
+  }, [toggleFolderSelection]);
   
   const handleLoadFileContent = useCallback(async (path: string): Promise<void> => {
     // VirtualizedTree expects Promise<void>
@@ -197,20 +195,25 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
 
   // Check if all files are selected (memoized)
   const areAllFilesSelected = useCallback(() => {
+    // Check the folder selection cache for the root folder
+    if (folderSelectionCache && selectedFolder) {
+      const rootFolderState = folderSelectionCache.get(selectedFolder);
+      return rootFolderState === 'full';
+    }
+    // Fallback to checking if all files are selected
     return allFiles.length > 0 && selectedFiles.length === allFiles.length;
-  }, [allFiles.length, selectedFiles.length])();
+  }, [allFiles.length, selectedFiles.length, folderSelectionCache, selectedFolder])();
 
   /**
    * Handles the toggle of the "Select All" checkbox.
-   * Calls selectAllFiles when checked and deselectAllFiles when unchecked.
+   * Uses toggleFolderSelection for the root folder to ensure proper cache updates.
    * 
-   * @param {any} e - The change event from the checkbox
+   * @param {React.ChangeEvent<HTMLInputElement>} e - The change event from the checkbox
    */
-  const handleSelectAllToggle = (e: any) => {
-    if (e.target.checked) {
-      selectAllFiles();
-    } else {
-      deselectAllFiles();
+  const handleSelectAllToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (selectedFolder) {
+      // Use toggleFolderSelection for the root folder to ensure proper cache updates
+      toggleFolderSelection(selectedFolder, e.target.checked, { optimistic: true });
     }
   };
 
@@ -413,6 +416,12 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                     type="checkbox"
                     className="tree-item-checkbox"
                     checked={areAllFilesSelected}
+                    ref={(el) => {
+                      if (el && folderSelectionCache && selectedFolder) {
+                        const rootFolderState = folderSelectionCache.get(selectedFolder);
+                        el.indeterminate = rootFolderState === 'partial';
+                      }
+                    }}
                     onChange={handleSelectAllToggle}
                     title={areAllFilesSelected ? "Deselect all files" : "Select all files"}
                   />

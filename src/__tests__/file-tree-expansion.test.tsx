@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import TreeItem from '../components/tree-item';
@@ -177,7 +176,7 @@ describe('File Tree Expansion Behavior', () => {
         true, 
         { optimistic: true }
       );
-      expect(mockToggleExpanded).toHaveBeenCalledWith('/test/folder', false);
+      expect(mockToggleExpanded).toHaveBeenCalledWith('/test/folder');
     });
 
     it('should not auto-expand if folder is already expanded', async () => {

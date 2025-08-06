@@ -24,7 +24,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (providedFolderIndex) {
       return providedFolderIndex;
     }
-    return buildFolderIndex(allFiles);
+    const index = buildFolderIndex(allFiles);
+    return index;
   }, [allFiles, providedFolderIndex]);
   
   // Track optimistic folder updates separately with timestamps
@@ -94,7 +95,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           return prev.filter(selected => {
             const exists = existingFilePaths.has(selected.path);
             if (!exists) {
-              console.log(`Removing stale selection after file removal: ${selected.path}`);
             }
             return exists;
           });
@@ -126,7 +126,6 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       const validSelections = prev.filter(selected => {
         const exists = existingFilePaths.has(selected.path);
         if (!exists) {
-          console.log(`Removing stale selection: ${selected.path}`);
         }
         return exists;
       });
@@ -244,8 +243,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
   // Toggle folder selection (select/deselect all files in folder)
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
-    // Use folder index for O(1) lookup
-    const filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
+    
+    // Use folder index for O(1) lookup with absolute paths
+    let filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
     
     // If no files in folder, bail early
     if (filesInFolderPaths.length === 0) {
@@ -267,14 +267,14 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       (f: SelectedFileReference) => selectableFiles.includes(f.path)
     );
     
-    // Early bailout conditions
-    if (isSelected && selectedFilesInFolder.length === selectableFiles.length) {
-      // All files in folder are already selected
-      return;
-    }
+    // Determine if we should actually toggle
+    // If selecting and all files are already selected, OR
+    // If deselecting and no files are selected, then bail out
+    const allFilesSelected = selectedFilesInFolder.length === selectableFiles.length;
+    const noFilesSelected = selectedFilesInFolder.length === 0;
     
-    if (!isSelected && selectedFilesInFolder.length === 0) {
-      // No files from folder are selected
+    if ((isSelected && allFilesSelected) || (!isSelected && noFilesSelected)) {
+      // Nothing to do - state is already as requested
       return;
     }
 
@@ -288,7 +288,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         clearTimeout(existingTimeout);
       }
       
-      // Set optimistic state
+      // Set optimistic state using the folder path
       setOptimisticFolderStates(prev => {
         const next = new Map(prev);
         next.set(folderPath, newState);
