@@ -336,11 +336,12 @@ const useAppState = () => {
       let newValue: boolean;
       
       if (currentState === undefined) {
-        // Fallback to old logic if currentState not provided
-        // If the node is not in expandedNodes, we need to set it to false
-        // because it was expanded by default and user wants to collapse it
-        // If it's already in expandedNodes, just toggle it
-        newValue = prev[nodeId] === undefined ? false : !prev[nodeId];
+        // Fallback logic when currentState not provided
+        // Since we don't know the current visual state, we have to make an assumption
+        // If never toggled before (undefined), assume the user wants to toggle TO true (expand)
+        // This works for folders that start collapsed (most folders)
+        // For folders that start expanded (level < 2), this will be wrong on first click
+        newValue = prev[nodeId] === undefined ? true : !prev[nodeId];
       } else {
         // We know the exact current state, so just invert it
         newValue = !currentState;
