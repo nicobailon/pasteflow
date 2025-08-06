@@ -1,7 +1,6 @@
 import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
-import { useEffect, useRef, memo, useCallback, useMemo } from "react";
+import { useEffect, useRef, memo, useCallback } from "react";
 
-import { debounce } from "../utils/debounce";
 import { TreeItemProps, TreeNode, SelectedFileReference } from "../types/file-types";
 import type { DirectorySelectionCache } from "../utils/selection-cache";
 
@@ -78,20 +77,20 @@ const formatSelectedLines = (selectedFile?: { path: string; lines?: { start: num
 
 // Handle specific item actions independently to reduce complexity
 const handleTreeItemActions = {
-  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string, currentState?: boolean) => void, path: string, isExpanded?: boolean) => {
+  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string, currentState?: boolean) => void, path: string) => {
     e.stopPropagation();
     e.preventDefault(); // Also prevent default to avoid any bubbling issues
-    toggleExpanded(path, isExpanded);
+    // Don't pass isExpanded - let toggleExpanded figure it out from its own state
+    toggleExpanded(path);
   },
   
   handleItemClick: (
     type: "file" | "directory", 
     toggleExpanded: (path: string, currentState?: boolean) => void, 
-    path: string,
-    isExpanded?: boolean
+    path: string
   ) => {
     if (type === "directory") {
-      toggleExpanded(path, isExpanded);
+      toggleExpanded(path);
     }
     // Removed automatic file selection - files should only be selected via checkbox
   },
@@ -268,7 +267,6 @@ interface TreeItemMetadataProps {
 }
 
 const TreeItemMetadata = ({
-  type,
   isDisabled,
   isExcludedByDefault,
   fileData
@@ -339,7 +337,7 @@ const hasFileDataChanged = (
     const contentTransition = (!prevFileData.content && nextFileData.content) ||
                             (prevFileData.content && !nextFileData.content);
     
-    return prevFileData.tokenCount !== nextFileData.tokenCount ||
+    return !!(prevFileData.tokenCount !== nextFileData.tokenCount ||
            prevFileData.isCountingTokens !== nextFileData.isCountingTokens ||
            prevFileData.isContentLoaded !== nextFileData.isContentLoaded ||
            prevFileData.isBinary !== nextFileData.isBinary ||
@@ -348,7 +346,7 @@ const hasFileDataChanged = (
            prevFileData.content !== nextFileData.content ||
            contentTransition ||
            // Also check content length changes as a fallback
-           (prevFileData.content?.length || 0) !== (nextFileData.content?.length || 0);
+           (prevFileData.content?.length || 0) !== (nextFileData.content?.length || 0));
   }
   
   return false;
@@ -396,7 +394,7 @@ const getTreeItemState = (
   selectedFiles: SelectedFileReference[],
   folderSelectionCache?: DirectorySelectionCache
 ) => {
-  const { path, type, fileData, level } = node;
+  const { path, type, fileData } = node;
   const selectedFile = selectedFiles.find(f => f.path === path);
   const isSelected = !!selectedFile;
   const isPartiallySelected = isSelected && !!selectedFile?.lines?.length;
@@ -434,7 +432,6 @@ const getTreeItemState = (
 const useTreeItemState = (
   node: TreeNode,
   selectedFiles: SelectedFileReference[],
-  loadFileContent?: (filePath: string) => Promise<void>,
   folderSelectionCache?: DirectorySelectionCache
 ) => {
   // Get computed state
@@ -452,35 +449,25 @@ const TreeItem = memo(({
   toggleFolderSelection,
   toggleExpanded,
   onViewFile,
-  loadFileContent,
   folderSelectionCache
 }: TreeItemProps) => {
   const { name, path, type, level, isExpanded, fileData } = node;
-  const state = useTreeItemState(node, selectedFiles, loadFileContent, folderSelectionCache);
+  const state = useTreeItemState(node, selectedFiles, folderSelectionCache);
 
   const getTreeItemClassNames = () => {
     const classes = ['tree-item'];
     if (state.isSelected) classes.push('selected');
     if (state.isPartiallySelected) classes.push('partially-selected');
     if (state.isExcludedByDefault) classes.push('excluded-by-default');
-    if (state.isLoading) classes.push('loading');
     return classes.join(' ');
   };
 
   const handleTreeItemClick = () => {
     handleTreeItemActions.handleItemClick(
-      type, toggleExpanded, path, isExpanded
+      type, toggleExpanded, path
     );
   };
 
-  // Create debounced toggle function - no dependencies on changing state
-  const _debouncedToggle = useMemo(
-    () => debounce((filePath: string) => {
-      toggleFileSelection(filePath);
-      // Load content will be triggered by the checkbox handler directly
-    }, 100),
-    [toggleFileSelection] // Only depend on stable function reference
-  );
 
   const handleCheckboxChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
     e.stopPropagation();
@@ -495,12 +482,12 @@ const TreeItem = memo(({
         toggleExpanded(path);
       }
     }
-  }, [type, path, level, name, toggleFileSelection, toggleFolderSelection, toggleExpanded, isExpanded]);
+  }, [type, path, toggleFileSelection, toggleFolderSelection, toggleExpanded, isExpanded]);
 
   const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
-    // Pass both the path and current expanded state
-    handleTreeItemActions.handleToggle(e, toggleExpanded, path, isExpanded);
-  }, [toggleExpanded, path, isExpanded]);
+    // Just pass the path, not the current state to avoid stale closures
+    handleTreeItemActions.handleToggle(e, toggleExpanded, path);
+  }, [toggleExpanded, path]);
 
   const handleNameClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     handleTreeItemActions.handleFileNameClick(e, type, state.isDisabled, onViewFile, path);
