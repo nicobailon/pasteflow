@@ -172,7 +172,7 @@ export const useDatabaseWorkspaceState = () => {
    * });
    */
   const saveWorkspace = useCallback(async (name: string, workspace: WorkspaceState): Promise<void> => {
-    return await runCancellableOperation(async (token) => {
+    await runCancellableOperation(async (token) => {
       try {
         safeSetIsLoading(true);
         safeSetError(null);
@@ -317,8 +317,9 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to delete workspace '${name}': ${error.message}`);
-      setError(`Failed to delete workspace '${name}': ${error.message}. Check database permissions and workspace references.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to delete workspace '${name}': ${errorMessage}`);
+      setError(`Failed to delete workspace '${name}': ${errorMessage}. Check database permissions and workspace references.`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -357,8 +358,9 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${error.message}`);
-      setError(`Failed to rename workspace '${oldName}' to '${newName}': ${error.message}. Check for name conflicts and database permissions.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${errorMessage}`);
+      setError(`Failed to rename workspace '${oldName}' to '${newName}': ${errorMessage}. Check for name conflicts and database permissions.`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -381,7 +383,8 @@ export const useDatabaseWorkspaceState = () => {
       const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list', {});
       return workspaces.map((w: DatabaseWorkspace) => w.name);
     } catch (error) {
-      console.error(`Failed to get workspace names: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to get workspace names: ${errorMessage}`);
       return [];
     }
   }, []);
@@ -415,8 +418,9 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to import workspace '${name}': ${error.message}`);
-      setError(`Failed to import workspace '${name}': ${error.message}. Check workspace data format and database permissions.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to import workspace '${name}': ${errorMessage}`);
+      setError(`Failed to import workspace '${name}': ${errorMessage}. Check workspace data format and database permissions.`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -450,8 +454,9 @@ export const useDatabaseWorkspaceState = () => {
       
       return workspace.state;
     } catch (error) {
-      console.error(`Failed to export workspace '${name}': ${error.message}`);
-      setError(`Failed to export workspace '${name}': ${error.message}. Verify workspace exists and is accessible.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to export workspace '${name}': ${errorMessage}`);
+      setError(`Failed to export workspace '${name}': ${errorMessage}. Verify workspace exists and is accessible.`);
       return null;
     } finally {
       setIsLoading(false);
@@ -533,8 +538,9 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to clear all workspaces: ${error.message}`);
-      setError(`Failed to clear all workspaces: ${error.message}. Check database permissions and try again.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to clear all workspaces: ${errorMessage}`);
+      setError(`Failed to clear all workspaces: ${errorMessage}. Check database permissions and try again.`);
       throw error;
     } finally {
       setIsLoading(false);
