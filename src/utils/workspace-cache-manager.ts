@@ -148,7 +148,7 @@ export class WorkspaceCacheManager {
         throw new Error('Electron IPC not available');
       }
       
-      const workspaces: DatabaseWorkspace[] = await window.electron.ipcRenderer.invoke('/workspace/list');
+      const workspaces: DatabaseWorkspace[] = await window.electron.ipcRenderer.invoke('/workspace/list', {});
       
       const workspaceInfos = new Map<string, WorkspaceInfo>();
       

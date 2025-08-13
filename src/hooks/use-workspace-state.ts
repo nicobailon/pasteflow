@@ -23,7 +23,7 @@ export const useWorkspaceState = () => {
     setIsInitialized(true);
   }, []);
 
-  const saveWorkspace = useCallback((name: string, workspace: WorkspaceState) => {
+  const saveWorkspace = useCallback(async (name: string, workspace: WorkspaceState) => {
     try {
       // Validate the workspace folder path if it exists
       if (workspace.selectedFolder) {
@@ -41,19 +41,14 @@ export const useWorkspaceState = () => {
         };
       }
       
-      // Save to database asynchronously (fire and forget)
-      db.saveWorkspace(name, workspace)
-        .then(() => {
-          setCurrentWorkspace(name);
-        })
-        .catch(error => {
-          console.error(`Failed to save workspace '${name}': ${error.message}`);
-          throw new Error(`Failed to save workspace '${name}': ${error.message}. Check workspace data and database permissions.`);
-        });
+      // Save to database and wait for completion
+      await db.saveWorkspace(name, workspace);
+      // Don't set current workspace here - let the caller handle it
     } catch (error) {
-      throw error;
+      console.error(`Failed to save workspace '${name}': ${error.message}`);
+      throw new Error(`Failed to save workspace '${name}': ${error.message}. Check workspace data and database permissions.`);
     }
-  }, [db, setCurrentWorkspace]);
+  }, [db]);
 
   // These methods need to be async now
   const loadWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {

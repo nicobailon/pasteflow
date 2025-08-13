@@ -95,7 +95,7 @@ const handleWorkspaceUpdate = async (
   selectedFolder: string | null,
   currentWorkspace: string | null,
   getWorkspaceNames: () => Promise<string[]>,
-  persistWorkspace: (name: string, state: WorkspaceState) => void,
+  persistWorkspace: (name: string, state: WorkspaceState) => Promise<void>,
   setCurrentWorkspace: (name: string | null) => void,
 ): Promise<string | null> => {
   // Check if we're opening the same folder that's already open
@@ -107,7 +107,8 @@ const handleWorkspaceUpdate = async (
   const newWorkspaceName = generateUniqueWorkspaceName(existingWorkspaceNames, newPath);
 
   const initialWorkspaceState = createInitialWorkspaceState(newPath);
-  persistWorkspace(newWorkspaceName, initialWorkspaceState);
+  // Wait for workspace to be persisted before setting it as current
+  await persistWorkspace(newWorkspaceName, initialWorkspaceState);
   setCurrentWorkspace(newWorkspaceName);
   
   return newWorkspaceName;
@@ -148,7 +149,7 @@ interface HandlerParams {
   setAppInitialized: (initialized: boolean) => void;
   currentWorkspace: string | null;
   setCurrentWorkspace: (name: string | null) => void;
-  persistWorkspace: (name: string, state: WorkspaceState) => void;
+  persistWorkspace: (name: string, state: WorkspaceState) => Promise<void>;
   getWorkspaceNames: () => Promise<string[]>;
   selectedFolder: string | null;
   validateSelectedFilesExist?: () => void;
@@ -254,7 +255,7 @@ export const setupElectronHandlers = (
   setAppInitialized: (initialized: boolean) => void,
   currentWorkspace: string | null,
   setCurrentWorkspace: (name: string | null) => void,
-  persistWorkspace: (name: string, state: WorkspaceState) => void,
+  persistWorkspace: (name: string, state: WorkspaceState) => Promise<void>,
   getWorkspaceNames: () => Promise<string[]>,
   selectedFolder: string | null,
   validateSelectedFilesExist?: () => void

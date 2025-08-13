@@ -1,3 +1,6 @@
+// Ensure Zod uses classic parser in Electron main to avoid eval issues
+process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
+
 const fs = require("node:fs");
 const path = require("node:path");
 const { Worker } = require("worker_threads");
@@ -6,22 +9,22 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const { getPathValidator } = require("./src/security/path-validator.cjs");
 const { ipcValidator } = require("./src/validation/ipc-validator.js");
 const { DatabaseBridge } = require("./src/main/db/database-bridge.js");
-const { 
-  validateInput,
-  WorkspaceCreateSchema,
-  WorkspaceLoadSchema,
-  WorkspaceUpdateSchema,
-  WorkspaceDeleteSchema,
-  WorkspaceRenameSchema,
-  WorkspaceTouchSchema,
-  GetPreferenceSchema,
-  SetPreferenceSchema,
-  FileContentRequestSchema,
-  CancelFileLoadingSchema,
-  OpenDocsSchema,
-  FolderSelectionSchema,
-  FileListRequestSchema
-} = require("./src/main/utils/input-validation.js");
+// Zod schemas (CommonJS) for main process validation
+const zSchemas = require("./src/main/ipc/schemas.cjs.js");
+
+// Feature flag to enable SecureIpcLayer path (TS compiled to build/main)
+const useSecureIpc = process.env.SECURE_IPC === '1';
+let SecureIpcLayer, StateHandlers, SecureDatabase;
+try {
+  if (useSecureIpc) {
+    ({ SecureIpcLayer } = require("./build/main/ipc/secure-ipc.js"));
+    ({ StateHandlers } = require("./build/main/handlers/state-handlers.js"));
+    ({ SecureDatabase } = require("./build/main/db/secure-database.js"));
+  }
+} catch (e) {
+  console.warn("Secure IPC modules not available; falling back to legacy handlers:", e?.message || e);
+}
+
 
 // Add error handling for console operations to prevent EIO errors
 const originalConsoleError = console.error;
@@ -235,11 +238,11 @@ function isLikelyBinaryContent(content, filePath) {
   if (filePath && path.extname(filePath).toLowerCase() === '.js') {
     return false;
   }
-  
+
   // Count control/binary characters
   let controlCharCount = 0;
   const threshold = ELECTRON.BINARY_DETECTION.CONTROL_CHAR_THRESHOLD;
-  
+
   for (let i = 0; i < content.length; i++) {
     if (isControlOrBinaryChar(content.codePointAt(i))) {
       controlCharCount++;
@@ -248,7 +251,7 @@ function isLikelyBinaryContent(content, filePath) {
       }
     }
   }
-  
+
   // Also check for special tokens
   return content.includes("<|endoftext|>");
 }
@@ -278,7 +281,7 @@ function createWindow() {
   // Set Content Security Policy for Web Workers and WASM
   const isDev = process.env.NODE_ENV === "development";
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const csp = isDev 
+    const csp = isDev
       ? "default-src 'self';" +
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: http://localhost:*;" +
         "worker-src 'self' blob:;" +
@@ -293,7 +296,7 @@ function createWindow() {
         "style-src 'self' 'unsafe-inline';" +
         "img-src 'self' data: blob:;" +
         "font-src 'self' data:;";
-    
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -357,16 +360,33 @@ function createWindow() {
 // eslint-disable-next-line unicorn/prefer-top-level-await
 app.whenReady().then(async () => {
   try {
-    // Initialize database
-    database = new DatabaseBridge();
-    await database.initialize();
-    console.log('Database initialized successfully');
+    if (useSecureIpc && SecureDatabase) {
+      // Initialize SecureDatabase (TS compiled to JS)
+      const userDataPath = app.getPath('userData');
+      const dbPath = path.join(userDataPath, 'pasteflow-secure.db');
+      database = await SecureDatabase.create(dbPath);
+      database.initialized = true; // flag to keep logic compatible below
+      console.log('SecureDatabase initialized successfully');
+
+      // Wire SecureIpcLayer + StateHandlers
+      if (SecureIpcLayer && StateHandlers) {
+        const ipcLayer = new SecureIpcLayer();
+        // StateHandlers will register handlers on constructor
+        // Use the same database instance
+        new StateHandlers(database, ipcLayer);
+      }
+    } else {
+      // Initialize legacy DatabaseBridge
+      database = new DatabaseBridge();
+      await database.initialize();
+      console.log('Database initialized successfully');
+    }
   } catch (error) {
     console.error('Failed to initialize database:', error);
     console.log('Falling back to in-memory storage');
     // Continue with in-memory storage as fallback
   }
-  
+
   createWindow();
 });
 
@@ -397,20 +417,20 @@ app.on("before-quit", async () => {
 ipcMain.on("open-folder", async (event) => {
   // SECURITY: Apply rate limiting
   const validation = ipcValidator.validate('open-folder', {}, event);
-  
+
   if (!validation.success) {
     console.warn(`Rate limit exceeded for open-folder from sender: ${event.sender.id}`);
     return;
   }
-  
-  // Validate using schema (no input parameters but ensures consistent validation pattern)
+
+  // Validate using Zod schema (no input parameters)
   try {
-    validateInput(FolderSelectionSchema, {});
+    zSchemas.FolderSelectionSchema.parse({});
   } catch (error) {
     console.error('Validation error for open-folder:', error.message);
     return;
   }
-  
+
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
   });
@@ -420,7 +440,7 @@ ipcMain.on("open-folder", async (event) => {
     try {
       // Ensure we're only sending a string, not an object
       const pathString = String(selectedPath);
-      
+
       // Update workspace paths for security validation
       currentWorkspacePaths = [pathString];
       getPathValidator(currentWorkspacePaths);
@@ -447,7 +467,7 @@ function loadGitignore(rootDir, userExclusionPatterns = []) {
 
   // Add the excludedFiles patterns for gitignore-based exclusion
   ig.add(excludedFiles);
-  
+
   // Add user-defined exclusion patterns
   if (userExclusionPatterns && userExclusionPatterns.length > 0) {
     ig.add(userExclusionPatterns);
@@ -466,19 +486,19 @@ function isBinaryFile(filePath) {
 function sanitizeTextForTokenCount(text) {
   // Remove the problematic token
   let sanitizedText = text.replace(/<\|endoftext\|>/g, "");
-  
+
   // Remove control characters
   let result = "";
   for (let i = 0; i < sanitizedText.length; i++) {
     const codePoint = sanitizedText.codePointAt(i);
-    if (!isControlOrBinaryChar(codePoint) || 
+    if (!isControlOrBinaryChar(codePoint) ||
         codePoint === 9 ||  // Tab
         codePoint === 10 || // LF
         codePoint === 13) { // CR
       result += sanitizedText[i];
     }
   }
-  
+
   return result;
 }
 
@@ -493,13 +513,13 @@ function countTokens(text) {
   try {
     // Add sanitization to remove problematic tokens that cause tiktoken to fail
     const sanitizedText = sanitizeTextForTokenCount(text);
-    
+
     // If the sanitization removed a significant portion of the text, fall back to estimation
     if (sanitizedText.length < text.length * 0.9) {
       console.warn("Text contained many special tokens, using estimation instead");
       return Math.ceil(text.length / 4);
     }
-    
+
     const tokens = encoder.encode(sanitizedText);
     return tokens.length;
   } catch (error) {
@@ -546,7 +566,7 @@ function processFile(dirent, fullPath, folderPath, fileSize) {
 
   // Check if binary - WITHOUT reading the file content!
   const isBinary = isBinaryFile(fullPath);
-  
+
   // Don't read file content during initial scan - just return metadata
   return {
     name: dirent.name,
@@ -571,7 +591,7 @@ function processDirectory(dirPath, folderPath, depth, ignoreFilter) {
     for (const dirent of dirents) {
       const fullPath = path.join(dirPath, dirent.name);
       const relativePath = path.relative(folderPath, fullPath);
-      
+
       if (ignoreFilter.ignores(relativePath)) {
         continue;
       }
@@ -595,7 +615,7 @@ function processDirectory(dirPath, folderPath, depth, ignoreFilter) {
 ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = [], requestId = null) => {
   // SECURITY: Validate input parameters using both rate limiting and schema validation
   const validation = ipcValidator.validate('request-file-list', { folderPath, exclusionPatterns }, event);
-  
+
   if (!validation.success) {
     console.warn(`Rate limit validation failed for request-file-list: ${validation.error}`);
     event.sender.send("file-processing-status", {
@@ -604,10 +624,10 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
     });
     return;
   }
-  
+
   // Additional schema validation
   try {
-    validateInput(FileListRequestSchema, { folderPath, exclusionPatterns, requestId });
+    zSchemas.FileListRequestSchema.parse({ folderPath, exclusionPatterns, requestId });
   } catch (error) {
     console.warn(`Schema validation failed for request-file-list: ${error.message}`);
     event.sender.send("file-processing-status", {
@@ -616,19 +636,19 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
     });
     return;
   }
-  
+
   const { folderPath: validatedFolderPath, exclusionPatterns: validatedPatterns } = validation.data;
-  
+
   // Update current request ID
   currentRequestId = requestId;
-  
+
   try {
-    
+
     // Update workspace paths for security validation when loading files
     // This ensures the path validator knows about the current workspace
     currentWorkspacePaths = [validatedFolderPath];
     getPathValidator(currentWorkspacePaths);
-    
+
     fileLoadingCancelled = false;
 
     event.sender.send("file-processing-status", {
@@ -643,7 +663,7 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
     const pendingFiles = []; // Files to process in workers
     const NUM_WORKERS = 4; // Number of worker threads
     let processingComplete = false; // Flag to prevent multiple completion calls
-    
+
     // Send initial batch immediately for fast tree display
     const sendBatch = (files, isComplete = false) => {
       const serializableFiles = files.map(file => ({
@@ -682,7 +702,7 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
       let processedDirsCount = 0;
       const MAX_DIRS_PER_BATCH = 20; // Increased for faster directory traversal
       const currentBatchFiles = [];
-      
+
       // Create adaptive batcher for optimized IPC communication
       const batcher = {
         TARGET_BATCH_SIZE: 200 * 1024, // 200KB target for faster initial display
@@ -696,13 +716,13 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
           return Math.max(this.MIN_FILES, Math.min(this.MAX_FILES, optimalCount));
         }
       };
-      
+
       let dynamicBatchSize = batcher.calculateBatchSize(currentBatchFiles);
-      
+
       while (directoryQueue.length > 0 && processedDirsCount < MAX_DIRS_PER_BATCH) {
         directoryQueue.sort((a, b) => a.depth - b.depth);
         const { path: dirPath, depth } = directoryQueue.shift();
-        
+
         if (processedDirs.has(dirPath) || depth > 20) {
           continue;
         }
@@ -713,14 +733,14 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
         // Process directory with async operations
         try {
           const dirents = await fs.promises.readdir(dirPath, { withFileTypes: true });
-          
+
           // Process files in parallel for better performance
           const filePromises = [];
-          
+
           for (const dirent of dirents) {
             const fullPath = path.join(dirPath, dirent.name);
             const relativePath = path.relative(folderPath, fullPath);
-            
+
             if (ignoreFilter.ignores(relativePath)) {
               continue;
             }
@@ -738,7 +758,7 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
                   console.error(`Error processing file ${fullPath}:`, error);
                 })
               );
-              
+
               // Process in chunks to avoid overwhelming the system
               if (filePromises.length >= 10) {
                 await Promise.all(filePromises);
@@ -746,7 +766,7 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
               }
             }
           }
-          
+
           // Process any remaining file promises
           if (filePromises.length > 0) {
             await Promise.all(filePromises);
@@ -757,12 +777,12 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 
         // Recalculate batch size based on current files
         dynamicBatchSize = batcher.calculateBatchSize(currentBatchFiles);
-        
+
         // Send batch when we have enough files (using adaptive size)
         if (currentBatchFiles.length >= dynamicBatchSize) {
           sendBatch(currentBatchFiles, false);
           currentBatchFiles.length = 0; // Clear the batch
-          
+
           // Add small delay to prevent IPC flooding
           await new Promise(resolve => setTimeout(resolve, 10));
         }
@@ -818,18 +838,18 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
 ipcMain.on("cancel-file-loading", (event, requestId = null) => {
   // SECURITY: Apply rate limiting
   const validation = ipcValidator.validate('cancel-file-loading', { requestId }, event);
-  
+
   if (!validation.success) {
     console.warn(`Rate limit exceeded for cancel-file-loading from sender: ${event.sender.id}`);
     return;
   }
-  
+
   try {
     // Validate input if requestId is provided
     if (requestId !== null) {
-      validateInput(CancelFileLoadingSchema, { requestId });
+      zSchemas.CancelFileLoadingSchema.parse({ requestId });
     }
-    
+
     fileLoadingCancelled = true;
     currentRequestId = null; // Clear request ID when canceling
   } catch (error) {
@@ -851,26 +871,26 @@ function shouldExcludeByDefault(filePath, rootDir) {
 ipcMain.on('open-docs', (event, docName) => {
   // SECURITY: Apply rate limiting
   const validation = ipcValidator.validate('open-docs', { docName }, event);
-  
+
   if (!validation.success) {
     console.warn(`Rate limit exceeded for open-docs from sender: ${event.sender.id}`);
     return;
   }
-  
+
   try {
-    // Validate input using schema
-    validateInput(OpenDocsSchema, { docName });
+    // Validate input using Zod
+    zSchemas.OpenDocsSchema.parse({ docName });
   } catch (error) {
     console.warn('Invalid input for open-docs:', error.message);
     return;
   }
-  
+
   // Extract sanitized document name from validation
   const sanitizedDocName = path.basename(docName);
-  
+
   // Path to the documentation file - only allow files in docs directory
   const docPath = path.join(__dirname, 'docs', sanitizedDocName);
-  
+
   // Additional security check - ensure resolved path is still within docs directory
   const resolvedDocPath = path.resolve(docPath);
   const docsDir = path.resolve(__dirname, 'docs');
@@ -878,14 +898,14 @@ ipcMain.on('open-docs', (event, docName) => {
     console.warn(`Attempted access outside docs directory: ${docName}`);
     return;
   }
-  
+
   // Check if the file exists
   fs.access(resolvedDocPath, fs.constants.F_OK, (err) => {
     if (err) {
       console.error(`Documentation file not found: ${resolvedDocPath}`);
       return;
     }
-    
+
     // Open the file in the default application
     shell.openPath(resolvedDocPath)
       .then(result => {
@@ -899,13 +919,13 @@ ipcMain.on('open-docs', (event, docName) => {
 // Add request-file-content handler for lazy loading file content
 ipcMain.handle('request-file-content', async (event, filePath) => {
   try {
-    // Validate input
-    validateInput({ filePath: FileContentRequestSchema.filePath }, { filePath });
+    // Validate input using Zod
+    zSchemas.RequestFileContentSchema.parse({ filePath });
   } catch (error) {
     console.error('Invalid input for request-file-content:', error.message);
     return { success: false, error: error.message };
   }
-  
+
   // SECURITY: Validate path to prevent path traversal attacks
   // If no workspace paths are set, this might be a file request before folder selection
   // In this case, we should reject the request for security
@@ -913,16 +933,16 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
     console.warn('No workspace paths set - file access denied for security');
     return { success: false, error: 'No workspace selected', reason: 'NO_WORKSPACE' };
   }
-  
-  
+
+
   const validator = getPathValidator(currentWorkspacePaths);
   const validation = validator.validatePath(filePath);
-  
+
   if (!validation.valid) {
     console.warn(`Security violation in request-file-content: ${validation.reason} for path: ${filePath}`);
     return { success: false, error: 'Access denied', reason: validation.reason };
   }
-  
+
   try {
     const content = await fs.promises.readFile(validation.sanitizedPath, 'utf8');
     if (isLikelyBinaryContent(content, filePath)) {
@@ -936,13 +956,15 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
 });
 
 // Workspace management handlers
+if (!useSecureIpc) {
+
 ipcMain.handle('/workspace/list', async () => {
   try {
     // Use database if available
     if (database && database.initialized) {
       return await database.listWorkspaces();
     }
-    
+
     // Fallback to in-memory store
     const workspaces = Array.from(workspaceStore.entries())
       .sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0))
@@ -964,16 +986,16 @@ ipcMain.handle('/workspace/list', async () => {
 
 ipcMain.handle('/workspace/create', async (event, params) => {
   try {
-    // Validate input
-    const validated = validateInput(WorkspaceCreateSchema, params);
+    // Validate input with Zod
+    const validated = zSchemas.WorkspaceCreateSchema.parse(params);
     const { name, folderPath, state } = validated;
-    
+
     // Use database if available
     if (database && database.initialized) {
       const workspace = await database.createWorkspace(name, folderPath, state);
       return { success: true, workspace };
     }
-    
+
     // Fallback to in-memory store
     const now = Date.now();
     workspaceStore.set(name, {
@@ -996,9 +1018,9 @@ ipcMain.handle('/workspace/load', async (event, params) => {
     if (!params || typeof params !== 'object') {
       throw new Error('Invalid parameters provided');
     }
-    
-    // Validate input
-    const validated = validateInput(WorkspaceLoadSchema, params);
+
+    // Validate input with Zod (id may be UUID or name during transition)
+    const validated = zSchemas.WorkspaceLoadSchema.parse(params);
     const { id } = validated;
     // Use database if available
     if (database && database.initialized) {
@@ -1032,8 +1054,8 @@ ipcMain.handle('/workspace/load', async (event, params) => {
 
 ipcMain.handle('/workspace/update', async (event, params) => {
   try {
-    // Validate input
-    const validated = validateInput(WorkspaceUpdateSchema, params);
+    // Validate input with Zod (legacy: allow id or name; state/folderPath optional)
+    const validated = zSchemas.WorkspaceUpdateSchema.parse(params);
     const { id, name, folderPath, state } = validated;
     // Use database if available
     if (database && database.initialized) {
@@ -1075,8 +1097,8 @@ ipcMain.handle('/workspace/update', async (event, params) => {
 
 ipcMain.handle('/workspace/touch', async (event, params) => {
   try {
-    // Validate input
-    const validated = validateInput(WorkspaceTouchSchema, params);
+    // Validate input with Zod (legacy: id or name)
+    const validated = zSchemas.WorkspaceTouchSchema.parse(params);
     const { id, name } = validated;
     // Use database if available
     if (database && database.initialized) {
@@ -1116,15 +1138,15 @@ ipcMain.handle('/workspace/touch', async (event, params) => {
 
 ipcMain.handle('/workspace/delete', async (event, params) => {
   try {
-    // Validate input
-    const validated = validateInput(WorkspaceDeleteSchema, params);
+    // Validate input with Zod
+    const validated = zSchemas.WorkspaceDeleteSchema.parse(params);
     const { id } = validated;
     // Use database if available
     if (database && database.initialized) {
       await database.deleteWorkspaceById(id);
       return { success: true };
     }
-    
+
     // Fallback to in-memory store (for backward compatibility, treat id as name)
     workspaceStore.delete(id);
     return { success: true };
@@ -1136,21 +1158,21 @@ ipcMain.handle('/workspace/delete', async (event, params) => {
 
 ipcMain.handle('/workspace/rename', async (event, params) => {
   try {
-    // Validate input
-    const validated = validateInput(WorkspaceRenameSchema, params);
+    // Validate input with Zod
+    const validated = zSchemas.WorkspaceRenameSchema.parse(params);
     const { oldName, newName } = validated;
     // Use database if available
     if (database && database.initialized) {
       await database.renameWorkspace(oldName, newName);
       return { success: true };
     }
-    
+
     // Fallback to in-memory store
     const existing = workspaceStore.get(oldName);
     if (!existing) {
       return { success: false, error: 'Workspace not found' };
     }
-    
+
     workspaceStore.set(newName, {
       ...existing,
       updatedAt: Date.now()
@@ -1160,8 +1182,13 @@ ipcMain.handle('/workspace/rename', async (event, params) => {
   } catch (error) {
     console.error('Error renaming workspace:', error);
     return { success: false, error: error.message };
-  }
+}
+
 });
+}
+
+if (!useSecureIpc) {
+
 
 // Instructions handlers
 ipcMain.handle('/instructions/list', async () => {
@@ -1214,6 +1241,7 @@ ipcMain.handle('/instructions/delete', async (event, params) => {
     throw error;
   }
 });
+}
 
 // Helper function to broadcast updates to all renderer processes
 function broadcastUpdate(channel, data) {
@@ -1222,6 +1250,8 @@ function broadcastUpdate(channel, data) {
     window.webContents.send(channel, data);
   }
 }
+
+if (!useSecureIpc) {
 
 // Preferences handlers
 ipcMain.handle('/prefs/get', async (event, params) => {
@@ -1238,18 +1268,18 @@ ipcMain.handle('/prefs/get', async (event, params) => {
       console.error('Invalid /prefs/get params:', params);
       return null; // Return null instead of throwing for missing keys
     }
-    
+
     if (!key || typeof key !== 'string') {
       console.error('Invalid key provided to /prefs/get:', key);
       return null; // Return null for invalid keys
     }
-    
+
     // Use database if available and initialized
     if (database && database.initialized) {
       const value = await database.getPreference(key);
       return value !== undefined ? value : null;
     }
-    
+
     // Fallback to in-memory store
     const value = preferencesStore.get(key);
     // Return just the value, not wrapped in an object
@@ -1268,13 +1298,13 @@ ipcMain.handle('/prefs/set', async (event, params) => {
     if (!params || typeof params !== 'object') {
       throw new Error('Invalid parameters: object with key and value required');
     }
-    
+
     const { key, value } = params;
-    
+
     if (!key || typeof key !== 'string') {
       throw new Error('Invalid key provided');
     }
-    
+
     // Use database if available
     if (database && database.initialized) {
       await database.setPreference(key, value);
@@ -1295,4 +1325,6 @@ ipcMain.handle('/prefs/set', async (event, params) => {
     throw error; // Let the renderer handle the error
   }
 });
+
+}
 

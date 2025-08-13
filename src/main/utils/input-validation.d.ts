@@ -15,6 +15,7 @@ export function validateInput<T = any>(schema: ValidationSchema, input: unknown)
 
 export const WorkspaceCreateSchema: ValidationSchema;
 export const WorkspaceLoadSchema: ValidationSchema;
+export const WorkspaceExistsSchema: ValidationSchema;
 export const WorkspaceUpdateSchema: ValidationSchema;
 export const WorkspaceDeleteSchema: ValidationSchema;
 export const WorkspaceRenameSchema: ValidationSchema;

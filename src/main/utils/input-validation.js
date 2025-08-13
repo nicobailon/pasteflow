@@ -80,6 +80,10 @@ const WorkspaceLoadSchema = {
   id: { type: 'string', required: true, minLength: 1, maxLength: 255 }  // Can be UUID or name
 };
 
+const WorkspaceExistsSchema = {
+  name: { type: 'string', required: true, minLength: 1, maxLength: 255 }  // Workspace name to check
+};
+
 const WorkspaceUpdateSchema = {
   id: { type: 'string', required: false, minLength: 1, maxLength: 255 },  // Can be UUID or name
   name: { type: 'string', required: false, minLength: 1, maxLength: 255 },
@@ -177,6 +181,7 @@ module.exports = {
   validateInput,
   WorkspaceCreateSchema,
   WorkspaceLoadSchema,
+  WorkspaceExistsSchema,
   WorkspaceUpdateSchema,
   WorkspaceDeleteSchema,
   WorkspaceRenameSchema,

@@ -80,21 +80,43 @@ function startElectron() {
   console.log(
     `🔌 Starting Electron app with Vite server at port ${vitePort}...`,
   );
-  const electronProcess = spawn("npm", ["start"], {
-    stdio: "inherit",
-    shell: platform() === "win32", // Use shell on Windows
-    env: {
-      ...process.env,
-      NODE_ENV: "development",
-      ELECTRON_START_URL: `http://localhost:${vitePort}`,
-    },
-  });
 
-  electronProcess.on("close", (code) => {
-    console.log(`Electron process exited with code ${code}`);
+  // 1) Compile TS main layer so build/main exists
+  try {
+    console.log('🛠️  Compiling main-layer TypeScript...');
+    const buildProc = spawn("node", ["scripts/build-main-ts.js"], { stdio: "inherit", shell: platform() === "win32" });
+    buildProc.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`❌ build-main-ts failed with code ${code}`);
+        viteProcess.kill();
+        process.exit(code ?? 1);
+      } else {
+        // 2) Start Electron with SecureIpcLayer enabled
+        const electronProcess = spawn("npm", ["start"], {
+          stdio: "inherit",
+          shell: platform() === "win32", // Use shell on Windows
+          env: {
+            ...process.env,
+            NODE_ENV: "development",
+            ELECTRON_START_URL: `http://localhost:${vitePort}`,
+            SECURE_IPC: "1",
+          },
+        });
+
+        electronProcess.on("close", (code) => {
+          console.log(`Electron process exited with code ${code}`);
+          viteProcess.kill();
+          process.exit(code);
+        });
+      }
+    });
+  } catch (err) {
+    console.error('❌ Failed to compile main-layer TypeScript:', err?.message || err);
     viteProcess.kill();
-    process.exit(code);
-  });
+    process.exit(1);
+  }
+
+
 }
 
 // Handle process termination

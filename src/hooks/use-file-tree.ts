@@ -124,10 +124,11 @@ function useFileTree({
   const convertToTreeNodes = useCallback((
     node: Record<string, any>,
     level = 0,
-    shouldSort = false // Only sort when needed
+    shouldSort = false, // Only sort when needed
+    maxDepth: number = Number.POSITIVE_INFINITY
   ): TreeNode[] => {
     if (!node) return [];
-    
+
     return Object.keys(node).map((key) => {
       const item = node[key];
 
@@ -142,14 +143,15 @@ function useFileTree({
           fileData: latestFileData
         } as TreeNode;
       } else {
-        const children = item.children ? 
-          convertToTreeNodes(item.children, level + 1, shouldSort) : [];
-        
+        // Only include children if we haven't reached maxDepth
+        const children = (level + 1 < maxDepth && item.children) ?
+          convertToTreeNodes(item.children, level + 1, shouldSort, maxDepth) : [];
+
         const isExpanded = expandedNodesRef.current[item.path] ?? (level < 2);
-        
+
         // Only sort children if explicitly requested and the node is expanded
-        const sortedChildren = (shouldSort && isExpanded) ? 
-          sortTreeNodes(children, fileTreeSortOrderRef.current) : 
+        const sortedChildren = (shouldSort && isExpanded) ?
+          sortTreeNodes(children, fileTreeSortOrderRef.current) :
           children;
 
         return {
@@ -213,61 +215,49 @@ function useFileTree({
     const timeoutId = setTimeout(() => {
       // Use StreamingTreeBuilder for large file sets
       if (allFilesRef.current.length > 1000) {
-      // Cancel any existing builder
-      if (streamingBuilderRef.current) {
-        streamingBuilderRef.current.cancel();
+        // Cancel any existing builder
+        if (streamingBuilderRef.current) {
+          streamingBuilderRef.current.cancel();
+        }
+        
+        try {
+          streamingBuilderRef.current = new StreamingTreeBuilder(
+            allFilesRef.current,
+            1000, // Increased chunk size for faster initial display
+            selectedFolder,
+            expandedNodesRef.current
+          );
+          
+          streamingBuilderRef.current.start(
+            // onChunk
+            (chunk) => {
+              commitTree(chunk.nodes);
+              setTreeProgress(chunk.progress);
+            },
+            // onComplete
+            () => {
+              setIsTreeBuildingComplete(true);
+              setTreeProgress(100);
+              streamingBuilderRef.current = null;
+            },
+            // onError
+            (error) => {
+              console.error('StreamingTreeBuilder error:', error);
+              // Fall back to legacy batching
+              streamingBuilderRef.current = null;
+              processBatchLegacy();
+            }
+          );
+          // IMPORTANT: do not run legacy builder too—stop here.
+          return;
+        } catch (error) {
+          console.error('Failed to initialize StreamingTreeBuilder:', error);
+          // Fall back to legacy batching
+        }
       }
       
-      try {
-        streamingBuilderRef.current = new StreamingTreeBuilder(
-          allFilesRef.current,
-          1000, // Increased chunk size for faster initial display
-          selectedFolder,
-          expandedNodesRef.current
-        );
-        
-        streamingBuilderRef.current.start(
-          // onChunk
-          (chunk) => {
-            commitTree(chunk.nodes);
-            setTreeProgress(chunk.progress);
-          },
-          // onComplete
-          () => {
-            setIsTreeBuildingComplete(true);
-            setTreeProgress(100);
-            streamingBuilderRef.current = null;
-          },
-          // onError
-          (error) => {
-            console.error('StreamingTreeBuilder error:', error);
-            // Fall back to legacy batching
-            streamingBuilderRef.current = null;
-            processBatchLegacy();
-          }
-        );
-        
-        return () => {
-          processingStartedRef.current = false;
-          // Cancel any pending animation frame
-          if (rafIdRef.current) {
-            cancelAnimationFrame(rafIdRef.current);
-            rafIdRef.current = 0;
-          }
-          // Cancel streaming builder if active
-          if (streamingBuilderRef.current) {
-            streamingBuilderRef.current.cancel();
-            streamingBuilderRef.current = null;
-          }
-        };
-      } catch (error) {
-        console.error('Failed to initialize StreamingTreeBuilder:', error);
-        // Fall back to legacy batching
-      }
-    }
-    
-    // Legacy batch processing for small file sets or fallback
-    processBatchLegacy();
+      // Legacy batch processing for small file sets or fallback
+      processBatchLegacy();
     
     function processBatchLegacy() {
       fileMapRef.current = {};
@@ -289,15 +279,21 @@ function useFileTree({
 
         const normalizedFilePath = normalizePath(file.path);
         const normalizedRootPath = selectedFolder ? normalizePath(selectedFolder) : '';
-        
-        const relativePath = 
-          selectedFolder && normalizedFilePath.startsWith(normalizedRootPath)
-            ? normalizedFilePath
-                .slice(normalizedRootPath.length)
-                .replace(/^\/|^\\/, "")
-            : normalizedFilePath;
 
-        const parts = relativePath.split(/[/\\]/);
+        // Strictly include only files under selectedFolder (boundary-safe)
+        let relativePath: string;
+        if (selectedFolder) {
+          const root = normalizedRootPath;
+          const underRoot = normalizedFilePath === root || normalizedFilePath.startsWith(root + '/');
+          if (!underRoot) {
+            continue;
+          }
+          relativePath = normalizedFilePath === root ? '' : normalizedFilePath.slice(root.length + 1);
+        } else {
+          relativePath = normalizedFilePath.replace(/^\/|^\\/, '');
+        }
+
+        const parts = relativePath.split('/');
         let currentPath = "";
         let current = fileMapRef.current;
 
@@ -309,7 +305,7 @@ function useFileTree({
           
           if (i < parts.length - 1) {
             const dirPath = selectedFolder
-              ? normalizePath(`${selectedFolder}/${currentPath}`)
+              ? normalizePath(`${normalizedRootPath}/${currentPath}`)
               : normalizePath(`/${currentPath}`);
             
             if (!current[part]) {
@@ -330,7 +326,7 @@ function useFileTree({
             current = current[part].children;
           } else {
             const filePath = selectedFolder
-              ? normalizePath(`${selectedFolder}/${currentPath}`)
+              ? normalizePath(`${normalizedRootPath}/${currentPath}`)
               : normalizePath(`/${currentPath}`);
             
             current[part] = {
@@ -345,15 +341,21 @@ function useFileTree({
       
       processedCount = endIdx;
       
-      // Update tree without sorting for intermediate updates
-      const intermediateTree = convertToTreeNodes(fileMapRef.current, 0, false);
+      // Update tree without sorting for intermediate updates; limit depth to reduce work
+      const intermediateTree = convertToTreeNodes(fileMapRef.current, 0, false, 3);
       commitTree(intermediateTree);
-      
+      // Update progress
+      if (allFilesRef.current.length > 0) {
+        const p = Math.min(100, Math.round((processedCount / allFilesRef.current.length) * 100));
+        setTreeProgress(p);
+      }
+
       if (processedCount >= allFilesRef.current.length) {
-        // Only sort the final tree when all files are processed
-        const finalTree = convertToTreeNodes(fileMapRef.current, 0, true);
+        // Only sort the final tree when all files are processed (full depth)
+        const finalTree = convertToTreeNodes(fileMapRef.current, 0, true, Number.POSITIVE_INFINITY);
         commitTree(finalTree);
         setIsTreeBuildingComplete(true);
+        setTreeProgress(100);
       } else {
         setTimeout(processBatch, BATCH_INTERVAL);
       }
@@ -698,7 +700,10 @@ function useFileTree({
 
         // If it's a directory and it's expanded, add its children
         if (nodeWithUpdatedExpanded.type === "directory" && nodeWithUpdatedExpanded.isExpanded && nodeWithUpdatedExpanded.children) {
-          result = [...result, ...flattenNodesRecursively(nodeWithUpdatedExpanded.children)];
+          const childFlat = flattenNodesRecursively(nodeWithUpdatedExpanded.children);
+          for (let k = 0; k < childFlat.length; k++) {
+            result.push(childFlat[k]);
+          }
         }
       }
 
@@ -741,26 +746,33 @@ function useFileTree({
 
     // Define recursive filter function inside to avoid dependency issue
     const filterNodesRecursively = (nodesToFilter: TreeNode[]): TreeNode[] => {
-      return nodesToFilter.filter(node => nodeMatches(node)).map((node) => {
+      const result: TreeNode[] = [];
+      for (let i = 0; i < nodesToFilter.length; i++) {
+        const node = nodesToFilter[i];
+        if (!nodeMatches(node)) continue;
+
         // For file nodes, ensure we have the latest file data
-        // Use filesByPath directly instead of the ref to ensure we get the latest data
         if (node.type === "file" && node.path) {
           const latestFileData = filesByPath.get(node.path);
           if (latestFileData && latestFileData !== node.fileData) {
-            node = { ...node, fileData: latestFileData };
+            result.push({ ...node, fileData: latestFileData });
+            continue;
           }
         }
-        
+
         // If it's a directory, also filter its children
         if (node.type === "directory" && node.children) {
-          return {
+          result.push({
             ...node,
-            children: filterNodesRecursively(node.children), // Already sorted in the tree
-            isExpanded: true, // Auto-expand directories when searching
-          };
+            children: filterNodesRecursively(node.children),
+            isExpanded: true,
+          });
+          continue;
         }
-        return node;
-      });
+
+        result.push(node);
+      }
+      return result;
     };
 
     // Filter the nodes - they maintain their existing sort order from the tree
@@ -774,7 +786,7 @@ function useFileTree({
     if (!searchTerm && !isTreeBuildingComplete) {
       return flattenTree(fileTree);
     }
-    
+
     // Only apply filtering and sorting when needed
     return flattenTree(filterTree(fileTree, searchTerm));
   }, [fileTree, searchTerm, isTreeBuildingComplete, filterTree, flattenTree, expandedNodes]);
