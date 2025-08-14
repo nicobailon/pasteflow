@@ -34,7 +34,7 @@ export const RATE_LIMITS = {
   
   /** Request limits per window for different IPC operations */
   REQUESTS: {
-    FILE_LIST: 100,
+    FILE_LIST: 200,  // Increased for preference reads during workspace loading
     FILE_CONTENT: 500,
     OPEN_DOCS: 20,
     OPEN_FOLDER: 20,

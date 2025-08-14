@@ -106,6 +106,10 @@ export function usePersistentState<T>(
           return;
         }
 
+        // Add a small random delay (0-100ms) to stagger initial loads
+        // This prevents rate limiting when multiple hooks initialize simultaneously
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+
         const dbValue = await fetchData({ key });
         if (dbValue !== null) {
           setPersistedValue(dbValue as T);
