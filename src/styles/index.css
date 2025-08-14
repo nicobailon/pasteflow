@@ -347,7 +347,6 @@ input[type="search"]:focus {
 
 .file-tree {
   flex: 1;
-  overflow-y: auto;
   padding: 0.5rem 0;
   background-color: var(--background-secondary);
 }
@@ -819,10 +818,6 @@ input[type="search"]:focus {
   transform: translateY(0);
   box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.1);
 }
-
-/* Copy button styles moved to src/components/copy-button.css */
-
-/* REMOVED: Unused styles - .file-tree-format-container and .file-tree-options-container were not referenced anywhere */
 
 .processing-indicator {
   position: fixed;
