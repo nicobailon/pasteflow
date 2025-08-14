@@ -8,6 +8,7 @@ import CopyButton from './copy-button';
 import Dropdown from './dropdown';
 import FileList from './file-list';
 import ClipboardPreviewModal from './clipboard-preview-modal';
+import './content-area.css';
 
 // Minimal inline component implementing @path autocomplete for the instructions textarea only
 const InstructionsTextareaWithPathAutocomplete = ({
@@ -203,7 +204,7 @@ const InstructionsTextareaWithPathAutocomplete = ({
   }, []);
 
   return (
-    <div ref={containerRef} style={{ position: 'relative' }}>
+    <div ref={containerRef} className="autocomplete-container">
       <textarea
         ref={textareaRef}
         className="user-instructions-input"
@@ -214,43 +215,23 @@ const InstructionsTextareaWithPathAutocomplete = ({
       />
       {open && results.length > 0 && (
         <div
+          className="autocomplete-dropdown"
           style={{
-            position: 'absolute',
             left: anchorPosition.x,
             top: anchorPosition.y,
-            maxHeight: 240,
-            overflowY: 'auto',
-            width: 'max(200px, 33.33%)',
-            background: 'var(--background-elevated, #1e1e1e)',
-            border: '1px solid var(--border-color, #444)',
-            borderRadius: 6,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-            zIndex: 5,
           }}
         >
-          <div style={{
-            padding: '6px 8px',
-            fontSize: 12,
-            color: 'var(--text-secondary, #999)'
-          }}>Files</div>
+          <div className="autocomplete-header">Files</div>
           {results.map((item, idx) => (
             <div
               key={item.abs}
+              className={`autocomplete-item ${idx === activeIndex ? 'active' : ''}`}
               onMouseDown={(e) => {
                 e.preventDefault();
                 acceptSelection(item);
               }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '8px 10px',
-                cursor: 'pointer',
-                background: idx === activeIndex ? 'var(--hover, rgba(255,255,255,0.06))' : 'transparent',
-                color: 'var(--text-primary, #ddd)',
-                userSelect: 'none',
-              }}
             >
-              <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{item.rel}</span>
+              <span>{item.rel}</span>
             </div>
           ))}
         </div>
@@ -463,7 +444,7 @@ const ContentArea = ({
           loadFileContent={loadFileContent}
         />
       </div>
-      <div className="user-instructions-input-area" style={{ position: 'relative' }}>
+      <div className="user-instructions-input-area">
         <div className="instructions-token-count">
           ~{instructionsTokenCount.toLocaleString()} tokens
         </div>
