@@ -121,10 +121,13 @@ const App = () => {
             processingStatus={appState.processingStatus}
             selectedSystemPrompts={appState.selectedSystemPrompts}
             toggleSystemPromptSelection={appState.toggleSystemPromptSelection}
+            onViewSystemPrompt={appState.openSystemPromptsModalForEdit}
             selectedRolePrompts={appState.selectedRolePrompts}
             toggleRolePromptSelection={appState.toggleRolePromptSelection}
+            onViewRolePrompt={appState.openRolePromptsModalForEdit}
             selectedInstructions={appState.selectedInstructions}
             toggleInstructionSelection={appState.toggleInstructionSelection}
+            onViewInstruction={appState.openInstructionsModalForEdit}
             sortOrder={appState.sortOrder}
             handleSortChange={appState.handleSortChange}
             sortDropdownOpen={appState.sortDropdownOpen}
@@ -138,6 +141,7 @@ const App = () => {
             fileTreeTokens={appState.getCurrentFileTreeTokens()}
             systemPromptTokens={appState.systemPromptsTokens}
             rolePromptTokens={appState.rolePromptsTokens}
+            instructionsTokens={appState.instructionsTokens}
             setSystemPromptsModalOpen={appState.setSystemPromptsModalOpen}
             setRolePromptsModalOpen={appState.setRolePromptsModalOpen}
             setInstructionsModalOpen={appState.setInstructionsModalOpen}
@@ -178,7 +182,7 @@ const App = () => {
         
         <SystemPromptsModal
           isOpen={appState.systemPromptsModalOpen}
-          onClose={() => appState.setSystemPromptsModalOpen(false)}
+          onClose={() => appState.closeSystemPromptsModal()}
           systemPrompts={appState.systemPrompts}
           onAddPrompt={appState.handleAddSystemPrompt}
           onDeletePrompt={appState.handleDeleteSystemPrompt}
@@ -186,11 +190,12 @@ const App = () => {
           onSelectPrompt={appState.toggleSystemPromptSelection}
           selectedSystemPrompts={appState.selectedSystemPrompts}
           toggleSystemPromptSelection={appState.toggleSystemPromptSelection}
+          initialEditPrompt={appState.systemPromptToEdit}
         />
         
         <RolePromptsModal
           isOpen={appState.rolePromptsModalOpen}
-          onClose={() => appState.setRolePromptsModalOpen(false)}
+          onClose={() => appState.closeRolePromptsModal()}
           rolePrompts={appState.rolePrompts}
           onAddPrompt={appState.handleAddRolePrompt}
           onDeletePrompt={appState.handleDeleteRolePrompt}
@@ -198,17 +203,19 @@ const App = () => {
           onSelectPrompt={appState.toggleRolePromptSelection}
           selectedRolePrompts={appState.selectedRolePrompts}
           toggleRolePromptSelection={appState.toggleRolePromptSelection}
+          initialEditPrompt={appState.rolePromptToEdit}
         />
         
         <InstructionsModal
           isOpen={appState.instructionsModalOpen}
-          onClose={() => appState.setInstructionsModalOpen(false)}
+          onClose={() => appState.closeInstructionsModal()}
           instructions={appState.instructions || []}
           onAddInstruction={appState.onAddInstruction}
           onDeleteInstruction={appState.onDeleteInstruction}
           onUpdateInstruction={appState.onUpdateInstruction}
           selectedInstructions={appState.selectedInstructions || []}
           toggleInstructionSelection={appState.toggleInstructionSelection}
+          initialEditInstruction={appState.instructionToEdit}
         />
         
         <WorkspaceModal

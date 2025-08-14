@@ -44,10 +44,13 @@ const FileList = ({
   processingStatus,
   selectedSystemPrompts = [],
   toggleSystemPromptSelection,
+  onViewSystemPrompt,
   selectedRolePrompts = [],
   toggleRolePromptSelection,
+  onViewRolePrompt,
   selectedInstructions = [],
   toggleInstructionSelection,
+  onViewInstruction,
   loadFileContent,
 }: FileListProps) => {
   // Create a Map for faster lookups - now just references
@@ -140,6 +143,7 @@ const FileList = ({
               key={`system-prompt-${prompt.id}`}
               prompt={prompt}
               toggleSelection={toggleSystemPromptSelection || (() => {})}
+              onViewPrompt={onViewSystemPrompt}
             />
           ))}
           
@@ -149,6 +153,7 @@ const FileList = ({
               key={`role-prompt-${prompt.id}`}
               prompt={prompt}
               toggleSelection={toggleRolePromptSelection || (() => {})}
+              onViewPrompt={onViewRolePrompt}
             />
           ))}
           
@@ -158,6 +163,7 @@ const FileList = ({
               key={`instruction-${instruction.id}`}
               instruction={instruction}
               toggleSelection={toggleInstructionSelection || (() => {})}
+              onViewInstruction={onViewInstruction}
             />
           ))}
           
