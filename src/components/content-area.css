@@ -192,11 +192,13 @@
   background: rgba(0, 0, 0, 0.3);
 }
 
-.dark-mode .autocomplete-dropdown::-webkit-scrollbar-thumb {
+.dark-mode .autocomplete-dropdown::-webkit-scrollbar-thumb,
+.dark-theme .autocomplete-dropdown::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
 }
 
-.dark-mode .autocomplete-dropdown::-webkit-scrollbar-thumb:hover {
+.dark-mode .autocomplete-dropdown::-webkit-scrollbar-thumb:hover,
+.dark-theme .autocomplete-dropdown::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 

@@ -1,4 +1,4 @@
-import { MessageSquareCode, X } from "lucide-react";
+import { Eye, MessageSquareCode, X } from "lucide-react";
 
 import { SystemPrompt } from "../types/file-types";
 
@@ -13,15 +13,17 @@ const estimateTokenCount = (text: string) => {
 interface SystemPromptCardProps {
   prompt: SystemPrompt;
   toggleSelection: (prompt: SystemPrompt) => void;
+  onViewPrompt?: (prompt: SystemPrompt) => void;
 }
 
 const SystemPromptCard = ({
   prompt,
-  toggleSelection
+  toggleSelection,
+  onViewPrompt
 }: SystemPromptCardProps) => {
   const { name, content } = prompt;
   
-  const tokenCount = estimateTokenCount(content);
+  const tokenCount = prompt.tokenCount ?? estimateTokenCount(content);
 
   return (
     <div className="file-card system-prompt-card">
@@ -39,13 +41,24 @@ const SystemPromptCard = ({
       </div>
 
       <div className="file-card-actions">
-        <CopyButton text={content} className="file-card-action">
+        {onViewPrompt && (
+          <button
+            className="file-card-action"
+            onClick={() => onViewPrompt(prompt)}
+            title="View prompt"
+            aria-label={`View system prompt: ${name}`}
+          >
+            <Eye size={16} />
+          </button>
+        )}
+        <CopyButton text={content} className="file-card-action" aria-label={`Copy system prompt: ${name}`}>
           {""}
         </CopyButton>
         <button
           className="file-card-action remove-selection-btn"
           onClick={() => toggleSelection(prompt)}
           title="Remove from selection"
+          aria-label={`Remove system prompt ${name} from selection`}
         >
           <X size={16} />
         </button>

@@ -254,10 +254,13 @@ interface ContentAreaProps {
   };
   selectedSystemPrompts: SystemPrompt[];
   toggleSystemPromptSelection: (prompt: SystemPrompt) => void;
+  onViewSystemPrompt?: (prompt: SystemPrompt) => void;
   selectedRolePrompts: RolePrompt[];
   toggleRolePromptSelection: (prompt: RolePrompt) => void;
+  onViewRolePrompt?: (prompt: RolePrompt) => void;
   selectedInstructions: Instruction[];
   toggleInstructionSelection: (instruction: Instruction) => void;
+  onViewInstruction?: (instruction: Instruction) => void;
   sortOrder: string;
   handleSortChange: (newSort: string) => void;
   sortDropdownOpen: boolean;
@@ -271,6 +274,7 @@ interface ContentAreaProps {
   fileTreeTokens: number;
   systemPromptTokens: number;
   rolePromptTokens: number;
+  instructionsTokens: number;
   setSystemPromptsModalOpen: (open: boolean) => void;
   setRolePromptsModalOpen: (open: boolean) => void;
   setInstructionsModalOpen: (open: boolean) => void;
@@ -295,10 +299,13 @@ const ContentArea = ({
   processingStatus,
   selectedSystemPrompts,
   toggleSystemPromptSelection,
+  onViewSystemPrompt,
   selectedRolePrompts,
   toggleRolePromptSelection,
+  onViewRolePrompt,
   selectedInstructions,
   toggleInstructionSelection,
+  onViewInstruction,
   sortOrder,
   handleSortChange,
   sortOptions,
@@ -310,6 +317,7 @@ const ContentArea = ({
   fileTreeTokens,
   systemPromptTokens,
   rolePromptTokens,
+  instructionsTokens,
   setSystemPromptsModalOpen,
   setRolePromptsModalOpen,
   setInstructionsModalOpen,
@@ -342,8 +350,8 @@ const ContentArea = ({
 
   const handlePreview = async () => {
     const content = await handleCopyWithLoading(getSelectedFilesContent);
-    const totalTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens +
-                       (userInstructions.trim() ? instructionsTokenCount : 0);
+    const totalTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens + 
+                       instructionsTokens + (userInstructions.trim() ? instructionsTokenCount : 0);
     openClipboardPreviewModal(content, totalTokens);
   };
 
@@ -378,17 +386,26 @@ const ContentArea = ({
               activeItemClassName="active"
             />
             <div className="file-stats">
-              {selectedFiles.length} files | ~
               {(() => {
-                // Calculate estimated tokens based on file sizes
-                const totalSize = selectedFiles.reduce((sum, selectedFile) => {
-                  const file = allFiles.find(f => f.path === selectedFile.path);
-                  return sum + (file?.size || 0);
-                }, 0);
-                // Rough estimation: 1 token per 4 characters
-                const estimatedTokens = Math.round(totalSize / 4);
-                return estimatedTokens.toLocaleString();
-              })()} tokens (estimated)
+                // Count all content items
+                const fileCount = selectedFiles.length;
+                const promptCount = selectedSystemPrompts.length + selectedRolePrompts.length;
+                const docCount = selectedInstructions.length;
+                const totalItems = fileCount + promptCount + docCount;
+                
+                // Calculate total tokens including all sources - using Map for O(1) lookups
+                const sizeByPath = new Map(
+                  allFiles
+                    .filter(f => !f.isDirectory && !f.isBinary && !f.isSkipped)
+                    .map(f => [f.path, f.size ?? 0])
+                );
+                const totalSize = selectedFiles.reduce((sum, s) => sum + (sizeByPath.get(s.path) ?? 0), 0);
+                const filesTokens = Math.round(totalSize / 4);
+                
+                const totalEstimatedTokens = filesTokens + systemPromptTokens + rolePromptTokens + instructionsTokens;
+                
+                return `${totalItems} items | ~${totalEstimatedTokens.toLocaleString()} tokens (estimated)`;
+              })()}
             </div>
           </div>
           <div className="prompts-buttons-container">
@@ -437,10 +454,13 @@ const ContentArea = ({
           processingStatus={processingStatus}
           selectedSystemPrompts={selectedSystemPrompts}
           toggleSystemPromptSelection={toggleSystemPromptSelection}
+          onViewSystemPrompt={onViewSystemPrompt}
           selectedRolePrompts={selectedRolePrompts}
           toggleRolePromptSelection={toggleRolePromptSelection}
+          onViewRolePrompt={onViewRolePrompt}
           selectedInstructions={selectedInstructions}
           toggleInstructionSelection={toggleInstructionSelection}
+          onViewInstruction={onViewInstruction}
           loadFileContent={loadFileContent}
         />
       </div>
@@ -462,14 +482,24 @@ const ContentArea = ({
         />
         <div className="copy-button-container">
           <div className="copy-button-group">
-            <button
-              className="preview-button"
-              onClick={handlePreview}
-              disabled={selectedFiles.length === 0}
-            >
-              <Eye size={16} />
-              <span>Preview</span>
-            </button>
+            {(() => {
+              const hasPreviewableContent =
+                selectedFiles.length > 0 ||
+                selectedSystemPrompts.length > 0 ||
+                selectedRolePrompts.length > 0 ||
+                selectedInstructions.length > 0 ||
+                userInstructions.trim().length > 0;
+              return (
+                <button
+                  className="preview-button"
+                  onClick={handlePreview}
+                  disabled={!hasPreviewableContent}
+                >
+                  <Eye size={16} />
+                  <span>Preview</span>
+                </button>
+              );
+            })()}
             <CopyButton
               text={() => handleCopyWithLoading(getSelectedFilesContent)}
               className="primary copy-selected-files-btn"
@@ -482,7 +512,7 @@ const ContentArea = ({
                 const filesTokens = calculateTotalTokens();
 
                 // Add tokens for file tree and prompts from props
-                let total = filesTokens + fileTreeTokens + systemPromptTokens + rolePromptTokens;
+                let total = filesTokens + fileTreeTokens + systemPromptTokens + rolePromptTokens + instructionsTokens;
 
                 // Add tokens for user instructions if they exist
                 if (userInstructions.trim()) {

@@ -1,4 +1,4 @@
-import { FileText, X } from "lucide-react";
+import { Eye, FileText, X } from "lucide-react";
 
 import { Instruction } from "../types/file-types";
 
@@ -13,15 +13,17 @@ const estimateTokenCount = (text: string) => {
 interface InstructionCardProps {
   instruction: Instruction;
   toggleSelection: (instruction: Instruction) => void;
+  onViewInstruction?: (instruction: Instruction) => void;
 }
 
 const InstructionCard = ({
   instruction,
-  toggleSelection
+  toggleSelection,
+  onViewInstruction
 }: InstructionCardProps) => {
   const { name, content } = instruction;
   
-  const tokenCount = estimateTokenCount(content);
+  const tokenCount = instruction.tokenCount ?? estimateTokenCount(content);
 
   return (
     <div className="file-card instruction-card">
@@ -39,13 +41,24 @@ const InstructionCard = ({
       </div>
 
       <div className="file-card-actions">
-        <CopyButton text={content} className="file-card-action">
+        {onViewInstruction && (
+          <button
+            className="file-card-action"
+            onClick={() => onViewInstruction(instruction)}
+            title="View doc"
+            aria-label={`View doc: ${name}`}
+          >
+            <Eye size={16} />
+          </button>
+        )}
+        <CopyButton text={content} className="file-card-action" aria-label={`Copy doc: ${name}`}>
           {""}
         </CopyButton>
         <button
           className="file-card-action remove-selection-btn"
           onClick={() => toggleSelection(instruction)}
           title="Remove from selection"
+          aria-label={`Remove doc ${name} from selection`}
         >
           <X size={16} />
         </button>
