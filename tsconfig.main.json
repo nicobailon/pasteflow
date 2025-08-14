@@ -21,10 +21,12 @@
     "src/main/ipc/secure-ipc.ts",
     "src/main/ipc/schemas.ts",
     "src/main/handlers/state-handlers.ts",
+    "src/main/db/database-manager.ts",
     "src/main/db/secure-database.ts",
     "src/main/db/async-database.ts",
     "src/main/db/retry-utils.ts",
-    "src/main/db/shared-buffer-utils.ts"
+    "src/main/db/shared-buffer-utils.ts",
+    "src/main/utils/token-utils.ts"
   ],
   "exclude": [
     "src/main/db/__tests__/**",

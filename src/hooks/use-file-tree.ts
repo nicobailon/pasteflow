@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FileData, TreeNode } from '../types/file-types';
 import { normalizePath } from '../utils/path-utils';
 import { StreamingTreeBuilder } from '../utils/streaming-tree-builder';
-import { BoundedLRUCache } from '../utils/bounded-lru-cache';
+import { getTreeSortingService, clearTreeSortingCache } from '../utils/tree-sorting-service';
 
 interface UseFileTreeProps {
   allFiles: FileData[];
@@ -20,14 +20,8 @@ interface UseFileTreeResult {
   treeProgress: number;
 }
 
-// Cache for directory and file priorities to improve performance
-// Using bounded LRU cache to prevent unbounded memory growth
-const nodePriorityCache = new BoundedLRUCache<string, number>(1000);
-
-// Function to clear the cache when sort order changes
-const clearNodePriorityCache = () => {
-  nodePriorityCache.clear();
-};
+// Get the singleton tree sorting service instance
+const treeSortingService = getTreeSortingService();
 
 function useFileTree({
   allFiles,
@@ -418,7 +412,7 @@ function useFileTree({
     if (prevSortOrderRef.current !== fileTreeSortOrder) {
       processingStartedRef.current = false;
       prevSortOrderRef.current = fileTreeSortOrder;
-      clearNodePriorityCache();
+      clearTreeSortingCache();
       
       // Re-sort the existing tree without rebuilding
       if (fileMapRef.current && Object.keys(fileMapRef.current).length > 0) {
@@ -431,222 +425,9 @@ function useFileTree({
   // Memoized function to sort tree nodes based on sort order
   const sortTreeNodes = useMemo(() => {
     return (nodes: TreeNode[], sortOrder: string): TreeNode[] => {
-    // If sortOrder is not 'default', use the existing sorting logic
-    if (sortOrder !== 'default') {
-      return nodes.sort((a, b) => {
-        // Sort directories first, regardless of sort order
-        if (a.type === "directory" && b.type === "file") return -1;
-        if (a.type === "file" && b.type === "directory") return 1;
-
-        // Apply sort based on sort order
-        const [sortKey, sortDir] = sortOrder.split('-');
-        
-        if (sortKey === 'name') {
-          return sortDir === 'asc' 
-            ? a.name.localeCompare(b.name) 
-            : b.name.localeCompare(a.name);
-        }
-        
-        // For files, enable sorting by other criteria
-        if (a.type === "file" && b.type === "file") {
-          if (sortKey === 'tokens') {
-            const aTokens = a.fileData?.tokenCount || 0;
-            const bTokens = b.fileData?.tokenCount || 0;
-            return sortDir === 'asc' ? aTokens - bTokens : bTokens - aTokens;
-          }
-          
-          if (sortKey === 'extension') {
-            const aExt = a.name.split('.').pop() || '';
-            const bExt = b.name.split('.').pop() || '';
-            return sortDir === 'asc' ? aExt.localeCompare(bExt) || a.name.localeCompare(b.name) : bExt.localeCompare(aExt) || b.name.localeCompare(a.name);
-          }
-          
-          if (sortKey === 'date') {
-            // Since we don't have file date info in the FileData interface,
-            // use file size as a temporary alternative for sorting
-            // TODO: Replace with actual date sorting when date field is available
-            const aSize = a.fileData?.size || 0;
-            const bSize = b.fileData?.size || 0;
-            return sortDir === 'asc' ? aSize - bSize : bSize - aSize;
-          }
-        }
-        
-        // Default to name sort
-        return a.name.localeCompare(b.name);
-      });
-    }
-    
-    // For the 'default' sort order, implement the developer-focused algorithm
-    return nodes.sort((a, b) => {
-      // Primary Division: Directories first, files second
-      if (a.type === "directory" && b.type === "file") return -1;
-      if (a.type === "file" && b.type === "directory") return 1;
-      
-      // Directory Sorting Rules
-      if (a.type === "directory" && b.type === "directory") {
-        // Helper function to get directory priority - memoized for performance
-        const getDirectoryPriority = (node: TreeNode): number => {
-          // Check cache first
-          const cacheKey = `dir-${node.id}`;
-          if (nodePriorityCache.has(cacheKey)) {
-            return nodePriorityCache.get(cacheKey)!;
-          }
-          
-          const name = node.name.toLowerCase();
-          let priority: number;
-          
-          // 1. Core source and functionality directories
-          switch (name) {
-          case 'src': {
-          priority = 1;
-          break;
-          }
-          case 'scripts': {
-          priority = 2;
-          break;
-          }
-          case 'public': {
-          priority = 3;
-          break;
-          }
-          case 'lib': {
-          priority = 4;
-          break;
-          }
-          case 'docs': {
-          priority = 5;
-          break;
-          }
-          case 'app': 
-          case 'app_components': {
-          priority = 6;
-          break;
-          }
-          case 'actions': {
-          priority = 7;
-          break;
-          }
-          case '.github': {
-          priority = 20;
-          break;
-          }
-          default: { if (name === '__mocks__' || name.startsWith('__') || name.endsWith('__')) priority = 30;
-          // Hidden directories (with leading dot)
-          else if (name.startsWith('.')) priority = 40;
-          // All other directories
-          else priority = 50;
-          }
-          }
-          
-          // Cache the result
-          nodePriorityCache.set(cacheKey, priority);
-          return priority;
-        };
-        
-        const aPriority = getDirectoryPriority(a);
-        const bPriority = getDirectoryPriority(b);
-        
-        // Sort by priority first
-        if (aPriority !== bPriority) {
-          return aPriority - bPriority;
-        }
-        
-        // Within same priority group, sort alphabetically
-        return a.name.localeCompare(b.name);
-      }
-      
-      // File Sorting Priority
-      if (a.type === "file" && b.type === "file") {
-        // Helper function to get file priority - memoized for performance
-        const getFilePriority = (node: TreeNode): number => {
-          // Check cache first
-          const cacheKey = `file-${node.id}`;
-          if (nodePriorityCache.has(cacheKey)) {
-            return nodePriorityCache.get(cacheKey)!;
-          }
-          
-          const name = node.name.toLowerCase();
-          let priority = 100; // Default priority for other files
-          
-          // 1. Build configuration files
-          if (/vite\.config\.ts$/i.test(name) || 
-              /tsconfig\.node\.json$/i.test(name) ||
-              /tsconfig\.json$/i.test(name)) {
-            priority = 1;
-          }
-          
-          // 2. Runtime files
-          else if (/renderer\.js$/i.test(name)) {
-            priority = 2;
-          }
-          
-          // 3. Documentation files (in decreasing importance)
-          else if (/^release\.md$/i.test(name)) {
-            priority = 3;
-          }
-          else if (/^readme\.md$/i.test(name)) {
-            priority = 4;
-          }
-          else if (/^readme\.docker\.md$/i.test(name)) {
-            priority = 5;
-          }
-          else if (/^readme_.*\.md$/i.test(name)) {
-            priority = 6;
-          }
-          
-          // 4. Application support files
-          else if (/^preload\.js$/i.test(name)) {
-            priority = 10;
-          }
-          
-          // 5. Project configuration
-          else if (/^package\.json$/i.test(name)) {
-            priority = 20;
-          }
-          
-          // 6. User files
-          else if (/^new notepad$/i.test(name)) {
-            priority = 30;
-          }
-          
-          // 7. Entry point files
-          else if (/^main\.js$/i.test(name)) {
-            priority = 40;
-          }
-          
-          // 8. Legal files
-          else if (/^license$/i.test(name)) {
-            priority = 50;
-          }
-          
-          // 9. Testing configuration
-          else if (/^jest\.setup\.js$/i.test(name) ||
-                      /^jest\.config\.js$/i.test(name)) {
-            priority = 60;
-          }
-          
-          // Cache the result
-          nodePriorityCache.set(cacheKey, priority);
-          return priority;
-        };
-        
-        const aPriority = getFilePriority(a);
-        const bPriority = getFilePriority(b);
-        
-        // Sort by priority first
-        if (aPriority !== bPriority) {
-          return aPriority - bPriority;
-        }
-        
-        // For files with same priority, sort alphabetically
-        return a.name.localeCompare(b.name);
-      }
-      
-      // Default fallback
-      return a.name.localeCompare(b.name);
-    });
+      return treeSortingService.sortTreeNodes(nodes, sortOrder);
     };
-  }, [fileTreeSortOrder]);
+  }, []);
 
   // Flatten the tree for rendering with proper indentation
   const flattenTree = useCallback((nodes: TreeNode[]): TreeNode[] => {
