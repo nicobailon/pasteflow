@@ -23,7 +23,7 @@ import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
 import { useTokenCounter } from './use-token-counter';
-import { useCancellableOperation, CancellationToken } from './use-cancellable-operation';
+import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
@@ -93,7 +93,7 @@ const useAppState = () => {
 
   // Initialize virtual file loader
   const virtualFileLoaderRef = useRef<VirtualFileLoader | null>(null);
-  const getVirtualFileLoader = useCallback(() => {
+  useEffect(() => {
     if (!virtualFileLoaderRef.current) {
       virtualFileLoaderRef.current = new VirtualFileLoader(
         async (path: string) => {
@@ -103,11 +103,9 @@ const useAppState = () => {
             return { content: result.content, tokenCount };
           }
           throw new Error(result.error || 'Failed to load file');
-        },
-        estimateTokenCount
+        }
       );
     }
-    return virtualFileLoaderRef.current;
   }, []);
 
   // Non-persistent state
@@ -753,7 +751,7 @@ const useAppState = () => {
   // Set up viewFile event listener
   useEffect(() => {
     const handleViewFileEvent = (event: CustomEvent) => {
-      if (event.detail) {
+      if (event.detail && typeof event.detail === 'string') {
         modalState.openFileViewModal(event.detail);
       }
     };
@@ -767,18 +765,8 @@ const useAppState = () => {
     };
   }, [modalState]);
 
-  // Set up file-list-updated event listener to handle pending workspace data
-  useEffect(() => {
-    const handleFileListUpdated = () => {};
-
-    // Add event listener
-    window.addEventListener('file-list-updated', handleFileListUpdated);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('file-list-updated', handleFileListUpdated);
-    };
-  }, [pendingWorkspaceData, currentWorkspace, allFiles, selectedFolder]);
+  // Note: file-list-updated event listener removed as it had no implementation
+  // If this event handling is needed in the future, re-add with proper logic
 
   // Wrap saveWorkspace in useCallback to avoid recreating it on every render
   const saveWorkspace = useCallback((name: string) => {
