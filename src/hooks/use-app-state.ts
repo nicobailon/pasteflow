@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { unstable_batchedUpdates, flushSync } from 'react-dom';
 
 import { STORAGE_KEYS } from '../constants';
-import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers } from '../handlers/electron-handlers';
+import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
 import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction, SelectedFileWithLines, SelectedFileReference } from '../types/file-types';
@@ -875,6 +875,7 @@ const useAppState = () => {
           total: 0
         });
         const requestId = Math.random().toString(36).slice(2, 11);
+        setGlobalRequestId(requestId);
         window.electron.ipcRenderer.send("request-file-list", workspaceFolder, exclusionPatterns || [], requestId);
       }
     }

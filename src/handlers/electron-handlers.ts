@@ -14,6 +14,21 @@ export interface ProcessingStatus {
 // Global tracking to prevent duplicate handler registration
 const HANDLER_KEY = '__pasteflow_electron_handlers_registered';
 
+// Global request ID tracking for file list requests
+const GLOBAL_REQUEST_ID_KEY = '__pasteflow_current_request_id';
+
+interface GlobalWindow extends Window {
+  [GLOBAL_REQUEST_ID_KEY]?: string | null;
+}
+
+export const setGlobalRequestId = (requestId: string | null) => {
+  (window as GlobalWindow)[GLOBAL_REQUEST_ID_KEY] = requestId;
+};
+
+export const getGlobalRequestId = (): string | null => {
+  return (window as GlobalWindow)[GLOBAL_REQUEST_ID_KEY] ?? null;
+};
+
 // Helper function to create initial workspace state
 const createInitialWorkspaceState = (folderPath: string): WorkspaceState => ({
   selectedFolder: folderPath,
@@ -200,22 +215,6 @@ const createFolderSelectedHandler = (
               workspace: minimalWorkspaceData 
             } 
           }));
-        } else {
-          // This should rarely happen, but as a fallback use the old behavior
-          params.setSelectedFolder(newPath);
-          params.clearSelectedFiles();
-          params.setProcessingStatus({
-            status: "processing",
-            message: "Requesting file list...",
-            processed: 0,
-            directories: 0
-          });
-          
-          // Generate new request ID
-          currentRequestId.value = Math.random().toString(36).slice(2, 11);
-          // Clear accumulated files when starting a new request
-          accumulatedFiles.length = 0;
-          window.electron.ipcRenderer.send("request-file-list", newPath, [], currentRequestId.value);
         }
       } catch (error) {
         const appError = error instanceof ApplicationError 
@@ -287,7 +286,10 @@ export const setupElectronHandlers = (
   let accumulatedFiles: FileData[] = [];
   
   // Track current request ID to filter out stale responses
-  const currentRequestId = { value: null as string | null };
+  const currentRequestId = { 
+    get value() { return getGlobalRequestId(); },
+    set value(id: string | null) { setGlobalRequestId(id); }
+  };
   
   const handleFolderSelected = createFolderSelectedHandler(params, accumulatedFiles, handlerId, currentRequestId);
   
@@ -320,7 +322,8 @@ export const setupElectronHandlers = (
     }
 
     // Check if this data is from the current request
-    if ('requestId' in data && data.requestId !== currentRequestId.value) {
+    // If currentRequestId.value is null (not tracking), accept any incoming data
+    if ('requestId' in data && currentRequestId.value !== null && data.requestId !== currentRequestId.value) {
       return {
         filesArray: [],
         isComplete: false,
@@ -438,6 +441,7 @@ export const setupElectronHandlers = (
         params.setIsLoadingCancellable(false);
         params.setAppInitialized(true);
         accumulatedFiles.length = 0; // Clear accumulated files
+        setGlobalRequestId(null); // Clear request ID when complete
       }
 
       const event = new CustomEvent("file-list-updated");
@@ -454,6 +458,9 @@ export const setupElectronHandlers = (
 
       if (status.status === "complete" || status.status === "error") {
         params.setIsLoadingCancellable(false);
+        if (status.status === "error") {
+          setGlobalRequestId(null); // Clear request ID on error
+        }
       } else if (status.status === "processing") {
         params.setIsLoadingCancellable(true);
       }
@@ -521,6 +528,7 @@ export const openFolderDialog = (isElectron: boolean, setProcessingStatus: (stat
 export const cancelFileLoading = (isElectron: boolean, setProcessingStatus: (status: ProcessingStatus) => void) => {
   if (isElectron) {
     window.electron.ipcRenderer.send("cancel-file-loading");
+    setGlobalRequestId(null);
     setProcessingStatus({
       status: "idle",
       message: "File loading cancelled",
@@ -545,6 +553,7 @@ export const requestFileList = (
       message: "Requesting file list...",
     });
     const requestId = Math.random().toString(36).slice(2, 11);
+    setGlobalRequestId(requestId);
     window.electron.ipcRenderer.send("request-file-list", selectedFolder, exclusionPatterns, requestId);
     return true;
   }

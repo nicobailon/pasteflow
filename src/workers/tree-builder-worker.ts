@@ -1,11 +1,13 @@
 import type { FileData, TreeNode } from '../types/file-types';
+import { UI } from '../constants/app-constants';
 
 interface TreeBuilderMessage {
-  allFiles: FileData[];
+  type?: 'INIT' | 'BUILD_TREE' | 'CANCEL';
+  allFiles?: FileData[];
   chunkSize?: number;
   selectedFolder?: string | null;
   expandedNodes?: Record<string, boolean>;
-  id: string;
+  id?: string;
 }
 
 interface TreeNodeMap {
@@ -31,7 +33,7 @@ function normalizePath(path: string): string {
 function convertToTreeNodes(
   nodeMap: TreeNodeMap,
   level = 0,
-  shouldSort = true,
+  shouldSort = false, // Sorting is now handled by the centralized service
   maxDepth: number = Number.POSITIVE_INFINITY,
   includeFileData: boolean = true
 ): TreeNode[] {
@@ -41,38 +43,33 @@ function convertToTreeNodes(
     const node = nodeMap[key];
 
     if (node.isFile) {
-      const fileNode: Partial<TreeNode> = {
+      const fileNode: TreeNode = {
         id: node.path,
         name: node.name,
         path: node.path,
         type: 'file',
         level,
+        fileData: includeFileData ? node.fileData : undefined
       };
-      if (includeFileData) {
-        (fileNode as any).fileData = node.fileData;
-      }
-      nodes.push(fileNode as TreeNode);
+      nodes.push(fileNode);
     } else if (node.isDirectory) {
-      const treeNode: Partial<TreeNode> = {
+      const treeNode: TreeNode = {
         id: node.path,
         name: node.name,
         path: node.path,
         type: 'directory',
         level,
-        isExpanded: node.isExpanded ?? false
+        isExpanded: node.isExpanded ?? false,
+        children: (level + 1 < maxDepth && node.children && Object.keys(node.children).length > 0)
+          ? convertToTreeNodes(node.children, level + 1, shouldSort, maxDepth, includeFileData)
+          : undefined
       };
-
-      // Only include children if we haven't reached maxDepth
-      if (level + 1 < maxDepth && node.children && Object.keys(node.children).length > 0) {
-        (treeNode as any).children = convertToTreeNodes(node.children, level + 1, shouldSort, maxDepth, includeFileData);
-      }
-
-      nodes.push(treeNode as TreeNode);
+      nodes.push(treeNode);
     }
   }
 
   if (shouldSort) {
-    // Basic alphabetical sorting - directories first, then files
+    // Basic alphabetical sorting for stability in intermediate chunks
     nodes.sort((a, b) => {
       if (a.type === 'directory' && b.type === 'file') return -1;
       if (a.type === 'file' && b.type === 'directory') return 1;
@@ -83,22 +80,103 @@ function convertToTreeNodes(
   return nodes;
 }
 
+// Global cancellation flag
+let isCancelled = false;
+let currentBuildId: string | undefined;
+
+// Input validation helper
+function validateInput(data: TreeBuilderMessage): { valid: boolean; error?: string } {
+  if (data.type === 'BUILD_TREE') {
+    if (!data.allFiles || !Array.isArray(data.allFiles)) {
+      return { valid: false, error: 'allFiles must be an array' };
+    }
+    
+    if (!data.id || typeof data.id !== 'string') {
+      return { valid: false, error: 'id must be a string' };
+    }
+    
+    if (data.chunkSize !== undefined) {
+      if (typeof data.chunkSize !== 'number' || data.chunkSize <= 0 || !Number.isSafeInteger(data.chunkSize)) {
+        return { valid: false, error: 'chunkSize must be a positive safe integer' };
+      }
+    }
+    
+    if (data.selectedFolder !== null && data.selectedFolder !== undefined && typeof data.selectedFolder !== 'string') {
+      return { valid: false, error: 'selectedFolder must be string, null, or undefined' };
+    }
+    
+    if (data.expandedNodes !== undefined && (typeof data.expandedNodes !== 'object' || data.expandedNodes === null)) {
+      return { valid: false, error: 'expandedNodes must be an object' };
+    }
+    
+    // Validate each file has a path
+    for (const file of data.allFiles) {
+      if (!file || typeof file.path !== 'string') {
+        return { valid: false, error: 'Each file must have a path string' };
+      }
+    }
+  }
+  
+  return { valid: true };
+}
+
 self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
-  const { allFiles, chunkSize = 500, selectedFolder, expandedNodes = {}, id } = e.data;
+  const data = e.data;
+  
+  // Handle different message types
+  if (data.type === 'INIT') {
+    self.postMessage({ type: 'READY' });
+    return;
+  }
+  
+  if (data.type === 'CANCEL') {
+    if (data.id === currentBuildId) {
+      isCancelled = true;
+      self.postMessage({ type: 'CANCELLED', id: data.id });
+    }
+    return;
+  }
+  
+  if (data.type !== 'BUILD_TREE') {
+    return;
+  }
+  
+  // Validate input
+  const validation = validateInput(data);
+  if (!validation.valid) {
+    self.postMessage({
+      type: 'TREE_ERROR',
+      id: data.id,
+      code: 'E_INVALID_INPUT',
+      error: validation.error
+    });
+    return;
+  }
+  
+  const { allFiles = [], chunkSize = UI.TREE.CHUNK_SIZE, selectedFolder, expandedNodes = {}, id = '' } = data;
+  
+  // Set current build ID and reset cancellation flag
+  currentBuildId = id;
+  isCancelled = false;
   
   try {
     // Build the complete file map
     const fileMap: TreeNodeMap = {};
     let processedCount = 0;
 
-    // Throttle intermediate posts to reduce main-thread work
+    // Use constants for throttling
     let lastPostTime = 0;
     let lastProgressPosted = -1;
-    const POST_INTERVAL_MS = 50;
-    const MIN_PROGRESS_DELTA = 5; // percent
+    const POST_INTERVAL_MS = UI.TREE.PROGRESS_POST_INTERVAL_MS;
+    const MIN_PROGRESS_DELTA = UI.TREE.PROGRESS_MIN_DELTA_PERCENT
     
     // Process files in chunks and send progress updates
     for (let i = 0; i < allFiles.length; i += chunkSize) {
+      // Check for cancellation
+      if (isCancelled) {
+        return;
+      }
+      
       const batch = allFiles.slice(i, Math.min(i + chunkSize, allFiles.length));
       
       for (const file of batch) {
@@ -176,9 +254,14 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
       // Limit depth for intermediate updates to reduce payload size
       const now = Date.now();
       if ((now - lastPostTime) >= POST_INTERVAL_MS || (progress - lastProgressPosted) >= MIN_PROGRESS_DELTA || progress >= 100) {
+        // Check for cancellation before posting
+        if (isCancelled) {
+          return;
+        }
+        
         lastPostTime = now;
         lastProgressPosted = progress;
-        const intermediateNodes = convertToTreeNodes(fileMap, 0, false, 3, false);
+        const intermediateNodes = convertToTreeNodes(fileMap, 0, false, UI.TREE.MAX_TRAVERSAL_DEPTH, false);
         self.postMessage({
           type: 'TREE_CHUNK',
           id,
@@ -190,8 +273,13 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
       }
     }
 
-    // Send final sorted tree (full depth, include fileData)
-    const finalNodes = convertToTreeNodes(fileMap, 0, true, Number.POSITIVE_INFINITY, true);
+    // Check for cancellation before final post
+    if (isCancelled) {
+      return;
+    }
+    
+    // Send final tree (unsorted - sorting is handled centrally)
+    const finalNodes = convertToTreeNodes(fileMap, 0, false, Number.POSITIVE_INFINITY, true);
 
     self.postMessage({
       type: 'TREE_COMPLETE',
@@ -205,6 +293,7 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
     self.postMessage({
       type: 'TREE_ERROR',
       id,
+      code: 'E_INTERNAL',
       error: error instanceof Error ? error.message : 'Unknown error building tree'
     });
   }

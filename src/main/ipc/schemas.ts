@@ -24,6 +24,23 @@ export const WorkspaceUpdateSchema = z.object({
   state: z.record(z.string(), z.unknown())
 });
 
+export const WorkspaceLoadSchema = z.object({
+  id: z.string().min(1)
+});
+
+export const WorkspaceTouchSchema = z.object({
+  id: z.string().min(1)
+});
+
+export const WorkspaceDeleteSchema = z.object({
+  id: z.string().uuid()
+});
+
+export const WorkspaceRenameSchema = z.object({
+  id: z.string().uuid(),
+  newName: z.string().min(1).max(255)
+});
+
 // File schemas
 export const FileContentRequestSchema = z.object({
   workspaceId: z.string().uuid(),
@@ -32,6 +49,11 @@ export const FileContentRequestSchema = z.object({
     start: z.number().int().positive(),
     end: z.number().int().positive()
   })).optional()
+});
+
+// Legacy file content request schema for backward compatibility
+export const RequestFileContentSchema = z.object({
+  filePath: z.string()
 });
 
 export const FileContentResponseSchema = z.object({
@@ -46,6 +68,24 @@ export const FileSaveSchema = z.object({
   filePath: z.string(),
   content: z.string(),
   tokenCount: z.number().int().optional()
+});
+
+export const FileListRequestSchema = z.object({
+  folderPath: z.string(),
+  exclusionPatterns: z.array(z.string()).optional(),
+  requestId: z.string().nullable().optional()
+});
+
+export const CancelFileLoadingSchema = z.object({
+  requestId: z.string()
+});
+
+// Folder selection schema
+export const FolderSelectionSchema = z.object({});
+
+// Docs schema
+export const OpenDocsSchema = z.object({
+  docName: z.string().optional()
 });
 
 // Preference schemas

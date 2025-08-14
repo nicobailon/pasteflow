@@ -1,13 +1,16 @@
 /**
- * Bounded LRU (Least Recently Used) cache with configurable size limits
+ * Bounded LRU (Least Recently Used) cache with configurable size limits and optional TTL
  * Automatically evicts least recently used items when size limit is reached
+ * Optionally expires items after a time-to-live (TTL) duration
  */
 export class BoundedLRUCache<K, V> {
   private cache = new Map<K, V>();
+  private timestamps = new Map<K, number>();
   private readonly maxSize: number;
+  private readonly ttlMs: number | undefined;
   private accessOrder: K[] = [];
 
-  constructor(maxSize = 1000) {
+  constructor(maxSize = 1000, ttlMs?: number) {
     const MAX_REASONABLE_SIZE = 100_000;
     
     if (maxSize <= 0) {
@@ -20,12 +23,31 @@ export class BoundedLRUCache<K, V> {
     } else {
       this.maxSize = maxSize;
     }
+    
+    if (ttlMs !== undefined && ttlMs <= 0) {
+      throw new Error('TTL must be positive if provided');
+    }
+    
+    this.ttlMs = ttlMs;
   }
 
   /**
    * Get a value from the cache and update its access time
    */
   get(key: K): V | undefined {
+    // Check if item exists and hasn't expired
+    if (this.ttlMs !== undefined) {
+      const timestamp = this.timestamps.get(key);
+      if (timestamp !== undefined) {
+        const age = Date.now() - timestamp;
+        if (age > this.ttlMs) {
+          // Item has expired, remove it
+          this.delete(key);
+          return undefined;
+        }
+      }
+    }
+    
     const value = this.cache.get(key);
     if (value !== undefined) {
       // Move to end of access order (most recently used)
@@ -38,9 +60,17 @@ export class BoundedLRUCache<K, V> {
    * Set a value in the cache, evicting LRU item if necessary
    */
   set(key: K, value: V): void {
+    // Opportunistically prune expired entries if TTL is enabled
+    if (this.ttlMs !== undefined) {
+      this.pruneExpired();
+    }
+    
     // If key exists, just update the value and access order
     if (this.cache.has(key)) {
       this.cache.set(key, value);
+      if (this.ttlMs !== undefined) {
+        this.timestamps.set(key, Date.now());
+      }
       this.updateAccessOrder(key);
       return;
     }
@@ -50,11 +80,15 @@ export class BoundedLRUCache<K, V> {
       const lruKey = this.accessOrder.shift();
       if (lruKey !== undefined) {
         this.cache.delete(lruKey);
+        this.timestamps.delete(lruKey);
       }
     }
 
     // Add the new item
     this.cache.set(key, value);
+    if (this.ttlMs !== undefined) {
+      this.timestamps.set(key, Date.now());
+    }
     this.accessOrder.push(key);
   }
 
@@ -73,6 +107,7 @@ export class BoundedLRUCache<K, V> {
     if (index > -1) {
       this.accessOrder.splice(index, 1);
     }
+    this.timestamps.delete(key);
     return this.cache.delete(key);
   }
 
@@ -81,6 +116,7 @@ export class BoundedLRUCache<K, V> {
    */
   clear(): void {
     this.cache.clear();
+    this.timestamps.clear();
     this.accessOrder = [];
   }
 
@@ -88,6 +124,10 @@ export class BoundedLRUCache<K, V> {
    * Get the current size of the cache
    */
   get size(): number {
+    // Prune expired entries first if TTL is enabled
+    if (this.ttlMs !== undefined) {
+      this.pruneExpired();
+    }
     return this.cache.size;
   }
 
@@ -118,5 +158,37 @@ export class BoundedLRUCache<K, V> {
       this.accessOrder.splice(index, 1);
     }
     this.accessOrder.push(key);
+  }
+  
+  /**
+   * Remove expired entries from the cache
+   */
+  private pruneExpired(): void {
+    if (this.ttlMs === undefined) return;
+    
+    const now = Date.now();
+    const keysToDelete: K[] = [];
+    
+    for (const [key, timestamp] of this.timestamps.entries()) {
+      if (now - timestamp > this.ttlMs) {
+        keysToDelete.push(key);
+      }
+    }
+    
+    for (const key of keysToDelete) {
+      this.delete(key);
+    }
+  }
+  
+  /**
+   * Get all cache entries (for stats/monitoring purposes)
+   * Returns an iterator over the cache entries
+   */
+  entries(): IterableIterator<[K, V]> {
+    // Prune expired entries first if TTL is enabled
+    if (this.ttlMs !== undefined) {
+      this.pruneExpired();
+    }
+    return this.cache.entries();
   }
 }

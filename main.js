@@ -10,20 +10,28 @@ const { getPathValidator } = require("./src/security/path-validator.cjs");
 const { ipcValidator } = require("./src/validation/ipc-validator.js");
 const { DatabaseBridge } = require("./src/main/db/database-bridge.js");
 // Zod schemas (CommonJS) for main process validation
-const zSchemas = require("./src/main/ipc/schemas.cjs.js");
+const zSchemas = require("./lib/main/ipc/schemas.cjs");
 
 // Feature flag to enable SecureIpcLayer path (TS compiled to build/main)
 const useSecureIpc = process.env.SECURE_IPC === '1';
+
 let SecureIpcLayer, StateHandlers, SecureDatabase;
+let secureIpcAvailable = false;
+
 try {
   if (useSecureIpc) {
     ({ SecureIpcLayer } = require("./build/main/ipc/secure-ipc.js"));
     ({ StateHandlers } = require("./build/main/handlers/state-handlers.js"));
     ({ SecureDatabase } = require("./build/main/db/secure-database.js"));
+    secureIpcAvailable = true;
   }
 } catch (e) {
   console.warn("Secure IPC modules not available; falling back to legacy handlers:", e?.message || e);
+  secureIpcAvailable = false;
 }
+
+// Use secure IPC only if requested AND available
+const actuallyUseSecureIpc = useSecureIpc && secureIpcAvailable;
 
 
 // Add error handling for console operations to prevent EIO errors
@@ -360,7 +368,7 @@ function createWindow() {
 // eslint-disable-next-line unicorn/prefer-top-level-await
 app.whenReady().then(async () => {
   try {
-    if (useSecureIpc && SecureDatabase) {
+    if (actuallyUseSecureIpc && SecureDatabase) {
       // Initialize SecureDatabase (TS compiled to JS)
       const userDataPath = app.getPath('userData');
       const dbPath = path.join(userDataPath, 'pasteflow-secure.db');
@@ -956,7 +964,7 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
 });
 
 // Workspace management handlers
-if (!useSecureIpc) {
+if (!actuallyUseSecureIpc) {
 
 ipcMain.handle('/workspace/list', async () => {
   try {
@@ -1187,8 +1195,7 @@ ipcMain.handle('/workspace/rename', async (event, params) => {
 });
 }
 
-if (!useSecureIpc) {
-
+if (!actuallyUseSecureIpc) {
 
 // Instructions handlers
 ipcMain.handle('/instructions/list', async () => {
@@ -1251,7 +1258,7 @@ function broadcastUpdate(channel, data) {
   }
 }
 
-if (!useSecureIpc) {
+if (!actuallyUseSecureIpc) {
 
 // Preferences handlers
 ipcMain.handle('/prefs/get', async (event, params) => {

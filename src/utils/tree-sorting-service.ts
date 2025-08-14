@@ -1,6 +1,6 @@
 import { TreeNode } from '../types/file-types';
-
 import { BoundedLRUCache } from './bounded-lru-cache';
+import { TREE_SORTING } from '../constants/app-constants';
 
 export type SortOrder = 'default' | 'name-asc' | 'name-desc' | 'tokens-asc' | 'tokens-desc' | 
                         'extension-asc' | 'extension-desc' | 'date-asc' | 'date-desc';
@@ -8,12 +8,39 @@ export type SortOrder = 'default' | 'name-asc' | 'name-desc' | 'tokens-asc' | 't
 export class TreeSortingService {
   private nodePriorityCache: BoundedLRUCache<string, number>;
 
-  constructor(cacheSize = 1000) {
-    this.nodePriorityCache = new BoundedLRUCache<string, number>(cacheSize);
+  constructor(
+    cacheSize = TREE_SORTING.CACHE_MAX_ENTRIES,
+    ttlMs = TREE_SORTING.TTL_MS
+  ) {
+    this.nodePriorityCache = new BoundedLRUCache<string, number>(cacheSize, ttlMs);
   }
 
   clearCache(): void {
     this.nodePriorityCache.clear();
+  }
+  
+  /**
+   * Invalidate the cache - explicit method for structure and folder changes
+   */
+  invalidate(): void {
+    this.nodePriorityCache.clear();
+  }
+  
+  /**
+   * Get cache statistics for memory monitoring
+   */
+  getCacheStats() {
+    const stats = this.nodePriorityCache.getStats();
+    // Estimate memory based on string keys and number values
+    const estimatedMemoryPerEntry = 100; // bytes
+    const estimatedMemory = stats.size * estimatedMemoryPerEntry;
+    
+    return {
+      entries: stats.size,
+      maxEntries: stats.maxSize,
+      utilizationPercent: stats.utilizationPercent,
+      estimatedMemory
+    };
   }
 
   sortTreeNodes(nodes: TreeNode[], sortOrder: string): TreeNode[] {
