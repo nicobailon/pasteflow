@@ -83,6 +83,27 @@ function useFileTree({
     expandedNodesRef.current = expandedNodes;
   }, [expandedNodes]);
   
+  // Track previous expansion state to detect changes
+  const prevExpandedNodesRef = useRef(expandedNodes);
+  
+  // Force tree rebuild when expansion state changes for same file structure
+  useEffect(() => {
+    // Check if expansion state actually changed (not just ref update)
+    const expansionChanged = JSON.stringify(prevExpandedNodesRef.current) !== JSON.stringify(expandedNodes);
+    
+    if (expansionChanged && fileMapRef.current && Object.keys(fileMapRef.current).length > 0) {
+      // Update the ref
+      prevExpandedNodesRef.current = expandedNodes;
+      
+      // Clear the flatten cache to ensure fresh results
+      flattenCacheRef.current = null;
+      
+      // Rebuild the tree with new expansion state
+      const rebuiltTree = convertToTreeNodes(fileMapRef.current, 0, true);
+      commitTree(rebuiltTree);
+    }
+  }, [expandedNodes, commitTree, convertToTreeNodes]);
+  
   useEffect(() => {
     fileTreeSortOrderRef.current = fileTreeSortOrder;
   }, [fileTreeSortOrder]);

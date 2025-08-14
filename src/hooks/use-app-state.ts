@@ -857,6 +857,12 @@ const useAppState = () => {
       handleResetFolderStateRef.current();
       setPendingWorkspaceData(null);
     } else {
+      // Important: Apply expansion state immediately before files start loading
+      // This ensures the tree is built with the correct expansion state
+      if (workspaceData.expandedNodes) {
+        applyExpandedNodes(workspaceData.expandedNodes);
+      }
+      
       const { selectedFolder: _selectedFolder, ...restOfData } = workspaceData;
       setPendingWorkspaceData(restOfData);
 
@@ -874,7 +880,7 @@ const useAppState = () => {
     }
 
     setSelectedFolder(workspaceFolder);
-  }, [exclusionPatterns, setProcessingStatus, setSelectedFolder, setCurrentWorkspace, setPendingWorkspaceData, processingStatus.status, isElectron, setAllFiles, clearSelectedFiles]);
+  }, [exclusionPatterns, setProcessingStatus, setSelectedFolder, setCurrentWorkspace, setPendingWorkspaceData, processingStatus.status, isElectron, setAllFiles, clearSelectedFiles, applyExpandedNodes]);
 
   const applyExpandedNodes = useCallback((expandedNodesFromWorkspace: Record<string, boolean>) => {
     setExpandedNodes(expandedNodesFromWorkspace || {});
