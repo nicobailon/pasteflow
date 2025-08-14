@@ -102,7 +102,7 @@ const App = () => {
             folderSelectionCache={appState.folderSelectionCache}
           />
           
-          <ContentArea 
+          <ContentArea
             selectedFiles={appState.selectedFiles}
             allFiles={appState.allFiles}
             toggleFileSelection={appState.toggleFileSelection}
@@ -138,6 +138,9 @@ const App = () => {
             previewTokenCount={appState.previewTokenCount}
             openClipboardPreviewModal={appState.openClipboardPreviewModal}
             closeClipboardPreviewModal={appState.closeClipboardPreviewModal}
+            selectedFolder={appState.selectedFolder}
+            expandedNodes={appState.expandedNodes}
+            toggleExpanded={appState.toggleExpanded}
           />
         </div>
         

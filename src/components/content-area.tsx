@@ -1,12 +1,264 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
+import { getRelativePath, dirname, normalizePath } from '../utils/path-utils';
 
 import CopyButton from './copy-button';
 import Dropdown from './dropdown';
 import FileList from './file-list';
 import ClipboardPreviewModal from './clipboard-preview-modal';
+
+// Minimal inline component implementing @path autocomplete for the instructions textarea only
+const InstructionsTextareaWithPathAutocomplete = ({
+  allFiles,
+  selectedFolder,
+  expandedNodes,
+  toggleExpanded,
+  value,
+  onChange,
+  onSelectFilePath,
+}: {
+  allFiles: FileData[];
+  selectedFolder: string | null;
+  expandedNodes: Record<string, boolean>;
+  toggleExpanded: (path: string, currentState?: boolean) => void;
+  value: string;
+  onChange: (v: string) => void;
+  onSelectFilePath: (absolutePath: string) => void;
+}) => {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState<string>("");
+  const [activeIndex, setActiveIndex] = useState<number>(0);
+  const [anchorPosition, setAnchorPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Build searchable list once per allFiles change
+  const fileItems = useMemo(() => {
+    const root = selectedFolder || "";
+    return allFiles
+      .filter((f) => !f.isDirectory)
+      .map((f) => {
+        const rel = getRelativePath(normalizePath(f.path), normalizePath(root));
+        return { abs: f.path, rel };
+      });
+  }, [allFiles, selectedFolder]);
+
+  // Filter results based on current query
+  const results = useMemo(() => {
+    if (!open) return [] as { abs: string; rel: string }[];
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      return fileItems.slice(0, 12);
+    }
+    // Case-insensitive partial match against rel path
+    const filtered = fileItems.filter((it) => it.rel.toLowerCase().includes(q));
+    // Light sort: shortest rel path first then lexicographic
+    filtered.sort((a, b) => a.rel.length - b.rel.length || a.rel.localeCompare(b.rel));
+    return filtered.slice(0, 12);
+  }, [fileItems, query, open]);
+
+  // Helper: find @mention span preceding caret
+  const computeQueryFromValue = (text: string, caret: number) => {
+    const before = text.slice(0, caret);
+    const match = before.match(/@([^\s]*)$/);
+    if (match) {
+      return match[1];
+    }
+    return null;
+  };
+
+  // Calculate cursor position in pixels
+  const getCursorCoordinates = (textarea: HTMLTextAreaElement, position: number) => {
+    // Simplified approach: calculate based on text position
+    const textBeforeCursor = textarea.value.substring(0, position);
+    const textLines = textBeforeCursor.split('\n');
+    const currentLine = textLines[textLines.length - 1];
+    
+    // Find the @ position in the current line
+    const atMatch = currentLine.match(/@([^\s]*)$/);
+    const atPosition = atMatch ? currentLine.length - atMatch[0].length : currentLine.length;
+    
+    // Get computed styles for measurements
+    const computed = window.getComputedStyle(textarea);
+    const lineHeight = parseInt(computed.lineHeight) || 20;
+    const fontSize = parseInt(computed.fontSize) || 14;
+    const charWidth = fontSize * 0.6; // Approximate char width for monospace
+    
+    // Calculate horizontal position - align with @ symbol
+    const xPosition = atPosition * charWidth;
+    
+    // Calculate vertical position - place above with extra spacing
+    const dropdownHeight = 260; // Approx dropdown height
+    const extraSpacing = 30; // Extra space between dropdown and text
+    const yPosition = (textLines.length - 1) * lineHeight - dropdownHeight - extraSpacing;
+    
+    // If dropdown would go above viewport, place it below instead
+    const placeBelow = yPosition < 5;
+    const finalY = placeBelow 
+      ? textLines.length * lineHeight + extraSpacing 
+      : yPosition;
+    
+    return {
+      x: Math.min(xPosition, textarea.offsetWidth - 250), // Keep within textarea bounds
+      y: Math.max(finalY, 5) // Ensure minimum distance from top
+    };
+  };
+
+  // Ensure parent folders expanded to reveal the file
+  const ensureAncestorsExpanded = (absPath: string) => {
+    if (!selectedFolder) return;
+    let current = dirname(absPath);
+    const rootNorm = normalizePath(selectedFolder);
+    while (current && normalizePath(current).startsWith(rootNorm)) {
+      const norm = normalizePath(current);
+      if (norm === rootNorm) break;
+      const isExpanded = expandedNodes[norm] === true;
+      if (!isExpanded) {
+        // If we know it's currently false, pass false to toggle to true
+        const state = expandedNodes[norm];
+        if (state === false) {
+          toggleExpanded(norm, false);
+        } else {
+          toggleExpanded(norm); // undefined -> expand
+        }
+      }
+      const parent = dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+  };
+
+  // Open/close and derive query on input
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    onChange(text);
+    const caret = e.target.selectionStart ?? text.length;
+    const q = computeQueryFromValue(text, caret);
+    if (q !== null) {
+      setQuery(q);
+      // Calculate cursor position for dropdown placement
+      const coords = getCursorCoordinates(e.target, caret);
+      setAnchorPosition(coords);
+      setOpen(true);
+      setActiveIndex(0);
+    } else {
+      setOpen(false);
+    }
+  };
+
+  const close = () => setOpen(false);
+
+  const acceptSelection = (item: { abs: string; rel: string }) => {
+    const el = textareaRef.current;
+    const text = value;
+    const caret = el?.selectionStart ?? text.length;
+    const before = text.slice(0, caret);
+    const match = before.match(/@([^\s]*)$/);
+    if (!match || match.index === undefined) return;
+    const start = match.index;
+    // Wrap the relative path in backticks for inline code formatting
+    const inserted = `\`${item.rel}\``;
+    const newText = before.slice(0, start) + inserted + text.slice(caret);
+    onChange(newText);
+    onSelectFilePath(item.abs);
+    ensureAncestorsExpanded(item.abs);
+    // keep focus
+    setTimeout(() => textareaRef.current?.focus(), 0);
+    close();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!open || results.length === 0) return;
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const dir = e.shiftKey ? -1 : 1;
+      setActiveIndex((i) => (i + dir + results.length) % results.length);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % results.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => (i - 1 + results.length) % results.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      acceptSelection(results[activeIndex]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  };
+
+  // Clicking outside closes
+  useEffect(() => {
+    const onDocClick = (ev: MouseEvent) => {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(ev.target as Node)) {
+        close();
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <textarea
+        ref={textareaRef}
+        className="user-instructions-input"
+        placeholder="Enter your instructions here..."
+        value={value}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+      />
+      {open && results.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            left: anchorPosition.x,
+            top: anchorPosition.y,
+            maxHeight: 240,
+            overflowY: 'auto',
+            width: 'max(200px, 33.33%)',
+            background: 'var(--background-elevated, #1e1e1e)',
+            border: '1px solid var(--border-color, #444)',
+            borderRadius: 6,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+            zIndex: 5,
+          }}
+        >
+          <div style={{
+            padding: '6px 8px',
+            fontSize: 12,
+            color: 'var(--text-secondary, #999)'
+          }}>Files</div>
+          {results.map((item, idx) => (
+            <div
+              key={item.abs}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                acceptSelection(item);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '8px 10px',
+                cursor: 'pointer',
+                background: idx === activeIndex ? 'var(--hover, rgba(255,255,255,0.06))' : 'transparent',
+                color: 'var(--text-primary, #ddd)',
+                userSelect: 'none',
+              }}
+            >
+              <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{item.rel}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 interface ContentAreaProps {
   selectedFiles: SelectedFileReference[];
@@ -47,6 +299,9 @@ interface ContentAreaProps {
   previewTokenCount: number;
   openClipboardPreviewModal: (content: string, tokenCount: number) => void;
   closeClipboardPreviewModal: () => void;
+  selectedFolder: string | null;
+  expandedNodes: Record<string, boolean>;
+  toggleExpanded: (path: string, currentState?: boolean) => void;
 }
 
 const ContentArea = ({
@@ -82,19 +337,22 @@ const ContentArea = ({
   previewContent,
   previewTokenCount,
   openClipboardPreviewModal,
-  closeClipboardPreviewModal
+  closeClipboardPreviewModal,
+  selectedFolder,
+  expandedNodes,
+  toggleExpanded,
 }: ContentAreaProps) => {
-  
+
   const handleCopyWithLoading = async (getContent: () => string): Promise<string> => {
     // Create a Map of all files for quick lookup
     const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
-    
+
     // Find selected files that haven't loaded content yet
     const unloadedFiles = selectedFiles.filter((selectedFile) => {
       const file = allFilesMap.get(selectedFile.path);
       return file && !file.isContentLoaded;
     });
-    
+
     if (unloadedFiles.length > 0) {
       await Promise.all(unloadedFiles.map((f) => loadFileContent(f.path)));
     }
@@ -103,7 +361,7 @@ const ContentArea = ({
 
   const handlePreview = async () => {
     const content = await handleCopyWithLoading(getSelectedFilesContent);
-    const totalTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens + 
+    const totalTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens +
                        (userInstructions.trim() ? instructionsTokenCount : 0);
     openClipboardPreviewModal(content, totalTokens);
   };
@@ -113,25 +371,8 @@ const ContentArea = ({
       await navigator.clipboard.writeText(previewContent);
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
-      
-      const textarea = document.createElement('textarea');
-      textarea.value = previewContent;
-      textarea.style.position = 'fixed';
-      textarea.style.left = '-99999px';
-      document.body.append(textarea);
-      textarea.select();
-      
-      try {
-        const successful = document.execCommand('copy');
-        if (!successful) {
-          throw new Error('Fallback copy method failed');
-        }
-      } catch (error) {
-        console.error('Fallback copy method also failed:', error);
-        alert('Failed to copy to clipboard. Please try selecting and copying the text manually.');
-      } finally {
-        textarea.remove();
-      }
+      // Modern browsers should support clipboard API, but show alert if it fails
+      alert('Failed to copy to clipboard. Please try selecting and copying the text manually.');
     }
   };
 
@@ -170,7 +411,7 @@ const ContentArea = ({
             </div>
           </div>
           <div className="prompts-buttons-container">
-            <button 
+            <button
               className="system-prompts-button"
               onClick={() => setSystemPromptsModalOpen(true)}
             >
@@ -180,8 +421,8 @@ const ContentArea = ({
                 <span className="selected-prompt-indicator"><Check size={12} /> {selectedSystemPrompts.length}</span>
               )}
             </button>
-            
-            <button 
+
+            <button
               className="role-prompts-button"
               onClick={() => setRolePromptsModalOpen(true)}
             >
@@ -192,7 +433,7 @@ const ContentArea = ({
               )}
             </button>
 
-            <button 
+            <button
               className="docs-button"
               onClick={() => setInstructionsModalOpen(true)}
             >
@@ -222,19 +463,25 @@ const ContentArea = ({
           loadFileContent={loadFileContent}
         />
       </div>
-      <div className="user-instructions-input-area">
+      <div className="user-instructions-input-area" style={{ position: 'relative' }}>
         <div className="instructions-token-count">
           ~{instructionsTokenCount.toLocaleString()} tokens
         </div>
-        <textarea 
-          className="user-instructions-input" 
-          placeholder="Enter your instructions here..." 
+        <InstructionsTextareaWithPathAutocomplete
+          allFiles={allFiles}
+          selectedFolder={selectedFolder}
+          expandedNodes={expandedNodes}
+          toggleExpanded={toggleExpanded}
           value={userInstructions}
-          onChange={(e) => setUserInstructions(e.target.value)}
+          onChange={setUserInstructions}
+          onSelectFilePath={(path) => {
+            // Also select the file
+            toggleFileSelection(path);
+          }}
         />
         <div className="copy-button-container">
           <div className="copy-button-group">
-            <button 
+            <button
               className="preview-button"
               onClick={handlePreview}
               disabled={selectedFiles.length === 0}
@@ -252,22 +499,22 @@ const ContentArea = ({
               ~{(() => {
                 // Calculate total tokens for selected files
                 const filesTokens = calculateTotalTokens();
-                
+
                 // Add tokens for file tree and prompts from props
                 let total = filesTokens + fileTreeTokens + systemPromptTokens + rolePromptTokens;
-                
+
                 // Add tokens for user instructions if they exist
                 if (userInstructions.trim()) {
                   total += instructionsTokenCount;
                 }
-                
+
                 return total.toLocaleString();
               })().toString()} tokens (loaded files only)
             </div>
           </div>
         </div>
       </div>
-      
+
       <ClipboardPreviewModal
         isOpen={clipboardPreviewModalOpen}
         onClose={closeClipboardPreviewModal}
