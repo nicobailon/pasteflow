@@ -1,6 +1,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { z, ZodSchema } from 'zod';
 import { RateLimiter } from 'limiter';
+import { RATE_LIMITS } from '../../constants/app-constants';
 
 // IPC channel configuration
 interface IpcChannelConfig<TInput, TOutput> {
@@ -10,6 +11,9 @@ interface IpcChannelConfig<TInput, TOutput> {
   handler?: (input: TInput, event: IpcMainInvokeEvent) => Promise<TOutput>;
 }
 
+// Channel category mapping for dynamic rate limiting
+type ChannelCategory = 'workspace' | 'file' | 'prompt' | 'prompts' | 'state' | 'prefs' | 'general';
+
 export class SecureIpcLayer {
   private channels = new Map<string, IpcChannelConfig<unknown, unknown>>();
   private rateLimiters = new Map<string, RateLimiter>();
@@ -18,8 +22,58 @@ export class SecureIpcLayer {
     this.setupChannels();
   }
 
+  /**
+   * Determine rate limit based on channel category and operation type
+   */
+  private getRateLimit(channel: string): number {
+    // Parse channel path to determine category
+    const parts = channel.split('/').filter(Boolean);
+    const category = parts[0] as ChannelCategory;
+    const operation = parts[1];
+    
+    // Map categories to rate limit constants
+    switch (category) {
+      case 'workspace':
+        // Workspace operations have different limits based on operation type
+        if (operation === 'list' || operation === 'current' || operation === 'selection') {
+          return RATE_LIMITS.REQUESTS.WORKSPACE_OPERATIONS;
+        }
+        if (operation === 'exists' || operation === 'touch') {
+          return RATE_LIMITS.REQUESTS.WORKSPACE_OPERATIONS * 2; // Higher for frequent checks
+        }
+        return RATE_LIMITS.REQUESTS.STATE_OPERATIONS;
+        
+      case 'file':
+        // File operations have high limits due to frequent access
+        return operation === 'content' ? 
+          RATE_LIMITS.REQUESTS.FILE_CONTENT : 
+          RATE_LIMITS.REQUESTS.FILE_LIST;
+        
+      case 'prompt':
+      case 'prompts':
+        // Prompt operations
+        return operation === 'list' || operation === 'active' ? 
+          RATE_LIMITS.REQUESTS.PROMPT_OPERATIONS :
+          RATE_LIMITS.REQUESTS.STATE_OPERATIONS;
+        
+      case 'prefs':
+        // Preferences - read operations have higher limits
+        return operation === 'get' ? 
+          RATE_LIMITS.REQUESTS.FILE_LIST : // Use higher limit for frequent reads
+          RATE_LIMITS.REQUESTS.STATE_OPERATIONS;
+        
+      case 'state':
+        // State operations
+        return RATE_LIMITS.REQUESTS.STATE_OPERATIONS;
+        
+      default:
+        // Default to general limit
+        return RATE_LIMITS.REQUESTS.GENERAL;
+    }
+  }
+
   private setupChannels() {
-    // Import schemas
+    // Import schemas from generated CJS file
     const {
       WorkspaceSchema,
       WorkspaceCreateSchema,
@@ -35,237 +89,236 @@ export class SecureIpcLayer {
       ActivePromptsSchema,
       InstructionSchema,
       InstructionCreateSchema
-    } = require('./schemas');
+    } = require('../../../lib/main/ipc/schemas.cjs');
 
     // Define all IPC channels with their schemas
     this.registerChannel('/workspace/list', {
       input: z.object({}),
       output: z.array(WorkspaceSchema),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/workspace/list')
     });
 
     this.registerChannel('/workspace/create', {
       input: WorkspaceCreateSchema,
       output: WorkspaceSchema,
-      rateLimit: 5
+      rateLimit: this.getRateLimit('/workspace/create')
     });
 
     this.registerChannel('/workspace/load', {
       // Accept either a UUID or a workspace name as identifier
       input: z.object({ id: z.string().min(1) }),
       output: z.union([WorkspaceSchema, z.null()]),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/workspace/load')
     });
 
     this.registerChannel('/workspace/exists', {
       // Check if a workspace exists by name
       input: z.object({ name: z.string().min(1) }),
       output: z.object({ exists: z.boolean(), id: z.string().optional() }),
-      rateLimit: 50
+      rateLimit: this.getRateLimit('/workspace/exists')
     });
 
     this.registerChannel('/workspace/update', {
       input: WorkspaceUpdateSchema,
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/workspace/update')
     });
 
     this.registerChannel('/workspace/delete', {
       input: z.object({ id: z.string().uuid() }),
       output: z.boolean(),
-      rateLimit: 5
+      rateLimit: this.getRateLimit('/workspace/delete')
     });
 
     this.registerChannel('/file/content', {
       input: FileContentRequestSchema,
       output: FileContentResponseSchema,
-      rateLimit: 100
+      rateLimit: this.getRateLimit('/file/content')
     });
 
     this.registerChannel('/file/save', {
       input: FileSaveSchema,
       output: z.boolean(),
-      rateLimit: 50
+      rateLimit: this.getRateLimit('/file/save')
     });
 
     this.registerChannel('/prefs/get', {
       input: PreferenceGetSchema,
       output: z.unknown(),
-      // Allow slightly higher throughput for frequently-read prefs like search term
-      rateLimit: 120
+      rateLimit: this.getRateLimit('/prefs/get')
     });
 
     this.registerChannel('/prefs/set', {
       input: PreferenceSetSchema,
       output: z.boolean(),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/prefs/set')
     });
 
     this.registerChannel('/prompt/list', {
       input: z.object({ type: z.enum(['system', 'role']).optional() }),
       output: z.array(PromptSchema),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/prompt/list')
     });
 
     this.registerChannel('/prompt/create', {
       input: PromptSchema.omit({ id: true, createdAt: true, updatedAt: true }),
       output: PromptSchema,
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompt/create')
     });
 
     this.registerChannel('/prompt/update', {
       input: PromptSchema,
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompt/update')
     });
 
     this.registerChannel('/prompt/delete', {
       input: z.object({ id: z.string() }),
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompt/delete')
     });
 
     // State management channels
     this.registerChannel('/workspace/current', {
       input: z.object({}),
       output: z.union([WorkspaceSchema, z.null()]),
-      rateLimit: 50
+      rateLimit: this.getRateLimit('/workspace/current')
     });
 
     this.registerChannel('/workspace/set-current', {
       input: z.object({ workspace: z.record(z.string(), z.unknown()) }),
       output: z.boolean(),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/workspace/set-current')
     });
 
     this.registerChannel('/workspace/clear', {
       input: z.object({}),
       output: z.boolean(),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/workspace/clear')
     });
 
     this.registerChannel('/workspace/touch', {
       // Accept either uuid or workspace name for backward compatibility
       input: z.object({ id: z.string().min(1) }),
       output: z.boolean(),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/workspace/touch')
     });
 
     this.registerChannel('/workspace/rename', {
       input: z.object({ id: z.string().uuid(), newName: z.string().min(1).max(255) }),
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/workspace/rename')
     });
 
     // Selection state channels
     this.registerChannel('/workspace/selection', {
       input: z.object({}),
       output: WorkspaceSelectionSchema,
-      rateLimit: 50
+      rateLimit: this.getRateLimit('/workspace/selection')
     });
 
     this.registerChannel('/workspace/selection/update', {
       input: WorkspaceSelectionUpdateSchema,
       output: z.boolean(),
-      rateLimit: 30
+      rateLimit: this.getRateLimit('/workspace/selection/update')
     });
 
     this.registerChannel('/workspace/selection/clear', {
       input: z.object({}),
       output: z.boolean(),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/workspace/selection/clear')
     });
 
     // Prompt state channels
     this.registerChannel('/prompts/system', {
       input: z.object({}),
       output: z.array(PromptSchema),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/prompts/system')
     });
 
     this.registerChannel('/prompts/role', {
       input: z.object({}),
       output: z.array(PromptSchema),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/prompts/role')
     });
 
     this.registerChannel('/prompts/system/add', {
       input: PromptSchema.omit({ createdAt: true, updatedAt: true }),
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompts/system/add')
     });
 
     this.registerChannel('/prompts/system/update', {
       input: z.object({ id: z.string(), updates: z.record(z.string(), z.unknown()) }),
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompts/system/update')
     });
 
     this.registerChannel('/prompts/system/delete', {
       input: z.object({ id: z.string() }),
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompts/system/delete')
     });
 
     this.registerChannel('/prompts/role/add', {
       input: PromptSchema.omit({ createdAt: true, updatedAt: true }),
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompts/role/add')
     });
 
     this.registerChannel('/prompts/role/update', {
       input: z.object({ id: z.string(), updates: z.record(z.string(), z.unknown()) }),
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompts/role/update')
     });
 
     this.registerChannel('/prompts/role/delete', {
       input: z.object({ id: z.string() }),
       output: z.boolean(),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/prompts/role/delete')
     });
 
     this.registerChannel('/prompts/active', {
       input: z.object({}),
       output: ActivePromptsSchema,
-      rateLimit: 50
+      rateLimit: this.getRateLimit('/prompts/active')
     });
 
     this.registerChannel('/prompts/active/update', {
       input: ActivePromptsSchema,
       output: z.boolean(),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/prompts/active/update')
     });
 
     this.registerChannel('/prompts/active/clear', {
       input: z.object({}),
       output: z.boolean(),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/prompts/active/clear')
     });
 
     // Instructions channels
     this.registerChannel('/instructions/list', {
       input: z.object({}),
       output: z.array(InstructionSchema),
-      rateLimit: 20
+      rateLimit: this.getRateLimit('/instructions/list')
     });
 
     this.registerChannel('/instructions/create', {
       input: InstructionCreateSchema.extend({ id: z.string() }),
       output: z.object({ success: z.boolean() }),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/instructions/create')
     });
 
     this.registerChannel('/instructions/update', {
       input: InstructionSchema.pick({ id: true, name: true, content: true }),
       output: z.object({ success: z.boolean() }),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/instructions/update')
     });
 
     this.registerChannel('/instructions/delete', {
       input: z.object({ id: z.string() }),
       output: z.object({ success: z.boolean() }),
-      rateLimit: 10
+      rateLimit: this.getRateLimit('/instructions/delete')
     });
   }
 

@@ -71,9 +71,9 @@ contextBridge.exposeInMainWorld("electron", {
   },
   // For backward compatibility (but still ensure serialization)
   ipcRenderer: {
-    send: (channel, data) => {
-      const serializedData = ensureSerializable(data);
-      ipcRenderer.send(channel, serializedData);
+    send: (channel, ...args) => {
+      const serializedArgs = args.map(ensureSerializable);
+      ipcRenderer.send(channel, ...serializedArgs);
     },
     on: (channel, func) => {
       const wrapper = (event, ...args) => {

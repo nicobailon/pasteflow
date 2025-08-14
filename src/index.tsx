@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
@@ -13,12 +13,21 @@ import WorkspaceModal from "./components/workspace-modal";
 import { SORT_OPTIONS } from "./constants";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
+import { initializeCacheRegistry } from "./utils/cache-registry";
 
 const App = () => {
   // Use our main app state hook
   const appState = useAppState();
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const sidebarRef = useRef<SidebarRef>(null);
+  
+  // Initialize cache registry and memory monitoring
+  useEffect(() => {
+    const cleanup = initializeCacheRegistry();
+    
+    // Cleanup function to stop monitoring on unmount
+    return cleanup;
+  }, []);
   
   // Helper to close all dropdowns when opening modals
   const closeAllDropdowns = () => {

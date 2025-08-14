@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, CirclePlus, Plus, Trash, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import { Instruction, InstructionsModalProps } from "../types/file-types";
 
@@ -17,10 +17,18 @@ const InstructionsModal = ({
   onUpdateInstruction,
   selectedInstructions = [],
   toggleInstructionSelection,
+  initialEditInstruction,
 }: InstructionsModalProps): JSX.Element => {
-  const [editingInstruction, setEditingInstruction] = useState(null as Instruction | null);
+  const [editingInstruction, setEditingInstruction] = useState<Instruction | null>(null);
   const [newInstructionName, setNewInstructionName] = useState("");
   const [newInstructionContent, setNewInstructionContent] = useState("");
+
+  // Set initial edit instruction when modal opens
+  useEffect(() => {
+    if (isOpen && initialEditInstruction) {
+      setEditingInstruction({ ...initialEditInstruction });
+    }
+  }, [isOpen, initialEditInstruction]);
 
   const handleAddInstruction = async () => {
     if (!newInstructionName || !newInstructionContent) return;

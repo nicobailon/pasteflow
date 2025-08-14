@@ -10,7 +10,7 @@ try {
   process.exit(1);
 }
 
-const { spawn } = require("node:child_process");
+const { spawn, execSync } = require("node:child_process");
 const { platform } = require("node:os");
 
 console.log("🚀 Starting development environment...");
@@ -81,8 +81,12 @@ function startElectron() {
     `🔌 Starting Electron app with Vite server at port ${vitePort}...`,
   );
 
-  // 1) Compile TS main layer so build/main exists
+  // 1) Build schemas first
   try {
+    console.log('📋 Building IPC schemas...');
+    execSync('npm run build:schemas', { stdio: 'inherit' });
+    
+    // 2) Compile TS main layer so build/main exists
     console.log('🛠️  Compiling main-layer TypeScript...');
     const buildProc = spawn("node", ["scripts/build-main-ts.js"], { stdio: "inherit", shell: platform() === "win32" });
     buildProc.on('close', (code) => {
@@ -91,7 +95,7 @@ function startElectron() {
         viteProcess.kill();
         process.exit(code ?? 1);
       } else {
-        // 2) Start Electron with SecureIpcLayer enabled
+        // 3) Start Electron with SecureIpcLayer enabled
         const electronProcess = spawn("npm", ["start"], {
           stdio: "inherit",
           shell: platform() === "win32", // Use shell on Windows

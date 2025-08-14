@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 
 import { memoryMonitor } from '../utils/memory-monitor';
-import { fileContentCache } from '../utils/file-cache';
+import { enhancedFileContentCache } from '../utils/enhanced-file-cache';
 import { tokenCountCache } from '../utils/token-cache';
 import { DirectorySelectionCache } from '../utils/selection-cache';
+import { getTreeSortingService } from '../utils/tree-sorting-service';
+import { getFlattenCacheStats } from '../utils/tree-node-transform';
 
 /**
  * Hook to set up memory monitoring for all application caches.
@@ -17,8 +19,8 @@ export function useMemoryMonitoring(
     // Register file content cache
     memoryMonitor.registerCache(
       'FileContentCache',
-      () => fileContentCache.size(),
-      () => fileContentCache.estimateMemoryUsage()
+      () => enhancedFileContentCache.getMetrics().totalEntries,
+      () => enhancedFileContentCache.getMetrics().totalMemoryUsage / (1024 * 1024)
     );
 
     // Register token count cache
@@ -46,6 +48,24 @@ export function useMemoryMonitoring(
       );
     }
 
+    // Register tree sorting cache
+    const treeSortingService = getTreeSortingService();
+    memoryMonitor.registerCache(
+      'TreeSortingCache',
+      () => treeSortingService.getCacheStats().entries,
+      () => {
+        const stats = treeSortingService.getCacheStats();
+        return stats.estimatedMemory / (1024 * 1024);
+      }
+    );
+
+    // Register flatten cache
+    memoryMonitor.registerCache(
+      'FlattenCache',
+      () => getFlattenCacheStats().size,
+      () => getFlattenCacheStats().estimatedMemoryMB
+    );
+
     // Set thresholds based on typical Electron app constraints
     memoryMonitor.setThresholds(50, 100); // Warn at 50MB, critical at 100MB
 
@@ -66,6 +86,8 @@ export function useMemoryMonitoring(
       cleanup();
       memoryMonitor.unregisterCache('FileContentCache');
       memoryMonitor.unregisterCache('TokenCountCache');
+      memoryMonitor.unregisterCache('TreeSortingCache');
+      memoryMonitor.unregisterCache('FlattenCache');
       if (directorySelectionCache) {
         memoryMonitor.unregisterCache('DirectorySelectionCache');
       }

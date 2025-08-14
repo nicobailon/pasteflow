@@ -1,4 +1,4 @@
-import { User, X } from "lucide-react";
+import { Eye, User, X } from "lucide-react";
 
 import { RolePrompt } from "../types/file-types";
 
@@ -13,15 +13,17 @@ const estimateTokenCount = (text: string) => {
 interface RolePromptCardProps {
   prompt: RolePrompt;
   toggleSelection: (prompt: RolePrompt) => void;
+  onViewPrompt?: (prompt: RolePrompt) => void;
 }
 
 const RolePromptCard = ({
   prompt,
-  toggleSelection
+  toggleSelection,
+  onViewPrompt
 }: RolePromptCardProps) => {
   const { name, content } = prompt;
   
-  const tokenCount = estimateTokenCount(content);
+  const tokenCount = prompt.tokenCount ?? estimateTokenCount(content);
 
   return (
     <div className="file-card role-prompt-card">
@@ -39,13 +41,24 @@ const RolePromptCard = ({
       </div>
 
       <div className="file-card-actions">
-        <CopyButton text={content} className="file-card-action">
+        {onViewPrompt && (
+          <button
+            className="file-card-action"
+            onClick={() => onViewPrompt(prompt)}
+            title="View prompt"
+            aria-label={`View role prompt: ${name}`}
+          >
+            <Eye size={16} />
+          </button>
+        )}
+        <CopyButton text={content} className="file-card-action" aria-label={`Copy role prompt: ${name}`}>
           {""}
         </CopyButton>
         <button
           className="file-card-action remove-selection-btn"
           onClick={() => toggleSelection(prompt)}
           title="Remove from selection"
+          aria-label={`Remove role prompt ${name} from selection`}
         >
           <X size={16} />
         </button>

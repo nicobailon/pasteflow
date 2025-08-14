@@ -1,4 +1,5 @@
 import type { FileData, TreeNode } from '../types/file-types';
+import { UI } from '../constants/app-constants';
 
 export interface TreeChunk {
   nodes: TreeNode[];
@@ -6,10 +7,20 @@ export interface TreeChunk {
 }
 
 interface WorkerMessage {
-  type: 'TREE_CHUNK' | 'TREE_COMPLETE' | 'TREE_ERROR';
+  type: 'TREE_CHUNK' | 'TREE_COMPLETE' | 'TREE_ERROR' | 'CANCELLED';
   id: string;
   payload?: TreeChunk;
   error?: string;
+  code?: string;
+}
+
+interface WorkerRequest {
+  type?: 'BUILD_TREE' | 'CANCEL';
+  allFiles?: FileData[];
+  chunkSize?: number;
+  selectedFolder?: string | null;
+  expandedNodes?: Record<string, boolean>;
+  id: string;
 }
 
 export class StreamingTreeBuilder {
@@ -18,10 +29,12 @@ export class StreamingTreeBuilder {
   private id: string;
   private messageHandler: ((e: MessageEvent<WorkerMessage>) => void) | null = null;
   private errorHandler: ((error: ErrorEvent) => void) | null = null;
+  private cancelResolver: (() => void) | null = null;
+  private cancelled = false;
 
   constructor(
     private files: FileData[],
-    private chunkSize = 500,
+    private chunkSize = UI.TREE.CHUNK_SIZE,
     private selectedFolder?: string | null,
     private expandedNodes?: Record<string, boolean>
   ) {
@@ -62,7 +75,21 @@ export class StreamingTreeBuilder {
           
           case 'TREE_ERROR': {
             if (!this.abortController.signal.aborted) {
-              onError(new Error(e.data.error || 'Unknown error in tree builder'));
+              const error = new Error(e.data.error || 'Unknown error in tree builder');
+              if (e.data.code) {
+                (error as Error & { code?: string }).code = e.data.code;
+              }
+              onError(error);
+            }
+            this.cleanup();
+            break;
+          }
+          
+          case 'CANCELLED': {
+            // Acknowledge cancellation
+            if (this.cancelResolver) {
+              this.cancelResolver();
+              this.cancelResolver = null;
             }
             this.cleanup();
             break;
@@ -81,22 +108,54 @@ export class StreamingTreeBuilder {
       this.worker.addEventListener('error', this.errorHandler);
 
       // Start processing
-      this.worker.postMessage({
+      const request: WorkerRequest = {
+        type: 'BUILD_TREE',
         allFiles: this.files,
         chunkSize: this.chunkSize,
         selectedFolder: this.selectedFolder,
         expandedNodes: this.expandedNodes,
         id: this.id
-      });
+      };
+      this.worker.postMessage(request);
     } catch (error) {
       onError(error instanceof Error ? error : new Error('Failed to start tree builder'));
       this.cleanup();
     }
   }
 
-  cancel(): void {
+  async cancel(): Promise<void> {
+    if (this.cancelled) return;
+    
+    this.cancelled = true;
     this.abortController.abort();
-    this.cleanup();
+    
+    // If no worker, just cleanup
+    if (!this.worker) {
+      this.cleanup();
+      return;
+    }
+    
+    // Send cancel message and wait for acknowledgement
+    const cancelRequest: WorkerRequest = {
+      type: 'CANCEL',
+      id: this.id
+    };
+    
+    this.worker.postMessage(cancelRequest);
+    
+    // Wait for CANCELLED acknowledgement with timeout
+    return new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        console.warn('Tree builder cancellation timeout, forcing cleanup');
+        this.cleanup();
+        resolve();
+      }, UI.TREE.CANCEL_TIMEOUT_MS);
+      
+      this.cancelResolver = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+    });
   }
 
   private cleanup(): void {

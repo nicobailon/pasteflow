@@ -5,7 +5,7 @@
     "module": "CommonJS",
     "target": "ES2020",
     "outDir": "build/main",
-    "rootDir": "src/main",
+    "rootDir": "src",
     "noEmit": false,
     "moduleResolution": "Node",
     "esModuleInterop": true,
@@ -18,6 +18,7 @@
     "types": []
   },
   "include": [
+    "src/constants/app-constants.ts",
     "src/main/ipc/secure-ipc.ts",
     "src/main/ipc/schemas.ts",
     "src/main/handlers/state-handlers.ts",

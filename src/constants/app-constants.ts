@@ -199,8 +199,8 @@ export const UI = {
     BATCH_INTERVAL_MS: 1,
     /** Large file threshold for chunked processing */
     LARGE_FILE_THRESHOLD: 1000,
-    /** Processing chunk size for large trees */
-    CHUNK_SIZE: 500,
+    /** Processing chunk size for large trees (canonical) */
+    CHUNK_SIZE: 1000,
     /** Progress completion value */
     COMPLETE_PROGRESS: 100,
     /** Tree update debounce delay (milliseconds) */
@@ -213,6 +213,14 @@ export const UI = {
     DEFAULT_LINE_HEIGHT: 20,
     /** Line selection tolerance (pixels) */
     SELECTION_TOLERANCE: 5,
+    /** Progress post interval for worker (milliseconds) */
+    PROGRESS_POST_INTERVAL_MS: 50,
+    /** Minimum progress delta for worker updates (percent) */
+    PROGRESS_MIN_DELTA_PERCENT: 5,
+    /** Timeout for worker cancellation acknowledgement (milliseconds) */
+    CANCEL_TIMEOUT_MS: 2000,
+    /** Timeout for worker initialization (milliseconds) */
+    INIT_TIMEOUT_MS: 5000,
   },
   
   /** Modal and dialog constants */
@@ -388,4 +396,22 @@ export const PRIORITY = {
   NORMAL: 5,
   LOW: 8,
   BACKGROUND: 10,
+} as const;
+
+// ==================== TREE SORTING ====================
+
+export const TREE_SORTING = {
+  /** Maximum entries in the sorting cache */
+  CACHE_MAX_ENTRIES: 1000,
+  /** Time-to-live for cache entries (milliseconds) */
+  TTL_MS: 300000, // 5 minutes
+} as const;
+
+// ==================== TREE FLATTEN CACHE ====================
+
+export const TREE_FLATTEN_CACHE = {
+  /** Maximum entries in the flatten cache */
+  MAX_ENTRIES: 16,
+  /** Time-to-live for cache entries (milliseconds) */
+  TTL_MS: 300000, // 5 minutes
 } as const;

@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, CirclePlus, Plus, Trash, X } from "lucide-react"; // Removed unused Pencil, Clipboard
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import { SystemPrompt, SystemPromptsModalProps } from "../types/file-types";
 
@@ -18,10 +18,18 @@ const SystemPromptsModal = ({
   // onSelectPrompt, // This prop seems unused in the component
   selectedSystemPrompts = [],
   toggleSystemPromptSelection,
+  initialEditPrompt,
 }: SystemPromptsModalProps): JSX.Element => {
-  const [editingPrompt, setEditingPrompt] = useState(null as SystemPrompt | null);
+  const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
   const [newPromptName, setNewPromptName] = useState("");
   const [newPromptContent, setNewPromptContent] = useState("");
+
+  // Set initial edit prompt when modal opens
+  useEffect(() => {
+    if (isOpen && initialEditPrompt) {
+      setEditingPrompt({ ...initialEditPrompt });
+    }
+  }, [isOpen, initialEditPrompt]);
 
   const handleAddPrompt = () => {
     if (!newPromptName || !newPromptContent) return;
