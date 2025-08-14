@@ -2,10 +2,12 @@ import { z } from 'zod';
 
 // Workspace schemas
 export const WorkspaceSchema = z.object({
-  id: z.string().uuid(),
+  // Some environments use UUID ids; others use human-readable names as ids.
+  // Relax to string() to support both until full migration completes.
+  id: z.string(),
   name: z.string().min(1).max(255),
   folderPath: z.string(),
-  state: z.record(z.unknown()),
+  state: z.record(z.string(), z.unknown()),
   createdAt: z.number(),
   updatedAt: z.number(),
   lastAccessed: z.number()
@@ -14,12 +16,12 @@ export const WorkspaceSchema = z.object({
 export const WorkspaceCreateSchema = z.object({
   name: z.string().min(1).max(255),
   folderPath: z.string(),
-  state: z.record(z.unknown()).optional()
+  state: z.record(z.string(), z.unknown()).optional()
 });
 
 export const WorkspaceUpdateSchema = z.object({
   id: z.string().uuid(),
-  state: z.record(z.unknown())
+  state: z.record(z.string(), z.unknown())
 });
 
 // File schemas

@@ -6,6 +6,7 @@ import { SecureIpcLayer } from '../ipc/secure-ipc';
 import { StateHandlers } from '../handlers/state-handlers';
 
 import { SecureDatabase } from './secure-database';
+import { countTokens } from '../utils/token-utils';
 
 // Type definitions for IPC handler inputs
 interface WorkspaceCreateInput {
@@ -68,6 +69,7 @@ interface PromptUpdateInput {
   content: string;
   tokenCount?: number;
   isActive?: boolean;
+  type?: 'system' | 'role';
 }
 
 interface PromptDeleteInput {
@@ -109,120 +111,44 @@ export class DatabaseManager {
   }
 
   private setupHandlers() {
-    // Workspace handlers
-    this.ipc.setHandler('/workspace/list', async () => {
-      return this.db.listWorkspaces();
-    });
-
-    this.ipc.setHandler('/workspace/create', async (input: unknown) => {
-      const validatedInput = input as WorkspaceCreateInput;
-      const id = await this.db.createWorkspace(
-        validatedInput.name,
-        validatedInput.folderPath,
-        validatedInput.state || {}
-      );
-      
-      const workspace = await this.db.getWorkspace(id);
-      if (!workspace) {
-        throw new Error('Failed to create workspace');
-      }
-      
-      return workspace;
-    });
-
-    this.ipc.setHandler('/workspace/load', async (input: unknown) => {
-      const validatedInput = input as WorkspaceLoadInput;
-      const workspace = await this.db.getWorkspace(validatedInput.id);
-      if (!workspace) {
-        throw new Error('Workspace not found');
-      }
-      return workspace;
-    });
-
-    this.ipc.setHandler('/workspace/update', async (input: unknown) => {
-      const validatedInput = input as WorkspaceUpdateInput;
-      await this.db.updateWorkspace(validatedInput.id, validatedInput.state);
-      return true;
-    });
-
-    this.ipc.setHandler('/workspace/delete', async (input: unknown) => {
-      const validatedInput = input as WorkspaceDeleteInput;
-      await this.db.deleteWorkspace(validatedInput.id);
-      return true;
-    });
-
-    // File handlers
-    this.ipc.setHandler('/file/content', async (input: unknown) => {
-      const validatedInput = input as FileContentInput;
-      const content = await this.db.getFileContent(
-        validatedInput.workspaceId,
-        validatedInput.filePath
-      );
-      
-      if (!content) {
-        throw new Error('File not found');
-      }
-      
-      // TODO: Handle line ranges if specified
-      const tokenCount = validatedInput.lineRanges ? 
-        this.calculateTokensForLineRanges(content, validatedInput.lineRanges) : 
-        this.estimateTokenCount(content);
-      
-      return {
-        content,
-        tokenCount,
-        hash: this.calculateHash(content),
-        compressed: false
-      };
-    });
+    // Workspace & file-content & prefs are handled by StateHandlers.
 
     this.ipc.setHandler('/file/save', async (input: unknown) => {
-      const validatedInput = input as FileSaveInput;
+      const validatedInput = input as FileSaveInput; // already Zod-validated by SecureIpcLayer
+      // Ensure tokenCount exists even if omitted by caller
+      const tokenCount =
+        validatedInput.tokenCount ?? countTokens(validatedInput.content);
       await this.db.saveFileContent(
         validatedInput.workspaceId,
         validatedInput.filePath,
         validatedInput.content,
-        validatedInput.tokenCount
+        tokenCount
       );
       return true;
     });
 
-    // Preference handlers
-    this.ipc.setHandler('/prefs/get', async (input: unknown) => {
-      const validatedInput = input as PreferenceGetInput;
-      return this.db.getPreference(validatedInput.key);
-    });
-
-    this.ipc.setHandler('/prefs/set', async (input: unknown) => {
-      const validatedInput = input as PreferenceSetInput;
-      await this.db.setPreference(
-        validatedInput.key,
-        validatedInput.value,
-        validatedInput.encrypted
-      );
-
-      // Broadcast update to notify all renderer processes
-      this.broadcastUpdate('/prefs/get:update');
-
-      return true;
-    });
+    // Preferences are handled by StateHandlers (with encryption/JSON handling).
 
     // Prompt handlers
     this.ipc.setHandler('/prompt/list', async (input: unknown) => {
-      const validatedInput = input as PromptListInput;
-      const allPrompts = await this.db.database.all<{
-        id: string;
-        type: string;
-        name: string;
-        content: string;
-        token_count: number | null;
-        is_active: number;
-        created_at: number;
-        updated_at: number;
-      }>('SELECT * FROM prompts WHERE is_active = 1');
-      
-      return allPrompts
-        .filter(p => !validatedInput.type || p.type === validatedInput.type)
+      const validatedInput = input as PromptListInput; // Zod validated
+      const rows = validatedInput.type
+        ? await this.db.database.all<{
+            id: string; type: string; name: string; content: string;
+            token_count: number | null; is_active: number; created_at: number; updated_at: number;
+          }>('SELECT * FROM prompts WHERE is_active = 1 AND type = ?', [validatedInput.type])
+        : await this.db.database.all<{
+            id: string;
+            type: string;
+            name: string;
+            content: string;
+            token_count: number | null;
+            is_active: number;
+            created_at: number;
+            updated_at: number;
+          }>('SELECT * FROM prompts WHERE is_active = 1');
+
+      return rows
         .map(p => ({
           id: p.id,
           type: p.type as 'system' | 'role',
@@ -238,7 +164,7 @@ export class DatabaseManager {
     this.ipc.setHandler('/prompt/create', async (input: unknown) => {
       const validatedInput = input as PromptCreateInput;
       const id = require('node:crypto').randomUUID();
-      const tokenCount = validatedInput.tokenCount || this.estimateTokenCount(validatedInput.content);
+      const tokenCount = validatedInput.tokenCount || countTokens(validatedInput.content);
       
       await this.db.database.run(
         `INSERT INTO prompts (id, type, name, content, token_count, is_active)
@@ -278,16 +204,28 @@ export class DatabaseManager {
     });
 
     this.ipc.setHandler('/prompt/update', async (input: unknown) => {
-      const validatedInput = input as PromptUpdateInput;
+      const validatedInput = input as PromptUpdateInput & { type?: 'system' | 'role' };
+      // If tokenCount wasn't provided but content changed, recompute it
+      const effectiveTokenCount =
+        validatedInput.tokenCount ?? countTokens(validatedInput.content);
+
       await this.db.database.run(
         `UPDATE prompts
          SET name = ?, content = ?, token_count = ?, is_active = ?
          WHERE id = ?`,
-        [validatedInput.name, validatedInput.content, validatedInput.tokenCount, validatedInput.isActive ? 1 : 0, validatedInput.id]
+        [validatedInput.name, validatedInput.content, effectiveTokenCount, validatedInput.isActive ? 1 : 0, validatedInput.id]
       );
 
       // Broadcast update to notify all renderer processes
-      const updateChannel = validatedInput.type === 'system' ? '/prompts/system:update' : '/prompts/role:update';
+      let promptType = validatedInput.type;
+      if (!promptType) {
+        const row = await this.db.database.get<{ type: string }>(
+          'SELECT type FROM prompts WHERE id = ?',
+          [validatedInput.id]
+        );
+        promptType = (row?.type as 'system' | 'role') ?? 'role';
+      }
+      const updateChannel = promptType === 'system' ? '/prompts/system:update' : '/prompts/role:update';
       this.broadcastUpdate(updateChannel);
 
       return true;
@@ -320,8 +258,8 @@ export class DatabaseManager {
   }
 
   private estimateTokenCount(text: string): number {
-    // Simple estimation: ~4 characters per token
-    return Math.ceil(text.length / 4);
+    // Use the proper token counting from tiktoken
+    return countTokens(text);
   }
 
   private calculateTokensForLineRanges(

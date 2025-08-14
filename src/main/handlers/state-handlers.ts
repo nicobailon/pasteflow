@@ -6,13 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { SecureDatabase } from '../db/secure-database';
 import { SecureIpcLayer } from '../ipc/secure-ipc';
 import { countTokens } from '../utils/token-utils';
-import { 
-  validateInput,
-  WorkspaceCreateSchema,
-  WorkspaceLoadSchema,
-  WorkspaceUpdateSchema,
-  WorkspaceDeleteSchema
-} from '../utils/input-validation';
+// Removed custom validation imports - using Zod validation from SecureIpcLayer instead
 
 interface ContentDeduplicator {
   storeFileContent(content: string, filePath: string): Promise<string>;
@@ -24,6 +18,27 @@ export class StateHandlers {
   
   private estimateTokenCount(text: string): number {
     return countTokens(text);
+  }
+
+  private delay(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async findWorkspaceByIdOrName(idOrName: string) {
+    // Case-insensitive, trimmed name matching; id is exact
+    return await this.db.database.get(
+      // NOTE: LOWER(TRIM(?)) avoids casing/whitespace mismatches on names
+      'SELECT * FROM workspaces WHERE id = ? OR LOWER(name) = LOWER(TRIM(?)) LIMIT 1',
+      [idOrName, idOrName]
+    ) as {
+      id: string;
+      name: string;
+      folder_path: string;
+      state_json: string;
+      created_at: number;
+      updated_at: number;
+      last_accessed: number;
+    } | undefined;
   }
 
   constructor(
@@ -72,23 +87,22 @@ export class StateHandlers {
       }
     });
 
-    this.ipc.setHandler('/workspace/create', async (input) => {
-      let validated: { name: string; folderPath: string; state?: unknown };
+    // Input already validated by SecureIpcLayer (Zod). Use directly.
+    this.ipc.setHandler('/workspace/create', async (input: { name: string; folderPath: string; state?: unknown }) => {
       try {
-        validated = validateInput<{ name: string; folderPath: string; state?: unknown }>(WorkspaceCreateSchema, input);
         const id = uuidv4();
         const now = Math.floor(Date.now() / 1000);
-        
+
         await this.db.database.run(
           'INSERT INTO workspaces (id, name, folder_path, state_json, created_at, updated_at, last_accessed) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [id, validated.name, validated.folderPath, JSON.stringify(validated.state || {}), now, now, now]
+          [id, input.name, input.folderPath, JSON.stringify(input.state || {}), now, now, now]
         );
-        
+
         return {
           id,
-          name: validated.name,
-          folderPath: validated.folderPath,
-          state: validated.state || {},
+          name: input.name,
+          folderPath: input.folderPath,
+          state: input.state || {},
           createdAt: now,
           updatedAt: now,
           lastAccessed: now
@@ -96,32 +110,36 @@ export class StateHandlers {
       } catch (error) {
         const err = error as { code?: string; message?: string };
         if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-          throw new Error(`Cannot create workspace '${validated!.name}': A workspace with this name already exists. Choose a different name.`);
+          const name = input?.name ?? '<unknown>';
+          throw new Error(`Cannot create workspace '${name}': A workspace with this name already exists. Choose a different name.`);
         }
-        throw new Error(`Failed to create workspace '${validated!.name}' at '${validated!.folderPath}': ${err.message || 'Unknown error'}. Verify folder path is valid and database is writable.`);
+        const name = input?.name ?? '<unknown>';
+        const folderPath = input?.folderPath ?? '<unknown>';
+        throw new Error(`Failed to create workspace '${name}' at '${folderPath}': ${err.message || 'Unknown error'}. Verify folder path is valid and database is writable.`);
       }
     });
 
-    this.ipc.setHandler('/workspace/load', async (input) => {
+    // Zod validated (input.id is non-empty string; transitional: may be name or UUID)
+    this.ipc.setHandler('/workspace/load', async (input: { id: string }) => {
       try {
-        const validated = validateInput<{ id: string }>(WorkspaceLoadSchema, input);
-        const workspace = await this.db.database.get(
-          'SELECT * FROM workspaces WHERE id = ?',
-          [validated.id]
-        ) as {
-          id: string;
-          name: string;
-          folder_path: string;
-          state_json: string;
-          created_at: number;
-          updated_at: number;
-          last_accessed: number;
-        } | undefined;
-        
+        let workspace = await this.findWorkspaceByIdOrName(input.id);
+
         if (!workspace) {
-          throw new Error(`Workspace '${validated.id}' not found during load operation. Verify workspace exists in database.`);
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.id);
+          if (!isUuid) {
+            const maxAttempts = 3;
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+              await this.delay(50 + attempt * 50);
+              workspace = await this.findWorkspaceByIdOrName(input.id);
+              if (workspace) break;
+            }
+          }
         }
-        
+
+        if (!workspace) {
+          return null;
+        }
+
         return {
           id: workspace.id,
           name: workspace.name,
@@ -133,26 +151,22 @@ export class StateHandlers {
         };
       } catch (error) {
         const errorMessage = (error as Error).message;
-        if (errorMessage.includes('not found')) {
-          throw error;
-        }
-        const validatedInput = validateInput<{ id: string }>(WorkspaceLoadSchema, input);
-        throw new Error(`Failed to load workspace '${validatedInput.id}': ${errorMessage}. Check database connection and workspace data integrity.`);
+        throw new Error(`Failed to load workspace '${input.id}': ${errorMessage}. Check database connection and workspace data integrity.`);
       }
     });
 
-    this.ipc.setHandler('/workspace/update', async (input) => {
+    // Zod validated (input.id is UUID per schemas; input.state is a record)
+    this.ipc.setHandler('/workspace/update', async (input: { id: string; state: Record<string, unknown> }) => {
       try {
-        const validated = validateInput(WorkspaceUpdateSchema, input);
         const now = Math.floor(Date.now() / 1000);
-        
+
         const result = await this.db.database.run(
           'UPDATE workspaces SET state_json = ?, updated_at = ? WHERE id = ?',
-          [JSON.stringify(validated.state), now, validated.id]
+          [JSON.stringify(input.state), now, input.id]
         );
-        
+
         if (result.changes === 0) {
-          throw new Error(`Workspace '${validated.id}' not found during update operation. Verify workspace exists before updating.`);
+          throw new Error(`Workspace '${input.id}' not found during update operation. Verify workspace exists before updating.`);
         }
 
         // Broadcast update to notify all renderer processes
@@ -164,28 +178,26 @@ export class StateHandlers {
         if (errorMessage.includes('not found')) {
           throw error;
         }
-        const validatedInput = validateInput<{ id: string }>(WorkspaceUpdateSchema, input);
-        throw new Error(`Failed to update workspace '${validatedInput.id}': ${errorMessage}. Check workspace state format and database permissions.`);
+        throw new Error(`Failed to update workspace '${input.id}': ${errorMessage}. Check workspace state format and database permissions.`);
       }
     });
 
-    this.ipc.setHandler('/workspace/delete', async (input) => {
+    // Zod validated (input.id is UUID per schemas)
+    this.ipc.setHandler('/workspace/delete', async (input: { id: string }) => {
       try {
-        const validated = validateInput(WorkspaceDeleteSchema, input);
-        const result = await this.db.database.run('DELETE FROM workspaces WHERE id = ?', [validated.id]);
-        
+        const result = await this.db.database.run('DELETE FROM workspaces WHERE id = ?', [input.id]);
+
         if (result.changes === 0) {
-          throw new Error(`Workspace '${validated.id}' not found during delete operation. Workspace may have already been deleted.`);
+          throw new Error(`Workspace '${input.id}' not found during delete operation. Workspace may have already been deleted.`);
         }
-        
+
         return true;
       } catch (error) {
         const errorMessage = (error as Error).message;
         if (errorMessage.includes('not found')) {
           throw error;
         }
-        const validatedInput = validateInput<{ id: string }>(WorkspaceDeleteSchema, input);
-        throw new Error(`Failed to delete workspace '${validatedInput.id}': ${errorMessage}. Check database permissions and workspace references.`);
+        throw new Error(`Failed to delete workspace '${input.id}': ${errorMessage}. Check database permissions and workspace references.`);
       }
     });
 
@@ -268,12 +280,39 @@ export class StateHandlers {
       }
     });
 
+    // Zod validated in SecureIpcLayer
+    this.ipc.setHandler('/workspace/exists', async (input: { name: string }) => {
+      try {
+        const workspace = await this.findWorkspaceByIdOrName(input.name);
+        return { exists: workspace !== undefined, id: workspace?.id };
+      } catch {
+        // Don't throw errors for existence checks - just return false
+        return { exists: false, id: undefined };
+      }
+    });
+
     this.ipc.setHandler('/workspace/touch', async (input: { id: string }) => {
       try {
         const now = Math.floor(Date.now() / 1000);
+
+        // If the identifier is not a UUID, resolve it by name first
+        const isUuid =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.id);
+
+        let targetId = input.id;
+        if (!isUuid) {
+          const row = await this.db.database.get(
+            'SELECT id FROM workspaces WHERE LOWER(name) = LOWER(TRIM(?)) LIMIT 1',
+            [input.id]
+          ) as { id: string } | undefined;
+          if (row?.id) {
+            targetId = row.id;
+          }
+        }
+
         const result = await this.db.database.run(
           'UPDATE workspaces SET last_accessed = ? WHERE id = ?',
-          [now, input.id]
+          [now, targetId]
         );
         
         if (result.changes === 0) {
@@ -666,7 +705,15 @@ export class StateHandlers {
     // Instructions handlers
     this.ipc.setHandler('/instructions/list', async () => {
       try {
-        return await this.db.database.listInstructions();
+        const items = await this.db.database.listInstructions();
+        // Map DB snake_case fields to API camelCase schema
+        return items.map((row: any) => ({
+          id: row.id,
+          name: row.name,
+          content: row.content,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        }));
       } catch (error) {
         throw new Error(`Failed to list instructions: ${(error as Error).message}`);
       }

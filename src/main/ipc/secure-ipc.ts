@@ -32,7 +32,9 @@ export class SecureIpcLayer {
       PromptSchema,
       WorkspaceSelectionSchema,
       WorkspaceSelectionUpdateSchema,
-      ActivePromptsSchema
+      ActivePromptsSchema,
+      InstructionSchema,
+      InstructionCreateSchema
     } = require('./schemas');
 
     // Define all IPC channels with their schemas
@@ -49,9 +51,17 @@ export class SecureIpcLayer {
     });
 
     this.registerChannel('/workspace/load', {
-      input: z.object({ id: z.string().uuid() }),
-      output: WorkspaceSchema,
+      // Accept either a UUID or a workspace name as identifier
+      input: z.object({ id: z.string().min(1) }),
+      output: z.union([WorkspaceSchema, z.null()]),
       rateLimit: 20
+    });
+
+    this.registerChannel('/workspace/exists', {
+      // Check if a workspace exists by name
+      input: z.object({ name: z.string().min(1) }),
+      output: z.object({ exists: z.boolean(), id: z.string().optional() }),
+      rateLimit: 50
     });
 
     this.registerChannel('/workspace/update', {
@@ -81,7 +91,8 @@ export class SecureIpcLayer {
     this.registerChannel('/prefs/get', {
       input: PreferenceGetSchema,
       output: z.unknown(),
-      rateLimit: 50
+      // Allow slightly higher throughput for frequently-read prefs like search term
+      rateLimit: 120
     });
 
     this.registerChannel('/prefs/set', {
@@ -122,7 +133,7 @@ export class SecureIpcLayer {
     });
 
     this.registerChannel('/workspace/set-current', {
-      input: z.object({ workspace: z.record(z.unknown()) }),
+      input: z.object({ workspace: z.record(z.string(), z.unknown()) }),
       output: z.boolean(),
       rateLimit: 20
     });
@@ -134,7 +145,8 @@ export class SecureIpcLayer {
     });
 
     this.registerChannel('/workspace/touch', {
-      input: z.object({ id: z.string().uuid() }),
+      // Accept either uuid or workspace name for backward compatibility
+      input: z.object({ id: z.string().min(1) }),
       output: z.boolean(),
       rateLimit: 20
     });
@@ -184,7 +196,7 @@ export class SecureIpcLayer {
     });
 
     this.registerChannel('/prompts/system/update', {
-      input: z.object({ id: z.string(), updates: z.record(z.unknown()) }),
+      input: z.object({ id: z.string(), updates: z.record(z.string(), z.unknown()) }),
       output: z.boolean(),
       rateLimit: 10
     });
@@ -202,7 +214,7 @@ export class SecureIpcLayer {
     });
 
     this.registerChannel('/prompts/role/update', {
-      input: z.object({ id: z.string(), updates: z.record(z.unknown()) }),
+      input: z.object({ id: z.string(), updates: z.record(z.string(), z.unknown()) }),
       output: z.boolean(),
       rateLimit: 10
     });
@@ -229,6 +241,31 @@ export class SecureIpcLayer {
       input: z.object({}),
       output: z.boolean(),
       rateLimit: 20
+    });
+
+    // Instructions channels
+    this.registerChannel('/instructions/list', {
+      input: z.object({}),
+      output: z.array(InstructionSchema),
+      rateLimit: 20
+    });
+
+    this.registerChannel('/instructions/create', {
+      input: InstructionCreateSchema.extend({ id: z.string() }),
+      output: z.object({ success: z.boolean() }),
+      rateLimit: 10
+    });
+
+    this.registerChannel('/instructions/update', {
+      input: InstructionSchema.pick({ id: true, name: true, content: true }),
+      output: z.object({ success: z.boolean() }),
+      rateLimit: 10
+    });
+
+    this.registerChannel('/instructions/delete', {
+      input: z.object({ id: z.string() }),
+      output: z.object({ success: z.boolean() }),
+      rateLimit: 10
     });
   }
 
@@ -285,11 +322,47 @@ export class SecureIpcLayer {
     channel: string,
     event: IpcMainInvokeEvent
   ) {
-    // Verify origin
+    // Verify origin: allow file:// always; in dev allow localhost dev server
     const url = event.senderFrame.url;
-    if (!url.startsWith('file://')) {
-      throw new Error('Invalid origin');
+
+    // Production/package: only allow file:// pages
+    if (url.startsWith('file://')) {
+      return;
     }
+
+    // Development: permit Electron dev server origins (localhost/127.0.0.1)
+    const isDev = process.env.NODE_ENV !== 'production';
+    if (isDev) {
+      try {
+        const current = new URL(url);
+        const allowedOrigins = new Set<string>();
+
+        // Allow the origin from ELECTRON_START_URL if provided (e.g., http://localhost:5173)
+        const startUrl = process.env.ELECTRON_START_URL;
+        if (startUrl) {
+          try {
+            const su = new URL(startUrl);
+            allowedOrigins.add(`${su.protocol}//${su.host}`);
+          } catch {}
+        }
+
+        // Common local dev origins
+        allowedOrigins.add('http://localhost:5173');
+        allowedOrigins.add('http://127.0.0.1:5173');
+
+        const origin = `${current.protocol}//${current.host}`;
+        if (
+          allowedOrigins.has(origin) ||
+          ((current.hostname === 'localhost' || current.hostname === '127.0.0.1') && (current.protocol === 'http:' || current.protocol === 'https:'))
+        ) {
+          return;
+        }
+      } catch {
+        // Fall through to error
+      }
+    }
+
+    throw new Error('Invalid origin');
 
     // Additional checks can be added here
     // - CSRF tokens

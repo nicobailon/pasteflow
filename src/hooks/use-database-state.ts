@@ -21,6 +21,13 @@ interface DatabaseStateReturn<T, P = unknown, U = unknown, R = unknown> {
   refresh: () => Promise<T>;
 }
 
+const isRateLimitError = (error: unknown): boolean => {
+  const msg = (error as Error)?.message || String(error || '');
+  return msg.includes('Rate limit exceeded');
+};
+
+const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
 export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
   channel: string,
   initialData: T,
@@ -29,28 +36,29 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
   const [data, setData] = useState<T>(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  
+
   const cache = useRef<Map<string, CacheEntry<T>>>(new Map());
   const pendingUpdates = useRef<Map<string, Partial<T>>>(new Map());
+  const lastParamsRef = useRef<P | undefined>(undefined);
 
   const getCached = useCallback((key: string): T | null => {
     if (!options.cache) return null;
-    
+
     const entry = cache.current.get(key);
     if (!entry) return null;
-    
+
     const now = Date.now();
     if (now - entry.timestamp > entry.ttl) {
       cache.current.delete(key);
       return null;
     }
-    
+
     return entry.data;
   }, [options.cache]);
 
   const setCached = useCallback((key: string, value: T) => {
     if (!options.cache) return;
-    
+
     cache.current.set(key, {
       data: value,
       timestamp: Date.now(),
@@ -59,8 +67,13 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
   }, [options.cache, options.cacheTTL]);
 
   const fetchData = useCallback(async (params?: P): Promise<T> => {
+    // Remember last params for callers that invoke updateData without providing fetch params
+    if (params !== undefined) {
+      lastParamsRef.current = params;
+    }
+
     const cacheKey = JSON.stringify(params || {});
-    
+
     const cached = getCached(cacheKey);
     if (cached !== null) {
       setData(cached);
@@ -76,7 +89,10 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
       setCached(cacheKey, result);
       return result;
     } catch (error_) {
-      setError(error_ as Error);
+      // Suppress noisy logs on rate limiting; let caller decide what to do
+      if (!isRateLimitError(error_)) {
+        setError(error_ as Error);
+      }
       throw error_;
     } finally {
       setLoading(false);
@@ -92,23 +108,43 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
 
     try {
       if (options.optimisticUpdate && optimisticData) {
-        setData(prev => ({ ...prev, ...optimisticData }));
+        setData(prev => ({ ...(prev as any), ...optimisticData } as T));
         pendingUpdates.current.set(updateId, optimisticData);
       }
 
       const result = await window.electron.ipcRenderer.invoke(updateChannel, params);
-      
+
       pendingUpdates.current.delete(updateId);
-      
-      await fetchData();
-      
+
+      // Re-fetch using the last known params (e.g., { key }) to satisfy validators
+      try {
+        await fetchData(lastParamsRef.current);
+      } catch (refetchError) {
+        // Gracefully handle rate limiting without noisy logs
+        if (isRateLimitError(refetchError)) {
+          // Backoff slightly and try one more time
+          await delay(150);
+          try {
+            await fetchData(lastParamsRef.current);
+          } catch {
+            // Swallow to avoid alarming logs; UI retains optimistic state
+          }
+        } else {
+          throw refetchError;
+        }
+      }
+
       return result;
     } catch (error_) {
       if (pendingUpdates.current.has(updateId)) {
         pendingUpdates.current.delete(updateId);
-        await fetchData();
+        try {
+          await fetchData(lastParamsRef.current);
+        } catch {
+          // Ignore refetch failures here
+        }
       }
-      
+
       setError(error_ as Error);
       throw error_;
     }
@@ -119,9 +155,9 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
       setData(updatedData);
     }
     cache.current.clear();
-    // If no data provided, trigger a refetch
+    // If no data provided, trigger a refetch with last known params (if any)
     if (updatedData === undefined) {
-      fetchData().catch(error => {
+      fetchData(lastParamsRef.current).catch(error => {
         console.error('Error refetching data on update:', error);
       });
     }

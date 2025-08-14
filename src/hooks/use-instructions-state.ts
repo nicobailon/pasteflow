@@ -21,7 +21,7 @@ export function useInstructionsState(): UseInstructionsStateReturn {
     setLoading(true);
     setError(null);
     try {
-      const result = await window.electron.ipcRenderer.invoke('/instructions/list');
+      const result = await window.electron.ipcRenderer.invoke('/instructions/list', {});
       setInstructions(result);
     } catch (error_) {
       setError(error_ as Error);

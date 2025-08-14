@@ -99,7 +99,7 @@ export const useDatabaseWorkspaceState = () => {
       try {
         if (!window.electron) return;
         
-        const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list');
+        const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list', {});
         
         // Check if cancelled before updating state
         if (token.cancelled) {
@@ -143,13 +143,14 @@ export const useDatabaseWorkspaceState = () => {
     try {
       if (!window.electron) return null;
       
-      // Use the direct load method instead of listing all workspaces
-      return await window.electron.ipcRenderer.invoke('/workspace/load', { id: name });
+      // Try to load the workspace - it may not exist yet which is fine
+      // The backend now returns null instead of throwing for non-existent workspaces
+      const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', { id: name });
+      return workspace || null;
     } catch (error) {
-      // Workspace not found is expected, don't log as error
-      if (error.message !== 'Workspace not found') {
-        console.error(`Failed to find workspace '${name}': ${error.message}`);
-      }
+      // Only log unexpected errors
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to find workspace '${name}': ${errorMessage}`);
       return null;
     }
   }, []);
@@ -171,7 +172,7 @@ export const useDatabaseWorkspaceState = () => {
    * });
    */
   const saveWorkspace = useCallback(async (name: string, workspace: WorkspaceState): Promise<void> => {
-    return await runCancellableOperation(async (token) => {
+    await runCancellableOperation(async (token) => {
       try {
         safeSetIsLoading(true);
         safeSetError(null);
@@ -251,10 +252,15 @@ export const useDatabaseWorkspaceState = () => {
         
         if (!workspace) return null;
         
-        // Update last accessed time
-        await window.electron.ipcRenderer.invoke('/workspace/touch', {
-          id: name
-        });
+        // Best-effort: don't surface console errors if touching fails immediately after creation.
+        // Try with the incoming id (may be a name), then fall back to the canonical DB id.
+        void window.electron.ipcRenderer
+          .invoke('/workspace/touch', { id: name })
+          .catch(() =>
+            workspace?.id
+              ? window.electron.ipcRenderer.invoke('/workspace/touch', { id: workspace.id }).catch(() => {})
+              : undefined
+          );
         
         // Check again if cancelled before returning
         if (token.cancelled) {
@@ -262,7 +268,13 @@ export const useDatabaseWorkspaceState = () => {
           return null;
         }
         
-        return workspace.state;
+        // Handle state being either a string or an object
+        const state =
+          typeof workspace.state === 'string'
+            ? JSON.parse(workspace.state)
+            : (workspace.state as WorkspaceState);
+        
+        return state ?? null;
       } catch (error) {
         console.error(`Failed to load workspace '${name}': ${(error as Error).message}`);
         safeSetError(`Failed to load workspace '${name}': ${(error as Error).message}. Verify workspace exists and database is accessible.`);
@@ -305,8 +317,9 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to delete workspace '${name}': ${error.message}`);
-      setError(`Failed to delete workspace '${name}': ${error.message}. Check database permissions and workspace references.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to delete workspace '${name}': ${errorMessage}`);
+      setError(`Failed to delete workspace '${name}': ${errorMessage}. Check database permissions and workspace references.`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -345,8 +358,9 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${error.message}`);
-      setError(`Failed to rename workspace '${oldName}' to '${newName}': ${error.message}. Check for name conflicts and database permissions.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${errorMessage}`);
+      setError(`Failed to rename workspace '${oldName}' to '${newName}': ${errorMessage}. Check for name conflicts and database permissions.`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -366,10 +380,11 @@ export const useDatabaseWorkspaceState = () => {
     try {
       if (!window.electron) return [];
       
-      const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list');
+      const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list', {});
       return workspaces.map((w: DatabaseWorkspace) => w.name);
     } catch (error) {
-      console.error(`Failed to get workspace names: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to get workspace names: ${errorMessage}`);
       return [];
     }
   }, []);
@@ -403,8 +418,9 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to import workspace '${name}': ${error.message}`);
-      setError(`Failed to import workspace '${name}': ${error.message}. Check workspace data format and database permissions.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to import workspace '${name}': ${errorMessage}`);
+      setError(`Failed to import workspace '${name}': ${errorMessage}. Check workspace data format and database permissions.`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -438,8 +454,9 @@ export const useDatabaseWorkspaceState = () => {
       
       return workspace.state;
     } catch (error) {
-      console.error(`Failed to export workspace '${name}': ${error.message}`);
-      setError(`Failed to export workspace '${name}': ${error.message}. Verify workspace exists and is accessible.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to export workspace '${name}': ${errorMessage}`);
+      setError(`Failed to export workspace '${name}': ${errorMessage}. Verify workspace exists and is accessible.`);
       return null;
     } finally {
       setIsLoading(false);
@@ -511,7 +528,7 @@ export const useDatabaseWorkspaceState = () => {
         throw new Error('Electron IPC not available');
       }
 
-      const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list');
+      const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list', {});
       
       for (const workspace of workspaces) {
         await window.electron.ipcRenderer.invoke('/workspace/delete', {
@@ -521,8 +538,9 @@ export const useDatabaseWorkspaceState = () => {
       
       window.dispatchEvent(new CustomEvent('workspacesChanged'));
     } catch (error) {
-      console.error(`Failed to clear all workspaces: ${error.message}`);
-      setError(`Failed to clear all workspaces: ${error.message}. Check database permissions and try again.`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to clear all workspaces: ${errorMessage}`);
+      setError(`Failed to clear all workspaces: ${errorMessage}. Check database permissions and try again.`);
       throw error;
     } finally {
       setIsLoading(false);

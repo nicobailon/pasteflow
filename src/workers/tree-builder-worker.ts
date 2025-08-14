@@ -22,41 +22,55 @@ interface TreeNodeMap {
 
 // Normalize path for consistent comparison
 function normalizePath(path: string): string {
-  return path.replace(/\\/g, '/');
+  // Normalize slashes and remove a single trailing slash for boundary-safe comparisons
+  return path.replace(/\\/g, '/').replace(/\/$/, '');
 }
 
 // Convert hierarchical map to TreeNode array
-function convertToTreeNodes(nodeMap: TreeNodeMap, depth = 0, shouldSort = true): TreeNode[] {
+// maxDepth limits how deep to include children (use Infinity for full depth)
+function convertToTreeNodes(
+  nodeMap: TreeNodeMap,
+  level = 0,
+  shouldSort = true,
+  maxDepth: number = Number.POSITIVE_INFINITY,
+  includeFileData: boolean = true
+): TreeNode[] {
   const nodes: TreeNode[] = [];
-  
+
   for (const key in nodeMap) {
     const node = nodeMap[key];
-    
+
     if (node.isFile) {
-      nodes.push({
+      const fileNode: Partial<TreeNode> = {
+        id: node.path,
         name: node.name,
         path: node.path,
         type: 'file',
-        depth,
-        fileData: node.fileData
-      });
+        level,
+      };
+      if (includeFileData) {
+        (fileNode as any).fileData = node.fileData;
+      }
+      nodes.push(fileNode as TreeNode);
     } else if (node.isDirectory) {
-      const treeNode: TreeNode = {
+      const treeNode: Partial<TreeNode> = {
+        id: node.path,
         name: node.name,
         path: node.path,
         type: 'directory',
-        depth,
+        level,
         isExpanded: node.isExpanded ?? false
       };
-      
-      if (node.children && Object.keys(node.children).length > 0) {
-        treeNode.children = convertToTreeNodes(node.children, depth + 1, shouldSort);
+
+      // Only include children if we haven't reached maxDepth
+      if (level + 1 < maxDepth && node.children && Object.keys(node.children).length > 0) {
+        (treeNode as any).children = convertToTreeNodes(node.children, level + 1, shouldSort, maxDepth, includeFileData);
       }
-      
-      nodes.push(treeNode);
+
+      nodes.push(treeNode as TreeNode);
     }
   }
-  
+
   if (shouldSort) {
     // Basic alphabetical sorting - directories first, then files
     nodes.sort((a, b) => {
@@ -65,7 +79,7 @@ function convertToTreeNodes(nodeMap: TreeNodeMap, depth = 0, shouldSort = true):
       return a.name.localeCompare(b.name);
     });
   }
-  
+
   return nodes;
 }
 
@@ -76,6 +90,12 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
     // Build the complete file map
     const fileMap: TreeNodeMap = {};
     let processedCount = 0;
+
+    // Throttle intermediate posts to reduce main-thread work
+    let lastPostTime = 0;
+    let lastProgressPosted = -1;
+    const POST_INTERVAL_MS = 50;
+    const MIN_PROGRESS_DELTA = 5; // percent
     
     // Process files in chunks and send progress updates
     for (let i = 0; i < allFiles.length; i += chunkSize) {
@@ -86,15 +106,22 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
         
         const normalizedFilePath = normalizePath(file.path);
         const normalizedRootPath = selectedFolder ? normalizePath(selectedFolder) : '';
-        
-        const relativePath = 
-          selectedFolder && normalizedFilePath.startsWith(normalizedRootPath)
-            ? normalizedFilePath
-                .slice(normalizedRootPath.length)
-                .replace(/^\/|^\\/, "")
-            : normalizedFilePath;
-        
-        const parts = relativePath.split(/[/\\]/);
+
+        // Strictly include only files under selectedFolder (boundary-safe)
+        let relativePath: string;
+        if (selectedFolder) {
+          const root = normalizedRootPath;
+          const underRoot = normalizedFilePath === root || normalizedFilePath.startsWith(root + '/');
+          if (!underRoot) {
+            continue;
+          }
+          relativePath = normalizedFilePath === root ? '' : normalizedFilePath.slice(root.length + 1);
+        } else {
+          // Remove any leading slash to avoid empty first part
+          relativePath = normalizedFilePath.replace(/^\/|^\\/, '');
+        }
+
+        const parts = relativePath.split('/');
         let currentPath = "";
         let current = fileMap;
         
@@ -107,9 +134,9 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
           if (j < parts.length - 1) {
             // Directory
             const dirPath = selectedFolder
-              ? normalizePath(`${selectedFolder}/${currentPath}`)
+              ? normalizePath(`${normalizedRootPath}/${currentPath}`)
               : normalizePath(`/${currentPath}`);
-            
+
             if (!current[part]) {
               current[part] = {
                 name: part,
@@ -125,13 +152,13 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
               current[part].children = {};
             }
             
-            current = current[part].children;
+            current = current[part].children as TreeNodeMap;
           } else {
             // File
             const filePath = selectedFolder
-              ? normalizePath(`${selectedFolder}/${currentPath}`)
+              ? normalizePath(`${normalizedRootPath}/${currentPath}`)
               : normalizePath(`/${currentPath}`);
-            
+
             current[part] = {
               name: part,
               path: filePath,
@@ -145,22 +172,27 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
       processedCount += batch.length;
       const progress = Math.min((processedCount / allFiles.length) * 100, 100);
       
-      // Send intermediate chunk (unsorted for performance)
-      const intermediateNodes = convertToTreeNodes(fileMap, 0, false);
-      
-      self.postMessage({
-        type: 'TREE_CHUNK',
-        id,
-        payload: {
-          nodes: intermediateNodes,
-          progress
-        }
-      });
+      // Send intermediate chunk (unsorted for performance), throttled
+      // Limit depth for intermediate updates to reduce payload size
+      const now = Date.now();
+      if ((now - lastPostTime) >= POST_INTERVAL_MS || (progress - lastProgressPosted) >= MIN_PROGRESS_DELTA || progress >= 100) {
+        lastPostTime = now;
+        lastProgressPosted = progress;
+        const intermediateNodes = convertToTreeNodes(fileMap, 0, false, 3, false);
+        self.postMessage({
+          type: 'TREE_CHUNK',
+          id,
+          payload: {
+            nodes: intermediateNodes,
+            progress
+          }
+        });
+      }
     }
-    
-    // Send final sorted tree
-    const finalNodes = convertToTreeNodes(fileMap, 0, true);
-    
+
+    // Send final sorted tree (full depth, include fileData)
+    const finalNodes = convertToTreeNodes(fileMap, 0, true, Number.POSITIVE_INFINITY, true);
+
     self.postMessage({
       type: 'TREE_COMPLETE',
       id,

@@ -105,16 +105,16 @@ export function usePersistentState<T>(
           setHasInitialized(true);
           return;
         }
-        
+
         const dbValue = await fetchData({ key });
         if (dbValue !== null) {
           setPersistedValue(dbValue as T);
         }
         setHasInitialized(true);
       } catch (error) {
-        // Only log error if it's not about missing key
-        const errorMessage = (error as Error)?.message;
-        if (!errorMessage?.includes('key is required')) {
+        // Only log error if it's not about missing key or rate limiting
+        const errorMessage = (error as Error)?.message || '';
+        if (!errorMessage.includes('key is required') && !errorMessage.includes('Rate limit exceeded')) {
           console.error(`Error loading preference "${key}":`, error);
         }
         setHasInitialized(true);
