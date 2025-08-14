@@ -129,10 +129,13 @@ export interface FileListProps {
   };
   selectedSystemPrompts?: SystemPrompt[];
   toggleSystemPromptSelection?: (prompt: SystemPrompt) => void;
+  onViewSystemPrompt?: (prompt: SystemPrompt) => void;
   selectedRolePrompts?: RolePrompt[];
   toggleRolePromptSelection?: (prompt: RolePrompt) => void;
+  onViewRolePrompt?: (prompt: RolePrompt) => void;
   selectedInstructions?: Instruction[];
   toggleInstructionSelection?: (instruction: Instruction) => void;
+  onViewInstruction?: (instruction: Instruction) => void;
   loadFileContent: (filePath: string) => Promise<void>; // Added loadFileContent property
 }
 
@@ -228,6 +231,7 @@ export interface SystemPromptsModalProps {
   onSelectPrompt: (prompt: SystemPrompt) => void;
   selectedSystemPrompts?: SystemPrompt[];
   toggleSystemPromptSelection: (prompt: SystemPrompt) => void;
+  initialEditPrompt?: SystemPrompt | null;
 }
 
 export interface RolePromptsModalProps {
@@ -240,6 +244,7 @@ export interface RolePromptsModalProps {
   onSelectPrompt: (prompt: RolePrompt) => void;
   selectedRolePrompts?: RolePrompt[];
   toggleRolePromptSelection: (prompt: RolePrompt) => void;
+  initialEditPrompt?: RolePrompt | null;
 }
 
 // If these types don't exist, add them:
@@ -266,6 +271,7 @@ export interface InstructionsModalProps {
   onUpdateInstruction: (instruction: Instruction) => Promise<void>;
   selectedInstructions: Instruction[];
   toggleInstructionSelection: (instruction: Instruction) => void;
+  initialEditInstruction?: Instruction | null;
 }
 
 export interface WorkspaceState {

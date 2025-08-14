@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
 
+import { SystemPrompt, RolePrompt, Instruction } from '../types/file-types';
+
 /**
  * Custom hook to manage the visibility state of all modals
  * 
@@ -17,6 +19,11 @@ const useModalState = () => {
   
   // Track currently viewed file path for file view modal
   const [currentViewedFilePath, setCurrentViewedFilePath] = useState("");
+  
+  // Track which prompt/instruction to edit when opening modal
+  const [systemPromptToEdit, setSystemPromptToEdit] = useState<SystemPrompt | null>(null);
+  const [rolePromptToEdit, setRolePromptToEdit] = useState<RolePrompt | null>(null);
+  const [instructionToEdit, setInstructionToEdit] = useState<Instruction | null>(null);
   
   // Track clipboard preview content and token count
   const [previewContent, setPreviewContent] = useState<string>("");
@@ -70,6 +77,40 @@ const useModalState = () => {
     setClipboardPreviewModalOpen(false);
   }, []);
 
+  // Function to open system prompts modal with a specific prompt for editing
+  const openSystemPromptsModalForEdit = useCallback((prompt: SystemPrompt) => {
+    setSystemPromptToEdit(prompt);
+    setSystemPromptsModalOpen(true);
+  }, []);
+
+  // Function to open role prompts modal with a specific prompt for editing
+  const openRolePromptsModalForEdit = useCallback((prompt: RolePrompt) => {
+    setRolePromptToEdit(prompt);
+    setRolePromptsModalOpen(true);
+  }, []);
+
+  // Function to open instructions modal with a specific instruction for editing
+  const openInstructionsModalForEdit = useCallback((instruction: Instruction) => {
+    setInstructionToEdit(instruction);
+    setInstructionsModalOpen(true);
+  }, []);
+
+  // Clear edit state when closing modals
+  const closeSystemPromptsModal = useCallback(() => {
+    setSystemPromptsModalOpen(false);
+    setSystemPromptToEdit(null);
+  }, []);
+
+  const closeRolePromptsModal = useCallback(() => {
+    setRolePromptsModalOpen(false);
+    setRolePromptToEdit(null);
+  }, []);
+
+  const closeInstructionsModal = useCallback(() => {
+    setInstructionsModalOpen(false);
+    setInstructionToEdit(null);
+  }, []);
+
   return {
     // Modal visibility states
     showApplyChangesModal,
@@ -82,6 +123,9 @@ const useModalState = () => {
     currentViewedFilePath,
     previewContent,
     previewTokenCount,
+    systemPromptToEdit,
+    rolePromptToEdit,
+    instructionToEdit,
     
     // Toggle functions
     toggleApplyChangesModal,
@@ -94,6 +138,12 @@ const useModalState = () => {
     closeFileViewModal,
     openClipboardPreviewModal,
     closeClipboardPreviewModal,
+    openSystemPromptsModalForEdit,
+    openRolePromptsModalForEdit,
+    openInstructionsModalForEdit,
+    closeSystemPromptsModal,
+    closeRolePromptsModal,
+    closeInstructionsModal,
     
     // Direct setters
     setShowApplyChangesModal,

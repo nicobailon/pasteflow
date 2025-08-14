@@ -1247,9 +1247,17 @@ const useAppState = () => {
     }, 0);
   }, [promptState.selectedRolePrompts]);
 
+  // Calculate total tokens for instructions/docs
+  const totalTokensForInstructions = useMemo(() => {
+    if (!selectedInstructions || selectedInstructions.length === 0) return 0;
+    return selectedInstructions.reduce((prev: number, instruction: Instruction) => {
+      return prev + estimateTokenCount(instruction.content);
+    }, 0);
+  }, [selectedInstructions]);
+
   const totalTokens = useMemo(() => {
-    return totalTokensForSelectedFiles + totalTokensForSystemPrompt + totalTokensForRolePrompt;
-  }, [totalTokensForSelectedFiles, totalTokensForSystemPrompt, totalTokensForRolePrompt]);
+    return totalTokensForSelectedFiles + totalTokensForSystemPrompt + totalTokensForRolePrompt + totalTokensForInstructions;
+  }, [totalTokensForSelectedFiles, totalTokensForSystemPrompt, totalTokensForRolePrompt, totalTokensForInstructions]);
 
   // Helper functions to reduce complexity
   const handleFileSelection = useCallback((file: FileData) => {
@@ -1364,6 +1372,7 @@ const useAppState = () => {
     getCurrentFileTreeTokens,
     systemPromptsTokens: totalTokensForSystemPrompt,
     rolePromptsTokens: totalTokensForRolePrompt,
+    instructionsTokens: totalTokensForInstructions,
 
     // Content formatting
     getFormattedContent,
@@ -1384,6 +1393,7 @@ const useAppState = () => {
     totalTokensForSelectedFiles,
     totalTokensForSystemPrompt,
     totalTokensForRolePrompt,
+    totalTokensForInstructions,
 
     instructions: instructionsState.instructions,
     selectedInstructions,
