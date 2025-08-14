@@ -91,7 +91,8 @@ export class SecureIpcLayer {
     this.registerChannel('/prefs/get', {
       input: PreferenceGetSchema,
       output: z.unknown(),
-      rateLimit: 50
+      // Allow slightly higher throughput for frequently-read prefs like search term
+      rateLimit: 120
     });
 
     this.registerChannel('/prefs/set', {

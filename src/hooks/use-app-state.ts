@@ -18,6 +18,7 @@ import { VirtualFileLoader } from '../utils/virtual-file-loader';
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
 import usePersistentState from './use-persistent-state';
+import useDebouncedPersistentState from './use-debounced-persistent-state';
 import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
@@ -29,18 +30,18 @@ type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
 /**
  * Central application state hook implementing the single-source-of-truth pattern.
- * 
+ *
  * Architecture Overview:
  * - `allFiles`: The authoritative source for all file data in the workspace
  * - `selectedFiles`: Contains only references (paths + line ranges) to selected files
  * - Components look up file data by combining references with the source data
- * 
+ *
  * This design solves the file content flicker issue by ensuring:
  * 1. File data is never duplicated across different state variables
  * 2. All file updates flow through a single update path (updateFileWithContent)
  * 3. Selection changes don't trigger unnecessary file data updates
  * 4. Caches are properly invalidated when file content changes
- * 
+ *
  * Key patterns:
  * - Use `SelectedFileReference` for tracking selections
  * - Use `FileData` from allFiles for all file information
@@ -55,9 +56,11 @@ const useAppState = () => {
     STORAGE_KEYS.SORT_ORDER,
     "tokens-desc"
   );
-  const [searchTerm, setSearchTerm] = usePersistentState<string>(
+  // Debounce search persistence to avoid spamming IPC on fast typing
+  const [searchTerm, setSearchTerm] = useDebouncedPersistentState<string>(
     STORAGE_KEYS.SEARCH_TERM,
-    ""
+    "",
+    300
   );
   const [fileTreeMode, setFileTreeMode] = usePersistentState<FileTreeMode>(
     STORAGE_KEYS.FILE_TREE_MODE,
@@ -87,7 +90,7 @@ const useAppState = () => {
       "**/package-lock.json",
     ]
   );
-  
+
   // Initialize virtual file loader
   const virtualFileLoaderRef = useRef<VirtualFileLoader | null>(null);
   const getVirtualFileLoader = useCallback(() => {
@@ -111,7 +114,7 @@ const useAppState = () => {
   const [allFiles, setAllFiles] = useState([] as FileData[]);
   const [displayedFiles, setDisplayedFiles] = useState([] as FileData[]);
   const [expandedNodes, setExpandedNodes] = usePersistentState<Record<string, boolean>>(
-    STORAGE_KEYS.EXPANDED_NODES, 
+    STORAGE_KEYS.EXPANDED_NODES,
     {}
   );
   const [appInitialized, setAppInitialized] = useState(false);
@@ -135,7 +138,7 @@ const useAppState = () => {
   const [headerSaveState, setHeaderSaveState] = useState('idle' as 'idle' | 'saving' | 'success');
   const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null);
   const [currentWorkspace, setCurrentWorkspace] = useState(null as string | null);
-  
+
   // Build folder index for efficient folder selection
   const folderIndex = useMemo(() => {
     return buildFolderIndex(allFiles);
@@ -148,14 +151,14 @@ const useAppState = () => {
   const docState = useDocState();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace, getWorkspaceNames } = useWorkspaceState();
   const { runCancellableOperation } = useCancellableOperation();
-  
+
   // Extract specific functions from fileSelection to avoid dependency on the whole object
   const clearSelectedFiles = fileSelection.clearSelectedFiles;
   const setSelectionState = fileSelection.setSelectionState;
   const cleanupStaleSelections = fileSelection.cleanupStaleSelections;
   const validateSelectedFilesExist = fileSelection.validateSelectedFilesExist;
   const selectedFiles = fileSelection.selectedFiles;
-  
+
   // Token counter hook - always enabled
   const { countTokens: workerCountTokens, countTokensBatch, isReady: isTokenWorkerReady } = useTokenCounter();
 
@@ -174,7 +177,7 @@ const useAppState = () => {
   // Update instructions token count when user instructions change
   const [userInstructions, setUserInstructions] = useState('');
   const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
-  
+
   // Instructions (docs) state - now from database
   const instructionsState = useInstructionsState();
   const [selectedInstructions, setSelectedInstructions] = useState(() => [] as Instruction[]);
@@ -202,7 +205,7 @@ const useAppState = () => {
       }
     };
   }, []);
-  
+
   // Apply filters and sorting to files
   const handleFiltersAndSort = useCallback(
     (files: FileData[], sort: string, filter: string) => {
@@ -272,7 +275,7 @@ const useAppState = () => {
   // Handle token calculations - now uses estimation when content not loaded
   const calculateTotalTokens = useCallback(() => {
     const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
-    
+
     return fileSelection.selectedFiles.reduce((total, selectedFile) => {
       const fileData = allFilesMap.get(selectedFile.path);
       if (fileData) {
@@ -334,7 +337,7 @@ const useAppState = () => {
       // If currentState is provided, use it to determine the new state
       // Otherwise fall back to the old logic for backward compatibility
       let newValue: boolean;
-      
+
       if (currentState === undefined) {
         // Fallback logic when currentState not provided
         // Since we don't know the current visual state, we have to make an assumption
@@ -346,7 +349,7 @@ const useAppState = () => {
         // We know the exact current state, so just invert it
         newValue = !currentState;
       }
-      
+
       // The usePersistentState hook will handle persistence
 
       return {
@@ -397,23 +400,23 @@ const useAppState = () => {
     fileTreeMode,
     selectedFolder
   ]);
-  
+
   // Helper function to validate file load request
   const validateFileLoadRequest = useCallback((filePath: string, files: FileData[]): { valid: boolean; file?: FileData; reason?: string } => {
     const file = files.find((f: FileData) => f.path === filePath);
-    
+
     if (!file) {
       return { valid: false, reason: 'File not found' };
     }
-    
+
     if (file.isContentLoaded) {
       return { valid: false, reason: 'Already loaded' };
     }
-    
+
     if (selectedFolder && !filePath.startsWith(selectedFolder)) {
       return { valid: false, reason: 'Outside workspace' };
     }
-    
+
     return { valid: true, file };
   }, [selectedFolder]);
 
@@ -428,7 +431,7 @@ const useAppState = () => {
         )
       );
     });
-    
+
     // Removed automatic file selection when loading content
     // Files should only be selected via explicit user action (checkbox or Apply in modal)
   }, [setAllFiles]);
@@ -462,30 +465,30 @@ const useAppState = () => {
     tokenCountError?: string
   ) => {
     fileContentCache.set(filePath, content, tokenCount);
-    
+
     // Invalidate token cache for this file when content changes
     tokenCountCache.invalidateFile(filePath);
-    
+
     // Use flushSync to force React to process this update immediately
     // This fixes the issue where token counts don't appear until a second file is selected
     flushSync(() => {
       setAllFiles((prev: FileData[]) =>
         prev.map((f: FileData) =>
           f.path === filePath
-            ? { 
-                ...f, 
-                content, 
-                tokenCount, 
-                isContentLoaded: true, 
+            ? {
+                ...f,
+                content,
+                tokenCount,
+                isContentLoaded: true,
                 isCountingTokens: false,
                 error: undefined,
-                tokenCountError 
+                tokenCountError
               }
             : f
         )
       );
     });
-    
+
     // Only update selected file if it's already in the selection
     // This prevents auto-selecting files when just viewing them
     const existingSelectedFile = fileSelection.findSelectedFile(filePath);
@@ -503,7 +506,7 @@ const useAppState = () => {
       updateFileWithContent(filePath, cached.content, cached.tokenCount);
       return true;
     }
-    
+
     // Need to count tokens for cached content
     const { tokenCount, error } = await processFileTokens(cached.content, filePath, 0); // High priority for visible files
     updateFileWithContent(filePath, cached.content, tokenCount, error);
@@ -555,8 +558,8 @@ const useAppState = () => {
         // Handle error
         setAllFiles((prev: FileData[]) =>
           prev.map((f: FileData) =>
-            f.path === filePath 
-              ? { ...f, error: result.error, isContentLoaded: false, isCountingTokens: false } 
+            f.path === filePath
+              ? { ...f, error: result.error, isContentLoaded: false, isCountingTokens: false }
               : f
           )
         );
@@ -566,17 +569,17 @@ const useAppState = () => {
       // Ensure loading state is cleared on any error
       setAllFiles((prev: FileData[]) =>
         prev.map((f: FileData) =>
-          f.path === filePath 
-            ? { ...f, error: 'Failed to load file', isContentLoaded: false, isCountingTokens: false } 
+          f.path === filePath
+            ? { ...f, error: 'Failed to load file', isContentLoaded: false, isCountingTokens: false }
             : f
         )
       );
     }
   }, [
-    validateFileLoadRequest, 
-    updateFileLoadingState, 
-    handleCachedContent, 
-    processFileTokens, 
+    validateFileLoadRequest,
+    updateFileLoadingState,
+    handleCachedContent,
+    processFileTokens,
     updateFileWithContent,
     setAllFiles
   ]);
@@ -627,12 +630,12 @@ const useAppState = () => {
 
         if (result?.success && result.content !== undefined && tokenCount !== undefined) {
           fileContentCache.set(f.path, result.content, tokenCount);
-          
+
           // Only update selected file if it's still in the selection
           // This prevents memory leaks from updating deselected files
           const currentSelectedFiles = fileSelection.selectedFiles;
           const isStillSelected = currentSelectedFiles.some(sf => sf.path === f.path);
-          
+
           if (isStillSelected) {
             const existingSelectedFile = fileSelection.findSelectedFile(f.path);
             if (existingSelectedFile) {
@@ -675,7 +678,7 @@ const useAppState = () => {
     for (const { path, content } of successfulLoads) {
       const tokenCount = estimateTokenCount(content);
       fileContentCache.set(path, content, tokenCount);
-      
+
       setAllFiles((prev: FileData[]) =>
         prev.map((f: FileData) =>
           f.path === path
@@ -733,11 +736,11 @@ const useAppState = () => {
       );
     }
   }, [
-    isTokenWorkerReady, 
-    loadFileContent, 
-    countTokensBatch, 
-    setBatchLoadingState, 
-    processBatchResults, 
+    isTokenWorkerReady,
+    loadFileContent,
+    countTokensBatch,
+    setBatchLoadingState,
+    processBatchResults,
     updateFilesWithTokenCounts,
     fallbackTokenCounting,
     setAllFiles
@@ -754,23 +757,23 @@ const useAppState = () => {
         modalState.openFileViewModal(event.detail);
       }
     };
-    
+
     // Add event listener
     window.addEventListener('viewFile', handleViewFileEvent as EventListener);
-    
+
     // Cleanup
     return () => {
       window.removeEventListener('viewFile', handleViewFileEvent as EventListener);
     };
   }, [modalState]);
-  
+
   // Set up file-list-updated event listener to handle pending workspace data
   useEffect(() => {
     const handleFileListUpdated = () => {};
-    
+
     // Add event listener
     window.addEventListener('file-list-updated', handleFileListUpdated);
-    
+
     // Cleanup
     return () => {
       window.removeEventListener('file-list-updated', handleFileListUpdated);
@@ -781,7 +784,7 @@ const useAppState = () => {
   const saveWorkspace = useCallback((name: string) => {
     // Deduplicate selected files before saving
     const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
-    
+
     const workspace: WorkspaceState = {
       selectedFolder: selectedFolder,
       expandedNodes: expandedNodes,
@@ -830,33 +833,33 @@ const useAppState = () => {
 
   // Helper functions for workspace data application
   const handleFolderChange = useCallback((workspaceName: string, workspaceFolder: string | null, workspaceData: WorkspaceState) => {
-    
+
     // CRITICAL: Cancel any in-progress file loading
     if (processingStatus.status === "processing") {
       cancelFileLoading(isElectron, setProcessingStatus);
     }
-    
+
     // Clear file content cache when switching workspaces
     fileContentCache.clear();
-    
+
     // Clear token count cache when switching workspaces
     tokenCountCache.clear();
-    
+
     // Clear all files to prevent accumulation from previous workspace
     setAllFiles([]);
-    
+
     // Clear selected files when switching workspaces
     clearSelectedFiles();
-    
+
     setCurrentWorkspace(workspaceName);
-    
+
     if (workspaceFolder === null) {
       handleResetFolderStateRef.current();
       setPendingWorkspaceData(null);
     } else {
       const { selectedFolder: _selectedFolder, ...restOfData } = workspaceData;
       setPendingWorkspaceData(restOfData);
-      
+
       if (window.electron?.ipcRenderer) {
         setProcessingStatus({
           status: "processing",
@@ -869,7 +872,7 @@ const useAppState = () => {
         window.electron.ipcRenderer.send("request-file-list", workspaceFolder, exclusionPatterns || [], requestId);
       }
     }
-    
+
     setSelectedFolder(workspaceFolder);
   }, [exclusionPatterns, setProcessingStatus, setSelectedFolder, setCurrentWorkspace, setPendingWorkspaceData, processingStatus.status, isElectron, setAllFiles, clearSelectedFiles]);
 
@@ -881,7 +884,7 @@ const useAppState = () => {
   const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileReference[], availableFiles: FileData[]): void => {
     // Deduplicate input files before applying
     const uniqueFiles = [...new Map(selectedFilesToApply.map(file => [file.path, file])).values()];
-    
+
     // Create a map of available files for efficient lookup
     const availableFilesMap = new Map(availableFiles.map(f => [f.path, f]));
 
@@ -890,7 +893,7 @@ const useAppState = () => {
       .map(savedFile => {
         const availableFile = availableFilesMap.get(savedFile.path);
         if (!availableFile) return null;
-        
+
         // Convert SelectedFileReference to the format expected by setSelectionState
         return {
           path: savedFile.path,
@@ -898,7 +901,7 @@ const useAppState = () => {
         } as SelectedFileReference;
       })
       .filter((file): file is SelectedFileReference => !!file);
-    
+
     // Always call setSelectionState even with empty array to ensure proper clearing
     // Batch state updates
     unstable_batchedUpdates(() => {
@@ -907,7 +910,7 @@ const useAppState = () => {
   }, [setSelectionState]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
-    
+
     const currentPrompts = promptStateRef.current;
 
     // Deselect current prompts
@@ -937,7 +940,7 @@ const useAppState = () => {
 
   // Add a ref to track if we're currently applying workspace data
   const isApplyingWorkspaceDataRef = useRef(false);
-  
+
   // This function handles applying workspace data, with proper file selection management
   const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null) => {
     if (!workspaceData || !workspaceName) {
@@ -979,15 +982,15 @@ const useAppState = () => {
     setCurrentWorkspace(workspaceName);
     setPendingWorkspaceData(null);
 
-    
+
     applyExpandedNodes(workspaceData.expandedNodes);
     applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
     setUserInstructions(workspaceData.userInstructions || '');
     applyPrompts(workspaceData.customPrompts);
-    
+
     // Only restore selectedInstructions (instructions are now in database)
     setSelectedInstructions(workspaceData.selectedInstructions || []);
-    
+
     // Reset the flag after applying
     isApplyingWorkspaceDataRef.current = false;
   }, [
@@ -1005,16 +1008,16 @@ const useAppState = () => {
   const searchTermRef = useRef(searchTerm);
   const currentWorkspaceRef = useRef(currentWorkspace);
   // selectedFolderRef already exists above
-  
+
   // Update refs when values change
   useEffect(() => {
     sortOrderRef.current = sortOrder;
   }, [sortOrder]);
-  
+
   useEffect(() => {
     searchTermRef.current = searchTerm;
   }, [searchTerm]);
-  
+
   useEffect(() => {
     currentWorkspaceRef.current = currentWorkspace;
   }, [currentWorkspace]);
@@ -1024,12 +1027,12 @@ const useAppState = () => {
 
     try {
       electronHandlerSingleton.setup(() => {
-        
+
         // Create wrapper functions that use refs to get latest values
         const handleFiltersAndSortWrapper = (files: FileData[], _sort: string, _filter: string) => {
           handleFiltersAndSort(files, sortOrderRef.current, searchTermRef.current);
         };
-        
+
         const cleanup = setupElectronHandlers(
           isElectron,
           setSelectedFolder,
@@ -1048,11 +1051,11 @@ const useAppState = () => {
           selectedFolderRef.current,
           validateSelectedFilesExist
         );
-        
+
         // Dispatch a custom event when handlers are set up
         const event = new CustomEvent('electron-handlers-ready');
         window.dispatchEvent(event);
-        
+
         return cleanup;
       });
     } catch (error) {
@@ -1065,7 +1068,7 @@ const useAppState = () => {
         total: 0
       });
     }
-    
+
     // Note: We intentionally don't cleanup on unmount because React StrictMode
     // would cause handlers to be registered/unregistered repeatedly.
     // The handlers will persist for the lifetime of the application.
@@ -1087,7 +1090,7 @@ const useAppState = () => {
     if (headerSaveTimeoutRef.current) {
       clearTimeout(headerSaveTimeoutRef.current);
     }
-    
+
     setHeaderSaveState('saving'); // Set state to saving
 
     try {
@@ -1110,25 +1113,25 @@ const useAppState = () => {
     return await runCancellableOperation(async (token) => {
       try {
         const workspaceData = await loadPersistedWorkspace(name);
-        
+
         // Check if cancelled before proceeding
         if (token.cancelled) {
           console.log(`[useAppState.loadWorkspace] Workspace load cancelled for "${name}"`);
           return null;
         }
-        
+
         if (workspaceData) {
             // Ensure we have the folder path before applying
             if (workspaceData.selectedFolder) {} else {
                 console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
             }
-            
+
             // Check again if cancelled before applying data
             if (token.cancelled) {
               console.log(`[useAppState.loadWorkspace] Workspace load cancelled before applying data for "${name}"`);
               return null;
             }
-            
+
             applyWorkspaceData(name, workspaceData);
         } else {
             console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
@@ -1191,13 +1194,13 @@ const useAppState = () => {
   useEffect(() => {
     // Wait for file loading to complete before applying workspace data
     if (pendingWorkspaceData && currentWorkspace && allFiles.length > 0 && processingStatus.status === "complete") {
-      
+
       const fullWorkspaceData: WorkspaceState = {
         selectedFolder: selectedFolder,
         ...pendingWorkspaceData
       };
-      
-      
+
+
       applyWorkspaceData(currentWorkspace, fullWorkspaceData);
     }
   }, [allFiles.length, pendingWorkspaceData, currentWorkspace, selectedFolder, processingStatus.status, applyWorkspaceData]);
@@ -1209,7 +1212,7 @@ const useAppState = () => {
     };
 
     window.addEventListener('createNewWorkspace', handleCreateNewWorkspaceEvent as EventListener);
-    
+
     return () => {
       window.removeEventListener('createNewWorkspace', handleCreateNewWorkspaceEvent as EventListener);
     };
@@ -1317,24 +1320,24 @@ const useAppState = () => {
     setExclusionPatterns,
     isLoadingCancellable,
     currentWorkspace,
-    
+
     // UI state
     sortDropdownOpen,
     userInstructions,
     instructionsTokenCount,
-    
+
     // File selection state
     ...fileSelection,
-    
+
     // Prompts state
     ...promptState,
-    
+
     // Modal state
     ...modalState,
-    
+
     // Doc state
     ...docState,
-    
+
     // Actions
     openFolder,
     handleCancelLoading,
@@ -1348,18 +1351,18 @@ const useAppState = () => {
     handleResetFolderState,
     handleFileOperations,
     handleWorkspaceUpdate,
-    
+
     // Calculations
     calculateTotalTokens,
     fileTreeTokenCounts,
     getCurrentFileTreeTokens,
     systemPromptsTokens: totalTokensForSystemPrompt,
     rolePromptsTokens: totalTokensForRolePrompt,
-    
+
     // Content formatting
     getFormattedContent,
     getFormattedContentWithoutInstructions,
-    
+
     // Workspace management
     saveWorkspace,
     loadWorkspace,
