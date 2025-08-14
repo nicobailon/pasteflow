@@ -113,10 +113,8 @@ const useAppState = () => {
   // Non-persistent state
   const [allFiles, setAllFiles] = useState([] as FileData[]);
   const [displayedFiles, setDisplayedFiles] = useState([] as FileData[]);
-  const [expandedNodes, setExpandedNodes] = usePersistentState<Record<string, boolean>>(
-    STORAGE_KEYS.EXPANDED_NODES,
-    {}
-  );
+  // Per-workspace expansion state - not globally persistent
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [appInitialized, setAppInitialized] = useState(false);
 
   type ProcessingStatusType = {
@@ -190,7 +188,9 @@ const useAppState = () => {
       setProcessingStatus,
       setAppInitialized
     );
-  }, [setSelectedFolder, setAllFiles, fileSelection.setSelectedFiles, setProcessingStatus, setAppInitialized]);
+    // Reset expanded nodes when resetting folder state
+    setExpandedNodes({});
+  }, [setSelectedFolder, setAllFiles, fileSelection.setSelectedFiles, setProcessingStatus, setAppInitialized, setExpandedNodes]);
 
   // Ref for stable callback
   const handleResetFolderStateRef = useRef(handleResetFolderState);
@@ -878,7 +878,6 @@ const useAppState = () => {
 
   const applyExpandedNodes = useCallback((expandedNodesFromWorkspace: Record<string, boolean>) => {
     setExpandedNodes(expandedNodesFromWorkspace || {});
-    // The usePersistentState hook will handle database persistence
   }, [setExpandedNodes]);
 
   const applySelectedFiles = useCallback((selectedFilesToApply: SelectedFileReference[], availableFiles: FileData[]): void => {

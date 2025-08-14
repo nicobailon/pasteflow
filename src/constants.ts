@@ -8,7 +8,6 @@ export const STORAGE_KEYS = {
   SORT_ORDER: 'pasteflow.sort_order',
   FILE_TREE_SORT_ORDER: 'pasteflow.file_tree_sort_order',
   SEARCH_TERM: 'pasteflow.search_term',
-  EXPANDED_NODES: 'pasteflow.expanded_nodes',
   FILE_TREE_MODE: 'pasteflow.file_tree_mode',
   SYSTEM_PROMPTS: 'pasteflow.system_prompts',
   ROLE_PROMPTS: 'pasteflow.role_prompts',

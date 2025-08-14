@@ -206,7 +206,7 @@ export const UI = {
     /** Tree update debounce delay (milliseconds) */
     UPDATE_DEBOUNCE_MS: 50,
     /** Default expansion level for directories */
-    DEFAULT_EXPANSION_LEVEL: 2,
+    DEFAULT_EXPANSION_LEVEL: 1,
     /** Maximum element traversal depth */
     MAX_TRAVERSAL_DEPTH: 3,
     /** Default line height approximation (pixels) */

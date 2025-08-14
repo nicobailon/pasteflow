@@ -147,7 +147,7 @@ function useFileTree({
         const children = (level + 1 < maxDepth && item.children) ?
           convertToTreeNodes(item.children, level + 1, shouldSort, maxDepth) : [];
 
-        const isExpanded = expandedNodesRef.current[item.path] ?? (level < 2);
+        const isExpanded = expandedNodesRef.current[item.path] ?? (level < 1);
 
         // Only sort children if explicitly requested and the node is expanded
         const sortedChildren = (shouldSort && isExpanded) ?
