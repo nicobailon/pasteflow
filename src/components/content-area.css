@@ -161,7 +161,7 @@
 
 .autocomplete-dropdown {
   position: absolute;
-  max-height: 240px;
+  max-height: 200px;
   overflow-y: auto;
   width: max(200px, 33.33%);
   background: var(--background-elevated, #1e1e1e);
@@ -202,8 +202,8 @@
 
 /* Autocomplete dropdown header */
 .autocomplete-header {
-  padding: 6px 8px;
-  font-size: 12px;
+  padding: 4px 10px;
+  font-size: 0.6875rem;
   color: var(--text-secondary, #999);
   border-bottom: 1px solid var(--border-color, #444);
 }
@@ -212,7 +212,7 @@
 .autocomplete-item {
   display: flex;
   align-items: center;
-  padding: 8px 10px;
+  padding: 5px 10px;
   cursor: pointer;
   background: transparent;
   color: var(--text-primary, #ddd);
@@ -226,8 +226,9 @@
 }
 
 .autocomplete-item span {
-  font-family: monospace;
-  font-size: 12px;
+  font-family: inherit;
+  font-size: 0.78125rem;
+  letter-spacing: 0.0125rem;
 }
 
 /* Token count display */
