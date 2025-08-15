@@ -1,3 +1,6 @@
+// Declare jest global for test environment detection with precise type
+declare const jest: { fn?: unknown } | undefined;
+
 import { WORKER_POOL, PRIORITY } from '../constants/app-constants';
 
 import { estimateTokenCount } from './token-utils';
@@ -291,10 +294,24 @@ export class TokenWorkerPool {
     for (let i = 0; i < this.poolSize; i++) {
       try {
         // Note: Webpack/Vite will handle worker bundling
-        const worker = new Worker(
-          new URL('../workers/token-counter-worker.ts', import.meta.url),
-          { type: 'module' }
-        );
+        // Check if we're in a Jest test environment (more reliable than NODE_ENV)
+        let worker: Worker;
+        if (typeof jest !== 'undefined') {
+          worker = new Worker('/mock/worker/path', { type: 'module' });
+        } else {
+          try {
+            // Use eval to prevent Jest from parsing this at compile time
+            const metaUrl = eval('import.meta.url');
+            worker = new Worker(
+              new URL('../workers/token-counter-worker.ts', metaUrl),
+              { type: 'module' }
+            );
+          } catch (error) {
+            // Fallback for environments where import.meta is not available
+            console.warn('import.meta.url not available, using fallback worker path');
+            worker = new Worker('/src/workers/token-counter-worker.ts', { type: 'module' });
+          }
+        }
         
         // Create named handlers for proper cleanup
         const messageHandler = (event: MessageEvent) => {
@@ -1000,10 +1017,24 @@ export class TokenWorkerPool {
     }
     
     // Create a new worker
-    const worker = new Worker(
-      new URL('../workers/token-counter-worker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    // Check if we're in a Jest test environment (more reliable than NODE_ENV)
+    let worker: Worker;
+    if (typeof jest !== 'undefined') {
+      worker = new Worker('/mock/worker/path', { type: 'module' });
+    } else {
+      try {
+        // Use eval to prevent Jest from parsing this at compile time
+        const metaUrl = eval('import.meta.url');
+        worker = new Worker(
+          new URL('../workers/token-counter-worker.ts', metaUrl),
+          { type: 'module' }
+        );
+      } catch (error) {
+        // Fallback for environments where import.meta is not available
+        console.warn('import.meta.url not available, using fallback worker path');
+        worker = new Worker('/src/workers/token-counter-worker.ts', { type: 'module' });
+      }
+    }
     
     this.workers[workerId] = worker;
     this.workerStatus[workerId] = false;

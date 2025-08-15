@@ -1,9 +1,9 @@
 import { WorkspaceCacheManager } from '../utils/workspace-cache-manager';
+import { setupElectronMocks, createMockWorkspace, resetElectronMocks } from './helpers/electron-mock-helpers';
 
 describe('WorkspaceCacheManager - User Workspace Management', () => {
   let cacheManager: WorkspaceCacheManager;
   let originalLocalStorage: Storage;
-  let originalElectron: typeof window.electron | undefined;
   
   beforeEach(() => {
     // Mock localStorage
@@ -26,16 +26,12 @@ describe('WorkspaceCacheManager - User Workspace Management', () => {
       configurable: true
     });
     
-    // Mock electron IPC
-    originalElectron = (window as typeof window & { electron?: typeof window.electron })?.electron;
-    (window as typeof window & { electron: typeof window.electron }).electron = {
-      ipcRenderer: {
-        send: jest.fn(),
-        on: jest.fn(),
-        removeListener: jest.fn(),
-        invoke: jest.fn().mockResolvedValue([])
-      }
-    };
+    // Setup electron mocks using the helper
+    setupElectronMocks({
+      workspaces: [],
+      instructions: [],
+      preferences: {}
+    });
     
     // Clear singleton instance
     // Use type assertion to access private static property for testing
@@ -54,13 +50,8 @@ describe('WorkspaceCacheManager - User Workspace Management', () => {
       configurable: true
     });
     
-    // Restore original electron
-    if (originalElectron !== undefined) {
-      (window as typeof window & { electron: typeof window.electron }).electron = originalElectron;
-    } else if (window) {
-      // Remove the electron property entirely when it didn't exist before
-      delete (window as unknown as Record<string, unknown>).electron;
-    }
+    // Reset electron mocks
+    resetElectronMocks();
   });
   
   describe('Workspace State Consistency', () => {

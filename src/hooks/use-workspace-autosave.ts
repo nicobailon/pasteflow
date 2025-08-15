@@ -52,8 +52,8 @@ interface AutoSaveOptions {
 
 const DEFAULT_PREFERENCES: AutoSavePreferences = {
   enabled: true, // Auto-save ON by default
-  debounceMs: 2000,
-  minIntervalMs: 10_000
+  debounceMs: 100, // Very short debounce to batch rapid keystrokes
+  minIntervalMs: 0 // No minimum interval between saves
 };
 
 /**
@@ -219,29 +219,13 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     // Guard conditions
     if (!canAutoSave()) return;
 
-    // Check minimum interval
-    const now = Date.now();
-    const timeSinceLastSave = now - lastSaveTimeRef.current;
-    if (timeSinceLastSave < minIntervalMs) {
-      // Schedule one trailing save at the earliest allowed time
-      pendingSignatureRef.current = currentSignature;
-      if (!minIntervalTimerRef.current) {
-        const delay = Math.max(0, minIntervalMs - timeSinceLastSave);
-        minIntervalTimerRef.current = setTimeout(() => {
-          minIntervalTimerRef.current = null;
-          if (!canAutoSave()) return;
-          if (pendingSignatureRef.current && pendingSignatureRef.current !== lastSignatureRef.current) {
-            void performAutoSave();
-          }
-        }, delay);
-      }
-      return;
-    }
-
     // Check if signature has changed
     if (currentSignature === lastSignatureRef.current) {
       return;
     }
+
+    // With minIntervalMs set to 0, we can save immediately without complex timing logic
+    const now = Date.now();
 
     // Perform save
     try {
@@ -258,7 +242,6 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   }, [
     canAutoSave,
     currentSignature,
-    minIntervalMs,
     onAutoSave,
     logAutoSaveError
   ]);
@@ -284,6 +267,39 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally once
+
+  // Add beforeunload handler to save before app closes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Only save if we have changes and auto-save is enabled
+      if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
+        // Try to save synchronously (this may not always work in all browsers/Electron)
+        // The save is async but we trigger it anyway
+        void performAutoSave();
+        
+        // In Electron, we might need to prevent default and handle it differently
+        // but for now we'll just trigger the save
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    // Also listen for visibility change to save when app loses focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
+          void performAutoSave();
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [canAutoSave, currentSignature, performAutoSave]);
   
   // Trigger auto-save on signature changes
   useEffect(() => {

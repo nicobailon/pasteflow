@@ -3,6 +3,9 @@
  * Provides deterministic cancellation, queue deduplication, and resource management.
  */
 
+// Declare jest global for test environment detection with precise type
+declare const jest: { fn?: unknown } | undefined;
+
 import { UI } from '../constants/app-constants';
 import type { FileData, TreeNode } from '../types/file-types';
 
@@ -173,8 +176,24 @@ export class TreeBuilderWorkerPool {
    * Create worker using standard URL approach
    */
   private createWorkerWithStandardUrl(): Worker {
-    const workerUrl = new URL('../workers/tree-builder-worker.ts', import.meta.url);
-    return new Worker(workerUrl, { type: 'module' });
+    // Check if we're in a Jest test environment (more reliable than NODE_ENV)
+    if (typeof jest !== 'undefined') {
+      // In test environment, use a mock path
+      return new Worker('/mock/worker/path', { type: 'module' });
+    }
+    
+    // For non-test environments, try to use import.meta.url
+    // We need to handle this carefully as it might not be available
+    try {
+      // Use eval to prevent Jest from parsing this at compile time
+      const metaUrl = eval('import.meta.url');
+      const workerUrl = new URL('../workers/tree-builder-worker.ts', metaUrl);
+      return new Worker(workerUrl, { type: 'module' });
+    } catch (error) {
+      // Fallback for environments where import.meta is not available
+      console.warn('import.meta.url not available, using fallback worker path');
+      return new Worker('/src/workers/tree-builder-worker.ts', { type: 'module' });
+    }
   }
 
   /**
