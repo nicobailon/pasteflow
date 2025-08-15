@@ -122,6 +122,9 @@ const preferencesStore = new Map();
 // Database instance
 let database = null;
 
+// Main window instance
+let mainWindow = null;
+
 try {
   ignore = require("ignore");
   console.log("Successfully loaded ignore module");
@@ -271,7 +274,7 @@ function isSpecialFile(filePath) {
 }
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: ELECTRON.WINDOW.WIDTH,
     height: ELECTRON.WINDOW.HEIGHT,
     webPreferences: {
@@ -362,6 +365,11 @@ function createWindow() {
       }
     },
   );
+
+  // Clean up the reference when the window is closed
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 // Replace the top-level await with a proper async function
