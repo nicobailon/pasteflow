@@ -85,6 +85,7 @@ export class SecureDatabase {
     if (!versionRow) {
       // Load and execute schema
       const schemaSQL = await fs.readFile(
+        // eslint-disable-next-line unicorn/prefer-module
         path.join(__dirname, 'schema.sql'),
         'utf8'
       );
@@ -106,6 +107,7 @@ export class SecureDatabase {
     const currentVersion = versionRow?.version || 1;
     
     // Check for migration files
+    // eslint-disable-next-line unicorn/prefer-module
     const migrationsDir = path.join(__dirname, 'migrations');
     
     try {

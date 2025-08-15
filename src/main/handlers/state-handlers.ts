@@ -125,7 +125,7 @@ export class StateHandlers {
         let workspace = await this.findWorkspaceByIdOrName(input.id);
 
         if (!workspace) {
-          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.id);
+          const isUuid = /^[\da-f]{8}-[\da-f]{4}-[1-5][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i.test(input.id);
           if (!isUuid) {
             const maxAttempts = 3;
             for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -297,7 +297,7 @@ export class StateHandlers {
 
         // If the identifier is not a UUID, resolve it by name first
         const isUuid =
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.id);
+          /^[\da-f]{8}-[\da-f]{4}-[1-5][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i.test(input.id);
 
         let targetId = input.id;
         if (!isUuid) {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { FileData, TreeNode } from '../types/file-types';
 import { clearTreeSortingCache } from '../utils/tree-sorting-service';
+
 import { useFileTreeProcessing } from './use-file-tree-processing';
 
 interface UseFileTreeProps {

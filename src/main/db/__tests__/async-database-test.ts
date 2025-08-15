@@ -1,8 +1,17 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 import { AsyncDatabase } from '../async-database';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Test SQL constants
+const INSERT_WORKSPACE_SQL = `
+  INSERT INTO workspaces (name, folder_path, state, last_accessed)
+  VALUES (?, ?, ?, ?)
+`;
 
 describe('AsyncDatabase', () => {
   let db: AsyncDatabase;
@@ -43,7 +52,7 @@ describe('AsyncDatabase', () => {
 
       // Insert workspace
       const result = await db.run(
-        'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+        INSERT_WORKSPACE_SQL,
         [workspaceData.id, workspaceData.name, workspaceData.folderPath, JSON.stringify(workspaceData.state)]
       );
 
@@ -70,7 +79,7 @@ describe('AsyncDatabase', () => {
       // Insert initial workspace
       const id = 'update-test-123';
       await db.run(
-        'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+        INSERT_WORKSPACE_SQL,
         [id, 'Initial Name', '/initial/path', '{}']
       );
 
@@ -109,7 +118,7 @@ describe('AsyncDatabase', () => {
       
       // Insert workspace and related files
       await db.run(
-        'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+        INSERT_WORKSPACE_SQL,
         [workspaceId, 'Delete Test', '/delete/test', '{}']
       );
 
@@ -157,12 +166,12 @@ describe('AsyncDatabase', () => {
       const result = await db.transaction(async () => {
         // Insert multiple related records
         await db.run(
-          'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+          INSERT_WORKSPACE_SQL,
           ['trans-1', 'Transaction Test 1', '/trans/1', '{}']
         );
 
         await db.run(
-          'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+          INSERT_WORKSPACE_SQL,
           ['trans-2', 'Transaction Test 2', '/trans/2', '{}']
         );
 
@@ -186,13 +195,13 @@ describe('AsyncDatabase', () => {
         await db.transaction(async () => {
           // First insert should succeed
           await db.run(
-            'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+            INSERT_WORKSPACE_SQL,
             ['rollback-1', 'Rollback Test', '/rollback', '{}']
           );
 
           // Second insert should fail due to unique constraint
           await db.run(
-            'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+            INSERT_WORKSPACE_SQL,
             ['rollback-1', 'Duplicate ID', '/rollback2', '{}']
           );
         });
@@ -215,14 +224,14 @@ describe('AsyncDatabase', () => {
     it('should handle nested transactions correctly', async () => {
       const result = await db.transaction(async () => {
         await db.run(
-          'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+          INSERT_WORKSPACE_SQL,
           ['nested-1', 'Nested Test 1', '/nested/1', '{}']
         );
 
         // Nested transaction (should use savepoints)
         const innerResult = await db.transaction(async () => {
           await db.run(
-            'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+            INSERT_WORKSPACE_SQL,
             ['nested-2', 'Nested Test 2', '/nested/2', '{}']
           );
           return 'inner-success';
@@ -260,7 +269,7 @@ describe('AsyncDatabase', () => {
 
       // First create the workspace
       await db.run(
-        'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+        INSERT_WORKSPACE_SQL,
         ['perf-test', 'Performance Test', '/perf', '{}']
       );
 
@@ -313,7 +322,7 @@ describe('AsyncDatabase', () => {
 
       for (const ws of workspaces) {
         await db.run(
-          'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+          INSERT_WORKSPACE_SQL,
           [ws.id, ws.name, ws.folderPath, JSON.stringify(ws.state)]
         );
       }
@@ -335,7 +344,7 @@ describe('AsyncDatabase', () => {
     it('should serialize writes to prevent conflicts', async () => {
       // Create workspace for concurrent updates
       await db.run(
-        'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+        INSERT_WORKSPACE_SQL,
         ['write-test', 'Write Test', '/write', '{"counter": 0}']
       );
 
@@ -369,14 +378,14 @@ describe('AsyncDatabase', () => {
     it('should provide meaningful error messages for constraint violations', async () => {
       // Insert workspace
       await db.run(
-        'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+        INSERT_WORKSPACE_SQL,
         ['error-test', 'Error Test', '/error', '{}']
       );
 
       // Try to insert duplicate
       await expect(
         db.run(
-          'INSERT INTO workspaces (id, name, folder_path, state_json) VALUES (?, ?, ?, ?)',
+          INSERT_WORKSPACE_SQL,
           ['error-test', 'Duplicate', '/error2', '{}']
         )
       ).rejects.toThrow('UNIQUE constraint failed');

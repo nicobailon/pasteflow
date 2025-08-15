@@ -10,6 +10,16 @@ import FileList from './file-list';
 import ClipboardPreviewModal from './clipboard-preview-modal';
 import './content-area.css';
 
+// Helper: find @mention span preceding caret
+const computeQueryFromValue = (text: string, caret: number) => {
+  const before = text.slice(0, caret);
+  const match = before.match(/@(\S*)$/);
+  if (match) {
+    return match[1];
+  }
+  return null;
+};
+
 // Minimal inline component implementing @path autocomplete for the instructions textarea only
 const InstructionsTextareaWithPathAutocomplete = ({
   allFiles,
@@ -60,32 +70,22 @@ const InstructionsTextareaWithPathAutocomplete = ({
     return filtered.slice(0, 12);
   }, [fileItems, query, open]);
 
-  // Helper: find @mention span preceding caret
-  const computeQueryFromValue = (text: string, caret: number) => {
-    const before = text.slice(0, caret);
-    const match = before.match(/@([^\s]*)$/);
-    if (match) {
-      return match[1];
-    }
-    return null;
-  };
-
   // Calculate cursor position in pixels
   const getCursorCoordinates = (textarea: HTMLTextAreaElement, position: number) => {
     // Get text before cursor to calculate position
-    const textBeforeCursor = textarea.value.substring(0, position);
+    const textBeforeCursor = textarea.value.slice(0, Math.max(0, position));
     const textLines = textBeforeCursor.split('\n');
     const currentLine = textLines[textLines.length - 1];
     
     // Find the @ position in the current line
-    const atMatch = currentLine.match(/@([^\s]*)$/);
+    const atMatch = currentLine.match(/@(\S*)$/);
     const atPosition = atMatch ? currentLine.length - atMatch[0].length : currentLine.length;
     
     // Get computed styles for measurements
     const computed = window.getComputedStyle(textarea);
-    const lineHeight = parseInt(computed.lineHeight) || 24;
-    const fontSize = parseInt(computed.fontSize) || 14;
-    const padding = parseInt(computed.paddingLeft) || 16;
+    const lineHeight = Number.parseInt(computed.lineHeight) || 24;
+    const fontSize = Number.parseInt(computed.fontSize) || 14;
+    const padding = Number.parseInt(computed.paddingLeft) || 16;
     const charWidth = fontSize * 0.55; // Approximate char width
     
     // Calculate horizontal position - align with @ symbol
@@ -141,15 +141,15 @@ const InstructionsTextareaWithPathAutocomplete = ({
     onChange(text);
     const caret = e.target.selectionStart ?? text.length;
     const q = computeQueryFromValue(text, caret);
-    if (q !== null) {
+    if (q === null) {
+      setOpen(false);
+    } else {
       setQuery(q);
       // Calculate cursor position for dropdown placement
       const coords = getCursorCoordinates(e.target, caret);
       setAnchorPosition(coords);
       setOpen(true);
       setActiveIndex(0);
-    } else {
-      setOpen(false);
     }
   };
 
@@ -160,7 +160,7 @@ const InstructionsTextareaWithPathAutocomplete = ({
     const text = value;
     const caret = el?.selectionStart ?? text.length;
     const before = text.slice(0, caret);
-    const match = before.match(/@([^\s]*)$/);
+    const match = before.match(/@(\S*)$/);
     if (!match || match.index === undefined) return;
     const start = match.index;
     // Wrap the relative path in backticks for inline code formatting
@@ -176,22 +176,39 @@ const InstructionsTextareaWithPathAutocomplete = ({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open || results.length === 0) return;
-    if (e.key === 'Tab') {
+    switch (e.key) {
+    case 'Tab': {
       e.preventDefault();
       const dir = e.shiftKey ? -1 : 1;
       setActiveIndex((i) => (i + dir + results.length) % results.length);
-    } else if (e.key === 'ArrowDown') {
+    
+    break;
+    }
+    case 'ArrowDown': {
       e.preventDefault();
       setActiveIndex((i) => (i + 1) % results.length);
-    } else if (e.key === 'ArrowUp') {
+    
+    break;
+    }
+    case 'ArrowUp': {
       e.preventDefault();
       setActiveIndex((i) => (i - 1 + results.length) % results.length);
-    } else if (e.key === 'Enter') {
+    
+    break;
+    }
+    case 'Enter': {
       e.preventDefault();
       acceptSelection(results[activeIndex]);
-    } else if (e.key === 'Escape') {
+    
+    break;
+    }
+    case 'Escape': {
       e.preventDefault();
       close();
+    
+    break;
+    }
+    // No default
     }
   };
 
@@ -227,16 +244,17 @@ const InstructionsTextareaWithPathAutocomplete = ({
         >
           <div className="autocomplete-header">Files</div>
           {results.map((item, idx) => (
-            <div
+            <button
               key={item.abs}
               className={`autocomplete-item ${idx === activeIndex ? 'active' : ''}`}
               onMouseDown={(e) => {
                 e.preventDefault();
                 acceptSelection(item);
               }}
+              type="button"
             >
               <span>{item.rel}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}

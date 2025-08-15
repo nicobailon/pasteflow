@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { STORAGE_KEYS } from '../constants';
 import { RolePrompt, SystemPrompt } from '../types/file-types';
 
-import usePersistentState from './use-persistent-state';
+import { usePersistentState } from './use-persistent-state';
 
 /**
  * Custom hook to manage system and role prompts

@@ -404,7 +404,7 @@ export const TREE_SORTING = {
   /** Maximum entries in the sorting cache */
   CACHE_MAX_ENTRIES: 1000,
   /** Time-to-live for cache entries (milliseconds) */
-  TTL_MS: 300000, // 5 minutes
+  TTL_MS: 300_000, // 5 minutes
 } as const;
 
 // ==================== TREE FLATTEN CACHE ====================
@@ -413,5 +413,5 @@ export const TREE_FLATTEN_CACHE = {
   /** Maximum entries in the flatten cache */
   MAX_ENTRIES: 16,
   /** Time-to-live for cache entries (milliseconds) */
-  TTL_MS: 300000, // 5 minutes
+  TTL_MS: 300_000, // 5 minutes
 } as const;

@@ -1,6 +1,7 @@
 import { TreeNode } from '../types/file-types';
-import { BoundedLRUCache } from './bounded-lru-cache';
 import { TREE_SORTING } from '../constants/app-constants';
+
+import { BoundedLRUCache } from './bounded-lru-cache';
 
 export type SortOrder = 'default' | 'name-asc' | 'name-desc' | 'tokens-asc' | 'tokens-desc' | 
                         'extension-asc' | 'extension-desc' | 'date-asc' | 'date-desc';
@@ -50,44 +51,66 @@ export class TreeSortingService {
     return this.sortWithDefaultOrder(nodes);
   }
 
+  private compareByName(a: TreeNode, b: TreeNode, ascending: boolean): number {
+    return ascending 
+      ? a.name.localeCompare(b.name) 
+      : b.name.localeCompare(a.name);
+  }
+
+  private compareByTokens(a: TreeNode, b: TreeNode, ascending: boolean): number {
+    const aTokens = a.fileData?.tokenCount || 0;
+    const bTokens = b.fileData?.tokenCount || 0;
+    return ascending ? aTokens - bTokens : bTokens - aTokens;
+  }
+
+  private compareByExtension(a: TreeNode, b: TreeNode, ascending: boolean): number {
+    const aExt = a.name.split('.').pop() || '';
+    const bExt = b.name.split('.').pop() || '';
+    return ascending 
+      ? aExt.localeCompare(bExt) || a.name.localeCompare(b.name) 
+      : bExt.localeCompare(aExt) || b.name.localeCompare(a.name);
+  }
+
+  private compareByDate(a: TreeNode, b: TreeNode, ascending: boolean): number {
+    // Since we don't have file date info in the FileData interface,
+    // use file size as a temporary alternative for sorting
+    // TODO: Replace with actual date sorting when date field is available
+    const aSize = a.fileData?.size || 0;
+    const bSize = b.fileData?.size || 0;
+    return ascending ? aSize - bSize : bSize - aSize;
+  }
+
   private sortWithCustomOrder(nodes: TreeNode[], sortOrder: string): TreeNode[] {
+    const [sortKey, sortDir] = sortOrder.split('-');
+    const ascending = sortDir === 'asc';
+
     return nodes.sort((a, b) => {
       // Sort directories first, regardless of sort order
       if (a.type === "directory" && b.type === "file") return -1;
       if (a.type === "file" && b.type === "directory") return 1;
 
-      // Apply sort based on sort order
-      const [sortKey, sortDir] = sortOrder.split('-');
-      
-      if (sortKey === 'name') {
-        return sortDir === 'asc' 
-          ? a.name.localeCompare(b.name) 
-          : b.name.localeCompare(a.name);
-      }
-      
-      // For files, enable sorting by other criteria
-      if (a.type === "file" && b.type === "file") {
-        if (sortKey === 'tokens') {
-          const aTokens = a.fileData?.tokenCount || 0;
-          const bTokens = b.fileData?.tokenCount || 0;
-          return sortDir === 'asc' ? aTokens - bTokens : bTokens - aTokens;
+      // Apply sort based on sort key
+      switch (sortKey) {
+        case 'name': {
+          return this.compareByName(a, b, ascending);
         }
-        
-        if (sortKey === 'extension') {
-          const aExt = a.name.split('.').pop() || '';
-          const bExt = b.name.split('.').pop() || '';
-          return sortDir === 'asc' 
-            ? aExt.localeCompare(bExt) || a.name.localeCompare(b.name) 
-            : bExt.localeCompare(aExt) || b.name.localeCompare(a.name);
+        case 'tokens': {
+          if (a.type === "file" && b.type === "file") {
+            return this.compareByTokens(a, b, ascending);
+          }
+          break;
         }
-        
-        if (sortKey === 'date') {
-          // Since we don't have file date info in the FileData interface,
-          // use file size as a temporary alternative for sorting
-          // TODO: Replace with actual date sorting when date field is available
-          const aSize = a.fileData?.size || 0;
-          const bSize = b.fileData?.size || 0;
-          return sortDir === 'asc' ? aSize - bSize : bSize - aSize;
+        case 'extension': {
+          if (a.type === "file" && b.type === "file") {
+            return this.compareByExtension(a, b, ascending);
+          }
+          break;
+        }
+        case 'date': {
+          if (a.type === "file" && b.type === "file") {
+            return this.compareByDate(a, b, ascending);
+          }
+          break;
         }
       }
       

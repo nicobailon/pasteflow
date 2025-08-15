@@ -3,6 +3,10 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useDatabaseWorkspaceState } from '../use-database-workspace-state';
 import { WorkspaceState } from '../../types/file-types';
 
+// Test constants
+const TEST_WORKSPACE_NAME = 'Test Workspace';
+const NON_EXISTENT_WORKSPACE = 'Non-existent';
+
 // Mock electron IPC
 const mockInvoke = jest.fn<Promise<unknown>, [string, ...unknown[]]>();
 const mockOn = jest.fn<void, [string, (...args: unknown[]) => void]>();
@@ -68,7 +72,7 @@ describe('useDatabaseWorkspaceState', () => {
 
   const mockDatabaseWorkspace = {
     id: '1',
-    name: 'Test Workspace',
+    name: TEST_WORKSPACE_NAME,
     folderPath: '/test/folder',
     state: mockWorkspaceState,
     createdAt: Date.now() - 10_000,
@@ -148,7 +152,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(undefined); // update workspace
+        .mockResolvedValueOnce(); // update workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -189,21 +193,21 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // load workspace
-        .mockResolvedValueOnce(undefined); // touch workspace
+        .mockResolvedValueOnce(); // touch workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
       let loadedState: WorkspaceState | null = null;
       await act(async () => {
-        loadedState = await result.current.loadWorkspace('Test Workspace');
+        loadedState = await result.current.loadWorkspace(TEST_WORKSPACE_NAME);
       });
 
       expect(mockInvoke).toHaveBeenCalledWith('/workspace/load', {
-        id: 'Test Workspace'
+        id: TEST_WORKSPACE_NAME
       });
 
       expect(mockInvoke).toHaveBeenCalledWith('/workspace/touch', {
-        id: 'Test Workspace'
+        id: TEST_WORKSPACE_NAME
       });
 
       expect(loadedState).toEqual(mockWorkspaceState);
@@ -218,7 +222,7 @@ describe('useDatabaseWorkspaceState', () => {
 
       let loadedState: WorkspaceState | null = null;
       await act(async () => {
-        loadedState = await result.current.loadWorkspace('Non-existent');
+        loadedState = await result.current.loadWorkspace(NON_EXISTENT_WORKSPACE);
       });
 
       expect(loadedState).toBeNull();
@@ -249,12 +253,12 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(undefined); // delete workspace
+        .mockResolvedValueOnce(); // delete workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
       await act(async () => {
-        await result.current.deleteWorkspace('Test Workspace');
+        await result.current.deleteWorkspace(TEST_WORKSPACE_NAME);
       });
 
       expect(mockInvoke).toHaveBeenCalledWith('/workspace/delete', {
@@ -276,7 +280,7 @@ describe('useDatabaseWorkspaceState', () => {
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
       await act(async () => {
-        await result.current.deleteWorkspace('Non-existent');
+        await result.current.deleteWorkspace(NON_EXISTENT_WORKSPACE);
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
@@ -290,7 +294,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(undefined); // rename workspace
+        .mockResolvedValueOnce(); // rename workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -319,7 +323,7 @@ describe('useDatabaseWorkspaceState', () => {
 
       await act(async () => {
         await expect(
-          result.current.renameWorkspace('Non-existent', 'New Name')
+          result.current.renameWorkspace(NON_EXISTENT_WORKSPACE, 'New Name')
         ).rejects.toThrow();
       });
 
@@ -359,7 +363,7 @@ describe('useDatabaseWorkspaceState', () => {
 
       let exists = false;
       await act(async () => {
-        exists = await result.current.doesWorkspaceExist('Test Workspace');
+        exists = await result.current.doesWorkspaceExist(TEST_WORKSPACE_NAME);
       });
 
       expect(exists).toBe(true);
@@ -374,7 +378,7 @@ describe('useDatabaseWorkspaceState', () => {
 
       let exists = true;
       await act(async () => {
-        exists = await result.current.doesWorkspaceExist('Non-existent');
+        exists = await result.current.doesWorkspaceExist(NON_EXISTENT_WORKSPACE);
       });
 
       expect(exists).toBe(false);
@@ -389,7 +393,7 @@ describe('useDatabaseWorkspaceState', () => {
 
       let createdTime: number | null = null;
       await act(async () => {
-        createdTime = await result.current.getWorkspaceCreatedTime('Test Workspace');
+        createdTime = await result.current.getWorkspaceCreatedTime(TEST_WORKSPACE_NAME);
       });
 
       expect(createdTime).toBe(mockDatabaseWorkspace.createdAt);
@@ -404,7 +408,7 @@ describe('useDatabaseWorkspaceState', () => {
 
       let lastAccessed: number | null = null;
       await act(async () => {
-        lastAccessed = await result.current.getWorkspaceLastAccessedTime('Test Workspace');
+        lastAccessed = await result.current.getWorkspaceLastAccessedTime(TEST_WORKSPACE_NAME);
       });
 
       expect(lastAccessed).toBe(mockDatabaseWorkspace.lastAccessed);
@@ -443,7 +447,7 @@ describe('useDatabaseWorkspaceState', () => {
 
       let exportedState: WorkspaceState | null = null;
       await act(async () => {
-        exportedState = await result.current.exportWorkspace('Test Workspace');
+        exportedState = await result.current.exportWorkspace(TEST_WORKSPACE_NAME);
       });
 
       expect(exportedState).toEqual(mockWorkspaceState);
@@ -458,7 +462,7 @@ describe('useDatabaseWorkspaceState', () => {
 
       let exportedState: WorkspaceState | null = null;
       await act(async () => {
-        exportedState = await result.current.exportWorkspace('Non-existent');
+        exportedState = await result.current.exportWorkspace(NON_EXISTENT_WORKSPACE);
       });
 
       expect(exportedState).toBeNull();
@@ -475,8 +479,8 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(workspaces) // list workspaces
-        .mockResolvedValueOnce(undefined) // delete workspace 1
-        .mockResolvedValueOnce(undefined); // delete workspace 2
+        .mockResolvedValueOnce() // delete workspace 1
+        .mockResolvedValueOnce(); // delete workspace 2
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -495,7 +499,7 @@ describe('useDatabaseWorkspaceState', () => {
   describe('Error Handling', () => {
     it('should handle missing electron IPC gracefully', async () => {
       const originalElectron = window.electron;
-      // @ts-ignore
+      // @ts-expect-error - Testing missing electron IPC
       delete window.electron;
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());

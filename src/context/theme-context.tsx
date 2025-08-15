@@ -1,6 +1,6 @@
 import { createContext, useState, useEffect, useContext } from "react";
 
-import usePersistentState from "../hooks/use-persistent-state";
+import { usePersistentState } from "../hooks/use-persistent-state";
 
 type ThemeType = "light" | "dark" | "system";
 

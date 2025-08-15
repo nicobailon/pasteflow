@@ -18,109 +18,261 @@ export function createDirectorySelectionCache(
   allFiles: FileData[],
   selectedFiles: SelectedFileReference[]
 ): DirectorySelectionCache {
-  const cache = new Map<string, SelectionState>();
+  // Runtime validation
+  if (!Array.isArray(allFiles)) {
+    throw new TypeError('allFiles must be an array');
+  }
+  if (!Array.isArray(selectedFiles)) {
+    throw new TypeError('selectedFiles must be an array');
+  }
   
-  // Build a set of selected file paths for O(1) lookups
-  const selectedPaths = new Set(selectedFiles.map(f => f.path));
+  const selectedPaths = new Set(selectedFiles.map(f => {
+    if (!f || typeof f.path !== 'string') {
+      console.warn('Invalid selected file reference:', f);
+      return '';
+    }
+    return f.path;
+  }).filter(Boolean));
   
-  // Build directory structure using absolute paths
+  const { directoryMap, allDirectories } = buildDirectoryStructure(allFiles);
+  const cache = calculateDirectorySelectionStates(directoryMap, allDirectories, selectedPaths);
+  
+  return createDirectorySelectionCacheInterface(cache);
+}
+
+/**
+ * Build directory structure from file paths
+ */
+function buildDirectoryStructure(allFiles: FileData[]): {
+  directoryMap: Map<string, Set<string>>;
+  allDirectories: Set<string>;
+} {
   const directoryMap = new Map<string, Set<string>>();
   const allDirectories = new Set<string>();
+  const directoryPaths = identifyAllDirectories(allFiles);
   
-  // First pass: identify all directories from the file paths
+  // Add all identified directories to the set with validation
+  for (const dirPath of directoryPaths) {
+    if (typeof dirPath === 'string' && dirPath.length > 0) {
+      allDirectories.add(dirPath);
+    }
+  }
+  
+  buildDirectoryToFilesMapping(allFiles, directoryMap, allDirectories);
+  ensureAllDirectoriesExist(directoryPaths, directoryMap);
+  
+  return { directoryMap, allDirectories };
+}
+
+/**
+ * Identify all directories from file paths
+ */
+function identifyAllDirectories(allFiles: FileData[]): Set<string> {
   const directoryPaths = new Set<string>();
   
   for (const file of allFiles) {
-    const isAbsolute = file.path.startsWith('/');
-    const parts = file.path.split('/').filter(Boolean);
-    
-    // Add all parent directories
-    for (let i = 0; i < parts.length - 1; i++) {
-      const pathParts = parts.slice(0, i + 1);
-      const currentPath = isAbsolute ? '/' + pathParts.join('/') : pathParts.join('/');
-      directoryPaths.add(currentPath);
-      allDirectories.add(currentPath);
+    const directories = extractDirectoriesFromFilePath(file.path);
+    for (const dir of directories) {
+      directoryPaths.add(dir);
     }
   }
   
-  // Second pass: process files and build directory map
+  return directoryPaths;
+}
+
+/**
+ * Extract all parent directories from a file path
+ */
+function extractDirectoriesFromFilePath(filePath: string): string[] {
+  // Runtime validation
+  if (typeof filePath !== 'string') {
+    console.warn('Invalid file path provided:', filePath);
+    return [];
+  }
+  
+  const isAbsolute = filePath.startsWith('/');
+  const parts = filePath.split('/').filter(Boolean);
+  const directories: string[] = [];
+  
+  for (let i = 0; i < parts.length - 1; i++) {
+    const pathParts = parts.slice(0, i + 1);
+    const currentPath = isAbsolute ? '/' + pathParts.join('/') : pathParts.join('/');
+    directories.push(currentPath);
+  }
+  
+  return directories;
+}
+
+/**
+ * Build mapping from directories to their contained files
+ */
+function buildDirectoryToFilesMapping(
+  allFiles: FileData[],
+  directoryMap: Map<string, Set<string>>,
+  allDirectories: Set<string>
+): void {
   for (const file of allFiles) {
     if (file.isBinary || file.isSkipped) continue;
     
-    const isAbsolute = file.path.startsWith('/');
-    const parts = file.path.split('/').filter(Boolean);
+    const parentDirectories = extractDirectoriesFromFilePath(file.path);
+    addFileToDirectories(file.path, parentDirectories, directoryMap);
     
-    // Build up each parent directory path
-    for (let i = 0; i < parts.length - 1; i++) {
-      const pathParts = parts.slice(0, i + 1);
-      const currentPath = isAbsolute ? '/' + pathParts.join('/') : pathParts.join('/');
-      
-      if (!directoryMap.has(currentPath)) {
-        directoryMap.set(currentPath, new Set());
-      }
-      directoryMap.get(currentPath)!.add(file.path);
-    }
-    
-    // Handle root files (files directly in root with absolute paths)
-    if (isAbsolute && parts.length === 1) {
-      const rootPath = '/';
-      allDirectories.add(rootPath);
-      if (!directoryMap.has(rootPath)) {
-        directoryMap.set(rootPath, new Set());
-      }
-      directoryMap.get(rootPath)!.add(file.path);
-    }
+    handleRootFiles(file, directoryMap, allDirectories);
   }
+}
+
+/**
+ * Add file to all its parent directories
+ */
+function addFileToDirectories(
+  filePath: string,
+  directories: string[],
+  directoryMap: Map<string, Set<string>>
+): void {
+  for (const dirPath of directories) {
+    if (!directoryMap.has(dirPath)) {
+      directoryMap.set(dirPath, new Set());
+    }
+    directoryMap.get(dirPath)!.add(filePath);
+  }
+}
+
+/**
+ * Handle files that are directly in the root
+ */
+function handleRootFiles(
+  file: FileData,
+  directoryMap: Map<string, Set<string>>,
+  allDirectories: Set<string>
+): void {
+  const isAbsolute = file.path.startsWith('/');
+  const parts = file.path.split('/').filter(Boolean);
   
-  // Ensure all directories are in the cache, even empty ones
+  if (isAbsolute && parts.length === 1) {
+    const rootPath = '/';
+    allDirectories.add(rootPath);
+    if (!directoryMap.has(rootPath)) {
+      directoryMap.set(rootPath, new Set());
+    }
+    directoryMap.get(rootPath)!.add(file.path);
+  }
+}
+
+/**
+ * Ensure all directories exist in the map, even empty ones
+ */
+function ensureAllDirectoriesExist(
+  directoryPaths: Set<string>,
+  directoryMap: Map<string, Set<string>>
+): void {
   for (const dirPath of directoryPaths) {
     if (!directoryMap.has(dirPath)) {
       directoryMap.set(dirPath, new Set());
     }
   }
+}
+
+/**
+ * Calculate selection states for all directories
+ */
+function calculateDirectorySelectionStates(
+  directoryMap: Map<string, Set<string>>,
+  allDirectories: Set<string>,
+  selectedPaths: Set<string>
+): Map<string, SelectionState> {
+  const cache = new Map<string, SelectionState>();
   
-  // Calculate selection state for each directory
   for (const dirPath of allDirectories) {
-    const filesInDir = directoryMap.get(dirPath) || new Set();
-    
-    if (filesInDir.size === 0) {
-      cache.set(dirPath, 'none');
-      continue;
-    }
-    
-    let selectedCount = 0;
-    for (const filePath of filesInDir) {
-      if (selectedPaths.has(filePath)) {
-        selectedCount++;
-      }
-    }
-    
-    let state: SelectionState;
-    if (selectedCount === 0) {
-      state = 'none';
-    } else if (selectedCount === filesInDir.size) {
-      state = 'full';
-    } else {
-      state = 'partial';
-    }
-    
-    // Store the state for the directory path
+    const state = calculateDirectorySelectionState(dirPath, directoryMap, selectedPaths);
     cache.set(dirPath, state);
   }
   
+  return cache;
+}
+
+/**
+ * Calculate selection state for a single directory
+ */
+function calculateDirectorySelectionState(
+  dirPath: string,
+  directoryMap: Map<string, Set<string>>,
+  selectedPaths: Set<string>
+): SelectionState {
+  const filesInDir = directoryMap.get(dirPath) || new Set();
+  
+  if (filesInDir.size === 0) {
+    return 'none';
+  }
+  
+  const selectedCount = countSelectedFilesInDirectory(filesInDir, selectedPaths);
+  
+  if (selectedCount === 0) {
+    return 'none';
+  } else if (selectedCount === filesInDir.size) {
+    return 'full';
+  } else {
+    return 'partial';
+  }
+}
+
+/**
+ * Count how many files in directory are selected
+ */
+function countSelectedFilesInDirectory(
+  filesInDir: Set<string>,
+  selectedPaths: Set<string>
+): number {
+  let count = 0;
+  for (const filePath of filesInDir) {
+    if (selectedPaths.has(filePath)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Create the cache interface
+ */
+function createDirectorySelectionCacheInterface(
+  cache: Map<string, SelectionState>
+): DirectorySelectionCache {
+  const isValidSelectionState = (state: unknown): state is SelectionState => {
+    return state === 'full' || state === 'partial' || state === 'none';
+  };
+  
   return {
     get(path: string): SelectionState {
-      // Direct lookup with absolute paths
+      if (typeof path !== 'string') {
+        console.warn('Invalid path provided to cache.get:', path);
+        return 'none';
+      }
       return cache.get(path) || 'none';
     },
     
     set(path: string, state: SelectionState): void {
+      if (typeof path !== 'string') {
+        console.warn('Invalid path provided to cache.set:', path);
+        return;
+      }
+      if (!isValidSelectionState(state)) {
+        console.warn('Invalid selection state provided to cache.set:', state);
+        return;
+      }
       cache.set(path, state);
     },
     
     bulkUpdate(updates: Map<string, SelectionState>): void {
+      if (!(updates instanceof Map)) {
+        console.warn('Invalid updates provided to cache.bulkUpdate:', updates);
+        return;
+      }
       for (const [path, state] of updates) {
-        cache.set(path, state);
+        if (typeof path === 'string' && isValidSelectionState(state)) {
+          cache.set(path, state);
+        } else {
+          console.warn('Skipping invalid update:', { path, state });
+        }
       }
     },
     

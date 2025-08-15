@@ -1,12 +1,14 @@
 import { useEffect, useRef, useCallback } from 'react';
+
 import { debounce } from '../utils/debounce';
-import { usePersistentState } from './use-persistent-state';
 import type { 
   SelectedFileReference, 
   FileTreeMode,
   SystemPrompt,
   RolePrompt
 } from '../types/file-types';
+
+import { usePersistentState } from './use-persistent-state';
 
 interface AutoSavePreferences {
   enabled: boolean;
@@ -16,7 +18,7 @@ interface AutoSavePreferences {
 
 interface WorkspaceSignatureData {
   selectedFolder: string | null;
-  selectedFiles: Array<{ path: string; lines?: { start: number; end: number }[] }>;
+  selectedFiles: { path: string; lines?: { start: number; end: number }[] }[];
   expandedNodes: Record<string, boolean>;
   sortOrder: string;
   searchTerm: string;
@@ -39,8 +41,8 @@ interface AutoSaveOptions {
   exclusionPatterns: string[];
   selectedInstructions: string[];
   customPrompts: {
-    systemPrompts: Array<SystemPrompt & { selected?: boolean }>;
-    rolePrompts: Array<RolePrompt & { selected?: boolean }>;
+    systemPrompts: (SystemPrompt & { selected?: boolean })[];
+    rolePrompts: (RolePrompt & { selected?: boolean })[];
   };
   userInstructions: string;
   isApplyingWorkspaceData: boolean;
@@ -51,7 +53,7 @@ interface AutoSaveOptions {
 const DEFAULT_PREFERENCES: AutoSavePreferences = {
   enabled: true, // Auto-save ON by default
   debounceMs: 2000,
-  minIntervalMs: 10000
+  minIntervalMs: 10_000
 };
 
 /**
@@ -185,14 +187,37 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     }
   }, [currentWorkspace, isApplyingWorkspaceData, currentSignature]);
 
+  // Helper to check if auto-save should proceed
+  const canAutoSave = useCallback(() => {
+    return autoSaveEnabled && 
+           currentWorkspace && 
+           !isApplyingWorkspaceData && 
+           !isProcessing && 
+           !saveInProgressRef.current;
+  }, [autoSaveEnabled, currentWorkspace, isApplyingWorkspaceData, isProcessing]);
+
+  // Helper to log auto-save errors
+  const logAutoSaveError = useCallback((error: unknown) => {
+    if (error instanceof Error) {
+      const errorMessage = error.message || '';
+      if (errorMessage.includes('EACCES') || errorMessage.includes('permission')) {
+        console.error('[AutoSave] Permission error during save:', errorMessage);
+      } else if (errorMessage.includes('ENOSPC')) {
+        console.error('[AutoSave] Disk space error during save:', errorMessage);
+      } else if (errorMessage.includes('rate limit') || errorMessage.includes('too many requests')) {
+        console.error('[AutoSave] Rate limit error during save:', errorMessage);
+      } else {
+        console.error('[AutoSave] Auto-save failed:', errorMessage);
+      }
+    } else {
+      console.error('[AutoSave] Unexpected auto-save error:', error);
+    }
+  }, []);
+
   // Auto-save function with guards
   const performAutoSave = useCallback(async () => {
     // Guard conditions
-    if (!autoSaveEnabled) return;
-    if (!currentWorkspace) return;
-    if (isApplyingWorkspaceData) return;
-    if (isProcessing) return;
-    if (saveInProgressRef.current) return;
+    if (!canAutoSave()) return;
 
     // Check minimum interval
     const now = Date.now();
@@ -201,17 +226,14 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
       // Schedule one trailing save at the earliest allowed time
       pendingSignatureRef.current = currentSignature;
       if (!minIntervalTimerRef.current) {
+        const delay = Math.max(0, minIntervalMs - timeSinceLastSave);
         minIntervalTimerRef.current = setTimeout(() => {
           minIntervalTimerRef.current = null;
-          // Re-check guards just in case
-          if (!autoSaveEnabled || !currentWorkspace || isApplyingWorkspaceData || isProcessing || saveInProgressRef.current) {
-            return;
-          }
+          if (!canAutoSave()) return;
           if (pendingSignatureRef.current && pendingSignatureRef.current !== lastSignatureRef.current) {
-            // Trigger a save with the latest signature
             void performAutoSave();
           }
-        }, Math.max(0, minIntervalMs - timeSinceLastSave));
+        }, delay);
       }
       return;
     }
@@ -229,30 +251,16 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
       lastSignatureRef.current = currentSignature;
       pendingSignatureRef.current = null;
     } catch (error) {
-      if (error instanceof Error) {
-        if (error.message?.includes('EACCES') || error.message?.includes('permission')) {
-          console.error('[AutoSave] Permission error during save:', error.message);
-        } else if (error.message?.includes('ENOSPC')) {
-          console.error('[AutoSave] Disk space error during save:', error.message);
-        } else if (error.message?.includes('rate limit') || error.message?.includes('too many requests')) {
-          console.error('[AutoSave] Rate limit error during save:', error.message);
-        } else {
-          console.error('[AutoSave] Auto-save failed:', error.message);
-        }
-      } else {
-        console.error('[AutoSave] Unexpected auto-save error:', error);
-      }
+      logAutoSaveError(error);
     } finally {
       saveInProgressRef.current = false;
     }
   }, [
-    autoSaveEnabled,
-    currentWorkspace,
-    isApplyingWorkspaceData,
-    isProcessing,
+    canAutoSave,
     currentSignature,
     minIntervalMs,
-    onAutoSave
+    onAutoSave,
+    logAutoSaveError
   ]);
 
   // Create debounced save function

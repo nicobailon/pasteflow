@@ -2,36 +2,44 @@ import { createDirectorySelectionCache, updateSelectionCacheForFolder } from '..
 import type { SelectionState } from '../selection-cache';
 import type { FileData, SelectedFileReference, LineRange } from '../../types/file-types';
 
-describe('selection-cache', () => {
-  const createMockFile = (path: string, options: Partial<FileData> = {}): FileData => ({
-    name: path.split('/').pop() || '',
-    path,
-    isDirectory: false,
-    size: 100,
-    isBinary: false,
-    isSkipped: false,
-    isContentLoaded: false,
-    tokenCount: 0,
-    ...options,
-  });
+// Test constants
+const TEST_FILE1_PATH = '/src/file1.ts';
+const TEST_FILE2_PATH = '/src/file2.ts';
+const TEST_TEST1_PATH = '/test/test1.ts';
 
-  const createSelectedRef = (path: string, lines?: LineRange[]): SelectedFileReference => ({
-    path,
-    lines,
-  });
+// Helper function to create mock file data
+const createMockFile = (path: string, options: Partial<FileData> = {}): FileData => ({
+  name: path.split('/').pop() || '',
+  path,
+  isDirectory: false,
+  size: 100,
+  isBinary: false,
+  isSkipped: false,
+  isContentLoaded: false,
+  tokenCount: 0,
+  ...options,
+});
+
+// Helper function to create selected file reference
+const createSelectedRef = (path: string, lines?: LineRange[]): SelectedFileReference => ({
+  path,
+  lines,
+});
+
+describe('selection-cache', () => {
 
   describe('createDirectorySelectionCache', () => {
     it('should mark directories as full when all files are selected', () => {
       const allFiles: FileData[] = [
-        createMockFile('/src/file1.ts'),
-        createMockFile('/src/file2.ts'),
+        createMockFile(TEST_FILE1_PATH),
+        createMockFile(TEST_FILE2_PATH),
         createMockFile('/src/components/button.tsx'),
         createMockFile('/src/components/input.tsx'),
       ];
 
       const selectedFiles: SelectedFileReference[] = [
-        createSelectedRef('/src/file1.ts'),
-        createSelectedRef('/src/file2.ts'),
+        createSelectedRef(TEST_FILE1_PATH),
+        createSelectedRef(TEST_FILE2_PATH),
         createSelectedRef('/src/components/button.tsx'),
         createSelectedRef('/src/components/input.tsx'),
       ];
@@ -46,17 +54,17 @@ describe('selection-cache', () => {
 
     it('should mark directories as partial when some files are selected', () => {
       const allFiles: FileData[] = [
-        createMockFile('/src/file1.ts'),
-        createMockFile('/src/file2.ts'),
+        createMockFile(TEST_FILE1_PATH),
+        createMockFile(TEST_FILE2_PATH),
         createMockFile('/src/file3.ts'),
-        createMockFile('/test/test1.ts'),
+        createMockFile(TEST_TEST1_PATH),
         createMockFile('/test/test2.ts'),
       ];
 
       const selectedFiles: SelectedFileReference[] = [
-        createSelectedRef('/src/file1.ts'),
-        createSelectedRef('/src/file2.ts'),
-        createSelectedRef('/test/test1.ts'),
+        createSelectedRef(TEST_FILE1_PATH),
+        createSelectedRef(TEST_FILE2_PATH),
+        createSelectedRef(TEST_TEST1_PATH),
       ];
 
       const cache = createDirectorySelectionCache(allFiles, selectedFiles);
@@ -69,13 +77,13 @@ describe('selection-cache', () => {
 
     it('should mark directories as none when no files are selected', () => {
       const allFiles: FileData[] = [
-        createMockFile('/src/file1.ts'),
-        createMockFile('/src/file2.ts'),
-        createMockFile('/test/test1.ts'),
+        createMockFile(TEST_FILE1_PATH),
+        createMockFile(TEST_FILE2_PATH),
+        createMockFile(TEST_TEST1_PATH),
       ];
 
       const selectedFiles: SelectedFileReference[] = [
-        createSelectedRef('/test/test1.ts'),
+        createSelectedRef(TEST_TEST1_PATH),
       ];
 
       const cache = createDirectorySelectionCache(allFiles, selectedFiles);
@@ -202,12 +210,12 @@ describe('selection-cache', () => {
 
     it('should clear all entries', () => {
       const allFiles: FileData[] = [
-        createMockFile('/src/file1.ts'),
-        createMockFile('/test/test1.ts'),
+        createMockFile(TEST_FILE1_PATH),
+        createMockFile(TEST_TEST1_PATH),
       ];
 
       const selectedFiles: SelectedFileReference[] = [
-        createSelectedRef('/src/file1.ts'),
+        createSelectedRef(TEST_FILE1_PATH),
       ];
 
       const cache = createDirectorySelectionCache(allFiles, selectedFiles);
@@ -234,8 +242,8 @@ describe('selection-cache', () => {
   describe('updateSelectionCacheForFolder', () => {
     it('should update specific folder state', () => {
       const allFiles: FileData[] = [
-        createMockFile('/src/file1.ts'),
-        createMockFile('/src/file2.ts'),
+        createMockFile(TEST_FILE1_PATH),
+        createMockFile(TEST_FILE2_PATH),
       ];
 
       const cache = createDirectorySelectionCache(allFiles, []);

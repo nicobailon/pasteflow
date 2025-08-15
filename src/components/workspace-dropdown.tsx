@@ -114,34 +114,21 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
     }
   }, [runCancellableOperation, loadPersistedWorkspace, isLoadingWorkspace]);
 
-  const getWorkspaceOptions = useCallback(async () => {
-    const displayNames = new Set(workspaceNames);
-    if (currentWorkspace) {
-      displayNames.add(currentWorkspace);
+  const buildWorkspaceInfos = useCallback((names: Set<string>): WorkspaceInfo[] => {
+    const infos: WorkspaceInfo[] = [];
+    for (const name of names) {
+      // For now, use the array index as a proxy for recency
+      // The database returns workspaces sorted by last accessed
+      const index = workspaceNames.indexOf(name);
+      const savedAt = index >= 0 ? Date.now() - index * 1000 : 0;
+      infos.push({ name, savedAt });
     }
-    
-    // Get workspace info with timestamps for sorting
-    // Since we're now using database, we need to get the last accessed times
-    const workspaceInfos: WorkspaceInfo[] = [];
-    
-    for (const name of displayNames) {
-      try {
-        // For now, use the array index as a proxy for recency
-        // The database returns workspaces sorted by last accessed
-        const index = workspaceNames.indexOf(name);
-        const savedAt = index >= 0 ? Date.now() - index * 1000 : 0;
-        workspaceInfos.push({ name, savedAt });
-      } catch (error) {
-        console.error(`Failed to get info for workspace "${name}":`, error);
-        workspaceInfos.push({ name, savedAt: 0 });
-      }
-    }
-    
-    // Sort according to the current sort mode
-    const sortedNames = sortWorkspaces(workspaceInfos, sortMode, manualOrder);
+    return infos;
+  }, [workspaceNames]);
 
+  const buildDropdownOptions = useCallback((sortedNames: string[]): DropdownOption[] => {
     const options = sortedNames.map((name) => ({ value: name, label: name }));
-
+    
     if (sortedNames.length > 0) {
       options.push({ value: '__divider1__', label: '──────────' });
     }
@@ -150,8 +137,20 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
       { value: '__new__', label: 'New Workspace' }, 
       { value: '__manage__', label: 'Manage Workspaces' }
     );
+    
     return options;
-  }, [workspaceNames, currentWorkspace, sortMode, manualOrder]);
+  }, []);
+
+  const getWorkspaceOptions = useCallback(async () => {
+    const displayNames = new Set(workspaceNames);
+    if (currentWorkspace) {
+      displayNames.add(currentWorkspace);
+    }
+    
+    const workspaceInfos = buildWorkspaceInfos(displayNames);
+    const sortedNames = sortWorkspaces(workspaceInfos, sortMode, manualOrder);
+    return buildDropdownOptions(sortedNames);
+  }, [workspaceNames, currentWorkspace, sortMode, manualOrder, buildWorkspaceInfos, buildDropdownOptions]);
 
   // Update options when dependencies change
   useEffect(() => {
@@ -163,15 +162,27 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
     updateOptions();
   }, [getWorkspaceOptions]);
 
-  const handleWorkspaceDropdownChange = (value: string) => {
-    if (value === '__manage__') {
-      toggleWorkspaceModal();
-    } else if (value === '__new__') {
-      window.dispatchEvent(new CustomEvent('createNewWorkspace'));
-    } else if (value !== '__divider1__' && value !== currentWorkspace) {
-      handleSelectAndLoadWorkspace(value);
+  const handleWorkspaceDropdownChange = useCallback((value: string) => {
+    switch (value) {
+      case '__manage__': {
+        toggleWorkspaceModal();
+        break;
+      }
+      case '__new__': {
+        window.dispatchEvent(new CustomEvent('createNewWorkspace'));
+        break;
+      }
+      case '__divider1__':
+      case currentWorkspace: {
+        // No action needed
+        break;
+      }
+      default: {
+        handleSelectAndLoadWorkspace(value);
+        break;
+      }
     }
-  };
+  }, [toggleWorkspaceModal, currentWorkspace, handleSelectAndLoadWorkspace]);
 
   // Only render the dropdown if there are workspaces or a current one is selected
   if (!currentWorkspace && workspaceNames.length === 0 && !isLoading) {

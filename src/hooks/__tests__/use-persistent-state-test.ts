@@ -2,6 +2,9 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 
 import { usePersistentState } from '../use-persistent-state';
 
+// Test constants
+const PREFS_SET_CHANNEL = '/prefs/set';
+
 // Mock the useDatabaseState hook
 const mockUpdateData = jest.fn<Promise<boolean>, [string, { key: string; value: unknown; encrypted?: boolean }]>();
 const mockFetchData = jest.fn<Promise<unknown>, [{ key: string }]>();
@@ -60,7 +63,7 @@ describe('usePersistentState', () => {
         result.current[1](newValue);
       });
 
-      expect(mockUpdateData).toHaveBeenCalledWith('/prefs/set', {
+      expect(mockUpdateData).toHaveBeenCalledWith(PREFS_SET_CHANNEL, {
         key: 'test-key',
         value: newValue,
         encrypted: false
@@ -85,7 +88,7 @@ describe('usePersistentState', () => {
       });
 
       expect(result.current[0]).toBe(6);
-      expect(mockUpdateData).toHaveBeenCalledWith('/prefs/set', {
+      expect(mockUpdateData).toHaveBeenCalledWith(PREFS_SET_CHANNEL, {
         key: 'counter',
         value: 6,
         encrypted: false
@@ -106,7 +109,7 @@ describe('usePersistentState', () => {
       });
 
       expect(result.current[0]).toBe(stringValue);
-      expect(mockUpdateData).toHaveBeenCalledWith('/prefs/set', {
+      expect(mockUpdateData).toHaveBeenCalledWith(PREFS_SET_CHANNEL, {
         key: 'string-test',
         value: stringValue,
         encrypted: false
@@ -125,7 +128,7 @@ describe('usePersistentState', () => {
       });
 
       expect(result.current[0]).toBe(numberValue);
-      expect(mockUpdateData).toHaveBeenCalledWith('/prefs/set', {
+      expect(mockUpdateData).toHaveBeenCalledWith(PREFS_SET_CHANNEL, {
         key: 'number-test',
         value: numberValue,
         encrypted: false
@@ -144,7 +147,7 @@ describe('usePersistentState', () => {
       });
 
       expect(result.current[0]).toBe(booleanValue);
-      expect(mockUpdateData).toHaveBeenCalledWith('/prefs/set', {
+      expect(mockUpdateData).toHaveBeenCalledWith(PREFS_SET_CHANNEL, {
         key: 'boolean-test',
         value: booleanValue,
         encrypted: false
@@ -163,7 +166,7 @@ describe('usePersistentState', () => {
       });
 
       expect(result.current[0]).toEqual(arrayValue);
-      expect(mockUpdateData).toHaveBeenCalledWith('/prefs/set', {
+      expect(mockUpdateData).toHaveBeenCalledWith(PREFS_SET_CHANNEL, {
         key: 'array-test',
         value: arrayValue,
         encrypted: false
@@ -205,7 +208,7 @@ describe('usePersistentState', () => {
       });
 
       expect(result.current[0]).toEqual(objectValue);
-      expect(mockUpdateData).toHaveBeenCalledWith('/prefs/set', {
+      expect(mockUpdateData).toHaveBeenCalledWith(PREFS_SET_CHANNEL, {
         key: 'object-test',
         value: objectValue,
         encrypted: false
@@ -337,7 +340,7 @@ describe('usePersistentState', () => {
         result.current[1]({ count: 6, name: 'test' });
       });
 
-      expect(mockUpdateData).toHaveBeenCalledWith('/prefs/set', {
+      expect(mockUpdateData).toHaveBeenCalledWith(PREFS_SET_CHANNEL, {
         key: 'change-test',
         value: { count: 6, name: 'test' },
         encrypted: false

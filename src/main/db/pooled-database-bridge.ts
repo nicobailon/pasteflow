@@ -4,9 +4,13 @@ import * as fs from 'node:fs/promises';
 
 import { app } from 'electron';
 
+import { WorkspaceState } from '../../types/file-types';
+
 import { PooledDatabase, PooledDatabaseConfig } from './pooled-database';
 import { QueryResult } from './connection-pool';
-import { WorkspaceState } from '../../types/file-types';
+
+// Error messages
+const DATABASE_NOT_INITIALIZED_ERROR = 'Database is not initialized';
 
 export interface DatabaseBridgeConfig extends PooledDatabaseConfig {
   maxRetries?: number;
@@ -255,7 +259,7 @@ export class PooledDatabaseBridge extends EventEmitter {
 
   // Workspace operations with proper typing
   async listWorkspaces(): Promise<WorkspaceStateWithMetadata[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     const rows = await this.db.all<WorkspaceRecord>(`
       SELECT id, name, folder_path, state, created_at, updated_at, last_accessed 
@@ -275,7 +279,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   async createWorkspace(name: string, folderPath: string, state: Partial<WorkspaceState> = {}): Promise<WorkspaceStateWithMetadata> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     const result = await this.db.run(`
       INSERT INTO workspaces (name, folder_path, state) 
@@ -286,7 +290,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   async getWorkspace(nameOrId: string): Promise<WorkspaceStateWithMetadata> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     const row = await this.db.get<WorkspaceRecord>(`
       SELECT id, name, folder_path, state, created_at, updated_at, last_accessed 
@@ -310,7 +314,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   async updateWorkspace(name: string, state: WorkspaceState): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     await this.db.run(`
       UPDATE workspaces 
@@ -320,13 +324,13 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   async deleteWorkspace(name: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     await this.db.run('DELETE FROM workspaces WHERE name = ?', [name]);
   }
 
   async renameWorkspace(oldName: string, newName: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     await this.db.transaction(async (db) => {
       // Check if new name already exists
@@ -349,7 +353,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   async touchWorkspace(name: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     await this.db.run(`
       UPDATE workspaces 
@@ -359,7 +363,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   async getWorkspaceNames(): Promise<string[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     const rows = await this.db.all<{ name: string }>(`
       SELECT name FROM workspaces ORDER BY last_accessed DESC
@@ -370,7 +374,7 @@ export class PooledDatabaseBridge extends EventEmitter {
 
   // Atomic operations
   async updateWorkspaceAtomic(name: string, updates: Partial<WorkspaceState>): Promise<WorkspaceState> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     return this.db.transaction(async (db) => {
       // Get current workspace
@@ -394,7 +398,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   async renameWorkspaceAtomic(oldName: string, newName: string): Promise<WorkspaceState> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     return this.db.transaction(async (db) => {
       // Check if new name already exists
@@ -421,7 +425,7 @@ export class PooledDatabaseBridge extends EventEmitter {
 
   // Preferences operations
   async getPreference(key: string): Promise<string | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     const row = await this.db.get<PreferenceRecord>(
       'SELECT value FROM preferences WHERE key = ?',
@@ -439,7 +443,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   async setPreference(key: string, value: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     const serialized = typeof value === 'string' ? value : JSON.stringify(value);
     
@@ -503,7 +507,7 @@ export class PooledDatabaseBridge extends EventEmitter {
       return {
         isHealthy: false,
         initialized: false,
-        error: 'Database not initialized'
+        error: DATABASE_NOT_INITIALIZED_ERROR
       };
     }
     

@@ -4,6 +4,11 @@ import { WorkspaceState } from '../types/file-types';
 
 import { useCancellableOperation } from './use-cancellable-operation';
 
+// Event name for workspace changes notification
+const WORKSPACES_CHANGED_EVENT = 'workspacesChanged';
+// Error message for missing Electron IPC
+const ELECTRON_IPC_NOT_AVAILABLE = 'Electron IPC not available';
+
 /**
  * Database workspace object with metadata and state.
  * Represents a complete workspace record from the SQLite database.
@@ -121,9 +126,9 @@ export const useDatabaseWorkspaceState = () => {
       refreshWorkspacesList();
     };
 
-    window.addEventListener('workspacesChanged', handleWorkspacesChanged);
+    window.addEventListener(WORKSPACES_CHANGED_EVENT, handleWorkspacesChanged);
     return () => {
-      window.removeEventListener('workspacesChanged', handleWorkspacesChanged);
+      window.removeEventListener(WORKSPACES_CHANGED_EVENT, handleWorkspacesChanged);
     };
   }, [refreshWorkspacesList]);
 
@@ -178,7 +183,7 @@ export const useDatabaseWorkspaceState = () => {
         safeSetError(null);
         
         if (!window.electron) {
-          throw new Error('Electron IPC not available');
+          throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
         }
 
         const existing = await findWorkspaceByName(name);
@@ -204,7 +209,7 @@ export const useDatabaseWorkspaceState = () => {
           return;
         }
         
-        window.dispatchEvent(new CustomEvent('workspacesChanged'));
+        window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));
       } catch (error) {
         console.error(`Failed to save workspace '${name}': ${(error as Error).message}`);
         safeSetError(`Failed to save workspace '${name}': ${(error as Error).message}. Check workspace data and database permissions.`);
@@ -236,7 +241,7 @@ export const useDatabaseWorkspaceState = () => {
         safeSetError(null);
         
         if (!window.electron) {
-          throw new Error('Electron IPC not available');
+          throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
         }
 
         // Load the workspace directly - no need to check existence first
@@ -302,7 +307,7 @@ export const useDatabaseWorkspaceState = () => {
       setError(null);
       
       if (!window.electron) {
-        throw new Error('Electron IPC not available');
+        throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
       }
 
       const workspace = await findWorkspaceByName(name);
@@ -315,7 +320,7 @@ export const useDatabaseWorkspaceState = () => {
         id: workspace.id
       });
       
-      window.dispatchEvent(new CustomEvent('workspacesChanged'));
+      window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`Failed to delete workspace '${name}': ${errorMessage}`);
@@ -343,7 +348,7 @@ export const useDatabaseWorkspaceState = () => {
       setError(null);
       
       if (!window.electron) {
-        throw new Error('Electron IPC not available');
+        throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
       }
 
       const workspace = await findWorkspaceByName(oldName);
@@ -356,7 +361,7 @@ export const useDatabaseWorkspaceState = () => {
         newName
       });
       
-      window.dispatchEvent(new CustomEvent('workspacesChanged'));
+      window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${errorMessage}`);
@@ -407,7 +412,7 @@ export const useDatabaseWorkspaceState = () => {
       setError(null);
       
       if (!window.electron) {
-        throw new Error('Electron IPC not available');
+        throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
       }
 
       await window.electron.ipcRenderer.invoke('/workspace/create', {
@@ -416,7 +421,7 @@ export const useDatabaseWorkspaceState = () => {
         state: workspaceData
       });
       
-      window.dispatchEvent(new CustomEvent('workspacesChanged'));
+      window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`Failed to import workspace '${name}': ${errorMessage}`);
@@ -446,7 +451,7 @@ export const useDatabaseWorkspaceState = () => {
       setError(null);
       
       if (!window.electron) {
-        throw new Error('Electron IPC not available');
+        throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
       }
 
       const workspace = await findWorkspaceByName(name);
@@ -525,7 +530,7 @@ export const useDatabaseWorkspaceState = () => {
       setError(null);
       
       if (!window.electron) {
-        throw new Error('Electron IPC not available');
+        throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
       }
 
       const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list', {});
@@ -536,7 +541,7 @@ export const useDatabaseWorkspaceState = () => {
         });
       }
       
-      window.dispatchEvent(new CustomEvent('workspacesChanged'));
+      window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`Failed to clear all workspaces: ${errorMessage}`);

@@ -140,18 +140,17 @@ export class PerformanceMonitor {
     }
     
     console.group('Performance Report');
-    console.table(
-      entries.reduce<Record<string, TableRow>>((acc, [label, stats]) => {
-        acc[label] = {
-          'Avg (ms)': Number(stats.avg.toFixed(2)),
-          'Min (ms)': Number(stats.min.toFixed(2)),
-          'Max (ms)': Number(stats.max.toFixed(2)),
-          'Count': stats.count,
-          'Total (ms)': Number(stats.total.toFixed(2))
-        };
-        return acc;
-      }, {})
-    );
+    const tableData: Record<string, TableRow> = {};
+    for (const [label, stats] of entries) {
+      tableData[label] = {
+        'Avg (ms)': Number(stats.avg.toFixed(2)),
+        'Min (ms)': Number(stats.min.toFixed(2)),
+        'Max (ms)': Number(stats.max.toFixed(2)),
+        'Count': stats.count,
+        'Total (ms)': Number(stats.total.toFixed(2))
+      };
+    }
+    console.table(tableData);
     console.groupEnd();
   }
   

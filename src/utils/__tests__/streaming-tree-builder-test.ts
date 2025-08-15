@@ -3,18 +3,22 @@ import type { FileData } from '../../types/file-types';
 import type { TreeChunk } from '../streaming-tree-builder';
 
 // Mock Worker
+type MessageHandler = (event: MessageEvent) => void;
+type ErrorHandler = (event: ErrorEvent) => void;
+type EventHandler = MessageHandler | ErrorHandler;
+
 class MockWorker {
-  private listeners: Map<string, Function[]> = new Map();
+  private listeners: Map<string, EventHandler[]> = new Map();
   public terminated = false;
 
-  addEventListener(event: string, handler: Function) {
+  addEventListener(event: string, handler: EventHandler) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
     this.listeners.get(event)!.push(handler);
   }
 
-  removeEventListener(event: string, handler: Function) {
+  removeEventListener(event: string, handler: EventHandler) {
     const handlers = this.listeners.get(event);
     if (handlers) {
       const index = handlers.indexOf(handler);
@@ -51,25 +55,25 @@ class MockWorker {
         };
 
         for (const handler of handlers) {
-          handler({
+          (handler as MessageHandler)(new MessageEvent('message', {
             data: {
               type: 'TREE_CHUNK',
               id: data.id,
               payload: chunk,
             },
-          });
+          }));
         }
 
         // Simulate completion
         setTimeout(() => {
           if (this.terminated) return;
           for (const handler of handlers) {
-            handler({
+            (handler as MessageHandler)(new MessageEvent('message', {
               data: {
                 type: 'TREE_COMPLETE',
                 id: data.id,
               },
-            });
+            }));
           }
         }, 10);
       }
@@ -85,13 +89,13 @@ class MockWorker {
     const handlers = this.listeners.get('message');
     if (handlers && !this.terminated) {
       for (const handler of handlers) {
-        handler({
+        (handler as MessageHandler)(new MessageEvent('message', {
           data: {
             type: 'TREE_ERROR',
             id,
             error,
           },
-        });
+        }));
       }
     }
   }
@@ -100,7 +104,7 @@ class MockWorker {
     const handlers = this.listeners.get('error');
     if (handlers && !this.terminated) {
       for (const handler of handlers) {
-        handler({ message });
+        (handler as ErrorHandler)(new ErrorEvent('error', { message }));
       }
     }
   }
@@ -124,18 +128,20 @@ afterAll(() => {
   });
 });
 
+// Helper function to create mock file data
+const createMockFile = (path: string, options: Partial<FileData> = {}): FileData => ({
+  name: path.split('/').pop() || '',
+  path,
+  isDirectory: false,
+  size: 100,
+  isBinary: false,
+  isSkipped: false,
+  isContentLoaded: false,
+  tokenCount: 0,
+  ...options,
+});
+
 describe('StreamingTreeBuilder', () => {
-  const createMockFile = (path: string, options: Partial<FileData> = {}): FileData => ({
-    name: path.split('/').pop() || '',
-    path,
-    isDirectory: false,
-    size: 100,
-    isBinary: false,
-    isSkipped: false,
-    isContentLoaded: false,
-    tokenCount: 0,
-    ...options,
-  });
 
   describe('start', () => {
     it('should process files and call onChunk callback', (done) => {
@@ -280,7 +286,7 @@ describe('StreamingTreeBuilder', () => {
         const worker = (builder as any).worker as MockWorker;
         const handlers = (worker as any).listeners.get('message');
         if (handlers) {
-          handlers.forEach((handler: Function) => {
+          for (const handler of handlers) {
             handler({
               data: {
                 type: 'TREE_CHUNK',
@@ -288,7 +294,7 @@ describe('StreamingTreeBuilder', () => {
                 payload: { nodes: [], progress: 0 },
               },
             });
-          });
+          }
         }
       }, 5);
     });

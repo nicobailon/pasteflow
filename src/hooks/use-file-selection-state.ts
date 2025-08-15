@@ -6,7 +6,7 @@ import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/f
 import { createDirectorySelectionCache } from '../utils/selection-cache';
 import { BoundedLRUCache } from '../utils/bounded-lru-cache';
 
-import usePersistentState from './use-persistent-state';
+import { usePersistentState } from './use-persistent-state';
 
 /**
  * Custom hook to manage file selection state
@@ -25,8 +25,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (providedFolderIndex) {
       return providedFolderIndex;
     }
-    const index = buildFolderIndex(allFiles);
-    return index;
+    return buildFolderIndex(allFiles);
   }, [allFiles, providedFolderIndex]);
   
   // Track optimistic folder updates with bounded cache to prevent unbounded memory growth
@@ -72,12 +71,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   
   // Cleanup optimistic timeouts on unmount
   useEffect(() => {
+    const timeoutsMap = optimisticTimeoutsRef.current;
     return () => {
       // Clear all pending timeouts
-      for (const timeout of optimisticTimeoutsRef.current.values()) {
+      for (const timeout of timeoutsMap.values()) {
         clearTimeout(timeout);
       }
-      optimisticTimeoutsRef.current.clear();
+      timeoutsMap.clear();
     };
   }, []);
 
@@ -96,12 +96,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       // Use a small delay to batch potential multiple updates
       const timeoutId = setTimeout(() => {
         setSelectedFiles(prev => {
-          return prev.filter(selected => {
-            const exists = existingFilePaths.has(selected.path);
-            if (!exists) {
-            }
-            return exists;
-          });
+          return prev.filter(selected => existingFilePaths.has(selected.path));
         });
       }, 100);
       
@@ -127,12 +122,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     
     setSelectedFiles(prev => {
       // Filter out any selected files that no longer exist in allFiles
-      const validSelections = prev.filter(selected => {
-        const exists = existingFilePaths.has(selected.path);
-        if (!exists) {
-        }
-        return exists;
-      });
+      const validSelections = prev.filter(selected => existingFilePaths.has(selected.path));
       
       // Only update if there were changes to prevent unnecessary re-renders
       if (validSelections.length !== prev.length) {
@@ -249,7 +239,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
     
     // Use folder index for O(1) lookup with absolute paths
-    let filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
+    const filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
     
     // If no files in folder, bail early
     if (filesInFolderPaths.length === 0) {
@@ -347,7 +337,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (opts?.optimistic !== false) {
       pendingOperationsRef.current.delete(folderPath);
     }
-  }, [allFiles, selectedFiles, setSelectedFiles, folderIndex, folderSelectionCache]);
+  }, [allFiles, selectedFiles, setSelectedFiles, folderIndex]);
 
   // Handle select all files
   const selectAllFiles = useCallback((displayedFiles: FileData[]) => {

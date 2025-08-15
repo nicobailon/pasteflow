@@ -85,17 +85,18 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
           onClose();
         }
       }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="clipboard-preview-title"
-      tabIndex={-1}
+      role="presentation"
+      aria-hidden="true"
     >
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div 
         ref={modalRef}
         className="clipboard-preview-modal" 
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
-        role="document"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clipboard-preview-title"
         tabIndex={-1}
       >
         <div className="clipboard-preview-header">

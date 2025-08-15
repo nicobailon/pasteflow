@@ -60,6 +60,91 @@ export function getFilesInFolder(index: FolderIndex, folderPath: string): string
 }
 
 /**
+ * Helper function to check if a file should be indexed
+ */
+function shouldIndexFile(file: FileData): boolean {
+  return !(!file.path || file.isBinary || file.isSkipped);
+}
+
+/**
+ * Helper function to remove a file from a folder in the index
+ */
+function removeFileFromFolder(
+  index: FolderIndex,
+  folderPath: string,
+  filePath: string
+): void {
+  const filesInFolder = index.get(folderPath);
+  if (!filesInFolder) return;
+  
+  const fileIndex = filesInFolder.indexOf(filePath);
+  if (fileIndex !== -1) {
+    filesInFolder.splice(fileIndex, 1);
+  }
+  
+  // Remove empty folders from index
+  if (filesInFolder.length === 0) {
+    index.delete(folderPath);
+  }
+}
+
+/**
+ * Helper function to add a file to a folder in the index
+ */
+function addFileToFolder(
+  index: FolderIndex,
+  folderPath: string,
+  filePath: string
+): void {
+  if (!index.has(folderPath)) {
+    index.set(folderPath, []);
+  }
+  index.get(folderPath)!.push(filePath);
+}
+
+/**
+ * Helper function to remove a file from the index
+ */
+function removeFileFromIndex(index: FolderIndex, file: FileData): void {
+  if (!shouldIndexFile(file)) return;
+  
+  const parts = file.path.split('/').filter(Boolean);
+  let currentPath = '';
+  
+  // Remove from all parent folders
+  for (let i = 0; i < parts.length - 1; i++) {
+    currentPath = currentPath ? `${currentPath}/${parts[i]}` : `/${parts[i]}`;
+    removeFileFromFolder(index, currentPath, file.path);
+  }
+  
+  // Handle root files
+  if (parts.length === 1) {
+    removeFileFromFolder(index, '/', file.path);
+  }
+}
+
+/**
+ * Helper function to add a file to the index
+ */
+function addFileToIndex(index: FolderIndex, file: FileData): void {
+  if (!shouldIndexFile(file)) return;
+  
+  const parts = file.path.split('/').filter(Boolean);
+  let currentPath = '';
+  
+  // Add to all parent folders
+  for (let i = 0; i < parts.length - 1; i++) {
+    currentPath = currentPath ? `${currentPath}/${parts[i]}` : `/${parts[i]}`;
+    addFileToFolder(index, currentPath, file.path);
+  }
+  
+  // Handle root files
+  if (parts.length === 1) {
+    addFileToFolder(index, '/', file.path);
+  }
+}
+
+/**
  * Updates the folder index when files are added or removed.
  * More efficient than rebuilding the entire index.
  * 
@@ -74,62 +159,11 @@ export function updateFolderIndex(
 ): void {
   // Remove files from index
   for (const file of removedFiles) {
-    if (!file.path || file.isBinary || file.isSkipped) continue;
-    
-    const parts = file.path.split('/').filter(Boolean);
-    let currentPath = '';
-    
-    for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : `/${parts[i]}`;
-      const filesInFolder = index.get(currentPath);
-      if (filesInFolder) {
-        const fileIndex = filesInFolder.indexOf(file.path);
-        if (fileIndex !== -1) {
-          filesInFolder.splice(fileIndex, 1);
-        }
-        // Remove empty folders from index
-        if (filesInFolder.length === 0) {
-          index.delete(currentPath);
-        }
-      }
-    }
-    
-    // Handle root files
-    if (parts.length === 1) {
-      const rootFiles = index.get('/');
-      if (rootFiles) {
-        const fileIndex = rootFiles.indexOf(file.path);
-        if (fileIndex !== -1) {
-          rootFiles.splice(fileIndex, 1);
-        }
-        if (rootFiles.length === 0) {
-          index.delete('/');
-        }
-      }
-    }
+    removeFileFromIndex(index, file);
   }
   
   // Add new files to index
   for (const file of addedFiles) {
-    if (!file.path || file.isBinary || file.isSkipped) continue;
-    
-    const parts = file.path.split('/').filter(Boolean);
-    let currentPath = '';
-    
-    for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : `/${parts[i]}`;
-      if (!index.has(currentPath)) {
-        index.set(currentPath, []);
-      }
-      index.get(currentPath)!.push(file.path);
-    }
-    
-    // Handle root files
-    if (parts.length === 1) {
-      if (!index.has('/')) {
-        index.set('/', []);
-      }
-      index.get('/')!.push(file.path);
-    }
+    addFileToIndex(index, file);
   }
 }

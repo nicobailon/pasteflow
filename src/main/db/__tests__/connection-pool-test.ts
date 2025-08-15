@@ -7,6 +7,18 @@ import { PooledDatabase } from '../pooled-database';
 import { PooledDatabaseBridge } from '../pooled-database-bridge';
 import { TEST_CONFIG, HIGH_LOAD_CONFIG } from '../pool-config';
 
+// Test constants
+const TEST_WORKSPACE_NAME = 'test-workspace';
+
+// Mock electron module
+const mockApp = {
+  getPath: jest.fn()
+};
+
+jest.mock('electron', () => ({
+  app: mockApp
+}));
+
 describe('Connection Pool', () => {
   let tempDir: string;
   let dbPath: string;
@@ -199,30 +211,27 @@ describe('Connection Pool', () => {
   describe('PooledDatabaseBridge Integration', () => {
     test('should handle workspace operations with pooling', async () => {
       // Mock app.getPath for testing
-      const originalApp = require('electron').app;
-      require('electron').app = {
-        getPath: () => tempDir
-      };
+      mockApp.getPath.mockReturnValue(tempDir);
 
       const bridge = new PooledDatabaseBridge(TEST_CONFIG);
       await bridge.initialize();
 
       // Test workspace operations
-      const workspace = await bridge.createWorkspace('test-workspace', '/test/path', {
+      const workspace = await bridge.createWorkspace(TEST_WORKSPACE_NAME, '/test/path', {
         selectedFiles: [{ path: '/test/file.ts' }],
         expandedNodes: { '/test': true }
       });
 
-      expect(workspace.name).toBe('test-workspace');
+      expect(workspace.name).toBe(TEST_WORKSPACE_NAME);
       expect(workspace.folderPath).toBe('/test/path');
 
       // Test list operation
       const workspaces = await bridge.listWorkspaces();
       expect(workspaces).toHaveLength(1);
-      expect(workspaces[0].name).toBe('test-workspace');
+      expect(workspaces[0].name).toBe(TEST_WORKSPACE_NAME);
 
       // Test update operation
-      await bridge.updateWorkspace('test-workspace', {
+      await bridge.updateWorkspace(TEST_WORKSPACE_NAME, {
         selectedFolder: null,
         allFiles: [],
         selectedFiles: [{ path: '/test/file.ts' }, { path: '/test/file2.ts' }],
@@ -239,21 +248,18 @@ describe('Connection Pool', () => {
         }
       });
 
-      const updated = await bridge.getWorkspace('test-workspace');
+      const updated = await bridge.getWorkspace(TEST_WORKSPACE_NAME);
       expect(updated.selectedFiles).toHaveLength(2);
 
       await bridge.close();
 
-      // Restore original app
-      require('electron').app = originalApp;
+      // Clear mock
+      mockApp.getPath.mockClear();
     });
 
     test('should provide performance metrics', async () => {
       // Mock app.getPath for testing
-      const originalApp = require('electron').app;
-      require('electron').app = {
-        getPath: () => tempDir
-      };
+      mockApp.getPath.mockReturnValue(tempDir);
 
       const bridge = new PooledDatabaseBridge({
         ...TEST_CONFIG,
@@ -278,16 +284,13 @@ describe('Connection Pool', () => {
 
       await bridge.close();
 
-      // Restore original app
-      require('electron').app = originalApp;
+      // Clear mock
+      mockApp.getPath.mockClear();
     });
 
     test('should handle high-load scenarios', async () => {
       // Mock app.getPath for testing
-      const originalApp = require('electron').app;
-      require('electron').app = {
-        getPath: () => tempDir
-      };
+      mockApp.getPath.mockReturnValue(tempDir);
 
       const bridge = new PooledDatabaseBridge(HIGH_LOAD_CONFIG);
       await bridge.initialize();
@@ -317,24 +320,17 @@ describe('Connection Pool', () => {
 
       await bridge.close();
 
-      // Restore original app
-      require('electron').app = originalApp;
+      // Clear mock
+      mockApp.getPath.mockClear();
     });
   });
 
   describe('Error Handling and Recovery', () => {
     test('should recover from connection failures', async () => {
-      let connectionFailures = 0;
-      
       const pool = new ConnectionPool(dbPath, {
         minReadConnections: 2,
         maxReadConnections: 5,
         healthCheckInterval: 1000 // 1 second for fast testing
-      });
-
-      // Listen for connection events
-      pool.on('connectionRemoved', () => {
-        connectionFailures++;
       });
 
       await pool.initialize();

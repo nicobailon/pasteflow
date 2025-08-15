@@ -2,6 +2,10 @@ import { renderHook, act } from '@testing-library/react';
 
 import { useDatabaseState } from '../use-database-state';
 
+// Test constants
+const TEST_CHANNEL = '/prefs/get';
+const TEST_UPDATE_EVENT = 'test-update-event';
+
 // Mock electron IPC
 const mockOn = jest.fn();
 const mockRemoveListener = jest.fn();
@@ -29,12 +33,12 @@ describe('useDatabaseState Memory Leak Prevention', () => {
   describe('Listener Management', () => {
     it('should add listener on mount and remove on unmount', () => {
       const { unmount } = renderHook(() => 
-        useDatabaseState('/prefs/get', null)
+        useDatabaseState(TEST_CHANNEL, null)
       );
 
       // Verify listener was added
       expect(mockOn).toHaveBeenCalledWith(
-        '/prefs/get:update',
+        TEST_UPDATE_EVENT,
         expect.any(Function)
       );
       expect(mockOn).toHaveBeenCalledTimes(1);
@@ -47,7 +51,7 @@ describe('useDatabaseState Memory Leak Prevention', () => {
 
       // Verify listener was removed with the same function
       expect(mockRemoveListener).toHaveBeenCalledWith(
-        '/prefs/get:update',
+        TEST_UPDATE_EVENT,
         registeredHandler
       );
       expect(mockRemoveListener).toHaveBeenCalledTimes(1);
@@ -56,13 +60,13 @@ describe('useDatabaseState Memory Leak Prevention', () => {
     it('should use stable function reference for listener cleanup', () => {
       const { rerender, unmount } = renderHook(
         ({ channel }) => useDatabaseState(channel, null),
-        { initialProps: { channel: '/prefs/get' } }
+        { initialProps: { channel: TEST_CHANNEL } }
       );
 
       const firstHandler = mockOn.mock.calls[0][1];
 
       // Rerender with same channel - should not add new listener
-      rerender({ channel: '/prefs/get' });
+      rerender({ channel: TEST_CHANNEL });
       
       // Should still only have one listener registration
       expect(mockOn).toHaveBeenCalledTimes(1);
@@ -71,7 +75,7 @@ describe('useDatabaseState Memory Leak Prevention', () => {
 
       // Should remove with the same handler
       expect(mockRemoveListener).toHaveBeenCalledWith(
-        '/prefs/get:update',
+        TEST_UPDATE_EVENT,
         firstHandler
       );
     });
@@ -79,7 +83,7 @@ describe('useDatabaseState Memory Leak Prevention', () => {
     it('should handle channel changes correctly', () => {
       const { rerender, unmount } = renderHook(
         ({ channel }) => useDatabaseState(channel, null),
-        { initialProps: { channel: '/prefs/get' } }
+        { initialProps: { channel: TEST_CHANNEL } }
       );
 
       const firstHandler = mockOn.mock.calls[0][1];
@@ -89,7 +93,7 @@ describe('useDatabaseState Memory Leak Prevention', () => {
 
       // Should remove old listener and add new one
       expect(mockRemoveListener).toHaveBeenCalledWith(
-        '/prefs/get:update',
+        TEST_UPDATE_EVENT,
         firstHandler
       );
       expect(mockOn).toHaveBeenCalledWith(
@@ -112,20 +116,20 @@ describe('useDatabaseState Memory Leak Prevention', () => {
   describe('Multiple Hook Instances', () => {
     it('should handle multiple hooks with same channel without interference', () => {
       const { unmount: unmount1 } = renderHook(() => 
-        useDatabaseState('/prefs/get', null)
+        useDatabaseState(TEST_CHANNEL, null)
       );
       const { unmount: unmount2 } = renderHook(() => 
-        useDatabaseState('/prefs/get', null)
+        useDatabaseState(TEST_CHANNEL, null)
       );
       const { unmount: unmount3 } = renderHook(() => 
-        useDatabaseState('/prefs/get', null)
+        useDatabaseState(TEST_CHANNEL, null)
       );
 
       // Should have 3 separate listeners
       expect(mockOn).toHaveBeenCalledTimes(3);
-      expect(mockOn).toHaveBeenNthCalledWith(1, '/prefs/get:update', expect.any(Function));
-      expect(mockOn).toHaveBeenNthCalledWith(2, '/prefs/get:update', expect.any(Function));
-      expect(mockOn).toHaveBeenNthCalledWith(3, '/prefs/get:update', expect.any(Function));
+      expect(mockOn).toHaveBeenNthCalledWith(1, TEST_UPDATE_EVENT, expect.any(Function));
+      expect(mockOn).toHaveBeenNthCalledWith(2, TEST_UPDATE_EVENT, expect.any(Function));
+      expect(mockOn).toHaveBeenNthCalledWith(3, TEST_UPDATE_EVENT, expect.any(Function));
 
       // Get all handlers
       const handler1 = mockOn.mock.calls[0][1];
@@ -139,13 +143,13 @@ describe('useDatabaseState Memory Leak Prevention', () => {
 
       // Unmount in different order
       unmount2();
-      expect(mockRemoveListener).toHaveBeenCalledWith('/prefs/get:update', handler2);
+      expect(mockRemoveListener).toHaveBeenCalledWith(TEST_UPDATE_EVENT, handler2);
 
       unmount1();
-      expect(mockRemoveListener).toHaveBeenCalledWith('/prefs/get:update', handler1);
+      expect(mockRemoveListener).toHaveBeenCalledWith(TEST_UPDATE_EVENT, handler1);
 
       unmount3();
-      expect(mockRemoveListener).toHaveBeenCalledWith('/prefs/get:update', handler3);
+      expect(mockRemoveListener).toHaveBeenCalledWith(TEST_UPDATE_EVENT, handler3);
 
       // Should have removed all 3 listeners
       expect(mockRemoveListener).toHaveBeenCalledTimes(3);
@@ -155,7 +159,7 @@ describe('useDatabaseState Memory Leak Prevention', () => {
   describe('Update Handling', () => {
     it('should handle update broadcasts correctly', async () => {
       const { result } = renderHook(() => 
-        useDatabaseState('/prefs/get', { initial: 'value' })
+        useDatabaseState(TEST_CHANNEL, { initial: 'value' })
       );
 
       // Get the registered handler
@@ -175,7 +179,7 @@ describe('useDatabaseState Memory Leak Prevention', () => {
       mockInvoke.mockResolvedValue({ cached: 'data' });
 
       const { result } = renderHook(() => 
-        useDatabaseState('/prefs/get', null, { cache: true, cacheTTL: 60_000 })
+        useDatabaseState(TEST_CHANNEL, null, { cache: true, cacheTTL: 60_000 })
       );
 
       // Fetch data to populate cache
@@ -217,7 +221,7 @@ describe('useDatabaseState Memory Leak Prevention', () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
       const { unmount } = renderHook(() =>
-        useDatabaseState('/prefs/get', null)
+        useDatabaseState(TEST_CHANNEL, null)
       );
 
       // Should not throw when unmounting
