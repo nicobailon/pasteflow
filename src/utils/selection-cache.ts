@@ -18,7 +18,22 @@ export function createDirectorySelectionCache(
   allFiles: FileData[],
   selectedFiles: SelectedFileReference[]
 ): DirectorySelectionCache {
-  const selectedPaths = new Set(selectedFiles.map(f => f.path));
+  // Runtime validation
+  if (!Array.isArray(allFiles)) {
+    throw new TypeError('allFiles must be an array');
+  }
+  if (!Array.isArray(selectedFiles)) {
+    throw new TypeError('selectedFiles must be an array');
+  }
+  
+  const selectedPaths = new Set(selectedFiles.map(f => {
+    if (!f || typeof f.path !== 'string') {
+      console.warn('Invalid selected file reference:', f);
+      return '';
+    }
+    return f.path;
+  }).filter(Boolean));
+  
   const { directoryMap, allDirectories } = buildDirectoryStructure(allFiles);
   const cache = calculateDirectorySelectionStates(directoryMap, allDirectories, selectedPaths);
   
@@ -36,9 +51,11 @@ function buildDirectoryStructure(allFiles: FileData[]): {
   const allDirectories = new Set<string>();
   const directoryPaths = identifyAllDirectories(allFiles);
   
-  // Add all identified directories to the set
+  // Add all identified directories to the set with validation
   for (const dirPath of directoryPaths) {
-    allDirectories.add(dirPath);
+    if (typeof dirPath === 'string' && dirPath.length > 0) {
+      allDirectories.add(dirPath);
+    }
   }
   
   buildDirectoryToFilesMapping(allFiles, directoryMap, allDirectories);
@@ -67,6 +84,12 @@ function identifyAllDirectories(allFiles: FileData[]): Set<string> {
  * Extract all parent directories from a file path
  */
 function extractDirectoriesFromFilePath(filePath: string): string[] {
+  // Runtime validation
+  if (typeof filePath !== 'string') {
+    console.warn('Invalid file path provided:', filePath);
+    return [];
+  }
+  
   const isAbsolute = filePath.startsWith('/');
   const parts = filePath.split('/').filter(Boolean);
   const directories: string[] = [];
@@ -214,18 +237,42 @@ function countSelectedFilesInDirectory(
 function createDirectorySelectionCacheInterface(
   cache: Map<string, SelectionState>
 ): DirectorySelectionCache {
+  const isValidSelectionState = (state: unknown): state is SelectionState => {
+    return state === 'full' || state === 'partial' || state === 'none';
+  };
+  
   return {
     get(path: string): SelectionState {
+      if (typeof path !== 'string') {
+        console.warn('Invalid path provided to cache.get:', path);
+        return 'none';
+      }
       return cache.get(path) || 'none';
     },
     
     set(path: string, state: SelectionState): void {
+      if (typeof path !== 'string') {
+        console.warn('Invalid path provided to cache.set:', path);
+        return;
+      }
+      if (!isValidSelectionState(state)) {
+        console.warn('Invalid selection state provided to cache.set:', state);
+        return;
+      }
       cache.set(path, state);
     },
     
     bulkUpdate(updates: Map<string, SelectionState>): void {
+      if (!(updates instanceof Map)) {
+        console.warn('Invalid updates provided to cache.bulkUpdate:', updates);
+        return;
+      }
       for (const [path, state] of updates) {
-        cache.set(path, state);
+        if (typeof path === 'string' && isValidSelectionState(state)) {
+          cache.set(path, state);
+        } else {
+          console.warn('Skipping invalid update:', { path, state });
+        }
       }
     },
     

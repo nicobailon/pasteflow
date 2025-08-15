@@ -74,15 +74,44 @@ export class TreeBuilderWorkerPool {
   private activeBuild: ActiveBuild | null = null;
   private nextRequestId = 1;
   private initializationPromise: Promise<void> | null = null;
+  private initializationAttempts = 0;
+  private readonly maxInitializationAttempts = 3;
+  private readonly retryDelay = 1000;
 
   constructor() {
     // Store the initialization promise so we can await it later
-    // Don't let initialization errors crash the constructor
-    this.initializationPromise = this.initialize().catch(error => {
-      console.error('Worker pool initialization failed in constructor:', error);
-      // The error is logged but not re-thrown, allowing the pool to exist
-      // and potentially retry initialization later
+    // Implements retry mechanism for initialization failures
+    this.initializationPromise = this.initializeWithRetry().catch(error => {
+      console.error('Worker pool initialization failed after all retries:', error);
+      this.state = 'error';
+      // Store error for potential future retry attempts
+      throw error;
     });
+  }
+
+  /**
+   * Initialize the pool with retry mechanism
+   */
+  private async initializeWithRetry(): Promise<void> {
+    while (this.initializationAttempts < this.maxInitializationAttempts) {
+      try {
+        await this.initialize();
+        return;
+      } catch (error) {
+        this.initializationAttempts++;
+        
+        if (this.initializationAttempts >= this.maxInitializationAttempts) {
+          throw error;
+        }
+        
+        console.warn(
+          `Worker pool initialization attempt ${this.initializationAttempts} failed, retrying in ${this.retryDelay}ms...`,
+          error
+        );
+        
+        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+      }
+    }
   }
 
   /**
@@ -692,6 +721,26 @@ export class TreeBuilderWorkerPool {
     }
     
     this.state = 'uninitialized';
+  }
+
+  /**
+   * Public method to retry initialization if it previously failed
+   */
+  public async retryInitialization(): Promise<void> {
+    if (this.state === 'ready') {
+      return;
+    }
+    
+    // Reset attempts counter for manual retry
+    this.initializationAttempts = 0;
+    this.state = 'uninitialized';
+    
+    try {
+      await this.initializeWithRetry();
+    } catch (error) {
+      console.error('Manual retry of worker pool initialization failed:', error);
+      throw error;
+    }
   }
 }
 

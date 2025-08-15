@@ -1,7 +1,9 @@
 import { TreeNode } from "../types/file-types";
 
 /**
- * Recursively gets all directory node IDs from a tree structure
+ * Recursively gets all directory node IDs from a tree structure.
+ * @param nodes - Array of tree nodes to traverse
+ * @returns Array of all directory node IDs found in the tree
  */
 export const getAllDirectoryNodeIds = (nodes: TreeNode[]): string[] => {
   let result: string[] = [];
@@ -19,7 +21,10 @@ export const getAllDirectoryNodeIds = (nodes: TreeNode[]): string[] => {
 };
 
 /**
- * Gets all collapsed directory node IDs from a tree structure
+ * Gets all collapsed directory node IDs from a tree structure.
+ * @param nodes - Array of tree nodes to traverse
+ * @param expandedNodes - Record of node IDs to their expansion state
+ * @returns Array of directory node IDs that are collapsed
  */
 export const getCollapsedDirectoryNodeIds = (
   nodes: TreeNode[], 
@@ -42,7 +47,10 @@ export const getCollapsedDirectoryNodeIds = (
 };
 
 /**
- * Checks if all directory nodes in the tree are expanded
+ * Checks if all directory nodes in the tree are expanded.
+ * @param fileTree - Array of tree nodes representing the file structure
+ * @param expandedNodes - Record of node IDs to their expansion state
+ * @returns True if all directories are expanded, false otherwise
  */
 export const areAllDirectoriesExpanded = (
   fileTree: TreeNode[], 
@@ -58,7 +66,9 @@ export const areAllDirectoriesExpanded = (
 };
 
 /**
- * Checks if there are any expanded folders
+ * Checks if there are any expanded folders.
+ * @param expandedNodes - Record of node IDs to their expansion state
+ * @returns True if at least one folder is expanded, false otherwise
  */
 export const hasAnyExpandedFolders = (expandedNodes: Record<string, boolean>): boolean => {
   return Object.values(expandedNodes).some(Boolean);

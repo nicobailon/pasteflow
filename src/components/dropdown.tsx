@@ -35,6 +35,14 @@ interface DropdownProps {
   closeOnChange?: boolean;
   glassEffect?: boolean;
   variant?: "default" | "primary" | "secondary";
+  /**
+   * Animation type for dropdown menu appearance.
+   * Changed from default "scale" to "fade" for better visual consistency
+   * and to avoid layout shift issues with scaled content.
+   * - "fade": Smooth opacity transition (recommended)
+   * - "slide": Slide down animation
+   * - "none": No animation
+   */
   animationType?: "fade" | "slide" | "none";
 }
 
