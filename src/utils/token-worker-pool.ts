@@ -78,6 +78,9 @@ export class TokenWorkerPool {
   // Active operations tracking for abort support
   private activeOperations = new Map<string, AbortController>();
   
+  // Track cleanup timeouts to prevent memory leaks
+  private cleanupTimeouts = new Map<number, NodeJS.Timeout>();
+  
   constructor(private poolSize = Math.min(navigator.hardwareConcurrency || WORKER_POOL.DEFAULT_WORKERS, WORKER_POOL.MAX_WORKERS)) {
     this.initializeWorkers();
   }
@@ -1019,20 +1022,32 @@ export class TokenWorkerPool {
         oldWorkerTerminated = true;
       } catch (error) {
         console.error('Failed to terminate crashed worker:', error);
-        // Schedule forced cleanup after a delay
-        setTimeout(() => {
+        // Clear any existing cleanup timeout for this worker
+        const existingTimeout = this.cleanupTimeouts.get(workerId);
+        if (existingTimeout) {
+          clearTimeout(existingTimeout);
+        }
+        
+        // Schedule forced cleanup after a delay with timeout tracking
+        const timeoutId = setTimeout(() => {
           try {
             if (!oldWorkerTerminated && oldWorker) {
               oldWorker.terminate();
+              oldWorkerTerminated = true;
             }
           } catch (retryError) {
             console.error('Retry termination also failed:', retryError);
             // At this point, mark the worker slot as permanently failed
             // to prevent further recovery attempts
             this.markWorkerAsFailed(workerId);
-            return;
+          } finally {
+            // Clean up the timeout reference
+            this.cleanupTimeouts.delete(workerId);
           }
         }, 1000);
+        
+        // Store the timeout ID for potential cleanup
+        this.cleanupTimeouts.set(workerId, timeoutId);
       }
     }
     
@@ -1065,6 +1080,13 @@ export class TokenWorkerPool {
     this.workers[workerId] = worker;
     this.workerStatus[workerId] = false;
     this.workerReadyStatus[workerId] = false; // Reset ready status
+    
+    // Clear any pending cleanup timeout for this worker since recovery succeeded
+    const existingTimeout = this.cleanupTimeouts.get(workerId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      this.cleanupTimeouts.delete(workerId);
+    }
     
     // Create named handlers for proper cleanup
     const messageHandler = (event: MessageEvent) => {
@@ -1330,6 +1352,12 @@ export class TokenWorkerPool {
       controller.abort();
     }
     this.activeOperations.clear();
+    
+    // Clear all cleanup timeouts to prevent memory leaks
+    for (const [_workerId, timeoutId] of this.cleanupTimeouts) {
+      clearTimeout(timeoutId);
+    }
+    this.cleanupTimeouts.clear();
     
     // Clean up all worker listeners before termination
     for (const [index, worker] of this.workers.entries()) {

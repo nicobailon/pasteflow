@@ -128,7 +128,6 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   // Extract individual values for easier access
   const autoSaveEnabled = autoSavePrefs.enabled;
   const debounceMs = autoSavePrefs.debounceMs;
-  const minIntervalMs = autoSavePrefs.minIntervalMs;
   
   // Wrapper to update just the enabled state
   const setAutoSaveEnabled = useCallback((enabled: boolean) => {
@@ -277,13 +276,27 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
         // Mark that we're saving to prevent duplicate saves
         saveInProgressRef.current = true;
         
-        // Perform save and update refs immediately
-        // Note: This is still async but Electron will wait briefly
-        onAutoSave().then(() => {
-          lastSignatureRef.current = currentSignature;
-        }).catch(error => {
-          console.error('[AutoSave] Emergency save failed:', error);
-        });
+        // Perform save and signal completion back to main process
+        onAutoSave()
+          .then(() => {
+            lastSignatureRef.current = currentSignature;
+            // Signal to main process that save is complete
+            if (window.electron?.ipcRenderer) {
+              window.electron.ipcRenderer.send('app-will-quit-save-complete', {});
+            }
+          })
+          .catch(error => {
+            console.error('[AutoSave] Emergency save failed:', error);
+            // Still signal completion even on error to prevent hanging
+            if (window.electron?.ipcRenderer) {
+              window.electron.ipcRenderer.send('app-will-quit-save-complete', { error: true });
+            }
+          });
+      } else {
+        // If no save needed, signal completion immediately
+        if (window.electron?.ipcRenderer) {
+          window.electron.ipcRenderer.send('app-will-quit-save-complete', { skipped: true });
+        }
       }
     };
 
@@ -293,7 +306,7 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     }
     
     // Fallback: browser beforeunload event
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    const handleBeforeUnload = () => {
       if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
         // Attempt to save (may not complete in all cases)
         void performAutoSave();

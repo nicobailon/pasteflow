@@ -416,18 +416,41 @@ app.on("window-all-closed", () => {
   }
 });
 
+// Track if we're already handling quit to prevent multiple attempts
+let isQuitting = false;
+
 app.on("before-quit", async (event) => {
+  if (isQuitting) return;
+  
   // Prevent default quit to ensure saves complete
   event.preventDefault();
+  isQuitting = true;
   
-  // Send signal to renderer to perform final save
+  // Send signal to renderer to perform final save and wait for completion
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
-      // Send synchronous message to renderer to save immediately
+      // Create a promise that will resolve when save completes or timeout
+      const savePromise = new Promise((resolve) => {
+        // Set up a one-time listener for save completion
+        ipcMain.once('app-will-quit-save-complete', () => {
+          resolve('completed');
+        });
+        
+        // Set a timeout as fallback (configurable, default 2 seconds)
+        const timeout = process.env.PASTEFLOW_SAVE_TIMEOUT || 2000;
+        setTimeout(() => resolve('timeout'), timeout);
+      });
+      
+      // Send message to renderer to trigger save
       mainWindow.webContents.send('app-will-quit');
       
-      // Wait a brief moment for save to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for save to complete or timeout
+      const result = await savePromise;
+      if (result === 'timeout') {
+        console.warn('Auto-save timeout during shutdown - proceeding with quit');
+      } else {
+        console.log('Auto-save completed successfully during shutdown');
+      }
     } catch (error) {
       console.error('Error during shutdown save:', error);
     }
