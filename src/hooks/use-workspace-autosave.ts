@@ -52,8 +52,8 @@ interface AutoSaveOptions {
 
 const DEFAULT_PREFERENCES: AutoSavePreferences = {
   enabled: true, // Auto-save ON by default
-  debounceMs: 2000,
-  minIntervalMs: 10_000
+  debounceMs: 100, // Very short debounce to batch rapid keystrokes
+  minIntervalMs: 0 // No minimum interval between saves
 };
 
 /**
@@ -128,7 +128,6 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   // Extract individual values for easier access
   const autoSaveEnabled = autoSavePrefs.enabled;
   const debounceMs = autoSavePrefs.debounceMs;
-  const minIntervalMs = autoSavePrefs.minIntervalMs;
   
   // Wrapper to update just the enabled state
   const setAutoSaveEnabled = useCallback((enabled: boolean) => {
@@ -219,29 +218,13 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     // Guard conditions
     if (!canAutoSave()) return;
 
-    // Check minimum interval
-    const now = Date.now();
-    const timeSinceLastSave = now - lastSaveTimeRef.current;
-    if (timeSinceLastSave < minIntervalMs) {
-      // Schedule one trailing save at the earliest allowed time
-      pendingSignatureRef.current = currentSignature;
-      if (!minIntervalTimerRef.current) {
-        const delay = Math.max(0, minIntervalMs - timeSinceLastSave);
-        minIntervalTimerRef.current = setTimeout(() => {
-          minIntervalTimerRef.current = null;
-          if (!canAutoSave()) return;
-          if (pendingSignatureRef.current && pendingSignatureRef.current !== lastSignatureRef.current) {
-            void performAutoSave();
-          }
-        }, delay);
-      }
-      return;
-    }
-
     // Check if signature has changed
     if (currentSignature === lastSignatureRef.current) {
       return;
     }
+
+    // With minIntervalMs set to 0, we can save immediately without complex timing logic
+    const now = Date.now();
 
     // Perform save
     try {
@@ -258,7 +241,6 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   }, [
     canAutoSave,
     currentSignature,
-    minIntervalMs,
     onAutoSave,
     logAutoSaveError
   ]);
@@ -284,6 +266,74 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally once
+
+  // Add handlers for app close and visibility changes
+  useEffect(() => {
+    // Handle Electron's app-will-quit event for reliable shutdown saves
+    const handleAppWillQuit = () => {
+      // Synchronously check if we need to save
+      if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
+        // Mark that we're saving to prevent duplicate saves
+        saveInProgressRef.current = true;
+        
+        // Perform save and signal completion back to main process
+        onAutoSave()
+          .then(() => {
+            lastSignatureRef.current = currentSignature;
+            // Signal to main process that save is complete
+            if (window.electron?.ipcRenderer) {
+              window.electron.ipcRenderer.send('app-will-quit-save-complete', {});
+            }
+          })
+          .catch(error => {
+            console.error('[AutoSave] Emergency save failed:', error);
+            // Still signal completion even on error to prevent hanging
+            if (window.electron?.ipcRenderer) {
+              window.electron.ipcRenderer.send('app-will-quit-save-complete', { error: true });
+            }
+          });
+      } else {
+        // If no save needed, signal completion immediately
+        if (window.electron?.ipcRenderer) {
+          window.electron.ipcRenderer.send('app-will-quit-save-complete', { skipped: true });
+        }
+      }
+    };
+
+    // Listen for Electron IPC message
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.on('app-will-quit', handleAppWillQuit);
+    }
+    
+    // Fallback: browser beforeunload event
+    const handleBeforeUnload = () => {
+      if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
+        // Attempt to save (may not complete in all cases)
+        void performAutoSave();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    // Also listen for visibility change to save when app loses focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
+          void performAutoSave();
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.removeListener('app-will-quit', handleAppWillQuit);
+      }
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [canAutoSave, currentSignature, performAutoSave, onAutoSave]);
   
   // Trigger auto-save on signature changes
   useEffect(() => {

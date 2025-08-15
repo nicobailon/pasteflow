@@ -1,6 +1,115 @@
 // Import jest-dom matchers
 require('@testing-library/jest-dom');
 
+// Mock lucide-react icons
+jest.mock('lucide-react', () => ({
+  Clock: () => null,
+  SortAsc: () => null,
+  GripVertical: () => null,
+  ChevronRight: () => null,
+  ChevronDown: () => null,
+  Folder: () => null,
+  FolderOpen: () => null,
+  File: () => null,
+  FileText: () => null,
+  Code: () => null,
+  FileCode: () => null,
+  FileJson: () => null,
+  Image: () => null,
+  Film: () => null,
+  Music: () => null,
+  Archive: () => null,
+  Copy: () => null,
+  Check: () => null,
+  X: () => null,
+  Plus: () => null,
+  Minus: () => null,
+  Settings: () => null,
+  Search: () => null,
+  Filter: () => null,
+  Download: () => null,
+  Upload: () => null,
+  Save: () => null,
+  Trash: () => null,
+  Edit: () => null,
+  Eye: () => null,
+  EyeOff: () => null,
+  RefreshCw: () => null,
+  AlertCircle: () => null,
+  Info: () => null,
+  HelpCircle: () => null,
+  Terminal: () => null,
+  Zap: () => null,
+  Package: () => null,
+  Layers: () => null,
+  Hash: () => null
+}));
+
+// Mock import.meta for ES module compatibility
+if (typeof global !== 'undefined' && !global.import) {
+  global.import = {
+    meta: {
+      url: 'file:///mock/path/to/file.js'
+    }
+  };
+}
+
+// Mock Worker for worker pool tests
+if (typeof Worker === 'undefined') {
+  global.Worker = class MockWorker {
+    constructor(url, options) {
+      this.url = url;
+      this.options = options;
+      this.listeners = new Map();
+      
+      // Simulate worker initialization
+      setTimeout(() => {
+        this.dispatchEvent(new MessageEvent('message', { data: { type: 'READY' } }));
+      }, 0);
+    }
+    
+    postMessage(data) {
+      // Mock implementation
+    }
+    
+    addEventListener(type, listener) {
+      if (!this.listeners.has(type)) {
+        this.listeners.set(type, []);
+      }
+      this.listeners.get(type).push(listener);
+    }
+    
+    removeEventListener(type, listener) {
+      const listeners = this.listeners.get(type);
+      if (listeners) {
+        const index = listeners.indexOf(listener);
+        if (index > -1) {
+          listeners.splice(index, 1);
+        }
+      }
+    }
+    
+    dispatchEvent(event) {
+      const listeners = this.listeners.get(event.type);
+      if (listeners) {
+        listeners.forEach(listener => listener(event));
+      }
+    }
+    
+    terminate() {
+      this.listeners.clear();
+    }
+  };
+  
+  // Mock MessageEvent
+  global.MessageEvent = class MessageEvent {
+    constructor(type, init) {
+      this.type = type;
+      this.data = init?.data;
+    }
+  };
+}
+
 // Polyfill TextEncoder/TextDecoder for Jest environment
 if (typeof TextEncoder === 'undefined') {
   global.TextEncoder = class {
@@ -67,10 +176,69 @@ Object.defineProperty(window, 'electron', {
     ipcRenderer: {
       send: jest.fn(),
       on: jest.fn(),
-      removeListener: jest.fn()
+      removeListener: jest.fn(),
+      invoke: jest.fn().mockImplementation((channel, data) => {
+        // Workspace operations
+        if (channel === '/workspace/list') {
+          return Promise.resolve([]);
+        }
+        if (channel === '/workspace/load') {
+          return Promise.resolve(null);
+        }
+        if (channel === '/workspace/create') {
+          return Promise.resolve();
+        }
+        if (channel === '/workspace/update') {
+          return Promise.resolve();
+        }
+        if (channel === '/workspace/delete') {
+          return Promise.resolve();
+        }
+        if (channel === '/workspace/touch') {
+          return Promise.resolve();
+        }
+        if (channel === '/workspace/rename') {
+          return Promise.resolve();
+        }
+        
+        // Instructions operations
+        if (channel === '/instructions/list') {
+          return Promise.resolve([]);
+        }
+        if (channel === '/instructions/create') {
+          return Promise.resolve();
+        }
+        if (channel === '/instructions/update') {
+          return Promise.resolve();
+        }
+        if (channel === '/instructions/delete') {
+          return Promise.resolve();
+        }
+        
+        // Preferences operations
+        if (channel === '/prefs/get') {
+          return Promise.resolve(null);
+        }
+        if (channel === '/prefs/set') {
+          return Promise.resolve();
+        }
+        
+        // File operations
+        if (channel === 'request-file-content') {
+          return Promise.resolve({
+            success: false,
+            error: 'Mock: File content not available in test environment'
+          });
+        }
+        
+        // Default response for unknown channels
+        console.warn(`Mock: Unhandled IPC channel: ${channel}`);
+        return Promise.resolve(null);
+      })
     }
   },
-  writable: true
+  writable: true,
+  configurable: true
 });
 
 // Mock document.getElementById for React 18 createRoot

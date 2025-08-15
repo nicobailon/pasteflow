@@ -1,3 +1,6 @@
+// Declare jest global for test environment detection with precise type
+declare const jest: { fn?: unknown } | undefined;
+
 import { WORKER_POOL, PRIORITY } from '../constants/app-constants';
 
 import { estimateTokenCount } from './token-utils';
@@ -74,6 +77,9 @@ export class TokenWorkerPool {
   
   // Active operations tracking for abort support
   private activeOperations = new Map<string, AbortController>();
+  
+  // Track cleanup timeouts to prevent memory leaks
+  private cleanupTimeouts = new Map<number, NodeJS.Timeout>();
   
   constructor(private poolSize = Math.min(navigator.hardwareConcurrency || WORKER_POOL.DEFAULT_WORKERS, WORKER_POOL.MAX_WORKERS)) {
     this.initializeWorkers();
@@ -291,10 +297,24 @@ export class TokenWorkerPool {
     for (let i = 0; i < this.poolSize; i++) {
       try {
         // Note: Webpack/Vite will handle worker bundling
-        const worker = new Worker(
-          new URL('../workers/token-counter-worker.ts', import.meta.url),
-          { type: 'module' }
-        );
+        // Check if we're in a Jest test environment (more reliable than NODE_ENV)
+        let worker: Worker;
+        if (typeof jest !== 'undefined') {
+          worker = new Worker('/mock/worker/path', { type: 'module' });
+        } else {
+          try {
+            // Use eval to prevent Jest from parsing this at compile time
+            const metaUrl = eval('import.meta.url');
+            worker = new Worker(
+              new URL('../workers/token-counter-worker.ts', metaUrl),
+              { type: 'module' }
+            );
+          } catch (error) {
+            // Fallback for environments where import.meta is not available
+            console.warn('import.meta.url not available, using fallback worker path');
+            worker = new Worker('/src/workers/token-counter-worker.ts', { type: 'module' });
+          }
+        }
         
         // Create named handlers for proper cleanup
         const messageHandler = (event: MessageEvent) => {
@@ -988,26 +1008,85 @@ export class TokenWorkerPool {
       return;
     }
     
+    // Store reference to old worker for guaranteed cleanup
+    const oldWorker = this.workers[workerId];
+    let oldWorkerTerminated = false;
     
     // Clean up old worker listeners before termination
     this.cleanupWorkerListeners(workerId);
     
-    // Terminate the crashed worker
-    try {
-      this.workers[workerId].terminate();
-    } catch (error) {
-      console.error('Failed to terminate crashed worker:', error);
+    // Terminate the crashed worker with retry logic
+    if (oldWorker) {
+      try {
+        oldWorker.terminate();
+        oldWorkerTerminated = true;
+      } catch (error) {
+        console.error('Failed to terminate crashed worker:', error);
+        // Clear any existing cleanup timeout for this worker
+        const existingTimeout = this.cleanupTimeouts.get(workerId);
+        if (existingTimeout) {
+          clearTimeout(existingTimeout);
+        }
+        
+        // Schedule forced cleanup after a delay with timeout tracking
+        const timeoutId = setTimeout(() => {
+          try {
+            if (!oldWorkerTerminated && oldWorker) {
+              oldWorker.terminate();
+              oldWorkerTerminated = true;
+            }
+          } catch (retryError) {
+            console.error('Retry termination also failed:', retryError);
+            // At this point, mark the worker slot as permanently failed
+            // to prevent further recovery attempts
+            this.markWorkerAsFailed(workerId);
+          } finally {
+            // Clean up the timeout reference
+            this.cleanupTimeouts.delete(workerId);
+          }
+        }, 1000);
+        
+        // Store the timeout ID for potential cleanup
+        this.cleanupTimeouts.set(workerId, timeoutId);
+      }
+    }
+    
+    // Only create a new worker if the old one was successfully handled
+    if (this.workerPermanentlyFailed.has(workerId)) {
+      console.warn(`Worker ${workerId} is permanently failed, skipping recovery`);
+      return;
     }
     
     // Create a new worker
-    const worker = new Worker(
-      new URL('../workers/token-counter-worker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    // Check if we're in a Jest test environment (more reliable than NODE_ENV)
+    let worker: Worker;
+    if (typeof jest !== 'undefined') {
+      worker = new Worker('/mock/worker/path', { type: 'module' });
+    } else {
+      try {
+        // Use eval to prevent Jest from parsing this at compile time
+        const metaUrl = eval('import.meta.url');
+        worker = new Worker(
+          new URL('../workers/token-counter-worker.ts', metaUrl),
+          { type: 'module' }
+        );
+      } catch (error) {
+        // Fallback for environments where import.meta is not available
+        console.warn('import.meta.url not available, using fallback worker path');
+        worker = new Worker('/src/workers/token-counter-worker.ts', { type: 'module' });
+      }
+    }
     
     this.workers[workerId] = worker;
     this.workerStatus[workerId] = false;
     this.workerReadyStatus[workerId] = false; // Reset ready status
+    
+    // Clear any pending cleanup timeout for this worker since recovery succeeded
+    const existingTimeout = this.cleanupTimeouts.get(workerId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      this.cleanupTimeouts.delete(workerId);
+    }
     
     // Create named handlers for proper cleanup
     const messageHandler = (event: MessageEvent) => {
@@ -1274,15 +1353,33 @@ export class TokenWorkerPool {
     }
     this.activeOperations.clear();
     
+    // Clear all cleanup timeouts to prevent memory leaks
+    for (const [_workerId, timeoutId] of this.cleanupTimeouts) {
+      clearTimeout(timeoutId);
+    }
+    this.cleanupTimeouts.clear();
+    
     // Clean up all worker listeners before termination
     for (const [index, worker] of this.workers.entries()) {
       this.cleanupWorkerListeners(index);
-      worker.terminate();
+      
+      // Attempt to terminate with error handling
+      try {
+        worker.terminate();
+      } catch (error) {
+        console.error(`Failed to terminate worker ${index} during shutdown:`, error);
+        // Continue with cleanup even if termination fails
+      }
     }
     
+    // Clear all references to prevent memory leaks
     this.workers = [];
     this.queue = [];
     this.activeJobs.clear();
     this.workerListeners.clear();
+    this.workerRecoveryLocks.clear();
+    this.workerRecoveryQueue.clear();
+    this.workerFailureTimes.clear();
+    this.workerPermanentlyFailed.clear();
   }
 }

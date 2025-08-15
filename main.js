@@ -122,6 +122,9 @@ const preferencesStore = new Map();
 // Database instance
 let database = null;
 
+// Main window instance
+let mainWindow = null;
+
 try {
   ignore = require("ignore");
   console.log("Successfully loaded ignore module");
@@ -271,7 +274,7 @@ function isSpecialFile(filePath) {
 }
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: ELECTRON.WINDOW.WIDTH,
     height: ELECTRON.WINDOW.HEIGHT,
     webPreferences: {
@@ -362,6 +365,11 @@ function createWindow() {
       }
     },
   );
+
+  // Clean up the reference when the window is closed
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 // Replace the top-level await with a proper async function
@@ -408,7 +416,46 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", async () => {
+// Track if we're already handling quit to prevent multiple attempts
+let isQuitting = false;
+
+app.on("before-quit", async (event) => {
+  if (isQuitting) return;
+  
+  // Prevent default quit to ensure saves complete
+  event.preventDefault();
+  isQuitting = true;
+  
+  // Send signal to renderer to perform final save and wait for completion
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      // Create a promise that will resolve when save completes or timeout
+      const savePromise = new Promise((resolve) => {
+        // Set up a one-time listener for save completion
+        ipcMain.once('app-will-quit-save-complete', () => {
+          resolve('completed');
+        });
+        
+        // Set a timeout as fallback (configurable, default 2 seconds)
+        const timeout = process.env.PASTEFLOW_SAVE_TIMEOUT || 2000;
+        setTimeout(() => resolve('timeout'), timeout);
+      });
+      
+      // Send message to renderer to trigger save
+      mainWindow.webContents.send('app-will-quit');
+      
+      // Wait for save to complete or timeout
+      const result = await savePromise;
+      if (result === 'timeout') {
+        console.warn('Auto-save timeout during shutdown - proceeding with quit');
+      } else {
+        console.log('Auto-save completed successfully during shutdown');
+      }
+    } catch (error) {
+      console.error('Error during shutdown save:', error);
+    }
+  }
+  
   // Clean up database connection
   if (database && database.initialized) {
     try {
@@ -418,6 +465,9 @@ app.on("before-quit", async () => {
       console.error('Error closing database:', error);
     }
   }
+  
+  // Now actually quit
+  app.exit(0);
 });
 
 

@@ -88,6 +88,8 @@ export class SecureIpcLayer {
       WorkspaceSchema,
       WorkspaceCreateSchema,
       WorkspaceUpdateSchema,
+      WorkspaceDeleteSchema,
+      WorkspaceRenameSchema,
       FileContentRequestSchema,
       FileContentResponseSchema,
       FileSaveSchema,
@@ -135,7 +137,7 @@ export class SecureIpcLayer {
     });
 
     this.registerChannel('/workspace/delete', {
-      input: z.object({ id: z.string().uuid() }),
+      input: WorkspaceDeleteSchema,
       output: z.boolean(),
       rateLimit: this.getRateLimit('/workspace/delete')
     });
@@ -215,7 +217,7 @@ export class SecureIpcLayer {
     });
 
     this.registerChannel('/workspace/rename', {
-      input: z.object({ id: z.string().uuid(), newName: z.string().min(1).max(255) }),
+      input: WorkspaceRenameSchema,
       output: z.boolean(),
       rateLimit: this.getRateLimit('/workspace/rename')
     });

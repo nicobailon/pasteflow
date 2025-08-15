@@ -152,7 +152,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(); // update workspace
+        .mockResolvedValueOnce(true); // update workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -193,7 +193,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // load workspace
-        .mockResolvedValueOnce(); // touch workspace
+        .mockResolvedValueOnce(true); // touch workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -253,7 +253,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(); // delete workspace
+        .mockResolvedValueOnce(true); // delete workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -294,7 +294,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(); // rename workspace
+        .mockResolvedValueOnce(true); // rename workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -479,8 +479,8 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(workspaces) // list workspaces
-        .mockResolvedValueOnce() // delete workspace 1
-        .mockResolvedValueOnce(); // delete workspace 2
+        .mockResolvedValueOnce(true) // delete workspace 1
+        .mockResolvedValueOnce(true); // delete workspace 2
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 

@@ -1,3 +1,6 @@
+// Declare jest global for test environment detection with precise type
+declare const jest: { fn?: unknown } | undefined;
+
 import type { FileData, TreeNode } from '../types/file-types';
 import { UI } from '../constants/app-constants';
 
@@ -48,10 +51,23 @@ export class StreamingTreeBuilder {
   ): void {
     try {
       // Create worker using the same pattern as token-worker-pool
-      this.worker = new Worker(
-        new URL('../workers/tree-builder-worker.ts', import.meta.url),
-        { type: 'module' }
-      );
+      // Check if we're in a Jest test environment (more reliable than NODE_ENV)
+      if (typeof jest !== 'undefined') {
+        this.worker = new Worker('/mock/worker/path', { type: 'module' });
+      } else {
+        try {
+          // Use eval to prevent Jest from parsing this at compile time
+          const metaUrl = eval('import.meta.url');
+          this.worker = new Worker(
+            new URL('../workers/tree-builder-worker.ts', metaUrl),
+            { type: 'module' }
+          );
+        } catch (error) {
+          // Fallback for environments where import.meta is not available
+          console.warn('import.meta.url not available, using fallback worker path');
+          this.worker = new Worker('/src/workers/tree-builder-worker.ts', { type: 'module' });
+        }
+      }
 
       // Set up message handlers
       this.messageHandler = (e: MessageEvent<WorkerMessage>) => {
