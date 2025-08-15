@@ -408,7 +408,23 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", async () => {
+app.on("before-quit", async (event) => {
+  // Prevent default quit to ensure saves complete
+  event.preventDefault();
+  
+  // Send signal to renderer to perform final save
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      // Send synchronous message to renderer to save immediately
+      mainWindow.webContents.send('app-will-quit');
+      
+      // Wait a brief moment for save to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error('Error during shutdown save:', error);
+    }
+  }
+  
   // Clean up database connection
   if (database && database.initialized) {
     try {
@@ -418,6 +434,9 @@ app.on("before-quit", async () => {
       console.error('Error closing database:', error);
     }
   }
+  
+  // Now actually quit
+  app.exit(0);
 });
 
 

@@ -268,17 +268,35 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally once
 
-  // Add beforeunload handler to save before app closes
+  // Add handlers for app close and visibility changes
   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Only save if we have changes and auto-save is enabled
+    // Handle Electron's app-will-quit event for reliable shutdown saves
+    const handleAppWillQuit = () => {
+      // Synchronously check if we need to save
       if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
-        // Try to save synchronously (this may not always work in all browsers/Electron)
-        // The save is async but we trigger it anyway
-        void performAutoSave();
+        // Mark that we're saving to prevent duplicate saves
+        saveInProgressRef.current = true;
         
-        // In Electron, we might need to prevent default and handle it differently
-        // but for now we'll just trigger the save
+        // Perform save and update refs immediately
+        // Note: This is still async but Electron will wait briefly
+        onAutoSave().then(() => {
+          lastSignatureRef.current = currentSignature;
+        }).catch(error => {
+          console.error('[AutoSave] Emergency save failed:', error);
+        });
+      }
+    };
+
+    // Listen for Electron IPC message
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.on('app-will-quit', handleAppWillQuit);
+    }
+    
+    // Fallback: browser beforeunload event
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
+        // Attempt to save (may not complete in all cases)
+        void performAutoSave();
       }
     };
 
@@ -296,10 +314,13 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.removeListener('app-will-quit', handleAppWillQuit);
+      }
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [canAutoSave, currentSignature, performAutoSave]);
+  }, [canAutoSave, currentSignature, performAutoSave, onAutoSave]);
   
   // Trigger auto-save on signature changes
   useEffect(() => {

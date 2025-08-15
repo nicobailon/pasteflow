@@ -1005,15 +1005,41 @@ export class TokenWorkerPool {
       return;
     }
     
+    // Store reference to old worker for guaranteed cleanup
+    const oldWorker = this.workers[workerId];
+    let oldWorkerTerminated = false;
     
     // Clean up old worker listeners before termination
     this.cleanupWorkerListeners(workerId);
     
-    // Terminate the crashed worker
-    try {
-      this.workers[workerId].terminate();
-    } catch (error) {
-      console.error('Failed to terminate crashed worker:', error);
+    // Terminate the crashed worker with retry logic
+    if (oldWorker) {
+      try {
+        oldWorker.terminate();
+        oldWorkerTerminated = true;
+      } catch (error) {
+        console.error('Failed to terminate crashed worker:', error);
+        // Schedule forced cleanup after a delay
+        setTimeout(() => {
+          try {
+            if (!oldWorkerTerminated && oldWorker) {
+              oldWorker.terminate();
+            }
+          } catch (retryError) {
+            console.error('Retry termination also failed:', retryError);
+            // At this point, mark the worker slot as permanently failed
+            // to prevent further recovery attempts
+            this.markWorkerAsFailed(workerId);
+            return;
+          }
+        }, 1000);
+      }
+    }
+    
+    // Only create a new worker if the old one was successfully handled
+    if (this.workerPermanentlyFailed.has(workerId)) {
+      console.warn(`Worker ${workerId} is permanently failed, skipping recovery`);
+      return;
     }
     
     // Create a new worker
@@ -1308,12 +1334,24 @@ export class TokenWorkerPool {
     // Clean up all worker listeners before termination
     for (const [index, worker] of this.workers.entries()) {
       this.cleanupWorkerListeners(index);
-      worker.terminate();
+      
+      // Attempt to terminate with error handling
+      try {
+        worker.terminate();
+      } catch (error) {
+        console.error(`Failed to terminate worker ${index} during shutdown:`, error);
+        // Continue with cleanup even if termination fails
+      }
     }
     
+    // Clear all references to prevent memory leaks
     this.workers = [];
     this.queue = [];
     this.activeJobs.clear();
     this.workerListeners.clear();
+    this.workerRecoveryLocks.clear();
+    this.workerRecoveryQueue.clear();
+    this.workerFailureTimes.clear();
+    this.workerPermanentlyFailed.clear();
   }
 }
