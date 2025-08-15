@@ -2,6 +2,7 @@
   --background-primary: #e6e6e6;
   --background-secondary: #dedede;
   --background-selected: rgba(0,0,0,0.08);
+  --background-elevated: #f8f8f8;
   --accent-blue: #0E639C;
   --border-color: #c0c0c0;
   --hover-color: #d3d3d3;
@@ -94,6 +95,7 @@
   --background-primary: #1E1E1E;
   --background-secondary: #252526;
   --background-selected: #2A2D2E;
+  --background-elevated: #2D2D30;
   --accent-blue: #0E639C;
   --border-color: #3E3E42;
   --hover-color: #333333;
