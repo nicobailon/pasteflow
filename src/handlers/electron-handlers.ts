@@ -174,8 +174,7 @@ interface HandlerParams {
 const createFolderSelectedHandler = (
   params: HandlerParams,
   accumulatedFiles: FileData[],
-  _handlerId: string,
-  currentRequestId: { value: string | null }
+  _handlerId: string
 ) => {
   let folderSelectionTimeout: NodeJS.Timeout | null = null;
 
@@ -291,7 +290,7 @@ export const setupElectronHandlers = (
     set value(id: string | null) { setGlobalRequestId(id); }
   };
   
-  const handleFolderSelected = createFolderSelectedHandler(params, accumulatedFiles, handlerId, currentRequestId);
+  const handleFolderSelected = createFolderSelectedHandler(params, accumulatedFiles, handlerId);
   
   // Helper function to process file data based on format
   const processFileData = (

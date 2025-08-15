@@ -19,8 +19,8 @@ export interface MemoryStats {
 
 export class MemoryMonitor {
   private caches: Map<string, { getSize: () => number; estimateMemory: () => number }> = new Map();
-  private warningThresholdMB = MEMORY.WARNING_THRESHOLD_MB;
-  private criticalThresholdMB = MEMORY.CRITICAL_THRESHOLD_MB;
+  private warningThresholdMB: number = MEMORY.WARNING_THRESHOLD_MB;
+  private criticalThresholdMB: number = MEMORY.CRITICAL_THRESHOLD_MB;
   
   /**
    * Register a cache for monitoring
@@ -118,7 +118,7 @@ export class MemoryMonitor {
   /**
    * Start periodic monitoring
    */
-  startPeriodicMonitoring(intervalMs = MEMORY.MONITOR_INTERVAL_MS): () => void {
+  startPeriodicMonitoring(intervalMs: number = MEMORY.MONITOR_INTERVAL_MS): () => void {
     const intervalId = setInterval(() => {
       this.checkMemoryUsage();
     }, intervalMs);

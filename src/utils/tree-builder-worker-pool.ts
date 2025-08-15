@@ -374,15 +374,16 @@ export class TreeBuilderWorkerPool {
         }
         this.initializationPromise = null;
       }
-      
-      if (this.state !== 'ready') {
-        // Failed to initialize, notify all queued requests
-        while (this.queue.length > 0) {
-          const item = this.queue.shift()!;
-          item.callbacks.onError(new Error('Worker pool initialization failed'));
-        }
-        return;
+    }
+    
+    // Re-check state after potential initialization
+    if (this.state !== 'ready') {
+      // Failed to initialize, notify all queued requests
+      while (this.queue.length > 0) {
+        const item = this.queue.shift()!;
+        item.callbacks.onError(new Error('Worker pool initialization failed'));
       }
+      return;
     }
     
     if (!this.worker) {

@@ -1,5 +1,6 @@
 import { createDirectorySelectionCache, updateSelectionCacheForFolder } from '../selection-cache';
-import type { FileData, SelectedFileReference } from '../../types/file-types';
+import type { SelectionState } from '../selection-cache';
+import type { FileData, SelectedFileReference, LineRange } from '../../types/file-types';
 
 describe('selection-cache', () => {
   const createMockFile = (path: string, options: Partial<FileData> = {}): FileData => ({
@@ -14,9 +15,9 @@ describe('selection-cache', () => {
     ...options,
   });
 
-  const createSelectedRef = (path: string): SelectedFileReference => ({
+  const createSelectedRef = (path: string, lines?: LineRange[]): SelectedFileReference => ({
     path,
-    isFullFile: true,
+    lines,
   });
 
   describe('createDirectorySelectionCache', () => {
@@ -186,7 +187,7 @@ describe('selection-cache', () => {
     it('should handle bulk updates', () => {
       const cache = createDirectorySelectionCache([], []);
 
-      const updates = new Map([
+      const updates = new Map<string, SelectionState>([
         ['/src', 'full'],
         ['/test', 'partial'],
         ['/docs', 'none'],

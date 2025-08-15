@@ -116,7 +116,7 @@ const AppHeader = ({
             {headerSaveState === 'success' && <Check size={18} className="button-icon success-check" />}
           </button>
         )}
-        {currentWorkspace && (
+        {currentWorkspace && isAutoSaveEnabled !== undefined && setAutoSaveEnabled && (
           <AutoSaveToggle 
             isEnabled={isAutoSaveEnabled} 
             onChange={setAutoSaveEnabled} 

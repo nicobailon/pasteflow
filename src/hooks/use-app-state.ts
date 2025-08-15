@@ -1328,11 +1328,11 @@ const useAppState = () => {
   }, [applyWorkspaceData]);
 
   useEffect(() => {
-    window.addEventListener('workspaceLoaded', handleWorkspaceLoadedEvent as EventListener);
-    window.addEventListener('directFolderOpened', handleDirectFolderOpenedEvent as EventListener);
+    window.addEventListener('workspaceLoaded', handleWorkspaceLoadedEvent as unknown as EventListener);
+    window.addEventListener('directFolderOpened', handleDirectFolderOpenedEvent as unknown as EventListener);
     return () => {
-      window.removeEventListener('workspaceLoaded', handleWorkspaceLoadedEvent as EventListener);
-      window.removeEventListener('directFolderOpened', handleDirectFolderOpenedEvent as EventListener);
+      window.removeEventListener('workspaceLoaded', handleWorkspaceLoadedEvent as unknown as EventListener);
+      window.removeEventListener('directFolderOpened', handleDirectFolderOpenedEvent as unknown as EventListener);
     };
   }, [handleWorkspaceLoadedEvent, handleDirectFolderOpenedEvent]);
 

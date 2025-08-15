@@ -1,4 +1,5 @@
-import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { ipcMain } from 'electron';
+import type Electron from 'electron';
 import { z, ZodSchema } from 'zod';
 import { RateLimiter } from 'limiter';
 import { RATE_LIMITS } from '../../constants/app-constants';
@@ -8,7 +9,7 @@ interface IpcChannelConfig<TInput, TOutput> {
   input: ZodSchema<TInput>;
   output: ZodSchema<TOutput>;
   rateLimit: number;
-  handler?: (input: TInput, event: IpcMainInvokeEvent) => Promise<TOutput>;
+  handler?: (input: TInput, event: Electron.IpcMainInvokeEvent) => Promise<TOutput>;
 }
 
 // Channel category mapping for dynamic rate limiting
@@ -336,7 +337,7 @@ export class SecureIpcLayer {
     }));
 
     // Register IPC handler
-    ipcMain.handle(channel, async (event, rawInput) => {
+    ipcMain.handle(channel, async (event: Electron.IpcMainInvokeEvent, rawInput: unknown) => {
       try {
         // Security checks
         await this.performSecurityChecks(channel, event);
@@ -372,10 +373,13 @@ export class SecureIpcLayer {
   }
 
   private async performSecurityChecks(
-    channel: string,
-    event: IpcMainInvokeEvent
+    _channel: string,
+    event: Electron.IpcMainInvokeEvent
   ) {
     // Verify origin: allow file:// always; in dev allow localhost dev server
+    if (!event.senderFrame) {
+      throw new Error('Security check failed: No sender frame');
+    }
     const url = event.senderFrame.url;
 
     // Production/package: only allow file:// pages
@@ -438,14 +442,14 @@ export class SecureIpcLayer {
   // Set handler for a channel
   setHandler<TInput, TOutput>(
     channel: string,
-    handler: (input: TInput, event: IpcMainInvokeEvent) => Promise<TOutput>
+    handler: (input: TInput, event: Electron.IpcMainInvokeEvent) => Promise<TOutput>
   ) {
     const config = this.channels.get(channel);
     if (!config) {
       throw new Error(`Unknown channel: ${channel}`);
     }
     
-    config.handler = handler as (input: unknown, event: IpcMainInvokeEvent) => Promise<unknown>;
+    config.handler = handler as (input: unknown, event: Electron.IpcMainInvokeEvent) => Promise<unknown>;
   }
 
   // Get registered channels (for testing/documentation)

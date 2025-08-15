@@ -1,7 +1,8 @@
-import { renderHook, act } from '@testing-library/react-hooks';
+import { renderHook, act } from '@testing-library/react';
 
 import { useDatabaseState } from '../use-database-state';
-import { useFileSelectionState } from '../use-file-selection-state';
+import useFileSelectionState from '../use-file-selection-state';
+import type { SelectedFileReference } from '../../types/file-types';
 
 // Define types for performance metrics
 interface PerformanceMetrics {
@@ -94,7 +95,7 @@ describe('State Management Performance Tests', () => {
     it('should handle rapid state updates without performance degradation', async () => {
       const updateCount = 1000;
       const { result } = renderHook(() => 
-        useDatabaseState<{ counter: number }>('/test/counter', { counter: 0 }, {
+        useDatabaseState<{ counter: number }, unknown, { increment: number }, boolean>('/test/counter', { counter: 0 }, {
           optimisticUpdate: true
         })
       );
@@ -138,7 +139,7 @@ describe('State Management Performance Tests', () => {
       );
 
       // Mock different responses for different params
-      mockInvoke.mockImplementation((channel, params) => {
+      mockInvoke.mockImplementation((_channel, params) => {
         return Promise.resolve({ 
           id: params?.id || 'default',
           data: `Response for ${params?.id || 'default'}`
@@ -176,27 +177,20 @@ describe('State Management Performance Tests', () => {
   describe('Batch Operations Performance', () => {
     it('should handle batch file selections efficiently', async () => {
       const batchSize = 1000;
-      const operations = Array.from({ length: batchSize }, (_, i) => ({
-        type: 'add' as const,
-        file: {
-          path: `/file${i}.ts`,
-          content: `// File ${i} content`,
-          tokenCount: 100,
-          lines: undefined,
-          isFullFile: true,
-          isContentLoaded: true
-        }
+      const operations: SelectedFileReference[] = Array.from({ length: batchSize }, (_, i) => ({
+        path: `/file${i}.ts`,
+        lines: undefined
       }));
 
       // Mock successful batch update
       mockInvoke.mockResolvedValue(true);
 
-      const { result } = renderHook(() => useFileSelectionState());
+      const { result } = renderHook(() => useFileSelectionState([]));
 
       const startTime = performance.now();
 
       await act(async () => {
-        await result.current.batchUpdate(operations);
+        result.current.setSelectedFiles(operations);
       });
 
       const metrics = measurePerformance(batchSize, startTime);

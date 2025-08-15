@@ -2,8 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { STORAGE_KEYS } from '../constants';
 import useAppState from '../hooks/use-app-state';
 import { setupMockLocalStorage, mockDateNow } from './test-helpers';
-import { WorkspaceState } from '../types/file-types';
-import { MockAppState, mockUseAppState, setupWorkspaceTestEnv } from './test-helpers/workspace-mocks';
+import { MockAppState, setupWorkspaceTestEnv } from './test-helpers/workspace-mocks';
 
 describe('Workspace End-to-End Tests', () => {
   const originalDispatchEvent = window.dispatchEvent;

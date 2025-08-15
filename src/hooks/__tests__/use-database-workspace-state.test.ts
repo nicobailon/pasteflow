@@ -148,7 +148,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(); // update workspace
+        .mockResolvedValueOnce(undefined); // update workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -189,7 +189,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // load workspace
-        .mockResolvedValueOnce(); // touch workspace
+        .mockResolvedValueOnce(undefined); // touch workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -249,7 +249,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(); // delete workspace
+        .mockResolvedValueOnce(undefined); // delete workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -290,7 +290,7 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(mockDatabaseWorkspace) // findWorkspaceByName
-        .mockResolvedValueOnce(); // rename workspace
+        .mockResolvedValueOnce(undefined); // rename workspace
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
@@ -475,8 +475,8 @@ describe('useDatabaseWorkspaceState', () => {
       mockInvoke
         .mockResolvedValueOnce([]) // refreshWorkspacesList
         .mockResolvedValueOnce(workspaces) // list workspaces
-        .mockResolvedValueOnce() // delete workspace 1
-        .mockResolvedValueOnce(); // delete workspace 2
+        .mockResolvedValueOnce(undefined) // delete workspace 1
+        .mockResolvedValueOnce(undefined); // delete workspace 2
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 

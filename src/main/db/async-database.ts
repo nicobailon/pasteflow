@@ -4,8 +4,7 @@ import * as path from 'node:path';
 
 import { v4 as uuidv4 } from 'uuid';
 
-import { retryWorkerOperation, executeWithRetry, retryUtility, DatabaseErrorType } from './retry-utils.js';
-import { sharedBufferManager } from './shared-buffer-utils.js';
+import { retryWorkerOperation, retryUtility, DatabaseErrorType, executeWithRetry } from './retry-utils.js';
 
 interface WorkerRequest {
   id: string;
@@ -45,13 +44,13 @@ interface StmtFinalizeParams {
 type WorkerParams = SqlParams | StmtParams | PrepareParams | StmtFinalizeParams | { sql: string };
 
 // Database result types
-interface RunResult {
+export interface RunResult {
   changes: number;
   lastInsertRowid: number | bigint;
 }
 
 export class AsyncDatabase extends EventEmitter {
-  private worker: Worker;
+  private worker!: Worker;
   private pendingRequests = new Map<string, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
@@ -183,7 +182,7 @@ export class AsyncDatabase extends EventEmitter {
 
   // Enhanced transaction support with retry
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return await executeWithRetry(async () => {
+    const retryResult = await executeWithRetry(async () => {
       await this.exec('BEGIN IMMEDIATE');
       try {
         const result = await fn();
@@ -198,7 +197,6 @@ export class AsyncDatabase extends EventEmitter {
         throw error;
       }
     }, {
-      operation: 'database_transaction',
       maxRetries: 3,
       retryableErrors: [
         'SQLITE_BUSY',
@@ -207,6 +205,11 @@ export class AsyncDatabase extends EventEmitter {
         'deadlock'
       ]
     });
+    
+    if (!retryResult.success || !retryResult.result) {
+      throw retryResult.error || new Error('Transaction failed');
+    }
+    return retryResult.result;
   }
 
   // Prepared statements
@@ -273,7 +276,7 @@ export class AsyncDatabase extends EventEmitter {
     retryUtility.emit('worker:error', { error, errorType });
     
     // Reject all pending requests with enhanced error information
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
       const enhancedError = new Error(
         `Worker failed (${errorType}): ${error.message}. Operation: ${pending.operation}, Retries: ${pending.retryCount}`
@@ -430,7 +433,7 @@ export class AsyncDatabase extends EventEmitter {
     }
     
     // Reject all pending requests
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
       pending.reject(new Error('Database worker is closing'));
     }
@@ -472,7 +475,12 @@ export class AsyncDatabase extends EventEmitter {
 
   async getStatus(): Promise<{
     healthy: boolean;
-    workerStats: ReturnType<typeof this.getWorkerStats>;
+    workerStats: {
+      pendingRequests: number;
+      restartCount: number;
+      isRestarting: boolean;
+      maxRestarts: number;
+    };
     lastHealthCheck?: Date;
   }> {
     let healthy = false;

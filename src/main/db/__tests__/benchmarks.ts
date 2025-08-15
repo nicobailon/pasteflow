@@ -482,7 +482,7 @@ export class DatabaseBenchmarks {
 if (require.main === module) {
   const benchmarks = new DatabaseBenchmarks();
   benchmarks.runAllBenchmarks()
-    .then(report => {
+    .then(() => {
       console.log('\nBenchmark complete!');
       process.exit(0);
     })

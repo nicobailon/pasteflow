@@ -1,9 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { ThemeProvider } from '../context/theme-context';
 import WorkspaceModal from '../components/workspace-modal';
 import { STORAGE_KEYS } from '../constants';
-import { setupMockLocalStorage, mockDateNow } from './test-helpers';
+import { setupMockLocalStorage } from './test-helpers';
 import type { AppState } from '../hooks/use-app-state';
 
 // Mock useWorkspaceState
@@ -45,9 +44,7 @@ jest.mock('../hooks/use-workspace-state', () => ({
 // Create a minimal mock that satisfies the AppState type requirements
 const createMockAppState = (): Partial<AppState> => ({
   selectedFolder: '/test/folder',
-  fileSelection: {
-    selectedFiles: [{ path: 'test.ts', content: 'test content' }]
-  } as AppState['fileSelection'],
+  selectedFiles: [{ path: 'test.ts' }],
   expandedNodes: { 'src': true },
   userInstructions: 'test instructions',
   currentWorkspace: localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE),

@@ -19,8 +19,7 @@ const FileCard = ({
   file,
   selectedFile,
   toggleSelection,
-  onViewFile,
-  loadFileContent
+  onViewFile
 }: FileCardProps) => {
   const { name, path: filePath } = file;
   const { lines, content: selectedContent } = selectedFile || {};

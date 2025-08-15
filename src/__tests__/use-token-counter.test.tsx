@@ -399,9 +399,7 @@ describe('useTokenCounter Hook', () => {
       const { result, unmount } = renderHook(() => useTokenCounter());
       
       // Create a promise that won't resolve immediately
-      let capturedSignal: AbortSignal | undefined;
       mockPool.countTokens.mockImplementation((_text, options) => {
-        capturedSignal = options?.signal;
         return new Promise<number>((_resolve, reject) => {
           // Listen for abort
           if (options?.signal) {

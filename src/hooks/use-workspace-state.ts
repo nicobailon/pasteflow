@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { STORAGE_KEYS } from '../constants';
 import { WorkspaceState } from '../types/file-types';
@@ -15,13 +15,7 @@ export const useWorkspaceState = () => {
     STORAGE_KEYS.CURRENT_WORKSPACE,
     null
   );
-  const [isInitialized, setIsInitialized] = useState(false);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
-
-  // Mark as initialized on mount
-  useEffect(() => {
-    setIsInitialized(true);
-  }, []);
 
   const saveWorkspace = useCallback(async (name: string, workspace: WorkspaceState) => {
     try {
@@ -45,8 +39,8 @@ export const useWorkspaceState = () => {
       await db.saveWorkspace(name, workspace);
       // Don't set current workspace here - let the caller handle it
     } catch (error) {
-      console.error(`Failed to save workspace '${name}': ${error.message}`);
-      throw new Error(`Failed to save workspace '${name}': ${error.message}. Check workspace data and database permissions.`);
+      console.error(`Failed to save workspace '${name}': ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to save workspace '${name}': ${error instanceof Error ? error.message : String(error)}. Check workspace data and database permissions.`);
     }
   }, [db]);
 
@@ -74,7 +68,7 @@ export const useWorkspaceState = () => {
         }
         return null;
       } catch (error) {
-        console.error(`Failed to load workspace '${name}': ${error.message}`);
+        console.error(`Failed to load workspace '${name}': ${error instanceof Error ? error.message : String(error)}`);
         return null;
       }
     });
@@ -92,8 +86,8 @@ export const useWorkspaceState = () => {
         setCurrentWorkspace(null);
       }
     } catch (error) {
-      console.error(`Failed to delete workspace '${name}': ${error.message}`);
-      throw new Error(`Failed to delete workspace '${name}': ${error.message}. Check database permissions and workspace references.`);
+      console.error(`Failed to delete workspace '${name}': ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to delete workspace '${name}': ${error instanceof Error ? error.message : String(error)}. Check database permissions and workspace references.`);
     }
   }, [db, currentWorkspace, setCurrentWorkspace]);
 
@@ -118,7 +112,7 @@ export const useWorkspaceState = () => {
       
       return true;
     } catch (error) {
-      console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${error.message}`);
+      console.error(`Failed to rename workspace '${oldName}' to '${newName}': ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }, [db, currentWorkspace, setCurrentWorkspace]);
@@ -128,7 +122,7 @@ export const useWorkspaceState = () => {
       // Sort by last accessed time (database already returns them sorted)
       return await db.getWorkspaceNames();
     } catch (error) {
-      console.error(`Failed to get workspace names: ${error.message}`);
+      console.error(`Failed to get workspace names: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
   }, [db]);
@@ -138,8 +132,8 @@ export const useWorkspaceState = () => {
     try {
       return await db.exportWorkspace(name);
     } catch (error) {
-      console.error(`Failed to export workspace '${name}': ${error.message}`);
-      throw new Error(`Failed to export workspace '${name}': ${error.message}. Verify workspace exists and is accessible.`);
+      console.error(`Failed to export workspace '${name}': ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to export workspace '${name}': ${error instanceof Error ? error.message : String(error)}. Verify workspace exists and is accessible.`);
     }
   }, [db]);
 
@@ -147,8 +141,8 @@ export const useWorkspaceState = () => {
     try {
       return await db.importWorkspace(name, workspaceData);
     } catch (error) {
-      console.error(`Failed to import workspace '${name}': ${error.message}`);
-      throw new Error(`Failed to import workspace '${name}': ${error.message}. Check workspace data format and database permissions.`);
+      console.error(`Failed to import workspace '${name}': ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to import workspace '${name}': ${error instanceof Error ? error.message : String(error)}. Check workspace data format and database permissions.`);
     }
   }, [db]);
 
@@ -157,7 +151,7 @@ export const useWorkspaceState = () => {
     try {
       return await db.doesWorkspaceExist(name);
     } catch (error) {
-      console.error(`Failed to check if workspace '${name}' exists: ${error.message}`);
+      console.error(`Failed to check if workspace '${name}' exists: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }, [db]);
@@ -167,8 +161,8 @@ export const useWorkspaceState = () => {
       await db.clearAllWorkspaces();
       setCurrentWorkspace(null);
     } catch (error) {
-      console.error(`Failed to clear all workspaces: ${error.message}`);
-      throw new Error(`Failed to clear all workspaces: ${error.message}. Check database permissions and try again.`);
+      console.error(`Failed to clear all workspaces: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to clear all workspaces: ${error instanceof Error ? error.message : String(error)}. Check database permissions and try again.`);
     }
   }, [db, setCurrentWorkspace]);
 

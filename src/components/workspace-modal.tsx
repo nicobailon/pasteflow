@@ -267,7 +267,6 @@ const WorkspaceModal = ({
         systemPrompts: appState.selectedSystemPrompts,
         rolePrompts: appState.selectedRolePrompts
       },
-      instructions: appState.instructions,
       selectedInstructions: appState.selectedInstructions
     };
 

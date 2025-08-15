@@ -103,7 +103,7 @@ describe('Preference Update Broadcasting', () => {
     });
 
     it('should handle functional updates correctly', async () => {
-      mockInvoke.mockImplementation((channel, params) => {
+      mockInvoke.mockImplementation((channel) => {
         if (channel === '/prefs/get') {
           return Promise.resolve(5);
         }

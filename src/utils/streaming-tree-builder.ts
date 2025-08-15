@@ -34,7 +34,7 @@ export class StreamingTreeBuilder {
 
   constructor(
     private files: FileData[],
-    private chunkSize = UI.TREE.CHUNK_SIZE,
+    private chunkSize: number = UI.TREE.CHUNK_SIZE,
     private selectedFolder?: string | null,
     private expandedNodes?: Record<string, boolean>
   ) {

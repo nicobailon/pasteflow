@@ -260,6 +260,7 @@ export interface Instruction {
   id: string;
   name: string;
   content: string;
+  tokenCount?: number;
 }
 
 export interface InstructionsModalProps {

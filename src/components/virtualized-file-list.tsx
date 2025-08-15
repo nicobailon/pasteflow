@@ -31,15 +31,12 @@ interface RowData {
 }
 
 const ITEM_HEIGHT = 120; // Base height for file cards
-const _PROMPT_HEIGHT = 80; // Height for prompt cards
 
 const Row = memo(({ index, style, data }: { index: number; style: React.CSSProperties; data: RowData }) => {
-  const { expandedCards, selectedFiles, toggleSelection, onViewFile, loadFileContent } = data;
+  const { expandedCards, toggleSelection, onViewFile, loadFileContent } = data;
   const expandedCard = expandedCards[index];
   
   if (!expandedCard) return null;
-  
-  const _selectedFile = selectedFiles.find(f => f.path === expandedCard.selectedFilePath);
   
   return (
     <div style={style}>
@@ -189,7 +186,7 @@ const VirtualizedFileList = forwardRef<VirtualizedFileListHandle, FileListProps>
   const itemData: RowData = useMemo(() => ({
     expandedCards,
     selectedFiles,
-    toggleSelection,
+    toggleSelection: toggleSelection || (() => {}),
     onViewFile,
     loadFileContent,
     allFilesMap
@@ -219,39 +216,36 @@ const VirtualizedFileList = forwardRef<VirtualizedFileListHandle, FileListProps>
   return (
     <div className="file-list-container">
       {/* Prompt cards - not virtualized as there are usually few of them */}
-      {selectedSystemPrompts.length > 0 && (
+      {selectedSystemPrompts.length > 0 && toggleSystemPromptSelection && (
         <div className="prompts-section">
           {selectedSystemPrompts.map(prompt => (
             <SystemPromptCard
               key={prompt.id}
               prompt={prompt}
-              isSelected={true}
               toggleSelection={toggleSystemPromptSelection}
             />
           ))}
         </div>
       )}
       
-      {selectedRolePrompts.length > 0 && (
+      {selectedRolePrompts.length > 0 && toggleRolePromptSelection && (
         <div className="prompts-section">
           {selectedRolePrompts.map(prompt => (
             <RolePromptCard
               key={prompt.id}
               prompt={prompt}
-              isSelected={true}
               toggleSelection={toggleRolePromptSelection}
             />
           ))}
         </div>
       )}
       
-      {selectedInstructions.length > 0 && (
+      {selectedInstructions.length > 0 && toggleInstructionSelection && (
         <div className="instructions-section">
           {selectedInstructions.map(instruction => (
             <InstructionCard
               key={instruction.id}
               instruction={instruction}
-              isSelected={true}
               toggleSelection={toggleInstructionSelection}
             />
           ))}

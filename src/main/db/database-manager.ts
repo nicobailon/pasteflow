@@ -8,47 +8,11 @@ import { StateHandlers } from '../handlers/state-handlers';
 import { SecureDatabase } from './secure-database';
 import { countTokens } from '../utils/token-utils';
 
-// Type definitions for IPC handler inputs
-interface WorkspaceCreateInput {
-  name: string;
-  folderPath: string;
-  state?: Record<string, unknown>;
-}
-
-interface WorkspaceLoadInput {
-  id: string;
-}
-
-interface WorkspaceUpdateInput {
-  id: string;
-  state: Record<string, unknown>;
-}
-
-interface WorkspaceDeleteInput {
-  id: string;
-}
-
-interface FileContentInput {
-  workspaceId: string;
-  filePath: string;
-  lineRanges?: { start: number; end: number }[];
-}
-
 interface FileSaveInput {
   workspaceId: string;
   filePath: string;
   content: string;
   tokenCount: number;
-}
-
-interface PreferenceGetInput {
-  key: string;
-}
-
-interface PreferenceSetInput {
-  key: string;
-  value: unknown;
-  encrypted?: boolean;
 }
 
 interface PromptListInput {
@@ -250,32 +214,6 @@ export class DatabaseManager {
 
     // Migration handlers (currently disabled - migration modules not present)
     // These handlers are kept for future implementation when migration is needed
-  }
-
-  // Helper methods
-  private calculateHash(content: string): string {
-    return require('node:crypto').createHash('sha256').update(content).digest('hex');
-  }
-
-  private estimateTokenCount(text: string): number {
-    // Use the proper token counting from tiktoken
-    return countTokens(text);
-  }
-
-  private calculateTokensForLineRanges(
-    content: string,
-    lineRanges: { start: number; end: number }[]
-  ): number {
-    const lines = content.split('\n');
-    let selectedContent = '';
-    
-    for (const range of lineRanges) {
-      const start = Math.max(0, range.start - 1); // Convert to 0-based
-      const end = Math.min(lines.length, range.end);
-      selectedContent += lines.slice(start, end).join('\n') + '\n';
-    }
-    
-    return this.estimateTokenCount(selectedContent);
   }
 
   async close() {
