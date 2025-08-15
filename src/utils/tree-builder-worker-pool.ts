@@ -77,6 +77,7 @@ export class TreeBuilderWorkerPool {
   private initializationAttempts = 0;
   private readonly maxInitializationAttempts = 3;
   private readonly retryDelay = 1000;
+  private initializationError: Error | null = null;
 
   constructor() {
     // Store the initialization promise so we can await it later
@@ -84,8 +85,9 @@ export class TreeBuilderWorkerPool {
     this.initializationPromise = this.initializeWithRetry().catch(error => {
       console.error('Worker pool initialization failed after all retries:', error);
       this.state = 'error';
-      // Store error for potential future retry attempts
-      throw error;
+      // Store error for consumer access
+      this.initializationError = error instanceof Error ? error : new Error(String(error));
+      // Don't re-throw - let consumers check via isReady() and getInitializationError()
     });
   }
 
@@ -337,6 +339,24 @@ export class TreeBuilderWorkerPool {
       id,
       chunkSize: request.chunkSize ?? UI.TREE.CHUNK_SIZE
     };
+    
+    // Check if initialization has failed and report immediately
+    if (this.state === 'error' && this.initializationError) {
+      // Report error immediately rather than queuing
+      const errorMessage = this.initializationError.message;
+      setTimeout(() => {
+        callbacks.onError(new Error(
+          `Worker pool initialization failed: ${errorMessage}`
+        ));
+      }, 0);
+      
+      // Return a no-op handle since the request won't be processed
+      return {
+        cancel: async () => {
+          // No-op - request was never queued
+        }
+      };
+    }
     
     // Calculate hash for deduplication
     const hash = this.calculateRequestHash(fullRequest);
@@ -688,17 +708,42 @@ export class TreeBuilderWorkerPool {
   }
 
   /**
+   * Check if the worker pool is ready for use
+   */
+  isReady(): boolean {
+    return this.state === 'ready';
+  }
+
+  /**
+   * Get the initialization error if one occurred
+   */
+  getInitializationError(): Error | null {
+    return this.initializationError;
+  }
+
+  /**
+   * Wait for initialization to complete (success or failure)
+   */
+  async waitForInitialization(): Promise<void> {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
+  }
+
+  /**
    * Get the current status of the pool
    */
   getStatus(): {
     state: PoolState;
     queueLength: number;
     hasActiveBuild: boolean;
+    initializationError: Error | null;
   } {
     return {
       state: this.state,
       queueLength: this.queue.length,
-      hasActiveBuild: this.activeBuild !== null
+      hasActiveBuild: this.activeBuild !== null,
+      initializationError: this.initializationError
     };
   }
 
@@ -731,14 +776,17 @@ export class TreeBuilderWorkerPool {
       return;
     }
     
-    // Reset attempts counter for manual retry
+    // Reset attempts counter and error state for manual retry
     this.initializationAttempts = 0;
     this.state = 'uninitialized';
+    this.initializationError = null;
     
     try {
       await this.initializeWithRetry();
     } catch (error) {
       console.error('Manual retry of worker pool initialization failed:', error);
+      // Store the error for consumer access
+      this.initializationError = error instanceof Error ? error : new Error(String(error));
       throw error;
     }
   }
