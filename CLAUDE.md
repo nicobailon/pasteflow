@@ -89,6 +89,10 @@ npm run lint:strict    # ESLint with zero warnings tolerance
 npm run lint:filenames # Enforce kebab-case file naming
 npm run rename:check   # Check files that need kebab-case renaming
 npm run rename:files   # Automatically rename files to kebab-case
+
+# TypeScript Type Checking
+npx tsc --noEmit       # Run TypeScript compiler to check for type errors
+                       # Note: No npm script for this, use npx directly
 ```
 
 ### Build Process

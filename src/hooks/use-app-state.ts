@@ -25,6 +25,7 @@ import { useWorkspaceState } from './use-workspace-state';
 import { useTokenCounter } from './use-token-counter';
 import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
+import { useWorkspaceAutoSave } from './use-workspace-autosave';
 
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
@@ -769,7 +770,7 @@ const useAppState = () => {
   // If this event handling is needed in the future, re-add with proper logic
 
   // Wrap saveWorkspace in useCallback to avoid recreating it on every render
-  const saveWorkspace = useCallback((name: string) => {
+  const saveWorkspace = useCallback(async (name: string) => {
     // Deduplicate selected files before saving
     const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
 
@@ -796,11 +797,11 @@ const useAppState = () => {
         systemPrompts: promptState.selectedSystemPrompts,
         rolePrompts: promptState.selectedRolePrompts
       },
-      // Don't save instructions - they're now in database
+      // Save which instructions are selected (the instructions themselves are in database)
       selectedInstructions: selectedInstructions
     };
 
-    persistWorkspace(name, workspace);
+    await persistWorkspace(name, workspace);
 
   }, [
     selectedFolder,
@@ -982,8 +983,25 @@ const useAppState = () => {
     setUserInstructions(workspaceData.userInstructions || '');
     applyPrompts(workspaceData.customPrompts);
 
-    // Only restore selectedInstructions (instructions are now in database)
-    setSelectedInstructions(workspaceData.selectedInstructions || []);
+    // Reconcile selectedInstructions with current database state
+    // The workspace stores full instruction objects, but we need to match them
+    // with the current instructions from the database by ID
+    if (workspaceData.selectedInstructions && workspaceData.selectedInstructions.length > 0) {
+      const currentInstructions = instructionsState.instructions;
+      const reconciledInstructions = workspaceData.selectedInstructions
+        .map(savedInstruction => {
+          // Try to find the instruction in the current database by ID
+          const currentInstruction = currentInstructions.find(inst => inst.id === savedInstruction.id);
+          // Use the current version if found, otherwise use the saved version
+          // (in case the instruction was deleted from DB but still in workspace)
+          return currentInstruction || savedInstruction;
+        })
+        .filter(inst => inst !== null); // Remove any null entries
+      
+      setSelectedInstructions(reconciledInstructions);
+    } else {
+      setSelectedInstructions([]);
+    }
 
     // Reset the flag after applying
     isApplyingWorkspaceDataRef.current = false;
@@ -994,13 +1012,19 @@ const useAppState = () => {
     handleFolderChange,
     applyExpandedNodes,
     applySelectedFiles,
-    applyPrompts
+    applyPrompts,
+    instructionsState.instructions
   ]);
 
   // Store refs to get latest values in handlers
   const sortOrderRef = useRef(sortOrder);
   const searchTermRef = useRef(searchTerm);
   const currentWorkspaceRef = useRef(currentWorkspace);
+  const expandedNodesRef = useRef(expandedNodes);
+  const fileTreeModeRef = useRef(fileTreeMode);
+  const exclusionPatternsRef = useRef(exclusionPatterns);
+  const userInstructionsRef = useRef(userInstructions);
+  const selectedInstructionsRef = useRef(selectedInstructions);
   // selectedFolderRef already exists above
 
   // Update refs when values change
@@ -1015,6 +1039,26 @@ const useAppState = () => {
   useEffect(() => {
     currentWorkspaceRef.current = currentWorkspace;
   }, [currentWorkspace]);
+  
+  useEffect(() => {
+    expandedNodesRef.current = expandedNodes;
+  }, [expandedNodes]);
+  
+  useEffect(() => {
+    fileTreeModeRef.current = fileTreeMode;
+  }, [fileTreeMode]);
+  
+  useEffect(() => {
+    exclusionPatternsRef.current = exclusionPatterns;
+  }, [exclusionPatterns]);
+  
+  useEffect(() => {
+    userInstructionsRef.current = userInstructions;
+  }, [userInstructions]);
+  
+  useEffect(() => {
+    selectedInstructionsRef.current = selectedInstructions;
+  }, [selectedInstructions]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -1075,7 +1119,7 @@ const useAppState = () => {
       // Removed dependencies to ensure this only runs once
     ]);
 
-  const saveCurrentWorkspace = useCallback(() => {
+  const saveCurrentWorkspace = useCallback(async () => {
     if (!currentWorkspace) {
       console.warn("[useAppState.saveCurrentWorkspace] No current workspace selected, cannot save.");
       return;
@@ -1088,7 +1132,7 @@ const useAppState = () => {
     setHeaderSaveState('saving'); // Set state to saving
 
     try {
-      saveWorkspace(currentWorkspace);
+      await saveWorkspace(currentWorkspace);
       setHeaderSaveState('success');
 
       // Set timeout to revert state
@@ -1138,6 +1182,79 @@ const useAppState = () => {
     });
   }, [loadPersistedWorkspace, applyWorkspaceData, runCancellableOperation]);
 
+  // Auto-save callback that builds and saves the current workspace state
+  const performAutoSave = useCallback(async () => {
+    if (!currentWorkspace) return;
+    
+    // Build workspace state (same as saveWorkspace)
+    const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
+    
+    const workspace: WorkspaceState = {
+      selectedFolder: selectedFolder,
+      expandedNodes: expandedNodes,
+      selectedFiles: uniqueSelectedFiles,
+      allFiles: allFiles,
+      sortOrder: sortOrder,
+      searchTerm: searchTerm,
+      fileTreeMode: fileTreeMode,
+      exclusionPatterns: exclusionPatterns,
+      userInstructions: userInstructions,
+      tokenCounts: (() => {
+        const acc: { [filePath: string]: number } = {};
+        const allFilesMap = new Map(allFiles.map(f => [f.path, f]));
+        for (const selectedFile of fileSelection.selectedFiles) {
+          const fileData = allFilesMap.get(selectedFile.path);
+          acc[selectedFile.path] = fileData?.tokenCount || 0;
+        }
+        return acc;
+      })(),
+      customPrompts: {
+        systemPrompts: promptState.selectedSystemPrompts,
+        rolePrompts: promptState.selectedRolePrompts
+      },
+      selectedInstructions: selectedInstructions
+    };
+    
+    // Save without changing header state (silent save)
+    await persistWorkspace(currentWorkspace, workspace);
+  }, [
+    currentWorkspace,
+    selectedFolder,
+    expandedNodes,
+    fileSelection.selectedFiles,
+    allFiles,
+    sortOrder,
+    searchTerm,
+    fileTreeMode,
+    exclusionPatterns,
+    userInstructions,
+    promptState.selectedSystemPrompts,
+    promptState.selectedRolePrompts,
+    selectedInstructions,
+    persistWorkspace
+  ]);
+
+  // Initialize auto-save hook
+  const autoSave = useWorkspaceAutoSave({
+    currentWorkspace,
+    selectedFolder,
+    selectedFiles: fileSelection.selectedFiles,
+    expandedNodes,
+    sortOrder,
+    searchTerm,
+    fileTreeMode,
+    exclusionPatterns,
+    selectedInstructions: selectedInstructions.map(i => i.id),
+    customPrompts: {
+      systemPrompts: promptState.systemPrompts.map(p => ({ ...p, selected: promptState.selectedSystemPrompts.some(sp => sp.id === p.id) })),
+      rolePrompts: promptState.rolePrompts.map(p => ({ ...p, selected: promptState.selectedRolePrompts.some(rp => rp.id === p.id) }))
+    },
+    userInstructions,
+    isApplyingWorkspaceData: isApplyingWorkspaceDataRef.current,
+    isProcessing: processingStatus.status !== 'complete' && processingStatus.status !== 'idle',
+    onAutoSave: performAutoSave
+  });
+
   // Clean up selected files when workspace changes
   useEffect(() => {
     if (selectedFolder) {
@@ -1155,15 +1272,49 @@ const useAppState = () => {
   }, [appInitialized, allFiles]);
 
   // Define the event handler using useCallback outside the effect
-  const handleWorkspaceLoadedEvent = useCallback((event: CustomEvent) => {
+  const handleWorkspaceLoadedEvent = useCallback(async (event: CustomEvent) => {
     if (event.detail?.name && event.detail?.workspace) {
+      // Save current workspace before switching (if there is one)
+      if (currentWorkspaceRef.current && currentWorkspaceRef.current !== event.detail.name) {
+        // Build the current workspace state to save
+        const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
+        const workspace: WorkspaceState = {
+          selectedFolder: selectedFolderRef.current,
+          expandedNodes: expandedNodesRef.current,
+          selectedFiles: uniqueSelectedFiles,
+          allFiles: allFilesRef.current,
+          sortOrder: sortOrderRef.current,
+          searchTerm: searchTermRef.current,
+          fileTreeMode: fileTreeModeRef.current,
+          exclusionPatterns: exclusionPatternsRef.current,
+          userInstructions: userInstructionsRef.current,
+          tokenCounts: (() => {
+            const acc: { [filePath: string]: number } = {};
+            const allFilesMap = new Map(allFilesRef.current.map(f => [f.path, f]));
+            for (const selectedFile of fileSelection.selectedFiles) {
+              const fileData = allFilesMap.get(selectedFile.path);
+              acc[selectedFile.path] = fileData?.tokenCount || 0;
+            }
+            return acc;
+          })(),
+          customPrompts: {
+            systemPrompts: promptStateRef.current.selectedSystemPrompts,
+            rolePrompts: promptStateRef.current.selectedRolePrompts
+          },
+          selectedInstructions: selectedInstructionsRef.current
+        };
+        
+        // Wait for the save to complete before switching
+        await persistWorkspace(currentWorkspaceRef.current, workspace);
+      }
+      
       // Apply the workspace data, including the name
       applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
     } else {
       console.warn("[useAppState.workspaceLoadedListener] Received 'workspaceLoaded' event with missing/invalid detail.", event.detail);
     }
-  }, [applyWorkspaceData]);
+  }, [applyWorkspaceData, persistWorkspace, fileSelection.selectedFiles]);
 
   // Handler for direct folder opening (not from workspace loading)
   const handleDirectFolderOpenedEvent = useCallback((event: CustomEvent) => {
@@ -1186,8 +1337,12 @@ const useAppState = () => {
   }, [handleWorkspaceLoadedEvent, handleDirectFolderOpenedEvent]);
 
   useEffect(() => {
-    // Wait for file loading to complete before applying workspace data
-    if (pendingWorkspaceData && currentWorkspace && allFiles.length > 0 && processingStatus.status === "complete") {
+    // Wait for file loading and instructions to complete before applying workspace data
+    if (pendingWorkspaceData && 
+        currentWorkspace && 
+        allFiles.length > 0 && 
+        processingStatus.status === "complete" &&
+        !instructionsState.loading) {  // Also wait for instructions to load
 
       const fullWorkspaceData: WorkspaceState = {
         selectedFolder: selectedFolder,
@@ -1197,7 +1352,7 @@ const useAppState = () => {
 
       applyWorkspaceData(currentWorkspace, fullWorkspaceData);
     }
-  }, [allFiles.length, pendingWorkspaceData, currentWorkspace, selectedFolder, processingStatus.status, applyWorkspaceData]);
+  }, [allFiles.length, pendingWorkspaceData, currentWorkspace, selectedFolder, processingStatus.status, applyWorkspaceData, instructionsState.loading]);
 
   useEffect(() => {
     const handleCreateNewWorkspaceEvent = () => {
@@ -1371,6 +1526,10 @@ const useAppState = () => {
     loadWorkspace,
     saveCurrentWorkspace,
     headerSaveState,
+    
+    // Auto-save
+    isAutoSaveEnabled: autoSave.isAutoSaveEnabled,
+    setAutoSaveEnabled: autoSave.setAutoSaveEnabled,
 
     // Lazy loading
     loadFileContent,

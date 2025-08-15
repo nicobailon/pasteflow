@@ -8,6 +8,7 @@ import "./app-header.css";
 
 import FileTreeToggle from './file-tree-toggle';
 import ThemeToggle from './theme-toggle';
+import AutoSaveToggle from './auto-save-toggle';
 import WorkspaceDropdown, { WorkspaceDropdownRef } from './workspace-dropdown';
 import WorkspaceModal from './workspace-modal';
 
@@ -20,6 +21,8 @@ interface AppHeaderProps {
   currentWorkspace?: string | null;
   saveCurrentWorkspace?: () => void;
   headerSaveState?: 'idle' | 'saving' | 'success';
+  isAutoSaveEnabled?: boolean;
+  setAutoSaveEnabled?: (enabled: boolean) => void;
   appState?: AppState; // Will be passed through to WorkspaceModal
 }
 
@@ -32,6 +35,8 @@ const AppHeader = ({
   currentWorkspace,
   saveCurrentWorkspace,
   headerSaveState, // Destructure the new prop
+  isAutoSaveEnabled,
+  setAutoSaveEnabled,
   appState
 }: AppHeaderProps): JSX.Element => {
   const [localIsWorkspaceModalOpen, setLocalIsWorkspaceModalOpen] = useState(false);
@@ -110,6 +115,12 @@ const AppHeader = ({
             {headerSaveState === 'saving' && <Loader2 size={18} className="button-icon spin" />}
             {headerSaveState === 'success' && <Check size={18} className="button-icon success-check" />}
           </button>
+        )}
+        {currentWorkspace && (
+          <AutoSaveToggle 
+            isEnabled={isAutoSaveEnabled} 
+            onChange={setAutoSaveEnabled} 
+          />
         )}
         <ThemeToggle />
       </div>
