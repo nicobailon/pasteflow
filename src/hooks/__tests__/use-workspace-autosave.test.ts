@@ -383,7 +383,7 @@ describe('useWorkspaceAutoSave', () => {
 
     await waitFor(() => {
       expect(failingOnAutoSave).toHaveBeenCalledTimes(1);
-      expect(consoleSpy).toHaveBeenCalledWith('[AutoSave] Auto-save failed:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('[AutoSave] Auto-save failed:', 'Save failed');
     });
 
     consoleSpy.mockRestore();

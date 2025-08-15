@@ -66,7 +66,10 @@ export function computeWorkspaceSignature(data: WorkspaceSignatureData): string 
       // Canonicalize line ranges: sort then join
       lines: f.lines
         ? [...f.lines]
-            .sort((a, b) => (a.start - b.start) || (a.end - b.end))
+            .sort((a, b) => {
+              if (a.start !== b.start) return a.start - b.start;
+              return a.end - b.end;
+            })
             .map(l => `${l.start}-${l.end}`)
             .join(',')
         : ''
@@ -226,7 +229,19 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
       lastSignatureRef.current = currentSignature;
       pendingSignatureRef.current = null;
     } catch (error) {
-      console.error('[AutoSave] Auto-save failed:', error);
+      if (error instanceof Error) {
+        if (error.message?.includes('EACCES') || error.message?.includes('permission')) {
+          console.error('[AutoSave] Permission error during save:', error.message);
+        } else if (error.message?.includes('ENOSPC')) {
+          console.error('[AutoSave] Disk space error during save:', error.message);
+        } else if (error.message?.includes('rate limit') || error.message?.includes('too many requests')) {
+          console.error('[AutoSave] Rate limit error during save:', error.message);
+        } else {
+          console.error('[AutoSave] Auto-save failed:', error.message);
+        }
+      } else {
+        console.error('[AutoSave] Unexpected auto-save error:', error);
+      }
     } finally {
       saveInProgressRef.current = false;
     }
@@ -248,7 +263,7 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     return () => {
       // If your debounce supports cancel, call it here.
       // (No-op otherwise; safe.)
-      // @ts-expect-error: optional cancel
+      // @ts-expect-error: cancel method exists at runtime but is not in debounce type definition
       debouncedSaveRef.current?.cancel?.();
     };
   }, [performAutoSave, debounceMs]);
