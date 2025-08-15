@@ -72,7 +72,7 @@ const InstructionsTextareaWithPathAutocomplete = ({
 
   // Calculate cursor position in pixels
   const getCursorCoordinates = (textarea: HTMLTextAreaElement, position: number) => {
-    // Simplified approach: calculate based on text position
+    // Get text before cursor to calculate position
     const textBeforeCursor = textarea.value.substring(0, position);
     const textLines = textBeforeCursor.split('\n');
     const currentLine = textLines[textLines.length - 1];
@@ -83,27 +83,31 @@ const InstructionsTextareaWithPathAutocomplete = ({
     
     // Get computed styles for measurements
     const computed = window.getComputedStyle(textarea);
-    const lineHeight = parseInt(computed.lineHeight) || 20;
+    const lineHeight = parseInt(computed.lineHeight) || 24;
     const fontSize = parseInt(computed.fontSize) || 14;
-    const charWidth = fontSize * 0.6; // Approximate char width for monospace
+    const padding = parseInt(computed.paddingLeft) || 16;
+    const charWidth = fontSize * 0.55; // Approximate char width
     
     // Calculate horizontal position - align with @ symbol
-    const xPosition = atPosition * charWidth;
+    const xPosition = padding + (atPosition * charWidth);
     
-    // Calculate vertical position - place above with extra spacing
-    const dropdownHeight = 260; // Approx dropdown height
-    const extraSpacing = 30; // Extra space between dropdown and text
-    const yPosition = (textLines.length - 1) * lineHeight - dropdownHeight - extraSpacing;
+    // Calculate vertical position - place just below the current line
+    const currentLineY = (textLines.length - 1) * lineHeight;
+    const dropdownOffset = 8; // Small gap between text and dropdown
+    const yPosition = currentLineY + lineHeight + dropdownOffset + padding;
     
-    // If dropdown would go above viewport, place it below instead
-    const placeBelow = yPosition < 5;
-    const finalY = placeBelow 
-      ? textLines.length * lineHeight + extraSpacing 
+    // Check if dropdown would go outside textarea bounds
+    const dropdownHeight = 200; // Max height from CSS
+    const wouldOverflow = yPosition + dropdownHeight > textarea.offsetHeight;
+    
+    // If it would overflow, place above the line instead
+    const finalY = wouldOverflow 
+      ? Math.max(5, currentLineY - dropdownHeight - dropdownOffset + padding)
       : yPosition;
     
     return {
       x: Math.min(xPosition, textarea.offsetWidth - 250), // Keep within textarea bounds
-      y: Math.max(finalY, 5) // Ensure minimum distance from top
+      y: finalY
     };
   };
 
