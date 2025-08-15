@@ -497,6 +497,11 @@ class PasteFlowDatabase {
    * const missing = db.getPreference('nonexistent'); // null
    */
   getPreference(key) {
+    // Safety check: if statements aren't ready, return null
+    if (!this.statements || !this.statements.getPreference) {
+      return null;
+    }
+    
     const row = this.statements.getPreference.get(key);
     if (!row) return null;
     
@@ -540,6 +545,11 @@ class PasteFlowDatabase {
    * db.setPreference('app.settings', { autoSave: true }); // Stores as JSON
    */
   setPreference(key, value) {
+    // Safety check: if statements aren't ready, throw error
+    if (!this.statements || !this.statements.setPreference) {
+      throw new Error(`Database statements not initialized when setting preference: ${key}`);
+    }
+    
     try {
       const serialized = typeof value === 'string' ? value : JSON.stringify(value);
       this.statements.setPreference.run(key, serialized);

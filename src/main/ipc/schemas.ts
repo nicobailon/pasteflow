@@ -20,7 +20,8 @@ export const WorkspaceCreateSchema = z.object({
 });
 
 export const WorkspaceUpdateSchema = z.object({
-  id: z.string().uuid(),
+  // Allow both UUID and numeric string IDs (database uses INTEGER PRIMARY KEY)
+  id: z.string().min(1),
   state: z.record(z.string(), z.unknown())
 });
 
@@ -33,17 +34,20 @@ export const WorkspaceTouchSchema = z.object({
 });
 
 export const WorkspaceDeleteSchema = z.object({
-  id: z.string().uuid()
+  // Allow both UUID and numeric string IDs (database uses INTEGER PRIMARY KEY)
+  id: z.string().min(1)
 });
 
 export const WorkspaceRenameSchema = z.object({
-  id: z.string().uuid(),
+  // Allow both UUID and numeric string IDs (database uses INTEGER PRIMARY KEY)
+  id: z.string().min(1),
   newName: z.string().min(1).max(255)
 });
 
 // File schemas
 export const FileContentRequestSchema = z.object({
-  workspaceId: z.string().uuid(),
+  // Allow both UUID and numeric string IDs (database uses INTEGER PRIMARY KEY)
+  workspaceId: z.string().min(1),
   filePath: z.string(),
   lineRanges: z.array(z.object({
     start: z.number().int().positive(),
@@ -64,7 +68,8 @@ export const FileContentResponseSchema = z.object({
 });
 
 export const FileSaveSchema = z.object({
-  workspaceId: z.string().uuid(),
+  // Allow both UUID and numeric string IDs (database uses INTEGER PRIMARY KEY)
+  workspaceId: z.string().min(1),
   filePath: z.string(),
   content: z.string(),
   tokenCount: z.number().int().optional()

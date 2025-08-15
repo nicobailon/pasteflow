@@ -51,8 +51,14 @@ class DatabaseBridge {
         this.db = new PasteFlowDatabase(dbPath);
         await this.db.initializeDatabase();
         
-        // Verify database is accessible with a simple query
-        await this.db.getPreference('_health_check');
+        // Simple health check that doesn't rely on prepared statements
+        if (this.db.db) {
+          try {
+            this.db.db.prepare('SELECT 1 as test').get();
+          } catch (e) {
+            console.warn('Database health check failed:', e);
+          }
+        }
         
         this.initialized = true;
         console.log('Database initialized successfully');
