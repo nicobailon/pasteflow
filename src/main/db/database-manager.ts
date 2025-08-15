@@ -1,12 +1,13 @@
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import { app, BrowserWindow } from 'electron';
 
 import { SecureIpcLayer } from '../ipc/secure-ipc';
 import { StateHandlers } from '../handlers/state-handlers';
+import { countTokens } from '../utils/token-utils';
 
 import { SecureDatabase } from './secure-database';
-import { countTokens } from '../utils/token-utils';
 
 interface FileSaveInput {
   workspaceId: string;
@@ -127,7 +128,7 @@ export class DatabaseManager {
 
     this.ipc.setHandler('/prompt/create', async (input: unknown) => {
       const validatedInput = input as PromptCreateInput;
-      const id = require('node:crypto').randomUUID();
+      const id = randomUUID();
       const tokenCount = validatedInput.tokenCount || countTokens(validatedInput.content);
       
       await this.db.database.run(

@@ -64,7 +64,7 @@ export const useWorkspaceSelection = ({
       setSelectedWorkspaces(new Set());
       setSelectAllChecked(false);
       onRefresh();
-    } else {}
+    }
   }, [selectedWorkspaces, onDelete, onRefresh]);
 
   const clearSelection = useCallback(() => {

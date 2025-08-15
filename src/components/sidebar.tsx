@@ -1,19 +1,18 @@
 import { ChevronDown, ChevronUp, Filter, Folder, FolderOpen, RefreshCw, X } from "lucide-react";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { STORAGE_KEYS } from '../constants';
 import useFileTree from "../hooks/use-file-tree";
-import { SidebarProps, TreeNode } from "../types/file-types";
+import { useSidebarResize } from "../hooks/use-sidebar-resize";
+import { useTreeLoadingState } from "../hooks/use-tree-loading-state";
+import { useTreeContainerResize } from "../hooks/use-tree-container-resize";
+import { useFolderActions } from "../hooks/use-folder-actions";
+import { SidebarProps } from "../types/file-types";
 
 import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
-import Dropdown, { DropdownOption, DropdownRef } from './dropdown';
+import Dropdown, { DropdownRef } from './dropdown';
 import SearchBar from "./search-bar";
-
-// Custom type for resize events
-type ResizeMouseEvent = {
-  preventDefault: () => void;
-  clientX: number;
-};
+import { createSortOptions, checkAllFilesSelected } from './sidebar-helpers';
 
 export interface SidebarRef {
   closeSortDropdown: () => void;
@@ -41,13 +40,12 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
     loadFileContent,
     folderSelectionCache,
   }: SidebarProps, ref) => {
-  // State for the sidebar width and resizing
-  const [sidebarWidth, setSidebarWidth] = useState(300);
-  const [isResizing, setIsResizing] = useState(false);
-  const [treeHeight, setTreeHeight] = useState(600);
+  // Use custom hooks for cleaner logic separation
+  const { sidebarWidth, handleResizeStart } = useSidebarResize(300);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const virtualListRef = useRef<VirtualizedTreeHandle>(null);
   const sortDropdownRef = useRef<DropdownRef>(null);
+  const treeHeight = useTreeContainerResize(treeContainerRef);
   
   // Get the current file tree sort order from localStorage
   const [currentSortOption, setCurrentSortOption] = useState(
@@ -62,6 +60,9 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
     searchTerm,
     fileTreeSortOrder: currentSortOption
   });
+
+  // Use custom hook for loading state management
+  const { showLoadingIndicator } = useTreeLoadingState(processingStatus, isTreeBuildingComplete);
   
   // Pass tree progress to parent if available
   useEffect(() => {
@@ -75,16 +76,6 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
   useImperativeHandle(ref, () => ({
     closeSortDropdown: () => sortDropdownRef.current?.close()
   }), []);
-
-  // Min and max width constraints
-  const MIN_SIDEBAR_WIDTH = 200;
-  const MAX_SIDEBAR_WIDTH = 500;
-
-  const [isTreeLoading, setIsTreeLoading] = useState(false);
-  const loadingTimerRef = useRef<number | null>(null);
-  
-  // Consolidated loading state that takes into account both processing status and tree building
-  const showLoadingIndicator = isTreeLoading || !isTreeBuildingComplete;
   
   // Wrapper functions to adapt prop signatures for VirtualizedTree
   const handleToggleFolderSelection = useCallback((path: string, isSelected: boolean, opts?: { optimistic?: boolean }) => {
@@ -99,109 +90,19 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
     }
   }, [loadFileContent]);
   
-  /**
-   * Initiates the sidebar resizing operation.
-   * Sets the isResizing state to true when the user starts dragging the resize handle.
-   * 
-   * @param {ResizeMouseEvent} e - The mouse event that triggered the resize operation
-   */
-  const handleResizeStart = (e: ResizeMouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  };
-
-  // Handle resize effect
-  useEffect(() => {
-    /**
-     * Handles the resizing of the sidebar during mouse movement.
-     * Updates the sidebar width based on mouse position, within min/max constraints.
-     * 
-     * @param {globalThis.MouseEvent} e - The mouse move event
-     */
-    const handleResize = (e: globalThis.MouseEvent) => {
-      if (isResizing) {
-        // Calculate width from the right side of the window instead of from the left
-        const newWidth = window.innerWidth - e.clientX;
-        if (newWidth >= MIN_SIDEBAR_WIDTH && newWidth <= MAX_SIDEBAR_WIDTH) {
-          setSidebarWidth(newWidth);
-        }
-      }
-    };
-
-    /**
-     * Completes the sidebar resizing operation.
-     * Sets the isResizing state to false when the user releases the mouse button.
-     */
-    const handleResizeEnd = () => {
-      setIsResizing(false);
-    };
-
-    document.addEventListener("mousemove", handleResize);
-    document.addEventListener("mouseup", handleResizeEnd);
-
-    return () => {
-      document.removeEventListener("mousemove", handleResize);
-      document.removeEventListener("mouseup", handleResizeEnd);
-    };
-  }, [isResizing]);
-
-  // Handle loading state with minimum display time
-  useEffect(() => {
-    // Start loading if processing status is "processing" or tree isn't built yet
-    if ((processingStatus && processingStatus.status === "processing") || !isTreeBuildingComplete) {
-      setIsTreeLoading(true);
-      
-      // Clear any existing timer
-      if (loadingTimerRef.current) {
-        window.clearTimeout(loadingTimerRef.current);
-        loadingTimerRef.current = null;
-      }
-    } else if (processingStatus && processingStatus.status !== "processing" && isTreeBuildingComplete && isTreeLoading) {
-      // Ensure loading spinner stays visible for at least 800ms to avoid flickering
-      const timerId = window.setTimeout(() => {
-        setIsTreeLoading(false);
-        loadingTimerRef.current = null;
-      }, 800);
-      
-      loadingTimerRef.current = timerId;
-    }
-    
-    return () => {
-      if (loadingTimerRef.current) {
-        window.clearTimeout(loadingTimerRef.current);
-      }
-    };
-  }, [processingStatus, isTreeLoading, isTreeBuildingComplete]);
   
-  // Handle tree container resize
-  useEffect(() => {
-    if (!treeContainerRef.current) return;
-    
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setTreeHeight(entry.contentRect.height);
-      }
-    });
-    
-    resizeObserver.observe(treeContainerRef.current);
-    
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, []);
 
   // All the tree management logic is now handled by the useFileTree hook
 
   // Check if all files are selected (memoized)
-  const areAllFilesSelected = useCallback(() => {
-    // Check the folder selection cache for the root folder
-    if (folderSelectionCache && selectedFolder) {
-      const rootFolderState = folderSelectionCache.get(selectedFolder);
-      return rootFolderState === 'full';
-    }
-    // Fallback to checking if all files are selected
-    return allFiles.length > 0 && selectedFiles.length === allFiles.length;
-  }, [allFiles.length, selectedFiles.length, folderSelectionCache, selectedFolder])();
+  const areAllFilesSelected = useMemo(() => {
+    return checkAllFilesSelected(
+      folderSelectionCache,
+      selectedFolder,
+      allFiles.length,
+      selectedFiles.length
+    );
+  }, [allFiles.length, selectedFiles.length, folderSelectionCache, selectedFolder]);
 
   /**
    * Handles the toggle of the "Select All" checkbox.
@@ -216,111 +117,18 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
     }
   };
 
-  // Function to close all expanded folders
-  const collapseAllFolders = useCallback(() => {
-    // Get all directory nodes from the file tree
-    const getAllDirectoryNodes = (nodes: TreeNode[]): string[] => {
-      let result: string[] = [];
-      
-      for (const node of nodes) {
-        if (node.type === "directory") {
-          result.push(node.id);
-          if (node.children) {
-            result = [...result, ...getAllDirectoryNodes(node.children)];
-          }
-        }
-      }
-      
-      return result;
-    };
+  // Use folder actions hook
+  const {
+    collapseAllFolders,
+    expandAllFolders,
+    hasExpandedFolders,
+    areAllFoldersExpanded,
+    closeCurrentFolder: closeFolderAction,
+  } = useFolderActions(fileTree, expandedNodes, toggleExpanded);
 
-    // Collapse all directory nodes
-    const allDirectories = getAllDirectoryNodes(fileTree);
-    
-    for (const nodeId of allDirectories) {
-      // Only toggle expanded nodes - since toggleExpanded toggles the state
-      // we only want to call it for nodes that are currently expanded
-      if (expandedNodes[nodeId] === true) {
-        toggleExpanded(nodeId);
-      }
-    }
-  }, [fileTree, expandedNodes, toggleExpanded]);
-
-  // Function to expand all folders
-  const expandAllFolders = useCallback(() => {
-    // Get all directory nodes that are not expanded
-    const getCollapsedDirectoryNodes = (nodes: TreeNode[]): string[] => {
-      let result: string[] = [];
-      
-      for (const node of nodes) {
-        if (node.type === "directory") {
-          if (!expandedNodes[node.id]) {
-            result.push(node.id);
-          }
-          if (node.children) {
-            result = [...result, ...getCollapsedDirectoryNodes(node.children)];
-          }
-        }
-      }
-      
-      return result;
-    };
-
-    // Expand all collapsed directory nodes
-    const collapsedDirectories = getCollapsedDirectoryNodes(fileTree);
-    
-    for (const nodeId of collapsedDirectories) {
-      // Only toggle collapsed nodes - since toggleExpanded toggles the state
-      // we only want to call it for nodes that are currently collapsed
-      // This means nodes where expandedNodes[nodeId] is either false or undefined
-      if (expandedNodes[nodeId] !== true) {
-        toggleExpanded(nodeId);
-      }
-    }
-  }, [fileTree, expandedNodes, toggleExpanded]);
-
-  // Check if there are any expanded folders
-  const hasExpandedFolders = useCallback(() => {
-    return Object.values(expandedNodes).some(Boolean);
-  }, [expandedNodes]);
-
-  // Check if all folders are expanded
-  const areAllFoldersExpanded = useCallback(() => {
-    // Get all directory nodes
-    const getAllDirectoryIds = (nodes: TreeNode[]): string[] => {
-      let result: string[] = [];
-      
-      for (const node of nodes) {
-        if (node.type === "directory") {
-          result.push(node.id);
-          if (node.children) {
-            result = [...result, ...getAllDirectoryIds(node.children)];
-          }
-        }
-      }
-      
-      return result;
-    };
-
-    const allDirectoryIds = getAllDirectoryIds(fileTree);
-    
-    // If there are no directories, all folders are considered expanded
-    if (allDirectoryIds.length === 0) return true;
-    
-    // Check if all directory nodes are expanded
-    return allDirectoryIds.every(id => expandedNodes[id]);
-  }, [fileTree, expandedNodes]);
-
-  // Function to close the current folder
   const closeCurrentFolder = useCallback(() => {
-    // Use the resetFolderState function if available, otherwise fall back to openFolder
-    if (resetFolderState) {
-      resetFolderState();
-    } else if (openFolder) {
-      // Legacy fallback - this will open a new folder dialog
-      openFolder();
-    }
-  }, [openFolder, resetFolderState]);
+    closeFolderAction(resetFolderState, openFolder);
+  }, [closeFolderAction, resetFolderState, openFolder]);
   
   /**
    * Handles changes to the file tree sort option.
@@ -363,15 +171,7 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
   }, [refreshFileTree, deselectAllFiles, onFileTreeSortChange]);
 
   // Define sort options for the dropdown
-  const sortOptions: DropdownOption[] = [
-    { value: 'default', label: 'Developer-Focused', icon: <span>↕</span> },
-    { value: 'name-asc', label: 'Name (A–Z)', icon: <span>↑</span> },
-    { value: 'name-desc', label: 'Name (Z–A)', icon: <span>↓</span> },
-    { value: 'extension-asc', label: 'Extension (A–Z)', icon: <span>↑</span> },
-    { value: 'extension-desc', label: 'Extension (Z–A)', icon: <span>↓</span> },
-    { value: 'date-desc', label: 'Date Modified (Newest)', icon: <span>↓</span> },
-    { value: 'date-asc', label: 'Date Modified (Oldest)', icon: <span>↑</span> },
-  ];
+  const sortOptions = useMemo(() => createSortOptions(), []);
 
   return (
     <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>

@@ -32,7 +32,7 @@ export function useWorkspaceCache(options: UseWorkspaceCacheOptions = {}): UseWo
   );
   
   // Track cache version to trigger re-renders
-  const [cacheVersion, setCacheVersion] = useState(0);
+  const [_cacheVersion, setCacheVersion] = useState(0);
   const [cacheStats, setCacheStats] = useState(() => cacheManager.getCacheStats());
   
   // Subscribe to cache changes
@@ -59,7 +59,7 @@ export function useWorkspaceCache(options: UseWorkspaceCacheOptions = {}): UseWo
       );
     }
     return await cacheManager.getSortedList(mode, manualOrder);
-  }, [cacheManager, perfMonitor, cacheVersion]); // Include cacheVersion to ensure updates
+  }, [cacheManager, perfMonitor]); // Removed cacheVersion as it's not needed
   
   // Get workspace count
   const getWorkspaceCount = useCallback(async (): Promise<number> => {
@@ -69,7 +69,7 @@ export function useWorkspaceCache(options: UseWorkspaceCacheOptions = {}): UseWo
       );
     }
     return await cacheManager.getWorkspaceCount();
-  }, [cacheManager, perfMonitor, cacheVersion]);
+  }, [cacheManager, perfMonitor]);
   
   // Check if workspace exists
   const hasWorkspace = useCallback(async (name: string): Promise<boolean> => {
@@ -79,7 +79,7 @@ export function useWorkspaceCache(options: UseWorkspaceCacheOptions = {}): UseWo
       );
     }
     return await cacheManager.hasWorkspace(name);
-  }, [cacheManager, perfMonitor, cacheVersion]);
+  }, [cacheManager, perfMonitor]);
   
   // Invalidate cache
   const invalidateCache = useCallback((mode?: WorkspaceSortMode): void => {

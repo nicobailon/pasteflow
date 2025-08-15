@@ -5,9 +5,10 @@
  */
 
 import type { FileData, TreeNode } from '../types/file-types';
+import { TREE_FLATTEN_CACHE } from '../constants/app-constants';
+
 import { normalizePath } from './path-utils';
 import { BoundedLRUCache } from './bounded-lru-cache';
-import { TREE_FLATTEN_CACHE } from '../constants/app-constants';
 
 interface TreeTransformDependencies {
   sortFunction?: (nodes: TreeNode[], sortOrder: string) => TreeNode[];
@@ -60,7 +61,7 @@ export function buildTreeNodesFromMap(
 
       // Determine expansion state
       const expansionState = expandedLookup ? expandedLookup(item.path) : undefined;
-      const isExpanded = expansionState !== undefined ? expansionState : (level < 1);
+      const isExpanded = expansionState === undefined ? (level < 1) : expansionState;
 
       return {
         ...item,
@@ -82,81 +83,211 @@ export function buildTreeNodesFromMap(
 }
 
 /**
+ * Tree node structure for building file maps
+ */
+type TreeDirectoryNode = {
+  name: string;
+  path: string;
+  children: Record<string, TreeDirectoryNode | TreeFileNode>;
+  isDirectory: true;
+  isExpanded: boolean;
+};
+
+type TreeFileNode = {
+  name: string;
+  path: string;
+  isFile: true;
+  fileData: FileData;
+};
+
+type TreeMapNode = TreeDirectoryNode | TreeFileNode;
+
+/**
  * Build a hierarchical file map from a flat list of files
  */
 export function buildFileMap(
   files: FileData[],
   selectedFolder: string | null,
   expandedNodes: Record<string, boolean>
-): Record<string, any> {
-  const fileMap: Record<string, any> = {};
+): Record<string, TreeMapNode> {
+  const fileMap: Record<string, TreeMapNode> = {};
+  const normalizedRootPath = selectedFolder ? normalizePath(selectedFolder) : '';
 
   for (const file of files) {
     if (!file.path) continue;
 
-    const normalizedFilePath = normalizePath(file.path);
-    const normalizedRootPath = selectedFolder ? normalizePath(selectedFolder) : '';
+    const relativePath = getRelativePathForFile(file.path, selectedFolder, normalizedRootPath);
+    if (relativePath === null) continue;
 
-    // Strictly include only files under selectedFolder (boundary-safe)
-    let relativePath: string;
-    if (selectedFolder) {
-      const root = normalizedRootPath;
-      const underRoot = normalizedFilePath === root || normalizedFilePath.startsWith(root + '/');
-      if (!underRoot) {
-        continue;
-      }
-      relativePath = normalizedFilePath === root ? '' : normalizedFilePath.slice(root.length + 1);
-    } else {
-      relativePath = normalizedFilePath.replace(/^\/|^\\/, '');
-    }
-
-    const parts = relativePath.split('/');
-    let currentPath = "";
-    let current = fileMap;
-
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      if (!part) continue;
-
-      currentPath = currentPath ? `${currentPath}/${part}` : part;
-      
-      if (i < parts.length - 1) {
-        const dirPath = selectedFolder
-          ? normalizePath(`${normalizedRootPath}/${currentPath}`)
-          : normalizePath(`/${currentPath}`);
-        
-        if (!current[part]) {
-          current[part] = {
-            name: part,
-            path: dirPath,
-            children: {},
-            isDirectory: true,
-            isExpanded: expandedNodes[dirPath] ?? (i < 2)
-          };
-        }
-        
-        // Ensure children exists before accessing
-        if (!current[part].children) {
-          current[part].children = {};
-        }
-        
-        current = current[part].children;
-      } else {
-        const filePath = selectedFolder
-          ? normalizePath(`${normalizedRootPath}/${currentPath}`)
-          : normalizePath(`/${currentPath}`);
-        
-        current[part] = {
-          name: part,
-          path: filePath,
-          isFile: true,
-          fileData: file
-        };
-      }
-    }
+    buildFileMapEntry(fileMap, relativePath, file, selectedFolder, normalizedRootPath, expandedNodes);
   }
 
   return fileMap;
+}
+
+/**
+ * Get relative path for a file, returning null if file should be excluded
+ */
+function getRelativePathForFile(
+  filePath: string,
+  selectedFolder: string | null,
+  normalizedRootPath: string
+): string | null {
+  const normalizedFilePath = normalizePath(filePath);
+
+  if (selectedFolder) {
+    const underRoot = normalizedFilePath === normalizedRootPath || 
+                     normalizedFilePath.startsWith(normalizedRootPath + '/');
+    if (!underRoot) {
+      return null;
+    }
+    return normalizedFilePath === normalizedRootPath 
+      ? '' 
+      : normalizedFilePath.slice(normalizedRootPath.length + 1);
+  }
+
+  return normalizedFilePath.replace(/^\/|^\\/, '');
+}
+
+/**
+ * Build a single file map entry
+ */
+function buildFileMapEntry(
+  fileMap: Record<string, TreeMapNode>,
+  relativePath: string,
+  file: FileData,
+  selectedFolder: string | null,
+  normalizedRootPath: string,
+  expandedNodes: Record<string, boolean>
+): void {
+  const parts = relativePath.split('/');
+  let currentPath = "";
+  let current: Record<string, TreeMapNode> = fileMap;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) continue;
+
+    currentPath = buildCurrentPath(currentPath, part);
+    
+    if (isDirectoryPart(i, parts)) {
+      current = ensureDirectoryExists(
+        current, 
+        part, 
+        currentPath, 
+        selectedFolder, 
+        normalizedRootPath, 
+        expandedNodes, 
+        i
+      );
+    } else {
+      createFileEntry(
+        current, 
+        part, 
+        currentPath, 
+        selectedFolder, 
+        normalizedRootPath, 
+        file
+      );
+    }
+  }
+}
+
+/**
+ * Build current path by appending part
+ */
+function buildCurrentPath(existingPath: string, part: string): string {
+  return existingPath ? `${existingPath}/${part}` : part;
+}
+
+/**
+ * Check if current part represents a directory
+ */
+function isDirectoryPart(index: number, parts: string[]): boolean {
+  return index < parts.length - 1;
+}
+
+/**
+ * Ensure directory exists in the file map and return its children
+ */
+function ensureDirectoryExists(
+  current: Record<string, TreeMapNode>,
+  part: string,
+  currentPath: string,
+  selectedFolder: string | null,
+  normalizedRootPath: string,
+  expandedNodes: Record<string, boolean>,
+  depth: number
+): Record<string, TreeMapNode> {
+  const dirPath = calculateDirectoryPath(selectedFolder, normalizedRootPath, currentPath);
+  
+  if (!current[part]) {
+    current[part] = createDirectoryNode(part, dirPath, expandedNodes, depth);
+  }
+  
+  ensureChildrenExist(current[part] as TreeDirectoryNode);
+  return (current[part] as TreeDirectoryNode).children;
+}
+
+/**
+ * Calculate directory path
+ */
+function calculateDirectoryPath(
+  selectedFolder: string | null,
+  normalizedRootPath: string,
+  currentPath: string
+): string {
+  return selectedFolder
+    ? normalizePath(`${normalizedRootPath}/${currentPath}`)
+    : normalizePath(`/${currentPath}`);
+}
+
+/**
+ * Create directory node
+ */
+function createDirectoryNode(
+  name: string,
+  path: string,
+  expandedNodes: Record<string, boolean>,
+  depth: number
+): TreeDirectoryNode {
+  return {
+    name,
+    path,
+    children: {},
+    isDirectory: true as const,
+    isExpanded: expandedNodes[path] ?? (depth < 2)
+  };
+}
+
+/**
+ * Ensure children property exists
+ */
+function ensureChildrenExist(node: TreeDirectoryNode): void {
+  if (!node.children) {
+    node.children = {};
+  }
+}
+
+/**
+ * Create file entry in the map
+ */
+function createFileEntry(
+  current: Record<string, TreeMapNode>,
+  part: string,
+  currentPath: string,
+  selectedFolder: string | null,
+  normalizedRootPath: string,
+  file: FileData
+): void {
+  const filePath = calculateDirectoryPath(selectedFolder, normalizedRootPath, currentPath);
+  
+  current[part] = {
+    name: part,
+    path: filePath,
+    isFile: true as const,
+    fileData: file
+  };
 }
 
 /**
@@ -169,94 +300,221 @@ export function flattenTree(
   filesByPath?: Map<string, FileData>,
   selectedFolder?: string | null
 ): TreeNode[] {
-  // Create a stable tree identity from root node paths
+  const cacheKey = createFlattenCacheKey(nodes, expandedNodes, searchTerm, selectedFolder);
+  
+  const cachedResult = getCachedFlattenResult(cacheKey, filesByPath);
+  if (cachedResult) {
+    return cachedResult;
+  }
+
+  const flattened = performTreeFlattening(nodes, expandedNodes, filesByPath);
+  
+  cacheFlattenResult(cacheKey, flattened);
+  return flattened;
+}
+
+/**
+ * Create cache key for flatten operation
+ */
+function createFlattenCacheKey(
+  nodes: TreeNode[],
+  expandedNodes: Record<string, boolean>,
+  searchTerm?: string,
+  selectedFolder?: string | null
+): string {
   const treeIdentity = nodes
     .map(n => n.path)
     .sort()
     .join('|');
   
-  // Create cache key including tree identity and selectedFolder
   const expandedKeys = Object.entries(expandedNodes)
     .filter(([_, expanded]) => expanded)
     .map(([path]) => path)
     .sort()
     .join('|');
   
-  const cacheKey = `${treeIdentity}:${selectedFolder || ''}:${expandedKeys}:${searchTerm || ''}`;
-  
-  // Check cache first
+  return `${treeIdentity}:${selectedFolder || ''}:${expandedKeys}:${searchTerm || ''}`;
+}
+
+/**
+ * Get cached flatten result if available and up to date
+ */
+function getCachedFlattenResult(
+  cacheKey: string,
+  filesByPath?: Map<string, FileData>
+): TreeNode[] | null {
   const cached = flattenCache.get(cacheKey);
-  if (cached) {
-    // Update file data in cached results if needed
-    let needsUpdate = false;
-    const updatedResult = cached.result.map(node => {
-      if (node.type === "file" && node.path && filesByPath) {
-        const latestFileData = filesByPath.get(node.path);
-        if (latestFileData && latestFileData !== node.fileData) {
-          needsUpdate = true;
-          return { ...node, fileData: latestFileData };
-        }
-      }
-      return node;
-    });
-    
-    if (needsUpdate) {
-      cached.result = updatedResult;
-    }
-    
-    return cached.result;
+  if (!cached) {
+    return null;
   }
 
-  // Recursive flatten function
-  const flattenNodesRecursively = (nodesToFlatten: TreeNode[]): TreeNode[] => {
-    const result: TreeNode[] = [];
+  const { updatedResult, needsUpdate } = updateCachedFileData(cached.result, filesByPath);
+  
+  if (needsUpdate) {
+    cached.result = updatedResult;
+  }
+  
+  return cached.result;
+}
 
-    for (const node of nodesToFlatten) {
-      // Determine expansion state
-      const expandedFromState = expandedNodes[node.path];
-      const defaultIsExpanded = node.isExpanded ?? false;
-      
-      const finalIsExpanded = node.type === "directory" ? 
-        (expandedFromState === undefined ? defaultIsExpanded : expandedFromState) : 
-        undefined;
-      
-      let nodeWithUpdatedExpanded = {
-        ...node,
-        isExpanded: finalIsExpanded
-      };
-      
-      // For file nodes, ensure we have the latest file data
-      if (node.type === "file" && node.path && filesByPath) {
-        const latestFileData = filesByPath.get(node.path);
-        if (latestFileData && latestFileData !== node.fileData) {
-          nodeWithUpdatedExpanded = { ...nodeWithUpdatedExpanded, fileData: latestFileData };
-        }
-      }
-      
-      // Add the current node
-      result.push(nodeWithUpdatedExpanded);
+/**
+ * Update file data in cached results
+ */
+function updateCachedFileData(
+  cachedResult: TreeNode[],
+  filesByPath?: Map<string, FileData>
+): { updatedResult: TreeNode[]; needsUpdate: boolean } {
+  if (!filesByPath) {
+    return { updatedResult: cachedResult, needsUpdate: false };
+  }
 
-      // If it's a directory and it's expanded, add its children
-      if (nodeWithUpdatedExpanded.type === "directory" && 
-          nodeWithUpdatedExpanded.isExpanded && 
-          nodeWithUpdatedExpanded.children) {
-        const childFlat = flattenNodesRecursively(nodeWithUpdatedExpanded.children);
-        result.push(...childFlat);
+  let needsUpdate = false;
+  const updatedResult = cachedResult.map(node => {
+    if (shouldUpdateFileData(node, filesByPath)) {
+      const latestFileData = filesByPath.get(node.path!);
+      if (latestFileData && latestFileData !== node.fileData) {
+        needsUpdate = true;
+        return { ...node, fileData: latestFileData };
       }
     }
+    return node;
+  });
 
-    return result;
-  };
+  return { updatedResult, needsUpdate };
+}
 
-  const flattened = flattenNodesRecursively(nodes);
+/**
+ * Check if node file data should be updated
+ */
+function shouldUpdateFileData(
+  node: TreeNode,
+  filesByPath: Map<string, FileData>
+): boolean {
+  return node.type === "file" && 
+         node.path !== undefined && 
+         filesByPath.has(node.path);
+}
+
+/**
+ * Perform the actual tree flattening
+ */
+function performTreeFlattening(
+  nodes: TreeNode[],
+  expandedNodes: Record<string, boolean>,
+  filesByPath?: Map<string, FileData>
+): TreeNode[] {
+  return flattenNodesRecursively(nodes, expandedNodes, filesByPath);
+}
+
+/**
+ * Recursively flatten tree nodes
+ */
+function flattenNodesRecursively(
+  nodesToFlatten: TreeNode[],
+  expandedNodes: Record<string, boolean>,
+  filesByPath?: Map<string, FileData>
+): TreeNode[] {
+  const result: TreeNode[] = [];
+
+  for (const node of nodesToFlatten) {
+    const processedNode = processTreeNode(node, expandedNodes, filesByPath);
+    result.push(processedNode);
+
+    const childNodes = getExpandedChildNodes(processedNode);
+    if (childNodes) {
+      const childFlat = flattenNodesRecursively(childNodes, expandedNodes, filesByPath);
+      result.push(...childFlat);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Process a single tree node
+ */
+function processTreeNode(
+  node: TreeNode,
+  expandedNodes: Record<string, boolean>,
+  filesByPath?: Map<string, FileData>
+): TreeNode {
+  const finalIsExpanded = calculateExpansionState(node, expandedNodes);
   
-  // Cache the result
+  let processedNode: TreeNode = {
+    ...node,
+    ...(finalIsExpanded !== undefined && { isExpanded: finalIsExpanded })
+  };
+  
+  if (shouldUpdateNodeFileData(node, filesByPath)) {
+    processedNode = updateNodeFileData(processedNode, filesByPath!);
+  }
+  
+  return processedNode;
+}
+
+/**
+ * Calculate final expansion state for node
+ */
+function calculateExpansionState(
+  node: TreeNode,
+  expandedNodes: Record<string, boolean>
+): boolean | undefined {
+  if (node.type !== "directory") {
+    return undefined;
+  }
+
+  const expandedFromState = expandedNodes[node.path];
+  const defaultIsExpanded = node.isExpanded ?? false;
+  
+  return expandedFromState === undefined ? defaultIsExpanded : expandedFromState;
+}
+
+/**
+ * Check if node file data should be updated
+ */
+function shouldUpdateNodeFileData(
+  node: TreeNode,
+  filesByPath?: Map<string, FileData>
+): boolean {
+  return node.type === "file" && 
+         node.path !== undefined && 
+         filesByPath !== undefined &&
+         filesByPath.has(node.path);
+}
+
+/**
+ * Update node with latest file data
+ */
+function updateNodeFileData(
+  node: TreeNode,
+  filesByPath: Map<string, FileData>
+): TreeNode {
+  const latestFileData = filesByPath.get(node.path!);
+  if (latestFileData && latestFileData !== node.fileData) {
+    return { ...node, fileData: latestFileData };
+  }
+  return node;
+}
+
+/**
+ * Get child nodes if directory is expanded
+ */
+function getExpandedChildNodes(node: TreeNode): TreeNode[] | null {
+  return node.type === "directory" && 
+         node.isExpanded && 
+         node.children 
+    ? node.children 
+    : null;
+}
+
+/**
+ * Cache the flatten result
+ */
+function cacheFlattenResult(cacheKey: string, result: TreeNode[]): void {
   flattenCache.set(cacheKey, {
-    result: flattened,
+    result,
     timestamp: Date.now()
   });
-  
-  return flattened;
 }
 
 /**
@@ -333,7 +591,7 @@ export function clearFlattenCache(): void {
  * Get flatten cache statistics for memory monitoring
  */
 export function getFlattenCacheStats(): { size: number; estimatedMemoryMB: number } {
-  const entries = Array.from(flattenCache.entries());
+  const entries = [...flattenCache.entries()];
   let totalMemory = 0;
   
   for (const [key, value] of entries) {

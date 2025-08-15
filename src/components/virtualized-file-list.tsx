@@ -1,4 +1,4 @@
-import { useMemo, memo, useRef, forwardRef, useImperativeHandle } from "react";
+import { useMemo, memo, useRef, forwardRef, useImperativeHandle, useCallback } from "react";
 import { VariableSizeList as List } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { FolderOpen } from "lucide-react";
@@ -120,68 +120,75 @@ const VirtualizedFileList = forwardRef<VirtualizedFileListHandle, FileListProps>
       selectedFilesMap.has(file.path) && !file.isBinary && !file.isSkipped,
   );
 
+  // Helper to create a full file card
+  const createFullFileCard = useCallback((fileData: FileData, filePath: string): ExpandedFileCard => {
+    return {
+      originalFile: fileData,
+      selectedFilePath: filePath,
+      content: fileData.content || '',
+      tokenCount: fileData.tokenCount || 0,
+      isFullFile: true
+    };
+  }, []);
+
+  // Helper to create a line range card
+  const createLineRangeCard = useCallback((fileData: FileData, filePath: string, lineRange: LineRange): ExpandedFileCard => {
+    // Check cache first
+    const cachedEntry = tokenCountCache.get(filePath, lineRange);
+    
+    let rangeContent: string;
+    let rangeTokenCount: number;
+    
+    if (cachedEntry && cachedEntry.tokenCount !== undefined) {
+      rangeContent = cachedEntry.content;
+      rangeTokenCount = cachedEntry.tokenCount;
+    } else if (fileData.content) {
+      // Extract the content for the line range
+      const lines = fileData.content.split('\n');
+      rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
+      rangeTokenCount = estimateTokenCount(rangeContent);
+      
+      // Update cache
+      tokenCountCache.set(filePath, rangeContent, rangeTokenCount, lineRange);
+    } else {
+      rangeContent = '';
+      rangeTokenCount = 0;
+    }
+    
+    return {
+      originalFile: fileData,
+      selectedFilePath: filePath,
+      lineRange,
+      content: rangeContent,
+      tokenCount: rangeTokenCount,
+      isFullFile: false
+    };
+  }, []);
+
   // Create expanded cards - one card per line range for files with multiple line ranges
   const expandedCards: ExpandedFileCard[] = useMemo(() => {
     const cards: ExpandedFileCard[] = [];
     
     for (const file of displayableFiles) {
       const selectedFileRef = selectedFilesMap.get(file.path);
-      
       if (!selectedFileRef) continue;
       
-      // Get the actual file data from allFiles
       const fileData = allFilesMap.get(file.path);
       if (!fileData) continue;
       
       // If the file has no line ranges, create a single card for the entire file
       if (!selectedFileRef.lines || selectedFileRef.lines.length === 0) {
-        cards.push({
-          originalFile: fileData,
-          selectedFilePath: file.path,
-          content: fileData.content || '',
-          tokenCount: fileData.tokenCount || 0,
-          isFullFile: true
-        });
-      } 
-      // If the file has line ranges, create a separate card for each range
-      else if (selectedFileRef.lines && selectedFileRef.lines.length > 0) {
+        cards.push(createFullFileCard(fileData, file.path));
+      } else {
+        // Create a separate card for each line range
         for (const lineRange of selectedFileRef.lines) {
-          let rangeContent: string;
-          let rangeTokenCount: number;
-          
-          // Check cache first
-          const cachedEntry = tokenCountCache.get(file.path, lineRange);
-          
-          if (cachedEntry && cachedEntry.tokenCount !== undefined) {
-            rangeContent = cachedEntry.content;
-            rangeTokenCount = cachedEntry.tokenCount;
-          } else if (fileData.content) {
-            // Extract the content for the line range
-            const lines = fileData.content.split('\n');
-            rangeContent = lines.slice(lineRange.start - 1, lineRange.end).join('\n');
-            rangeTokenCount = estimateTokenCount(rangeContent);
-            
-            // Update cache
-            tokenCountCache.set(file.path, rangeContent, rangeTokenCount, lineRange);
-          } else {
-            rangeContent = '';
-            rangeTokenCount = 0;
-          }
-          
-          cards.push({
-            originalFile: fileData,
-            selectedFilePath: file.path,
-            lineRange,
-            content: rangeContent,
-            tokenCount: rangeTokenCount,
-            isFullFile: false
-          });
+          cards.push(createLineRangeCard(fileData, file.path, lineRange));
         }
       }
     }
     
     return cards;
-  }, [displayableFiles, selectedFilesMap, allFilesMap]);
+  }, [displayableFiles, selectedFilesMap, allFilesMap, createFullFileCard, createLineRangeCard]);
   
   const itemData: RowData = useMemo(() => ({
     expandedCards,

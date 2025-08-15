@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, CSSProperties } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, CSSProperties, memo } from 'react';
 import { FixedSizeList as List } from 'react-window';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -39,7 +39,7 @@ interface RowRendererProps {
   };
 }
 
-const VirtualizedLineRenderer = React.memo<RowRendererProps>(({ index, style, data }) => {
+const VirtualizedLineRenderer = memo<RowRendererProps>(({ index, style, data }) => {
   const { lines, language, theme, selectionMode, onLineClick, onLineMouseDown, onLineMouseMove } = data;
   const line = lines[index];
   
@@ -190,7 +190,7 @@ const VirtualizedFileViewer: React.FC<VirtualizedFileViewerProps> = ({
     updateHeight();
     window.addEventListener('resize', updateHeight);
     return () => window.removeEventListener('resize', updateHeight);
-  }, []);
+  }, [containerRef]);
   
   return (
     <div 

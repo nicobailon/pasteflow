@@ -23,10 +23,8 @@ const App = () => {
   
   // Initialize cache registry and memory monitoring
   useEffect(() => {
-    const cleanup = initializeCacheRegistry();
-    
     // Cleanup function to stop monitoring on unmount
-    return cleanup;
+    return initializeCacheRegistry();
   }, []);
   
   // Helper to close all dropdowns when opening modals

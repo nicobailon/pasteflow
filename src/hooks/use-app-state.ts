@@ -17,8 +17,8 @@ import { VirtualFileLoader } from '../utils/virtual-file-loader';
 
 import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
-import usePersistentState from './use-persistent-state';
-import useDebouncedPersistentState from './use-debounced-persistent-state';
+import { usePersistentState } from './use-persistent-state';
+import { useDebouncedPersistentState } from './use-debounced-persistent-state';
 import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
@@ -275,7 +275,8 @@ const useAppState = () => {
   const calculateTotalTokens = useCallback(() => {
     const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
 
-    return fileSelection.selectedFiles.reduce((total, selectedFile) => {
+    let total = 0;
+    for (const selectedFile of fileSelection.selectedFiles) {
       const fileData = allFilesMap.get(selectedFile.path);
       if (fileData) {
         // If content is loaded and we have actual token count
@@ -288,22 +289,22 @@ const useAppState = () => {
               selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
             }
             // Simple estimation: ~4 characters per token
-            return total + Math.ceil(selectedContent.length / 4);
+            total += Math.ceil(selectedContent.length / 4);
           } else {
             // Full file selected
-            return total + fileData.tokenCount;
+            total += fileData.tokenCount;
           }
         } else {
           // If content not loaded, estimate based on file size
           // Skip binary and skipped files
           if (!fileData.isBinary && !fileData.isSkipped) {
             // Rough estimation: 1 token per 4 characters
-            return total + Math.round(fileData.size / 4);
+            total += Math.round(fileData.size / 4);
           }
         }
       }
-      return total;
-    }, 0);
+    }
+    return total;
   }, [fileSelection.selectedFiles, allFiles]);
 
   // Open folder dialog
@@ -488,13 +489,11 @@ const useAppState = () => {
       );
     });
 
-    // Only update selected file if it's already in the selection
-    // This prevents auto-selecting files when just viewing them
-    const existingSelectedFile = fileSelection.findSelectedFile(filePath);
-    if (existingSelectedFile) {
-      fileSelection.updateSelectedFile(filePath, existingSelectedFile.lines);
-    }
-  }, [setAllFiles, fileSelection]);
+    // Note: We don't call updateSelectedFile here because:
+    // 1. The file is already in the selection if it was selected
+    // 2. Calling updateSelectedFile could cause duplicates during workspace loading
+    // 3. The selection state and file content state are separate concerns
+  }, [setAllFiles]);
 
   // Helper function to handle cached content
   const handleCachedContent = useCallback(async (
@@ -630,17 +629,8 @@ const useAppState = () => {
         if (result?.success && result.content !== undefined && tokenCount !== undefined) {
           fileContentCache.set(f.path, result.content, tokenCount);
 
-          // Only update selected file if it's still in the selection
-          // This prevents memory leaks from updating deselected files
-          const currentSelectedFiles = fileSelection.selectedFiles;
-          const isStillSelected = currentSelectedFiles.some(sf => sf.path === f.path);
-
-          if (isStillSelected) {
-            const existingSelectedFile = fileSelection.findSelectedFile(f.path);
-            if (existingSelectedFile) {
-              fileSelection.updateSelectedFile(f.path, existingSelectedFile.lines);
-            }
-          }
+          // Note: We don't update the selection here to avoid duplicates
+          // The file is already selected if needed
 
           return {
             ...f,
@@ -668,7 +658,7 @@ const useAppState = () => {
         }
       })
     );
-  }, [setAllFiles, fileSelection]);
+  }, [setAllFiles]);
 
   // Helper function for fallback token counting
   const fallbackTokenCounting = useCallback(async (
@@ -815,7 +805,6 @@ const useAppState = () => {
     userInstructions,
     promptState.selectedSystemPrompts,
     promptState.selectedRolePrompts,
-    instructionsState.instructions,
     selectedInstructions,
     persistWorkspace
   ]);
@@ -902,7 +891,21 @@ const useAppState = () => {
     unstable_batchedUpdates(() => {
       setSelectionState(filesToSelect);
     });
-  }, [setSelectionState]);
+
+    // Load content for all selected files that don't have content yet
+    const filesToLoad = filesToSelect.filter(file => {
+      const fileData = availableFilesMap.get(file.path);
+      return fileData && !fileData.isContentLoaded && !fileData.isBinary && !fileData.isSkipped;
+    });
+
+    if (filesToLoad.length > 0) {
+      // Load file contents asynchronously
+      Promise.all(filesToLoad.map(file => loadFileContent(file.path)))
+        .catch(error => {
+          console.error('[useAppState.applySelectedFiles] Error loading file content:', error);
+        });
+    }
+  }, [setSelectionState, loadFileContent]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
 
@@ -1160,7 +1163,7 @@ const useAppState = () => {
 
         if (workspaceData) {
             // Ensure we have the folder path before applying
-            if (workspaceData.selectedFolder) {} else {
+            if (!workspaceData.selectedFolder) {
                 console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
             }
 

@@ -1,3 +1,5 @@
+import * as os from 'node:os';
+
 import { DatabaseBridgeConfig } from './pooled-database-bridge';
 
 /**
@@ -218,8 +220,8 @@ export function createCustomConfig(
  * Configuration recommendations based on system specs
  */
 export function getRecommendedConfig(): DatabaseBridgeConfig {
-  const totalMemory = require('node:os').totalmem();
-  const cpuCount = require('node:os').cpus().length;
+  const totalMemory = os.totalmem();
+  const cpuCount = os.cpus().length;
   
   // Memory in GB
   const memoryGB = totalMemory / (1024 * 1024 * 1024);

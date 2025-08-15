@@ -1,18 +1,26 @@
 import { buildFolderIndex, getFilesInFolder, updateFolderIndex } from '../folder-selection-index';
 import type { FileData } from '../../types/file-types';
 
+// Test constants
+const TEST_FILE1_PATH = '/src/file1.ts';
+const TEST_FILE2_PATH = '/src/file2.ts';
+const TEST_VALID_PATH = '/src/valid.ts';
+const TEST_DEEP_FILE_PATH = '/a/b/c/d/e/file.ts';
+
+// Helper function to create mock file data
+const createMockFile = (path: string, options: Partial<FileData> = {}): FileData => ({
+  name: path.split('/').pop() || '',
+  path,
+  isDirectory: false,
+  size: 100,
+  isBinary: false,
+  isSkipped: false,
+  isContentLoaded: false,
+  tokenCount: 0,
+  ...options,
+});
+
 describe('folder-selection-index', () => {
-  const createMockFile = (path: string, options: Partial<FileData> = {}): FileData => ({
-    name: path.split('/').pop() || '',
-    path,
-    isDirectory: false,
-    size: 100,
-    isBinary: false,
-    isSkipped: false,
-    isContentLoaded: false,
-    tokenCount: 0,
-    ...options,
-  });
 
   describe('buildFolderIndex', () => {
     it('should build index with files in nested folders', () => {
@@ -41,34 +49,34 @@ describe('folder-selection-index', () => {
         createMockFile('/src/code.ts'),
         createMockFile('/src/image.png', { isBinary: true }),
         createMockFile('/src/hidden.ts', { isSkipped: true }),
-        createMockFile('/src/valid.ts'),
+        createMockFile(TEST_VALID_PATH),
       ];
 
       const index = buildFolderIndex(files);
 
-      expect(index.get('/src')).toEqual(['/src/code.ts', '/src/valid.ts']);
+      expect(index.get('/src')).toEqual(['/src/code.ts', TEST_VALID_PATH]);
       expect(index.get('/src')).not.toContain('/src/image.png');
       expect(index.get('/src')).not.toContain('/src/hidden.ts');
     });
 
     it('should handle deeply nested folder structures', () => {
       const files: FileData[] = [
-        createMockFile('/a/b/c/d/e/file.ts'),
+        createMockFile(TEST_DEEP_FILE_PATH),
         createMockFile('/a/b/c/other.ts'),
         createMockFile('/a/root.ts'),
       ];
 
       const index = buildFolderIndex(files);
 
-      expect(index.get('/a')).toContain('/a/b/c/d/e/file.ts');
+      expect(index.get('/a')).toContain(TEST_DEEP_FILE_PATH);
       expect(index.get('/a')).toContain('/a/b/c/other.ts');
       expect(index.get('/a')).toContain('/a/root.ts');
-      expect(index.get('/a/b')).toContain('/a/b/c/d/e/file.ts');
+      expect(index.get('/a/b')).toContain(TEST_DEEP_FILE_PATH);
       expect(index.get('/a/b')).toContain('/a/b/c/other.ts');
-      expect(index.get('/a/b/c')).toContain('/a/b/c/d/e/file.ts');
+      expect(index.get('/a/b/c')).toContain(TEST_DEEP_FILE_PATH);
       expect(index.get('/a/b/c')).toContain('/a/b/c/other.ts');
-      expect(index.get('/a/b/c/d')).toEqual(['/a/b/c/d/e/file.ts']);
-      expect(index.get('/a/b/c/d/e')).toEqual(['/a/b/c/d/e/file.ts']);
+      expect(index.get('/a/b/c/d')).toEqual([TEST_DEEP_FILE_PATH]);
+      expect(index.get('/a/b/c/d/e')).toEqual([TEST_DEEP_FILE_PATH]);
     });
 
     it('should handle files with no path gracefully', () => {
@@ -94,8 +102,8 @@ describe('folder-selection-index', () => {
 
     it('should deduplicate files in the same folder', () => {
       const files: FileData[] = [
-        createMockFile('/src/file1.ts'),
-        createMockFile('/src/file2.ts'),
+        createMockFile(TEST_FILE1_PATH),
+        createMockFile(TEST_FILE2_PATH),
         createMockFile('/src/sub/file3.ts'),
       ];
 
@@ -110,19 +118,19 @@ describe('folder-selection-index', () => {
   describe('getFilesInFolder', () => {
     it('should return files for existing folder', () => {
       const index = new Map([
-        ['/src', ['/src/file1.ts', '/src/file2.ts']],
+        ['/src', [TEST_FILE1_PATH, TEST_FILE2_PATH]],
         ['/test', ['/test/test1.ts']],
       ]);
 
       const files = getFilesInFolder(index, '/src');
 
-      expect(files).toEqual(['/src/file1.ts', '/src/file2.ts']);
+      expect(files).toEqual([TEST_FILE1_PATH, TEST_FILE2_PATH]);
       expect(files).toHaveLength(2);
     });
 
     it('should return empty array for non-existent folder', () => {
       const index = new Map([
-        ['/src', ['/src/file1.ts']],
+        ['/src', [TEST_FILE1_PATH]],
       ]);
 
       const files = getFilesInFolder(index, '/non-existent');
@@ -163,7 +171,7 @@ describe('folder-selection-index', () => {
 
     it('should remove files and clean up empty folders', () => {
       const index = new Map([
-        ['/src', ['/src/file1.ts', '/src/file2.ts', '/src/components/comp.tsx']],
+        ['/src', [TEST_FILE1_PATH, TEST_FILE2_PATH, '/src/components/comp.tsx']],
         ['/src/components', ['/src/components/comp.tsx']],
         ['/test', ['/test/test.ts']],
       ]);
@@ -175,7 +183,7 @@ describe('folder-selection-index', () => {
 
       updateFolderIndex(index, [], removedFiles);
 
-      expect(index.get('/src')).toEqual(['/src/file1.ts', '/src/file2.ts']);
+      expect(index.get('/src')).toEqual([TEST_FILE1_PATH, TEST_FILE2_PATH]);
       expect(index.has('/src/components')).toBe(false);
       expect(index.has('/test')).toBe(false);
       expect(index.size).toBe(1);
@@ -208,14 +216,14 @@ describe('folder-selection-index', () => {
       const index = new Map();
 
       const addedFiles = [
-        createMockFile('/src/valid.ts'),
+        createMockFile(TEST_VALID_PATH),
         createMockFile('/src/binary.png', { isBinary: true }),
         createMockFile('/src/skipped.ts', { isSkipped: true }),
       ];
 
       updateFolderIndex(index, addedFiles, []);
 
-      expect(index.get('/src')).toEqual(['/src/valid.ts']);
+      expect(index.get('/src')).toEqual([TEST_VALID_PATH]);
       expect(index.get('/src')).not.toContain('/src/binary.png');
       expect(index.get('/src')).not.toContain('/src/skipped.ts');
     });
@@ -241,7 +249,7 @@ describe('folder-selection-index', () => {
 
       const addedFiles = [
         createMockFile('', { path: '' }),
-        createMockFile('/src/valid.ts'),
+        createMockFile(TEST_VALID_PATH),
       ];
 
       const removedFiles = [
@@ -250,7 +258,7 @@ describe('folder-selection-index', () => {
 
       updateFolderIndex(index, addedFiles, removedFiles);
 
-      expect(index.get('/src')).toContain('/src/valid.ts');
+      expect(index.get('/src')).toContain(TEST_VALID_PATH);
       expect(index.get('/src')).toHaveLength(2);
     });
   });

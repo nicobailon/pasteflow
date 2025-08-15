@@ -111,6 +111,7 @@ describe('Database Security', () => {
       expect(contentString).not.toContain('confidential information');
       
       // Should look like encrypted/binary data
+      // eslint-disable-next-line no-control-regex
       expect(contentString).toMatch(/[\u0000-\u001F\u007F-\u00FF]/);
     });
 

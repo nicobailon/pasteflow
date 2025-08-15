@@ -2,79 +2,63 @@ import { ChevronDown } from "lucide-react";
 import * as React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
+import { DropdownMenuItem } from './dropdown-menu-item';
+
 import "./dropdown.css";
 
 export interface DropdownOption {
   value: string;
   label: string;
   icon?: JSX.Element;
-}
-
-interface DropdownProps {
-  options: DropdownOption[];
-  value: string;
-  onChange: (value: string) => void;
-  buttonClassName?: string;
-  buttonLabel?: string;
-  buttonIcon?: JSX.Element;
-  containerClassName?: string;
-  menuClassName?: string;
-  itemClassName?: string;
-  activeItemClassName?: string;
-  showCheckmark?: boolean;
-  renderCustomOption?: (option: DropdownOption, isActive: boolean) => JSX.Element;
-  position?: "left" | "right";
-  closeOnChange?: boolean;
-  animationType?: "scale" | "fade" | "slide";
-  glassEffect?: boolean;
-  variant?: "default" | "primary" | "subtle";
+  disabled?: boolean;
+  className?: string;
 }
 
 export interface DropdownRef {
   close: () => void;
 }
 
-const Dropdown = forwardRef<DropdownRef, DropdownProps>(
-  (
-    {
-      options,
-      value,
-      onChange,
-      buttonLabel = "Sort",
-      buttonIcon = <ChevronDown size={16} />,
-      buttonClassName = "",
-      containerClassName = "",
-      menuClassName = "",
-      itemClassName = "",
-      activeItemClassName = "",
-      showCheckmark = true,
-      renderCustomOption,
-      position = "left",
-      closeOnChange = true,
-      animationType = "scale",
-      glassEffect = true,
-      variant = "default",
-    },
-    ref
-  ) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-    const menuRef = useRef<HTMLDivElement>(null);
+interface DropdownProps {
+  options: DropdownOption[];
+  value: string;
+  onChange: (value: string) => void;
+  buttonLabel?: string;
+  buttonIcon?: JSX.Element;
+  containerClassName?: string;
+  buttonClassName?: string;
+  menuClassName?: string;
+  itemClassName?: string;
+  activeItemClassName?: string;
+  position?: "left" | "right";
+  renderCustomOption?: (option: DropdownOption, isActive: boolean) => JSX.Element;
+  showCheckmark?: boolean;
+  closeOnChange?: boolean;
+  glassEffect?: boolean;
+  variant?: "default" | "primary" | "secondary";
+  animationType?: "fade" | "slide" | "none";
+}
 
-  useImperativeHandle(ref, () => ({
-    close: () => setIsOpen(false)
-  }), []);
+/**
+ * Hook for dropdown handlers
+ */
+function useDropdownHandlers(config: {
+  onChange: (value: string) => void;
+  closeOnChange: boolean;
+  setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  isOpen: boolean;
+}) {
+  const { onChange, closeOnChange, setIsOpen, isOpen } = config;
 
   const handleToggle = useCallback(() => {
-    setIsOpen((isCurrentlyOpen: boolean) => !isCurrentlyOpen);
-  }, []);
+    setIsOpen((prev: boolean) => !prev);
+  }, [setIsOpen]);
 
   const handleSelect = useCallback((optionValue: string) => {
     onChange(optionValue);
     if (closeOnChange) {
       setIsOpen(false);
     }
-  }, [onChange, closeOnChange]);
+  }, [onChange, closeOnChange, setIsOpen]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent, value?: string) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -87,9 +71,91 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(
     } else if (event.key === "Escape" && isOpen) {
       setIsOpen(false);
     }
-  }, [handleSelect, handleToggle, isOpen]);
+  }, [handleSelect, handleToggle, isOpen, setIsOpen]);
 
-  // Close the dropdown when clicking outside
+  return { handleToggle, handleSelect, handleKeyDown };
+}
+
+/**
+ * Hook for dropdown class name getters
+ */
+function useDropdownClassNames(config: {
+  glassEffect: boolean;
+  variant: string;
+  buttonClassName: string;
+  itemClassName: string;
+  activeItemClassName: string;
+  animationType: string;
+  showCheckmark: boolean;
+  renderCustomOption?: (option: DropdownOption, isActive: boolean) => JSX.Element;
+}) {
+  const {
+    glassEffect,
+    variant,
+    buttonClassName,
+    itemClassName,
+    activeItemClassName,
+    animationType,
+    showCheckmark,
+    renderCustomOption
+  } = config;
+
+  const getAnimationClass = useCallback(() => {
+    const classMap: Record<string, string> = {
+      fade: "dropdown-menu-fade",
+      slide: "dropdown-menu-slide"
+    };
+    return classMap[animationType] || "";
+  }, [animationType]);
+
+  const getButtonClass = useCallback(() => {
+    const classes = ["dropdown-button"];
+    if (glassEffect) classes.push("glass-effect");
+    if (variant !== "default") classes.push(`dropdown-${variant}`);
+    if (buttonClassName) classes.push(buttonClassName);
+    return classes.join(" ");
+  }, [glassEffect, variant, buttonClassName]);
+
+  const getItemClassName = useCallback((isActive: boolean) => {
+    const classes = ["dropdown-item"];
+    if (isActive) {
+      classes.push("active");
+      if (activeItemClassName) classes.push(activeItemClassName);
+    }
+    if (itemClassName) classes.push(itemClassName);
+    return classes.join(" ");
+  }, [activeItemClassName, itemClassName]);
+
+  const renderMenuItem = useCallback((option: DropdownOption, isActive: boolean) => {
+    if (renderCustomOption) {
+      return renderCustomOption(option, isActive);
+    }
+    
+    return (
+      <>
+        {option.icon && <span className="dropdown-item-icon">{option.icon}</span>}
+        <span>{option.label}</span>
+        {isActive && showCheckmark && <span className="checkmark">✓</span>}
+      </>
+    );
+  }, [renderCustomOption, showCheckmark]);
+
+  return {
+    getAnimationClass,
+    getButtonClass,
+    getItemClassName,
+    renderMenuItem
+  };
+}
+
+/**
+ * Hook for handling clicks outside the dropdown
+ */
+function useClickOutside(
+  menuRef: React.RefObject<HTMLDivElement>,
+  isOpen: boolean,
+  setIsOpen: React.Dispatch<React.SetStateAction<boolean>>
+) {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && event.target instanceof Node && !menuRef.current.contains(event.target)) {
@@ -97,114 +163,193 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(
       }
     };
     
-    // Add event listener when dropdown is open
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     
-    // Clean up event listener
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isOpen]);
+  }, [isOpen, menuRef, setIsOpen]);
+}
 
-  const getAnimationClass = () => {
-    switch (animationType) {
-      case "fade": {
-        return "dropdown-menu-fade";
-      }
-      case "slide": {
-        return "dropdown-menu-slide";
-      }
-      default: {
-        return "";
-      }
-    }
-  };
+/**
+ * Dropdown button component
+ */
+interface DropdownButtonProps {
+  icon: JSX.Element;
+  label?: string;
+  className: string;
+  onClick: () => void;
+  onKeyDown: (event: React.KeyboardEvent) => void;
+  isOpen: boolean;
+}
 
-  const getButtonClass = () => {
-    let className = "dropdown-button";
-    if (glassEffect) className += " glass-effect";
-    if (variant !== "default") className += ` dropdown-${variant}`;
-    if (buttonClassName) className += ` ${buttonClassName}`;
-    return className;
-  };
-
+function DropdownButton({
+  icon,
+  label,
+  className,
+  onClick,
+  onKeyDown,
+  isOpen
+}: DropdownButtonProps) {
   return (
-    <div 
-      ref={dropdownRef}
-      className={`dropdown-container ${containerClassName}`}
+    <button
+      className={className}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      aria-haspopup="true"
+      aria-expanded={isOpen}
     >
-      <button
-        className={getButtonClass()}
-        onClick={handleToggle}
-        onKeyDown={handleKeyDown}
-        aria-haspopup="true"
-        aria-expanded={isOpen}
-      >
-        {buttonIcon}
-        {buttonLabel && <span>{buttonLabel}</span>}
-      </button>
-      
-      {isOpen && (
-        <div 
-          ref={menuRef}
-          className={`dropdown-menu ${getAnimationClass()} ${menuClassName}`}
-          style={position === "right" ? { right: 0, left: "auto" } : {}}
-          role="menu"
-        >
-          {options.map((option) => {
-            const isActive = option.value === value;
-            
-            if (renderCustomOption) {
-              return (
-                <div
-                  key={option.value}
-                  onClick={() => handleSelect(option.value)}
-                  onKeyDown={(e) => handleKeyDown(e, option.value)}
-                  role="menuitem"
-                  tabIndex={0}
-                >
-                  {renderCustomOption(option, isActive)}
-                </div>
-              );
-            }
-            
-            const getItemClassName = () => {
-              let className = "dropdown-item";
-              if (isActive) {
-                className += " active";
-                if (activeItemClassName) {
-                  className += ` ${activeItemClassName}`;
-                }
-              }
-              if (itemClassName) {
-                className += ` ${itemClassName}`;
-              }
-              return className;
-            };
-            
-            return (
-              <div
-                key={option.value}
-                className={getItemClassName()}
-                onClick={() => handleSelect(option.value)}
-                onKeyDown={(e) => handleKeyDown(e, option.value)}
-                role="menuitem"
-                tabIndex={0}
-              >
-                {option.icon && <span className="dropdown-item-icon">{option.icon}</span>}
-                <span>{option.label}</span>
-                {isActive && showCheckmark && <span className="checkmark">✓</span>}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+      {icon}
+      {label && <span>{label}</span>}
+    </button>
   );
-});
+}
+
+/**
+ * Dropdown menu component
+ */
+interface DropdownMenuProps {
+  options: DropdownOption[];
+  value: string;
+  position: "left" | "right";
+  menuClassName: string;
+  animationClass: string;
+  onSelect: (value: string) => void;
+  onKeyDown: (event: React.KeyboardEvent, value?: string) => void;
+  getItemClassName: (isActive: boolean) => string;
+  renderMenuItem: (option: DropdownOption, isActive: boolean) => JSX.Element;
+  renderCustomOption?: (option: DropdownOption, isActive: boolean) => JSX.Element;
+}
+
+const DropdownMenu = forwardRef<HTMLDivElement, DropdownMenuProps>(
+  ({
+    options,
+    value,
+    position,
+    menuClassName,
+    animationClass,
+    onSelect,
+    onKeyDown,
+    getItemClassName,
+    renderMenuItem,
+    renderCustomOption
+  }, ref) => {
+    return (
+      <div 
+        ref={ref}
+        className={`dropdown-menu ${animationClass} ${menuClassName}`}
+        style={position === "right" ? { right: 0, left: "auto" } : {}}
+        role="menu"
+      >
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            option={option}
+            isActive={option.value === value}
+            onSelect={onSelect}
+            onKeyDown={onKeyDown}
+            renderCustomOption={renderCustomOption}
+            getItemClassName={getItemClassName}
+            renderMenuItem={renderMenuItem}
+          />
+        ))}
+      </div>
+    );
+  }
+);
+
+DropdownMenu.displayName = 'DropdownMenu';
+
+/**
+ * Main Dropdown component
+ */
+const Dropdown = forwardRef<DropdownRef, DropdownProps>(
+  (
+    {
+      options,
+      value,
+      onChange,
+      buttonLabel,
+      buttonIcon = <ChevronDown size={16} />,
+      containerClassName = "",
+      buttonClassName = "",
+      menuClassName = "",
+      itemClassName = "",
+      activeItemClassName = "",
+      position = "left",
+      renderCustomOption,
+      showCheckmark = false,
+      closeOnChange = true,
+      glassEffect = true,
+      variant = "default",
+      animationType = "fade"
+    },
+    ref
+  ) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    const dropdownConfig = {
+      onChange,
+      closeOnChange,
+      setIsOpen,
+      isOpen,
+      glassEffect,
+      variant,
+      buttonClassName,
+      showCheckmark,
+      renderCustomOption,
+      itemClassName,
+      activeItemClassName,
+      animationType
+    };
+
+    const handlers = useDropdownHandlers(dropdownConfig);
+    const classNameGetters = useDropdownClassNames(dropdownConfig);
+    
+    useImperativeHandle(ref, () => ({
+      close: () => setIsOpen(false)
+    }), []);
+
+    useClickOutside(menuRef, isOpen, setIsOpen);
+
+    return (
+      <div 
+        ref={dropdownRef}
+        className={`dropdown-container ${containerClassName}`}
+      >
+        <DropdownButton
+          icon={buttonIcon}
+          label={buttonLabel}
+          className={classNameGetters.getButtonClass()}
+          onClick={handlers.handleToggle}
+          onKeyDown={handlers.handleKeyDown}
+          isOpen={isOpen}
+        />
+        
+        {isOpen && (
+          <DropdownMenu
+            ref={menuRef}
+            options={options}
+            value={value}
+            position={position}
+            menuClassName={menuClassName}
+            animationClass={classNameGetters.getAnimationClass()}
+            onSelect={handlers.handleSelect}
+            onKeyDown={handlers.handleKeyDown}
+            getItemClassName={classNameGetters.getItemClassName}
+            renderMenuItem={classNameGetters.renderMenuItem}
+            renderCustomOption={renderCustomOption}
+          />
+        )}
+      </div>
+    );
+  }
+);
 
 Dropdown.displayName = 'Dropdown';
 
-export default Dropdown; 
+export default Dropdown;

@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import type Electron from 'electron';
 import { z, ZodSchema } from 'zod';
 import { RateLimiter } from 'limiter';
+
 import { RATE_LIMITS } from '../../constants/app-constants';
 
 // IPC channel configuration
@@ -34,7 +35,7 @@ export class SecureIpcLayer {
     
     // Map categories to rate limit constants
     switch (category) {
-      case 'workspace':
+      case 'workspace': {
         // Workspace operations have different limits based on operation type
         if (operation === 'list' || operation === 'current' || operation === 'selection') {
           return RATE_LIMITS.REQUESTS.WORKSPACE_OPERATIONS;
@@ -43,38 +44,46 @@ export class SecureIpcLayer {
           return RATE_LIMITS.REQUESTS.WORKSPACE_OPERATIONS * 2; // Higher for frequent checks
         }
         return RATE_LIMITS.REQUESTS.STATE_OPERATIONS;
+      }
         
-      case 'file':
+      case 'file': {
         // File operations have high limits due to frequent access
         return operation === 'content' ? 
           RATE_LIMITS.REQUESTS.FILE_CONTENT : 
           RATE_LIMITS.REQUESTS.FILE_LIST;
+      }
         
       case 'prompt':
-      case 'prompts':
+      case 'prompts': {
         // Prompt operations
         return operation === 'list' || operation === 'active' ? 
           RATE_LIMITS.REQUESTS.PROMPT_OPERATIONS :
           RATE_LIMITS.REQUESTS.STATE_OPERATIONS;
+      }
         
-      case 'prefs':
+      case 'prefs': {
         // Preferences - read operations have higher limits
         return operation === 'get' ? 
           RATE_LIMITS.REQUESTS.FILE_LIST : // Use higher limit for frequent reads
           RATE_LIMITS.REQUESTS.STATE_OPERATIONS;
+      }
         
-      case 'state':
+      case 'state': {
         // State operations
         return RATE_LIMITS.REQUESTS.STATE_OPERATIONS;
+      }
         
-      default:
+      default: {
         // Default to general limit
         return RATE_LIMITS.REQUESTS.GENERAL;
+      }
     }
   }
 
   private setupChannels() {
     // Import schemas from generated CJS file
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, unicorn/prefer-module
+    const schemas = require('../../../lib/main/ipc/schemas.cjs');
     const {
       WorkspaceSchema,
       WorkspaceCreateSchema,
@@ -90,7 +99,7 @@ export class SecureIpcLayer {
       ActivePromptsSchema,
       InstructionSchema,
       InstructionCreateSchema
-    } = require('../../../lib/main/ipc/schemas.cjs');
+    } = schemas;
 
     // Define all IPC channels with their schemas
     this.registerChannel('/workspace/list', {
@@ -400,7 +409,9 @@ export class SecureIpcLayer {
           try {
             const su = new URL(startUrl);
             allowedOrigins.add(`${su.protocol}//${su.host}`);
-          } catch {}
+          } catch {
+            // Invalid URL format in ELECTRON_START_URL - safe to ignore
+          }
         }
 
         // Common local dev origins

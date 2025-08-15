@@ -35,7 +35,7 @@ function convertToTreeNodes(
   level = 0,
   shouldSort = false, // Sorting is now handled by the centralized service
   maxDepth: number = Number.POSITIVE_INFINITY,
-  includeFileData: boolean = true
+  includeFileData = true
 ): TreeNode[] {
   const nodes: TreeNode[] = [];
 
@@ -84,6 +84,189 @@ function convertToTreeNodes(
 let isCancelled = false;
 let currentBuildId: string | undefined;
 
+// Process a single file and add it to the tree map
+function processFileIntoMap(
+  file: FileData,
+  fileMap: TreeNodeMap,
+  selectedFolder: string | null,
+  expandedNodes: Record<string, boolean>
+): void {
+  if (!file.path) return;
+  
+  const normalizedFilePath = normalizePath(file.path);
+  const normalizedRootPath = selectedFolder ? normalizePath(selectedFolder) : '';
+
+  // Strictly include only files under selectedFolder (boundary-safe)
+  let relativePath: string;
+  if (selectedFolder) {
+    const root = normalizedRootPath;
+    const underRoot = normalizedFilePath === root || normalizedFilePath.startsWith(root + '/');
+    if (!underRoot) {
+      return;
+    }
+    relativePath = normalizedFilePath === root ? '' : normalizedFilePath.slice(root.length + 1);
+  } else {
+    // Remove any leading slash to avoid empty first part
+    relativePath = normalizedFilePath.replace(/^\/|^\\/, '');
+  }
+
+  const parts = relativePath.split('/');
+  let currentPath = "";
+  let current = fileMap;
+  
+  for (let j = 0; j < parts.length; j++) {
+    const part = parts[j];
+    if (!part) continue;
+    
+    currentPath = currentPath ? `${currentPath}/${part}` : part;
+    
+    if (j < parts.length - 1) {
+      // Directory
+      const dirPath = selectedFolder
+        ? normalizePath(`${normalizedRootPath}/${currentPath}`)
+        : normalizePath(`/${currentPath}`);
+
+      if (!current[part]) {
+        current[part] = {
+          name: part,
+          path: dirPath,
+          children: {},
+          isDirectory: true,
+          isExpanded: expandedNodes[dirPath] ?? (j < 2)
+        };
+      }
+      
+      // Ensure children exists
+      if (!current[part].children) {
+        current[part].children = {};
+      }
+      
+      current = current[part].children as TreeNodeMap;
+    } else {
+      // File
+      const filePath = selectedFolder
+        ? normalizePath(`${normalizedRootPath}/${currentPath}`)
+        : normalizePath(`/${currentPath}`);
+
+      current[part] = {
+        name: part,
+        path: filePath,
+        isFile: true,
+        fileData: file
+      };
+    }
+  }
+}
+
+// Process a batch of files and send progress update if needed
+function processBatchAndSendProgress(
+  batch: FileData[],
+  fileMap: TreeNodeMap,
+  selectedFolder: string | null,
+  expandedNodes: Record<string, boolean>,
+  processedCount: number,
+  totalFiles: number,
+  id: string,
+  lastPostTime: number,
+  lastProgressPosted: number
+): { newProcessedCount: number; newLastPostTime: number; newLastProgressPosted: number } {
+  for (const file of batch) {
+    processFileIntoMap(file, fileMap, selectedFolder, expandedNodes);
+  }
+  
+  const newProcessedCount = processedCount + batch.length;
+  const progress = Math.min((newProcessedCount / totalFiles) * 100, 100);
+  
+  // Send intermediate chunk (unsorted for performance), throttled
+  const now = Date.now();
+  const shouldPost = (now - lastPostTime) >= UI.TREE.PROGRESS_POST_INTERVAL_MS || 
+                     (progress - lastProgressPosted) >= UI.TREE.PROGRESS_MIN_DELTA_PERCENT || 
+                     progress >= 100;
+  
+  if (shouldPost) {
+    // Check for cancellation before posting
+    if (!isCancelled) {
+      const intermediateNodes = convertToTreeNodes(fileMap, 0, false, UI.TREE.MAX_TRAVERSAL_DEPTH, false);
+      self.postMessage({
+        type: 'TREE_CHUNK',
+        id,
+        payload: {
+          nodes: intermediateNodes,
+          progress
+        }
+      });
+    }
+    return { 
+      newProcessedCount, 
+      newLastPostTime: now, 
+      newLastProgressPosted: progress 
+    };
+  }
+  
+  return { 
+    newProcessedCount, 
+    newLastPostTime: lastPostTime, 
+    newLastProgressPosted: lastProgressPosted 
+  };
+}
+
+// Build the tree from files
+function buildTree(
+  allFiles: FileData[],
+  chunkSize: number,
+  selectedFolder: string | null,
+  expandedNodes: Record<string, boolean>,
+  id: string
+): void {
+  const fileMap: TreeNodeMap = {};
+  let processedCount = 0;
+  let lastPostTime = 0;
+  let lastProgressPosted = -1;
+  
+  // Process files in chunks and send progress updates
+  for (let i = 0; i < allFiles.length; i += chunkSize) {
+    // Check for cancellation
+    if (isCancelled) {
+      return;
+    }
+    
+    const batch = allFiles.slice(i, Math.min(i + chunkSize, allFiles.length));
+    
+    const result = processBatchAndSendProgress(
+      batch,
+      fileMap,
+      selectedFolder,
+      expandedNodes,
+      processedCount,
+      allFiles.length,
+      id,
+      lastPostTime,
+      lastProgressPosted
+    );
+    
+    processedCount = result.newProcessedCount;
+    lastPostTime = result.newLastPostTime;
+    lastProgressPosted = result.newLastProgressPosted;
+  }
+
+  // Check for cancellation before final post
+  if (isCancelled) {
+    return;
+  }
+  
+  // Send final tree (unsorted - sorting is handled centrally)
+  const finalNodes = convertToTreeNodes(fileMap, 0, false, Number.POSITIVE_INFINITY, true);
+
+  self.postMessage({
+    type: 'TREE_COMPLETE',
+    id,
+    payload: {
+      nodes: finalNodes,
+      progress: 100
+    }
+  });
+}
+
 // Input validation helper
 function validateInput(data: TreeBuilderMessage): { valid: boolean; error?: string } {
   if (data.type === 'BUILD_TREE') {
@@ -95,11 +278,9 @@ function validateInput(data: TreeBuilderMessage): { valid: boolean; error?: stri
       return { valid: false, error: 'id must be a string' };
     }
     
-    if (data.chunkSize !== undefined) {
-      if (typeof data.chunkSize !== 'number' || data.chunkSize <= 0 || !Number.isSafeInteger(data.chunkSize)) {
+    if (data.chunkSize !== undefined && (typeof data.chunkSize !== 'number' || data.chunkSize <= 0 || !Number.isSafeInteger(data.chunkSize))) {
         return { valid: false, error: 'chunkSize must be a positive safe integer' };
       }
-    }
     
     if (data.selectedFolder !== null && data.selectedFolder !== undefined && typeof data.selectedFolder !== 'string') {
       return { valid: false, error: 'selectedFolder must be string, null, or undefined' };
@@ -120,27 +301,21 @@ function validateInput(data: TreeBuilderMessage): { valid: boolean; error?: stri
   return { valid: true };
 }
 
-self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
-  const data = e.data;
-  
-  // Handle different message types
-  if (data.type === 'INIT') {
-    self.postMessage({ type: 'READY' });
-    return;
+// Handle initialization message
+function handleInitMessage(): void {
+  self.postMessage({ type: 'READY' });
+}
+
+// Handle cancellation message
+function handleCancelMessage(id: string | undefined): void {
+  if (id === currentBuildId) {
+    isCancelled = true;
+    self.postMessage({ type: 'CANCELLED', id });
   }
-  
-  if (data.type === 'CANCEL') {
-    if (data.id === currentBuildId) {
-      isCancelled = true;
-      self.postMessage({ type: 'CANCELLED', id: data.id });
-    }
-    return;
-  }
-  
-  if (data.type !== 'BUILD_TREE') {
-    return;
-  }
-  
+}
+
+// Handle build tree message
+function handleBuildTreeMessage(data: TreeBuilderMessage): void {
   // Validate input
   const validation = validateInput(data);
   if (!validation.valid) {
@@ -160,135 +335,7 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
   isCancelled = false;
   
   try {
-    // Build the complete file map
-    const fileMap: TreeNodeMap = {};
-    let processedCount = 0;
-
-    // Use constants for throttling
-    let lastPostTime = 0;
-    let lastProgressPosted = -1;
-    const POST_INTERVAL_MS = UI.TREE.PROGRESS_POST_INTERVAL_MS;
-    const MIN_PROGRESS_DELTA = UI.TREE.PROGRESS_MIN_DELTA_PERCENT
-    
-    // Process files in chunks and send progress updates
-    for (let i = 0; i < allFiles.length; i += chunkSize) {
-      // Check for cancellation
-      if (isCancelled) {
-        return;
-      }
-      
-      const batch = allFiles.slice(i, Math.min(i + chunkSize, allFiles.length));
-      
-      for (const file of batch) {
-        if (!file.path) continue;
-        
-        const normalizedFilePath = normalizePath(file.path);
-        const normalizedRootPath = selectedFolder ? normalizePath(selectedFolder) : '';
-
-        // Strictly include only files under selectedFolder (boundary-safe)
-        let relativePath: string;
-        if (selectedFolder) {
-          const root = normalizedRootPath;
-          const underRoot = normalizedFilePath === root || normalizedFilePath.startsWith(root + '/');
-          if (!underRoot) {
-            continue;
-          }
-          relativePath = normalizedFilePath === root ? '' : normalizedFilePath.slice(root.length + 1);
-        } else {
-          // Remove any leading slash to avoid empty first part
-          relativePath = normalizedFilePath.replace(/^\/|^\\/, '');
-        }
-
-        const parts = relativePath.split('/');
-        let currentPath = "";
-        let current = fileMap;
-        
-        for (let j = 0; j < parts.length; j++) {
-          const part = parts[j];
-          if (!part) continue;
-          
-          currentPath = currentPath ? `${currentPath}/${part}` : part;
-          
-          if (j < parts.length - 1) {
-            // Directory
-            const dirPath = selectedFolder
-              ? normalizePath(`${normalizedRootPath}/${currentPath}`)
-              : normalizePath(`/${currentPath}`);
-
-            if (!current[part]) {
-              current[part] = {
-                name: part,
-                path: dirPath,
-                children: {},
-                isDirectory: true,
-                isExpanded: expandedNodes[dirPath] ?? (j < 2)
-              };
-            }
-            
-            // Ensure children exists
-            if (!current[part].children) {
-              current[part].children = {};
-            }
-            
-            current = current[part].children as TreeNodeMap;
-          } else {
-            // File
-            const filePath = selectedFolder
-              ? normalizePath(`${normalizedRootPath}/${currentPath}`)
-              : normalizePath(`/${currentPath}`);
-
-            current[part] = {
-              name: part,
-              path: filePath,
-              isFile: true,
-              fileData: file
-            };
-          }
-        }
-      }
-      
-      processedCount += batch.length;
-      const progress = Math.min((processedCount / allFiles.length) * 100, 100);
-      
-      // Send intermediate chunk (unsorted for performance), throttled
-      // Limit depth for intermediate updates to reduce payload size
-      const now = Date.now();
-      if ((now - lastPostTime) >= POST_INTERVAL_MS || (progress - lastProgressPosted) >= MIN_PROGRESS_DELTA || progress >= 100) {
-        // Check for cancellation before posting
-        if (isCancelled) {
-          return;
-        }
-        
-        lastPostTime = now;
-        lastProgressPosted = progress;
-        const intermediateNodes = convertToTreeNodes(fileMap, 0, false, UI.TREE.MAX_TRAVERSAL_DEPTH, false);
-        self.postMessage({
-          type: 'TREE_CHUNK',
-          id,
-          payload: {
-            nodes: intermediateNodes,
-            progress
-          }
-        });
-      }
-    }
-
-    // Check for cancellation before final post
-    if (isCancelled) {
-      return;
-    }
-    
-    // Send final tree (unsorted - sorting is handled centrally)
-    const finalNodes = convertToTreeNodes(fileMap, 0, false, Number.POSITIVE_INFINITY, true);
-
-    self.postMessage({
-      type: 'TREE_COMPLETE',
-      id,
-      payload: {
-        nodes: finalNodes,
-        progress: 100
-      }
-    });
+    buildTree(allFiles, chunkSize, selectedFolder || null, expandedNodes, id);
   } catch (error) {
     self.postMessage({
       type: 'TREE_ERROR',
@@ -296,5 +343,24 @@ self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
       code: 'E_INTERNAL',
       error: error instanceof Error ? error.message : 'Unknown error building tree'
     });
+  }
+}
+
+self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
+  const data = e.data;
+  
+  // Handle different message types
+  if (data.type === 'INIT') {
+    handleInitMessage();
+    return;
+  }
+  
+  if (data.type === 'CANCEL') {
+    handleCancelMessage(data.id);
+    return;
+  }
+  
+  if (data.type === 'BUILD_TREE') {
+    handleBuildTreeMessage(data);
   }
 });

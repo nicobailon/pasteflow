@@ -10,7 +10,7 @@ import { usePersistentState } from './use-persistent-state';
 export function useDebouncedPersistentState<T>(
   key: string,
   initialValue: T,
-  debounceMs: number = 300
+  debounceMs = 300
 ): [T, (value: T | ((val: T) => T)) => void] {
   const [persistedValue, setPersistedValue] = usePersistentState<T>(key, initialValue);
   const [value, setValue] = useState<T>(persistedValue);

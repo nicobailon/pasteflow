@@ -1,25 +1,25 @@
 import { EventEmitter } from 'node:events';
 import * as crypto from 'node:crypto';
 
-import Database from 'better-sqlite3';
+import BetterSqlite3 from 'better-sqlite3';
 
 import { ConnectionPool, ConnectionPoolConfig, PoolStats, SqlParameters, QueryResult } from './connection-pool';
 
 // Precise types for cache and configuration
-export type CacheableResult = QueryResult | QueryResult[] | Database.RunResult;
+export type CacheableResult = QueryResult | QueryResult[] | BetterSqlite3.RunResult;
 export type DatabaseOperationType = 'get' | 'all' | 'run';
 
 // Database interface for both pooled and transaction databases
 export interface DatabaseInterface {
   get<T extends QueryResult>(sql: string, params?: SqlParameters): Promise<T | undefined>;
   all<T extends QueryResult>(sql: string, params?: SqlParameters): Promise<T[]>;
-  run(sql: string, params?: SqlParameters): Promise<Database.RunResult>;
+  run(sql: string, params?: SqlParameters): Promise<BetterSqlite3.RunResult>;
   exec(sql: string): Promise<void>;
 }
 
 // Connection type for transactions
 export interface TransactionConnection {
-  db: Database.Database;
+  db: BetterSqlite3.Database;
   id: string;
   isActive: boolean;
 }
@@ -245,7 +245,7 @@ export class PooledDatabase extends EventEmitter implements DatabaseInterface {
     );
   }
 
-  async run(sql: string, params: SqlParameters = []): Promise<Database.RunResult> {
+  async run(sql: string, params: SqlParameters = []): Promise<BetterSqlite3.RunResult> {
     const result = await this.executeWithCache(
       sql,
       params,
@@ -327,7 +327,7 @@ export class PooledDatabase extends EventEmitter implements DatabaseInterface {
     return statementId;
   }
 
-  async executePrepared<T extends QueryResult | Database.RunResult>(
+  async executePrepared<T extends QueryResult | BetterSqlite3.RunResult>(
     statementId: string,
     params: SqlParameters = [],
     operation: DatabaseOperationType = 'get'
@@ -484,7 +484,7 @@ class TransactionDatabase implements DatabaseInterface {
     return stmt.all(...params) as T[];
   }
 
-  async run(sql: string, params: SqlParameters = []): Promise<Database.RunResult> {
+  async run(sql: string, params: SqlParameters = []): Promise<BetterSqlite3.RunResult> {
     const stmt = this.connection.db.prepare(sql);
     return stmt.run(...params);
   }

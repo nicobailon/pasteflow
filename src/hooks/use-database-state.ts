@@ -39,7 +39,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
 
   const cache = useRef<Map<string, CacheEntry<T>>>(new Map());
   const pendingUpdates = useRef<Map<string, Partial<T>>>(new Map());
-  const lastParamsRef = useRef<P | undefined>(undefined);
+  const lastParamsRef = useRef<P | undefined>();
 
   const getCached = useCallback((key: string): T | null => {
     if (!options.cache) return null;

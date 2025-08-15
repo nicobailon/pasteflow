@@ -46,7 +46,7 @@ export const WorkspaceHeader = ({
               containerClassName="workspace-sort-dropdown-container"
               showCheckmark={true}
               glassEffect={true}
-              animationType="scale"
+              animationType="fade"
             />
           </div>
         )}

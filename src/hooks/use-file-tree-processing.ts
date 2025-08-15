@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import type { FileData, TreeNode } from '../types/file-types';
 import { 
   flattenTree, 
@@ -166,7 +167,7 @@ export function useFileTreeProcessing({
       console.error('Failed to start tree build:', error);
       setIsComplete(true);
     }
-  }, [allFiles, selectedFolder, expandedNodes, commitTree]);
+  }, [allFiles, selectedFolder, expandedNodes, commitTree, fileTreeSortOrder]);
   
   // Rebuild tree when structure changes
   useEffect(() => {
@@ -195,7 +196,7 @@ export function useFileTreeProcessing({
         buildHandleRef.current = null;
       }
     };
-  }, [hasFileStructureChanged, buildTree]);
+  }, [hasFileStructureChanged, buildTree, fileTree.length]);
   
   // Manual refresh function
   const refresh = useCallback(() => {

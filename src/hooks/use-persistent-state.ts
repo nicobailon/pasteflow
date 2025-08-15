@@ -89,9 +89,26 @@ export function usePersistentState<T>(
     }
   );
 
+  // Helper to validate key
+  const isValidKey = useCallback((k: unknown): k is string => {
+    return typeof k === 'string' && k.length > 0;
+  }, []);
+
+  // Helper to determine if error should be logged
+  const shouldLogError = useCallback((error: unknown): boolean => {
+    const errorMessage = (error as Error)?.message || '';
+    return !errorMessage.includes('key is required') && 
+           !errorMessage.includes('Rate limit exceeded');
+  }, []);
+
+  // Helper to add random delay for rate limiting prevention
+  const addRandomDelay = useCallback(async () => {
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+  }, []);
+
   // Fetch initial value from database
   useEffect(() => {
-    if (!key) {
+    if (!isValidKey(key)) {
       console.error('usePersistentState: No key provided');
       setHasInitialized(true);
       return;
@@ -99,16 +116,9 @@ export function usePersistentState<T>(
 
     const loadValue = async () => {
       try {
-        // Double-check key is valid before fetching
-        if (!key || typeof key !== 'string') {
-          console.error('Invalid key in loadValue:', key);
-          setHasInitialized(true);
-          return;
-        }
-
         // Add a small random delay (0-100ms) to stagger initial loads
         // This prevents rate limiting when multiple hooks initialize simultaneously
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+        await addRandomDelay();
 
         const dbValue = await fetchData({ key });
         if (dbValue !== null) {
@@ -116,9 +126,7 @@ export function usePersistentState<T>(
         }
         setHasInitialized(true);
       } catch (error) {
-        // Only log error if it's not about missing key or rate limiting
-        const errorMessage = (error as Error)?.message || '';
-        if (!errorMessage.includes('key is required') && !errorMessage.includes('Rate limit exceeded')) {
+        if (shouldLogError(error)) {
           console.error(`Error loading preference "${key}":`, error);
         }
         setHasInitialized(true);
@@ -126,7 +134,27 @@ export function usePersistentState<T>(
     };
     
     loadValue();
-  }, [key]); // Only depend on key to avoid infinite loops
+  }, [key, fetchData, isValidKey, shouldLogError, addRandomDelay]); // Only depend on key and fetchData to avoid infinite loops
+
+  // Helper to check if values are equal
+  const valuesEqual = useCallback((a: T, b: T): boolean => {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }, []);
+
+  // Helper to save value to database
+  const saveToDatabase = useCallback(async (k: string, value: T) => {
+    try {
+      await updateData(updateChannel, {
+        key: k,
+        value,
+        encrypted: false
+      });
+    } catch (error) {
+      if (shouldLogError(error)) {
+        console.error(`Error saving preference "${k}":`, error);
+      }
+    }
+  }, [updateData, updateChannel, shouldLogError]);
 
   /**
    * Updates the persisted value with automatic database synchronization.
@@ -141,29 +169,19 @@ export function usePersistentState<T>(
       const newValue = value instanceof Function ? value(prevValue) : value;
       
       // Check if value actually changed to prevent infinite loops
-      if (JSON.stringify(prevValue) === JSON.stringify(newValue)) {
+      if (valuesEqual(prevValue, newValue)) {
         return prevValue; // No change, don't trigger update
       }
 
       // Only save if key is valid
-      if (key && typeof key === 'string') {
+      if (isValidKey(key)) {
         // Save to database asynchronously
-        updateData(updateChannel, {
-          key,
-          value: newValue,
-          encrypted: false
-        }).catch(error => {
-          // Only log error if it's not about missing key
-          const errorMessage = (error as Error)?.message;
-          if (!errorMessage?.includes('key is required')) {
-            console.error(`Error saving preference "${key}":`, error);
-          }
-        });
+        void saveToDatabase(key, newValue);
       }
 
       return newValue;
     });
-  }, [key, updateData, updateChannel]);
+  }, [key, isValidKey, valuesEqual, saveToDatabase]);
 
   // Return the persisted value immediately, which will be updated when database loads
   return [hasInitialized ? persistedValue : initialValue, setValue];

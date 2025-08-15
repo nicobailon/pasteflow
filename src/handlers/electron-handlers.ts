@@ -260,7 +260,7 @@ export const setupElectronHandlers = (
 ): (() => void) => {
   if (!isElectron) return () => {};
 
-  const params: HandlerParams = {
+  const handlerConfig = createHandlerConfiguration({
     isElectron,
     setSelectedFolder,
     setAllFiles,
@@ -277,233 +277,420 @@ export const setupElectronHandlers = (
     getWorkspaceNames,
     selectedFolder,
     validateSelectedFilesExist
+  });
+
+  if (isHandlerAlreadyRegistered()) {
+    return () => {};
+  }
+
+  return initializeElectronHandlers(handlerConfig);
+};
+
+/**
+ * Create configuration for electron handlers
+ */
+function createHandlerConfiguration(params: {
+  isElectron: boolean;
+  setSelectedFolder: (folder: string | null) => void;
+  setAllFiles: (files: FileData[]) => void;
+  setProcessingStatus: (status: ProcessingStatus) => void;
+  clearSelectedFiles: () => void;
+  applyFiltersAndSort: (files: FileData[], sort: string, filter: string) => void;
+  sortOrder: string;
+  searchTerm: string;
+  setIsLoadingCancellable: (cancellable: boolean) => void;
+  setAppInitialized: (initialized: boolean) => void;
+  currentWorkspace: string | null;
+  setCurrentWorkspace: (name: string | null) => void;
+  persistWorkspace: (name: string, state: WorkspaceState) => Promise<void>;
+  getWorkspaceNames: () => Promise<string[]>;
+  selectedFolder: string | null;
+  validateSelectedFilesExist?: () => void;
+}) {
+  const handlerParams: HandlerParams = {
+    ...params
   };
   
   const handlerId = Math.random().toString(36).slice(2, 11);
-
-  // Keep accumulated files in closure
-  let accumulatedFiles: FileData[] = [];
+  const accumulatedFiles: FileData[] = [];
   
-  // Track current request ID to filter out stale responses
   const currentRequestId = { 
     get value() { return getGlobalRequestId(); },
     set value(id: string | null) { setGlobalRequestId(id); }
   };
   
+  return {
+    params: handlerParams,
+    handlerId,
+    accumulatedFiles,
+    currentRequestId
+  };
+}
+
+/**
+ * Check if handlers are already registered
+ */
+function isHandlerAlreadyRegistered(): boolean {
+  interface ExtendedWindow extends Window {
+    [HANDLER_KEY]?: boolean;
+  }
+  const globalWindow = window as ExtendedWindow;
+  return globalWindow[HANDLER_KEY] === true;
+}
+
+/**
+ * Initialize and register electron handlers
+ */
+function initializeElectronHandlers(config: {
+  params: HandlerParams;
+  handlerId: string;
+  accumulatedFiles: FileData[];
+  currentRequestId: { value: string | null };
+}): () => void {
+  const { params, handlerId, accumulatedFiles, currentRequestId } = config;
+  
+  const handlers = createElectronHandlers(params, accumulatedFiles, currentRequestId, handlerId);
+  
+  registerGlobalHandlerFlag();
+  registerIPCHandlers(handlers);
+  
+  const cleanupInterval = setupPeriodicCleanup(accumulatedFiles);
+  
+  return createCleanupFunction(handlers, accumulatedFiles, cleanupInterval);
+}
+
+/**
+ * Create electron IPC handlers
+ */
+function createElectronHandlers(
+  params: HandlerParams,
+  accumulatedFiles: FileData[],
+  currentRequestId: { value: string | null },
+  handlerId: string
+) {
   const handleFolderSelected = createFolderSelectedHandler(params, accumulatedFiles, handlerId);
   
-  // Helper function to process file data based on format
-  const processFileData = (
-    data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number; requestId?: string } | FileData[],
+  const processFileData = createFileDataProcessor(accumulatedFiles, params);
+  const handleFileListData = createFileListDataHandler(params, currentRequestId, processFileData);
+  const handleProcessingStatus = createProcessingStatusHandlerInternal(params);
+  
+  return {
+    handleFolderSelected,
+    handleFileListData,
+    handleProcessingStatus
+  };
+}
+
+/**
+ * Create file data processor
+ */
+function createFileDataProcessor(
+  accumulatedFiles: FileData[],
+  params: HandlerParams
+) {
+  return (
+    data: FileListIPCData,
     currentRequestId: { value: string | null }
-  ): {
+  ) => {
+    if (Array.isArray(data)) {
+      return processLegacyFileData(data, accumulatedFiles);
+    }
+    
+    if (isStaleRequest(data, currentRequestId)) {
+      return createEmptyResult();
+    }
+    
+    clearAccumulatedFilesIfNewRequest(data, currentRequestId, accumulatedFiles);
+    
+    const validatedFiles = validateAndFilterFiles(data, params);
+    
+    if (isCompletionSignal(data, validatedFiles)) {
+      return createCompletionResult(data, accumulatedFiles);
+    }
+    
+    accumulateFilesWithMemoryLimit(validatedFiles, accumulatedFiles);
+    
+    return createCompletionResult(data, accumulatedFiles);
+  };
+}
+
+/**
+ * Process legacy array format data
+ */
+function processLegacyFileData(data: FileData[], accumulatedFiles: FileData[]) {
+  accumulatedFiles.length = 0;
+  const filesArray = data.map(file => ({ 
+    ...file, 
+    isContentLoaded: file.isContentLoaded ?? false, 
+    isDirectory: file.isDirectory ?? false 
+  }));
+  
+  return {
+    filesArray,
+    isComplete: true,
+    processedCount: filesArray.length,
+    directoriesCount: 0,
+    totalCount: filesArray.length
+  };
+}
+
+/**
+ * Check if request is stale
+ */
+function isStaleRequest(
+  data: { requestId?: string },
+  currentRequestId: { value: string | null }
+): boolean {
+  return 'requestId' in data && 
+         currentRequestId.value !== null && 
+         data.requestId !== currentRequestId.value;
+}
+
+/**
+ * Create empty result for stale requests
+ */
+function createEmptyResult() {
+  return {
+    filesArray: [],
+    isComplete: false,
+    processedCount: 0,
+    directoriesCount: 0,
+    totalCount: 0
+  };
+}
+
+/**
+ * Clear accumulated files if this is a new request
+ */
+function clearAccumulatedFilesIfNewRequest(
+  data: { requestId?: string; files?: FileData[]; processed?: number },
+  currentRequestId: { value: string | null },
+  accumulatedFiles: FileData[]
+): void {
+  const isNewRequest = 'requestId' in data && 
+                      data.requestId === currentRequestId.value && 
+                      data.files && 
+                      data.files.length > 0 && 
+                      data.processed && 
+                      data.processed <= data.files.length && 
+                      data.processed < 50;
+  
+  if (isNewRequest) {
+    accumulatedFiles.length = 0;
+  }
+}
+
+/**
+ * Validate and filter files for current workspace
+ */
+function validateAndFilterFiles(
+  data: { files?: FileData[] },
+  params: HandlerParams
+): FileData[] {
+  let files = (data.files || []).map(file => ({ 
+    ...file, 
+    isContentLoaded: file.isContentLoaded ?? false,
+    isDirectory: file.isDirectory ?? false 
+  }));
+  
+  if (files.length > 0 && params.selectedFolder) {
+    files = files.filter(file => {
+      const normalizedFilePath = file.path.replace(/\\/g, '/');
+      const normalizedFolderPath = params.selectedFolder!.replace(/\\/g, '/');
+      return normalizedFilePath.startsWith(normalizedFolderPath);
+    });
+  }
+  
+  return files;
+}
+
+/**
+ * Check if this is a completion signal
+ */
+function isCompletionSignal(
+  data: { isComplete?: boolean },
+  files: FileData[]
+): boolean {
+  return data.isComplete === true && files.length === 0;
+}
+
+/**
+ * Create completion result
+ */
+function createCompletionResult(
+  data: { isComplete?: boolean; processed?: number; directories?: number; total?: number },
+  accumulatedFiles: FileData[]
+) {
+  return {
+    filesArray: accumulatedFiles,
+    isComplete: data.isComplete ?? false,
+    processedCount: data.processed ?? accumulatedFiles.length,
+    directoriesCount: data.directories ?? 0,
+    totalCount: data.total ?? accumulatedFiles.length
+  };
+}
+
+/**
+ * Accumulate files with memory limit enforcement
+ */
+function accumulateFilesWithMemoryLimit(
+  newFiles: FileData[],
+  accumulatedFiles: FileData[]
+): void {
+  const MAX_FILES_IN_MEMORY = 50_000;
+  accumulatedFiles.push(...newFiles);
+  
+  if (accumulatedFiles.length > MAX_FILES_IN_MEMORY) {
+    const error = new ApplicationError(
+      `Memory limit exceeded: ${accumulatedFiles.length} files`,
+      ERROR_CODES.MEMORY_LIMIT_EXCEEDED,
+      {
+        operation: 'processFileData',
+        details: { 
+          fileCount: accumulatedFiles.length,
+          limit: MAX_FILES_IN_MEMORY 
+        },
+        timestamp: Date.now()
+      },
+      getRecoverySuggestions(ERROR_CODES.MEMORY_LIMIT_EXCEEDED)
+    );
+    
+    logError(error, error.context);
+    accumulatedFiles.splice(0, accumulatedFiles.length - MAX_FILES_IN_MEMORY);
+  }
+}
+
+
+/**
+ * Create file list data handler
+ */
+function createFileListDataHandler(
+  params: HandlerParams,
+  currentRequestId: { value: string | null },
+  processFileData: (data: FileListIPCData, requestId: { value: string | null }) => {
     filesArray: FileData[];
     isComplete: boolean;
     processedCount: number;
     directoriesCount: number;
     totalCount: number;
-  } => {
-    if (Array.isArray(data)) {
-      // Legacy format - treat as complete and reset accumulated files
-      accumulatedFiles = [];
-      const filesArray = data.map(file => ({ 
-        ...file, 
-        isContentLoaded: file.isContentLoaded ?? false, 
-        isDirectory: file.isDirectory ?? false 
-      }));
-      return {
-        filesArray,
-        isComplete: true,
-        processedCount: filesArray.length,
-        directoriesCount: 0,
-        totalCount: filesArray.length
-      };
+  }
+) {
+  return (data: FileListIPCData) => {
+    window.sessionStorage.setItem('lastFileListUpdate', Date.now().toString());
+
+    const { filesArray, isComplete, processedCount, directoriesCount, totalCount } = processFileData(data, currentRequestId);
+
+    params.setAllFiles(filesArray);
+    params.applyFiltersAndSort(filesArray, params.sortOrder, params.searchTerm);
+    
+    if (params.validateSelectedFilesExist) {
+      setTimeout(() => {
+        params.validateSelectedFilesExist?.();
+      }, 50);
     }
 
-    // Check if this data is from the current request
-    // If currentRequestId.value is null (not tracking), accept any incoming data
-    if ('requestId' in data && currentRequestId.value !== null && data.requestId !== currentRequestId.value) {
-      return {
-        filesArray: [],
-        isComplete: false,
-        processedCount: 0,
-        directoriesCount: 0,
-        totalCount: 0
-      };
-    }
-    
-    // Clear accumulated files on first batch of new request
-    if ('requestId' in data && data.requestId === currentRequestId.value && data.files && data.files.length > 0 && // Check if this looks like the first batch (small file count and low processed count)
-      data.processed && data.processed <= data.files.length && data.processed < 50) {
-        accumulatedFiles.length = 0;
-      }
-    
-    // Progressive loading format
-    let newFiles = (data.files || []).map(file => ({ 
-      ...file, 
-      isContentLoaded: file.isContentLoaded ?? false,
-      isDirectory: file.isDirectory ?? false 
-    }));
-    
-    // Validate that files belong to current workspace
-    const currentFolder = params.selectedFolder;
-    if (newFiles.length > 0 && currentFolder) {
-      const validFiles = newFiles.filter(file => {
-        // Normalize paths for comparison (handle Windows vs Unix paths)
-        const normalizedFilePath = file.path.replace(/\\/g, '/');
-        const normalizedFolderPath = currentFolder.replace(/\\/g, '/');
-        return normalizedFilePath.startsWith(normalizedFolderPath);
+    if (isComplete) {
+      params.setProcessingStatus({
+        status: "complete" as const,
+        message: `Loaded ${processedCount} files from ${directoriesCount} directories`,
+        processed: processedCount,
+        directories: directoriesCount,
+        total: totalCount
       });
-      
-      if (validFiles.length !== newFiles.length) {
-        // Some files were filtered out
-      }
-      
-      newFiles = validFiles;
-    }
-    
-    if (data.isComplete && newFiles.length === 0) {
-      // This is the final signal - use accumulated files
-      return {
-        filesArray: accumulatedFiles,
-        isComplete: data.isComplete ?? false,
-        processedCount: data.processed ?? accumulatedFiles.length,
-        directoriesCount: data.directories ?? 0,
-        totalCount: data.total ?? accumulatedFiles.length
-      };
+      params.setIsLoadingCancellable(false);
+      params.setAppInitialized(true);
+      setGlobalRequestId(null);
     }
 
-    // Add new files to accumulation with memory limit
-    const MAX_FILES_IN_MEMORY = 50_000;
-    accumulatedFiles = [...accumulatedFiles, ...newFiles];
-    
-    // Handle memory limit
-    if (accumulatedFiles.length > MAX_FILES_IN_MEMORY) {
-      const error = new ApplicationError(
-        `Memory limit exceeded: ${accumulatedFiles.length} files`,
-        ERROR_CODES.MEMORY_LIMIT_EXCEEDED,
-        {
-          operation: 'processFileData',
-          details: { 
-            fileCount: accumulatedFiles.length,
-            limit: MAX_FILES_IN_MEMORY 
-          },
-          timestamp: Date.now()
-        },
-        getRecoverySuggestions(ERROR_CODES.MEMORY_LIMIT_EXCEEDED)
-      );
-      
-      logError(error, error.context);
-      accumulatedFiles = accumulatedFiles.slice(-MAX_FILES_IN_MEMORY);
+    const event = new CustomEvent("file-list-updated");
+    window.dispatchEvent(event);
+  };
+}
+
+/**
+ * Create processing status handler
+ */
+function createProcessingStatusHandlerInternal(params: HandlerParams) {
+  return (status: ProcessingStatus) => {
+    params.setProcessingStatus(status);
+
+    if (status.status === "complete" || status.status === "error") {
+      params.setIsLoadingCancellable(false);
+      if (status.status === "error") {
+        setGlobalRequestId(null);
+      }
+    } else if (status.status === "processing") {
+      params.setIsLoadingCancellable(true);
     }
-    
-    return {
-      filesArray: accumulatedFiles,
-      isComplete: data.isComplete ?? false,
-      processedCount: data.processed ?? accumulatedFiles.length,
-      directoriesCount: data.directories ?? 0,
-      totalCount: data.total ?? accumulatedFiles.length
-    };
   };
+}
 
-  // Create the file list data handler factory
-  const createFileListDataHandler = (
-    params: HandlerParams,
-    accumulatedFiles: FileData[],
-    currentRequestId: { value: string | null }
-  ) => {
-    return (data: { files?: FileData[]; isComplete?: boolean; processed?: number; directories?: number; total?: number } | FileData[]) => {
-      window.sessionStorage.setItem('lastFileListUpdate', Date.now().toString());
-
-      const { filesArray, isComplete, processedCount, directoriesCount, totalCount } = processFileData(data, currentRequestId);
-
-      
-      params.setAllFiles(filesArray);
-      params.applyFiltersAndSort(filesArray, params.sortOrder, params.searchTerm);
-      
-      // Validate that selected files still exist after file list update
-      if (params.validateSelectedFilesExist) {
-        // Use a small delay to ensure state has been updated
-        setTimeout(() => {
-          params.validateSelectedFilesExist?.();
-        }, 50);
-      }
-
-      if (isComplete) {
-        params.setProcessingStatus({
-          status: "complete",
-          message: `Loaded ${processedCount} files from ${directoriesCount} directories`,
-          processed: processedCount,
-          directories: directoriesCount,
-          total: totalCount
-        });
-        params.setIsLoadingCancellable(false);
-        params.setAppInitialized(true);
-        accumulatedFiles.length = 0; // Clear accumulated files
-        setGlobalRequestId(null); // Clear request ID when complete
-      }
-
-      const event = new CustomEvent("file-list-updated");
-      window.dispatchEvent(event);
-    };
-  };
-
-  const handleFileListData = createFileListDataHandler(params, accumulatedFiles, currentRequestId);
-
-  // Create the processing status handler factory
-  const createProcessingStatusHandler = (params: HandlerParams) => {
-    return (status: ProcessingStatus) => {
-      params.setProcessingStatus(status);
-
-      if (status.status === "complete" || status.status === "error") {
-        params.setIsLoadingCancellable(false);
-        if (status.status === "error") {
-          setGlobalRequestId(null); // Clear request ID on error
-        }
-      } else if (status.status === "processing") {
-        params.setIsLoadingCancellable(true);
-      }
-    };
-  };
-
-  const handleProcessingStatus = createProcessingStatusHandler(params);
-
-  // Check if handlers are already registered globally
+/**
+ * Register global handler flag
+ */
+function registerGlobalHandlerFlag(): void {
   interface ExtendedWindow extends Window {
     [HANDLER_KEY]?: boolean;
   }
   const globalWindow = window as ExtendedWindow;
-  if (globalWindow[HANDLER_KEY]) {
-    return () => {};
-  }
-  
-  // Mark handlers as registered globally
   globalWindow[HANDLER_KEY] = true;
-  
-  // Register IPC handlers
-  const registerHandlers = () => {
-    window.electron.ipcRenderer.on("folder-selected", handleFolderSelected);
-    window.electron.ipcRenderer.on("file-list-data", handleFileListData);
-    window.electron.ipcRenderer.on("file-processing-status", handleProcessingStatus);
-  };
+}
 
-  registerHandlers();
-  const cleanupInterval = setupPeriodicCleanup(accumulatedFiles);
+/**
+ * Type for file list data from IPC
+ */
+type FileListIPCData = 
+  | FileData[] 
+  | {
+      files?: FileData[];
+      isComplete?: boolean;
+      processed?: number;
+      directories?: number;
+      total?: number;
+      requestId?: string;
+    };
 
-  // Return cleanup function
+/**
+ * Register IPC handlers
+ */
+function registerIPCHandlers(handlers: {
+  handleFolderSelected: (folderPath: string) => void;
+  handleFileListData: (data: FileListIPCData) => void;
+  handleProcessingStatus: (status: ProcessingStatus) => void;
+}): void {
+  window.electron.ipcRenderer.on("folder-selected", handlers.handleFolderSelected);
+  window.electron.ipcRenderer.on("file-list-data", handlers.handleFileListData);
+  window.electron.ipcRenderer.on("file-processing-status", handlers.handleProcessingStatus);
+}
+
+/**
+ * Create cleanup function
+ */
+function createCleanupFunction(
+  handlers: {
+    handleFolderSelected: (folderPath: string) => void;
+    handleFileListData: (data: FileListIPCData) => void;
+    handleProcessingStatus: (status: ProcessingStatus) => void;
+  },
+  accumulatedFiles: FileData[],
+  cleanupInterval: NodeJS.Timeout
+): () => void {
   return () => {
-    // Clean up resources
     accumulatedFiles.length = 0;
     clearInterval(cleanupInterval);
     window.sessionStorage.removeItem('lastFileListUpdate');
+    
+    interface ExtendedWindow extends Window {
+      [HANDLER_KEY]?: boolean;
+    }
+    const globalWindow = window as ExtendedWindow;
     delete globalWindow[HANDLER_KEY];
     
-    // Remove IPC listeners
-    window.electron.ipcRenderer.removeListener("folder-selected", handleFolderSelected);
-    window.electron.ipcRenderer.removeListener("file-list-data", handleFileListData);
-    window.electron.ipcRenderer.removeListener("file-processing-status", handleProcessingStatus);
+    window.electron.ipcRenderer.removeListener("folder-selected", handlers.handleFolderSelected);
+    window.electron.ipcRenderer.removeListener("file-list-data", handlers.handleFileListData);
+    window.electron.ipcRenderer.removeListener("file-processing-status", handlers.handleProcessingStatus);
   };
-};
+}
 
 /**
  * Opens the folder selection dialog

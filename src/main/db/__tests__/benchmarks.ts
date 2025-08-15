@@ -2,8 +2,12 @@ import { performance } from 'node:perf_hooks';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 import { AsyncDatabase } from '../async-database';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 interface BenchmarkResult {
   operation: string;
@@ -309,12 +313,12 @@ export class DatabaseBenchmarks {
     // Content hashing and deduplication
     const hashingStart = performance.now();
     const contents = [smallContent, mediumContent, largeContent];
-    const hashes = [];
     
     for (let i = 0; i < 100; i++) {
       for (const content of contents) {
-        const hash = require('node:crypto').createHash('sha256').update(content).digest('hex');
-        hashes.push(hash);
+        const hash = createHash('sha256').update(content).digest('hex');
+        // Hash is computed but not stored - we're only measuring performance
+        void hash;
       }
     }
     const hashingDuration = performance.now() - hashingStart;
@@ -333,7 +337,7 @@ export class DatabaseBenchmarks {
     const storageStart = performance.now();
     for (let i = 0; i < 100; i++) {
       const content = contents[i % 3];
-      const hash = require('node:crypto').createHash('sha256').update(content).digest('hex');
+      const hash = createHash('sha256').update(content).digest('hex');
       
       await this.db.run(
         'INSERT OR IGNORE INTO file_contents (hash, content, original_size, compressed_size, compression_ratio) VALUES (?, ?, ?, ?, ?)',
@@ -437,14 +441,24 @@ export class DatabaseBenchmarks {
         durationMs: Math.round(r.duration * 100) / 100,
         opsPerSecond: Math.round(r.opsPerSecond * 100) / 100
       })),
-      performance: {
-        fastestOperation: this.results.reduce((fastest, r) => 
-          r.opsPerSecond > fastest.opsPerSecond ? r : fastest
-        ),
-        slowestOperation: this.results.reduce((slowest, r) => 
-          r.opsPerSecond < slowest.opsPerSecond ? r : slowest
-        )
-      }
+      performance: (() => {
+        let fastestOperation = this.results[0];
+        let slowestOperation = this.results[0];
+        
+        for (const r of this.results) {
+          if (r.opsPerSecond > fastestOperation.opsPerSecond) {
+            fastestOperation = r;
+          }
+          if (r.opsPerSecond < slowestOperation.opsPerSecond) {
+            slowestOperation = r;
+          }
+        }
+        
+        return {
+          fastestOperation,
+          slowestOperation
+        };
+      })()
     };
 
     // Print summary
@@ -479,15 +493,16 @@ export class DatabaseBenchmarks {
 }
 
 // Run benchmarks if called directly
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   const benchmarks = new DatabaseBenchmarks();
-  benchmarks.runAllBenchmarks()
-    .then(() => {
-      console.log('\nBenchmark complete!');
-      process.exit(0);
-    })
-    .catch(error => {
-      console.error('Benchmark error:', error);
-      process.exit(1);
-    });
+  try {
+    await benchmarks.runAllBenchmarks();
+    console.log('\nBenchmark complete!');
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(0);
+  } catch (error) {
+    console.error('Benchmark error:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
+  }
 }

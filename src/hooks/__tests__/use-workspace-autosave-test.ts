@@ -1,6 +1,10 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
+
 import { useWorkspaceAutoSave, computeWorkspaceSignature } from '../use-workspace-autosave';
 import type { FileTreeMode, SelectedFileReference, SystemPrompt, RolePrompt } from '../../types/file-types';
+
+// Test constants
+const TEST_SEARCH_TERM = 'test-search';
 
 // Mock the persistent state hook
 jest.mock('../use-persistent-state', () => ({
@@ -53,7 +57,7 @@ describe('useWorkspaceAutoSave', () => {
     });
     
     act(() => { result.current.setAutoSaveEnabled(false); });
-    rerender({ ...defaultOptions, searchTerm: 'new search' });
+    rerender({ ...defaultOptions, searchTerm: TEST_SEARCH_TERM });
     act(() => { jest.advanceTimersByTime(3000); });
     
     expect(result.current.isAutoSaveEnabled).toBe(false);
@@ -108,7 +112,7 @@ describe('useWorkspaceAutoSave', () => {
     rerender({
       ...defaultOptions,
       currentWorkspace: null,
-      searchTerm: 'new search'
+      searchTerm: TEST_SEARCH_TERM
     });
 
     // Wait for potential save
@@ -140,7 +144,7 @@ describe('useWorkspaceAutoSave', () => {
     rerender({
       ...defaultOptions,
       isApplyingWorkspaceData: true,
-      searchTerm: 'new search'
+      searchTerm: TEST_SEARCH_TERM
     });
 
     // Wait for potential save
@@ -172,7 +176,7 @@ describe('useWorkspaceAutoSave', () => {
     rerender({
       ...defaultOptions,
       isProcessing: true,
-      searchTerm: 'new search'
+      searchTerm: TEST_SEARCH_TERM
     });
 
     // Wait for potential save
@@ -226,7 +230,7 @@ describe('useWorkspaceAutoSave', () => {
 
     // Wait for minimum interval to pass
     await act(async () => {
-      jest.advanceTimersByTime(10000);
+      jest.advanceTimersByTime(10_000);
       await Promise.resolve();
     });
 
@@ -372,7 +376,7 @@ describe('useWorkspaceAutoSave', () => {
     rerender({
       ...defaultOptions,
       onAutoSave: failingOnAutoSave,
-      searchTerm: 'new search'
+      searchTerm: TEST_SEARCH_TERM
     });
 
     // Trigger save

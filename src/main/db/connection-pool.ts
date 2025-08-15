@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import * as crypto from 'node:crypto';
 
-import Database from 'better-sqlite3';
+import BetterSqlite3 from 'better-sqlite3';
 
 export interface PoolConnectionOptions {
   encryptionKey?: string;
@@ -42,7 +42,7 @@ export type QueryResults = QueryResult[];
 
 interface PoolConnection {
   id: string;
-  db: Database.Database;
+  db: BetterSqlite3.Database;
   isWriteConnection: boolean;
   isActive: boolean;
   lastUsed: number;
@@ -126,7 +126,7 @@ export class ConnectionPool extends EventEmitter {
     const connectionId = `${isWrite ? 'write' : 'read'}_${crypto.randomUUID()}`;
     
     try {
-      const db = new Database(this.dbPath);
+      const db = new BetterSqlite3(this.dbPath);
       
       // Apply encryption if configured
       if (this.config.connectionOptions?.encryptionKey) {
@@ -379,7 +379,7 @@ export class ConnectionPool extends EventEmitter {
   async executeQueryRun(
     sql: string, 
     params: SqlParameters = []
-  ): Promise<Database.RunResult> {
+  ): Promise<BetterSqlite3.RunResult> {
     const startTime = performance.now();
     const connection = await this.acquireWriteConnection();
 
