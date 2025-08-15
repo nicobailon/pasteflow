@@ -86,7 +86,7 @@ export class DatabaseRetryUtility extends EventEmitter {
 
     const attempts: RetryAttempt[] = [];
     const startTime = Date.now();
-    let lastError: Error;
+    let lastError: Error = new Error('No error captured');
 
     // Update stats
     this.updateStats(config.operation, 'attempt');

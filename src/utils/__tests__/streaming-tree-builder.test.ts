@@ -1,14 +1,6 @@
 import { StreamingTreeBuilder } from '../streaming-tree-builder';
-import type { FileData, TreeNode } from '../../types/file-types';
+import type { FileData } from '../../types/file-types';
 import type { TreeChunk } from '../streaming-tree-builder';
-
-// Type for accessing private properties in tests
-interface StreamingTreeBuilderPrivate extends StreamingTreeBuilder {
-  worker: MockWorker | null;
-  id: string;
-  messageHandler: ((e: MessageEvent) => void) | null;
-  errorHandler: ((error: ErrorEvent) => void) | null;
-}
 
 // Mock Worker
 class MockWorker {
@@ -47,7 +39,14 @@ class MockWorker {
       if (handlers) {
         // Simulate chunk processing
         const chunk: TreeChunk = {
-          nodes: [{ name: 'test', path: '/test', children: [] }],
+          nodes: [{ 
+            id: 'test-id',
+            name: 'test', 
+            path: '/test', 
+            type: 'directory' as const,
+            level: 0,
+            children: [] 
+          }],
           progress: 50,
         };
 
@@ -202,8 +201,10 @@ describe('StreamingTreeBuilder', () => {
 
       // Trigger error after a delay
       setTimeout(() => {
-        const builderWithWorker = builder as StreamingTreeBuilder & { worker: MockWorker; id: string };
-        builderWithWorker.worker.triggerError('Test error', builderWithWorker.id);
+        const builderPrivate = builder as unknown as { worker: MockWorker | null; id: string };
+        if (builderPrivate.worker instanceof MockWorker) {
+          builderPrivate.worker.triggerError('Test error', builderPrivate.id);
+        }
       }, 5);
     });
 
@@ -337,7 +338,7 @@ describe('StreamingTreeBuilder', () => {
       builder.cancel();
 
       expect(worker.terminated).toBe(true);
-      const builderPrivate = builder as unknown as StreamingTreeBuilderPrivate;
+      const builderPrivate = builder as unknown as { worker: MockWorker | null };
       expect(builderPrivate.worker).toBeNull();
     });
   });
@@ -389,7 +390,7 @@ describe('StreamingTreeBuilder', () => {
       );
 
       expect(errorCalled).toBe(true);
-      const builderPrivate = builder as unknown as StreamingTreeBuilderPrivate;
+      const builderPrivate = builder as unknown as { worker: MockWorker | null };
       expect(builderPrivate.worker).toBeNull();
 
       // Restore MockWorker
@@ -407,7 +408,7 @@ describe('StreamingTreeBuilder', () => {
       builder.cancel();
       builder.cancel();
 
-      const builderPrivate = builder as unknown as StreamingTreeBuilderPrivate;
+      const builderPrivate = builder as unknown as { worker: MockWorker | null };
       expect(builderPrivate.worker).toBeNull();
     });
   });

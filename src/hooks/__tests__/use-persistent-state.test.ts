@@ -489,7 +489,7 @@ describe('usePersistentState', () => {
       };
 
       const { result } = renderHook(() => 
-        usePersistentState('large-object-test', { data: [] })
+        usePersistentState<typeof largeObject>('large-object-test', { data: [] })
       );
 
       const startTime = Date.now();

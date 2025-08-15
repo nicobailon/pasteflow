@@ -6,8 +6,16 @@ import Database from 'better-sqlite3';
 import { ConnectionPool, ConnectionPoolConfig, PoolStats, SqlParameters, QueryResult } from './connection-pool';
 
 // Precise types for cache and configuration
-export type CacheableResult = QueryResult | QueryResult[];
+export type CacheableResult = QueryResult | QueryResult[] | Database.RunResult;
 export type DatabaseOperationType = 'get' | 'all' | 'run';
+
+// Database interface for both pooled and transaction databases
+export interface DatabaseInterface {
+  get<T extends QueryResult>(sql: string, params?: SqlParameters): Promise<T | undefined>;
+  all<T extends QueryResult>(sql: string, params?: SqlParameters): Promise<T[]>;
+  run(sql: string, params?: SqlParameters): Promise<Database.RunResult>;
+  exec(sql: string): Promise<void>;
+}
 
 // Connection type for transactions
 export interface TransactionConnection {
@@ -40,7 +48,7 @@ export interface PerformanceMetrics {
   poolUtilization: number;
 }
 
-export class PooledDatabase extends EventEmitter {
+export class PooledDatabase extends EventEmitter implements DatabaseInterface {
   private pool: ConnectionPool;
   private config: PooledDatabaseConfig;
   private queryCache = new Map<string, QueryCacheEntry>();
@@ -272,7 +280,7 @@ export class PooledDatabase extends EventEmitter {
 
   // Transaction support with automatic retry
   async transaction<T>(
-    fn: (db: PooledDatabase) => Promise<T>,
+    fn: (db: DatabaseInterface) => Promise<T>,
     retries = 3
   ): Promise<T> {
     let lastError: Error;
@@ -282,15 +290,16 @@ export class PooledDatabase extends EventEmitter {
         return await this.pool.transaction(async (connection) => {
           // Create a transaction-scoped database wrapper
           const txDatabase = new TransactionDatabase(connection, this);
-          return await fn(txDatabase as PooledDatabase);
+          return await fn(txDatabase);
         });
       } catch (error) {
         lastError = error as Error;
         
         // Check if error is retryable (SQLITE_BUSY, SQLITE_LOCKED)
-        const isRetryable = error.message.includes('SQLITE_BUSY') || 
-                           error.message.includes('SQLITE_LOCKED') ||
-                           error.message.includes('database is locked');
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isRetryable = errorMessage.includes('SQLITE_BUSY') || 
+                           errorMessage.includes('SQLITE_LOCKED') ||
+                           errorMessage.includes('database is locked');
         
         if (!isRetryable || attempt === retries) {
           throw error;
@@ -302,7 +311,7 @@ export class PooledDatabase extends EventEmitter {
         
         this.emit('transactionRetry', {
           attempt,
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
           nextDelay: attempt < retries ? Math.min(1000 * Math.pow(2, attempt), 10_000) : null
         });
       }
@@ -318,11 +327,11 @@ export class PooledDatabase extends EventEmitter {
     return statementId;
   }
 
-  async executePrepared<T extends CacheableResult | Database.RunResult>(
+  async executePrepared<T extends QueryResult | Database.RunResult>(
     statementId: string,
     params: SqlParameters = [],
     operation: DatabaseOperationType = 'get'
-  ): Promise<T> {
+  ): Promise<T | T[] | undefined> {
     const sql = this.prepared.get(statementId);
     if (!sql) {
       throw new Error(`Prepared statement not found: ${statementId}`);
@@ -330,10 +339,10 @@ export class PooledDatabase extends EventEmitter {
 
     switch (operation) {
       case 'get': {
-        return this.get<T>(sql, params) as Promise<T>;
+        return this.get<T extends QueryResult ? T : never>(sql, params) as Promise<T | undefined>;
       }
       case 'all': {
-        return this.all<T>(sql, params) as Promise<T>;
+        return this.all<T extends QueryResult ? T : never>(sql, params) as Promise<T[]>;
       }
       case 'run': {
         return this.run(sql, params) as Promise<T>;
@@ -359,10 +368,9 @@ export class PooledDatabase extends EventEmitter {
     }
   }
 
-  invalidateCachePattern(pattern: string): void {
+  invalidateCachePattern(_pattern: string): void {
     if (!this.config.enableQueryCache) return;
 
-    const regex = new RegExp(pattern, 'i');
     const keysToDelete: string[] = [];
 
     for (const [key] of this.queryCache) {
@@ -376,7 +384,7 @@ export class PooledDatabase extends EventEmitter {
 
     this.emit('cacheInvalidated', {
       reason: 'pattern_match',
-      pattern,
+      pattern: _pattern,
       keysRemoved: keysToDelete.length
     });
   }
@@ -460,7 +468,7 @@ export class PooledDatabase extends EventEmitter {
 }
 
 // Transaction-scoped database wrapper
-class TransactionDatabase {
+class TransactionDatabase implements DatabaseInterface {
   constructor(
     private connection: TransactionConnection,
     private parentDb: PooledDatabase

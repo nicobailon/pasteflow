@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
-import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 
 import Database from 'better-sqlite3';
@@ -179,19 +178,19 @@ export class ConnectionPool extends EventEmitter {
       return connection;
     } catch (error) {
       console.error(`Failed to create ${isWrite ? 'write' : 'read'} connection:`, error);
-      throw new Error(`Connection creation failed: ${error.message}`);
+      throw new Error(`Connection creation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   private async testConnection(connection: PoolConnection): Promise<void> {
     try {
-      const result = connection.db.prepare('SELECT 1 as test').get();
+      const result = connection.db.prepare('SELECT 1 as test').get() as { test: number } | undefined;
       if (!result || result.test !== 1) {
         throw new Error('Connection health check failed');
       }
     } catch (error) {
       connection.isHealthy = false;
-      throw new Error(`Connection test failed: ${error.message}`);
+      throw new Error(`Connection test failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -337,7 +336,7 @@ export class ConnectionPool extends EventEmitter {
       this.emit('queryError', {
         sql,
         params,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         connectionId: connection.id
       });
       throw error;
@@ -368,7 +367,7 @@ export class ConnectionPool extends EventEmitter {
       this.emit('queryError', {
         sql,
         params,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         connectionId: connection.id
       });
       throw error;
@@ -396,7 +395,7 @@ export class ConnectionPool extends EventEmitter {
       this.emit('queryError', {
         sql,
         params,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         connectionId: connection.id
       });
       throw error;

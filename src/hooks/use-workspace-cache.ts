@@ -9,9 +9,9 @@ interface UseWorkspaceCacheOptions {
 }
 
 interface UseWorkspaceCacheReturn {
-  getSortedWorkspaces: (mode: WorkspaceSortMode, manualOrder?: string[]) => string[];
-  getWorkspaceCount: () => number;
-  hasWorkspace: (name: string) => boolean;
+  getSortedWorkspaces: (mode: WorkspaceSortMode, manualOrder?: string[]) => Promise<string[]>;
+  getWorkspaceCount: () => Promise<number>;
+  hasWorkspace: (name: string) => Promise<boolean>;
   invalidateCache: (mode?: WorkspaceSortMode) => void;
   refreshCache: () => void;
   cacheStats: {
@@ -52,33 +52,33 @@ export function useWorkspaceCache(options: UseWorkspaceCacheOptions = {}): UseWo
   }, [cacheManager, perfMonitor]);
   
   // Get sorted workspaces with performance monitoring
-  const getSortedWorkspaces = useCallback((mode: WorkspaceSortMode, manualOrder?: string[]): string[] => {
+  const getSortedWorkspaces = useCallback(async (mode: WorkspaceSortMode, manualOrder?: string[]): Promise<string[]> => {
     if (perfMonitor) {
-      return perfMonitor.measure('getSortedWorkspaces', () => 
-        cacheManager.getSortedList(mode, manualOrder)
+      return perfMonitor.measureAsync('getSortedWorkspaces', async () => 
+        await cacheManager.getSortedList(mode, manualOrder)
       );
     }
-    return cacheManager.getSortedList(mode, manualOrder);
+    return await cacheManager.getSortedList(mode, manualOrder);
   }, [cacheManager, perfMonitor, cacheVersion]); // Include cacheVersion to ensure updates
   
   // Get workspace count
-  const getWorkspaceCount = useCallback((): number => {
+  const getWorkspaceCount = useCallback(async (): Promise<number> => {
     if (perfMonitor) {
-      return perfMonitor.measure('getWorkspaceCount', () => 
-        cacheManager.getWorkspaceCount()
+      return perfMonitor.measureAsync('getWorkspaceCount', async () => 
+        await cacheManager.getWorkspaceCount()
       );
     }
-    return cacheManager.getWorkspaceCount();
+    return await cacheManager.getWorkspaceCount();
   }, [cacheManager, perfMonitor, cacheVersion]);
   
   // Check if workspace exists
-  const hasWorkspace = useCallback((name: string): boolean => {
+  const hasWorkspace = useCallback(async (name: string): Promise<boolean> => {
     if (perfMonitor) {
-      return perfMonitor.measure('hasWorkspace', () => 
-        cacheManager.hasWorkspace(name)
+      return perfMonitor.measureAsync('hasWorkspace', async () => 
+        await cacheManager.hasWorkspace(name)
       );
     }
-    return cacheManager.hasWorkspace(name);
+    return await cacheManager.hasWorkspace(name);
   }, [cacheManager, perfMonitor, cacheVersion]);
   
   // Invalidate cache

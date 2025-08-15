@@ -33,7 +33,7 @@ export class TokenWorkerPool {
     return `${hash}-${text.length}`;
   }
   
-  async countTokens(text: string, options?: { signal?: AbortSignal; priority?: number }): Promise<number> {
+  async countTokens(text: string): Promise<number> {
     if (this.isTerminated) {
       throw new Error('Worker pool has been terminated');
     }
@@ -222,13 +222,13 @@ export class TokenWorkerPool {
     this.isRecycling = false;
   }
   
-  async countTokensBatch(texts: string[], options?: { signal?: AbortSignal; priority?: number }): Promise<number[]> {
+  async countTokensBatch(texts: string[]): Promise<number[]> {
     // Fast path for recycling state
     if (this.isRecycling) {
       return texts.map(text => Math.ceil(text.length / 4));
     }
     
-    return Promise.all(texts.map(text => this.countTokens(text, options)));
+    return Promise.all(texts.map(text => this.countTokens(text)));
   }
   
   terminate() {

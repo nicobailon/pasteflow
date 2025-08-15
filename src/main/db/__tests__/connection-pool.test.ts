@@ -176,7 +176,7 @@ describe('Connection Pool', () => {
       await db.run('INSERT INTO test_transaction (id) VALUES (1)');
 
       // Simulate concurrent transactions
-      const promises = Array.from({ length: 10 }, async (_, i) => {
+      const promises = Array.from({ length: 10 }, async () => {
         return db.transaction(async (txDb) => {
           const current = await txDb.get<{ counter: number }>('SELECT counter FROM test_transaction WHERE id = 1');
           const newValue = (current?.counter || 0) + 1;
@@ -223,7 +223,20 @@ describe('Connection Pool', () => {
 
       // Test update operation
       await bridge.updateWorkspace('test-workspace', {
-        selectedFiles: [{ path: '/test/file.ts' }, { path: '/test/file2.ts' }]
+        selectedFolder: null,
+        allFiles: [],
+        selectedFiles: [{ path: '/test/file.ts' }, { path: '/test/file2.ts' }],
+        expandedNodes: {},
+        sortOrder: 'name',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
+        userInstructions: '',
+        tokenCounts: {},
+        customPrompts: {
+          systemPrompts: [],
+          rolePrompts: []
+        }
       });
 
       const updated = await bridge.getWorkspace('test-workspace');

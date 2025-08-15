@@ -152,7 +152,7 @@ describe('Workspace Feature', () => {
     window.removeEventListener('workspacesChanged', eventReceived);
   });
 
-  test('gets workspace names', () => {
+  test('gets workspace names', async () => {
     const { result } = renderHook(() => useWorkspaceState());
     
     // Create mock workspace data
@@ -175,20 +175,20 @@ describe('Workspace Feature', () => {
     };
     
     // Save multiple workspaces with different timestamps
-    act(() => {
+    await act(async () => {
       // Mock time for test1
       jest.spyOn(Date, 'now').mockReturnValue(1000);
-      result.current.saveWorkspace('test1', mockWorkspaceData);
+      await result.current.saveWorkspace('test1', mockWorkspaceData);
       
       // Mock time for test2 (later)
       jest.spyOn(Date, 'now').mockReturnValue(2000);
-      result.current.saveWorkspace('test2', mockWorkspaceData);
+      await result.current.saveWorkspace('test2', mockWorkspaceData);
       
       // Restore Date.now
       jest.restoreAllMocks();
     });
     
-    const names = result.current.getWorkspaceNames();
+    const names = await result.current.getWorkspaceNames();
     
     // ASSERTION 1: Contains expected workspaces
     expect(names).toContain('test1');
@@ -209,7 +209,7 @@ describe('Workspace Feature', () => {
     expect(names[1]).toBe('test1');
   });
 
-  test('handles workspace serialization and deserialization', () => {
+  test('handles workspace serialization and deserialization', async () => {
     const { result: workspaceStateResult } = renderHook(() => useWorkspaceState());
     
     // Save a workspace with specific data
@@ -237,24 +237,27 @@ describe('Workspace Feature', () => {
       savedAt: Date.now()
     };
     
-    act(() => {
-      workspaceStateResult.current.saveWorkspace('testWorkspace', testWorkspaceData);
+    await act(async () => {
+      await workspaceStateResult.current.saveWorkspace('testWorkspace', testWorkspaceData);
     });
     
     // Load workspace back
     let loadedWorkspace: WorkspaceState | null = null;
-    act(() => {
-      loadedWorkspace = workspaceStateResult.current.loadWorkspace('testWorkspace');
+    await act(async () => {
+      loadedWorkspace = await workspaceStateResult.current.loadWorkspace('testWorkspace');
     });
     
     // Verify restoration behavior (not structure)
     expect(loadedWorkspace).not.toBeNull();
-    expect(loadedWorkspace?.selectedFolder).toBe('/test/project');
-    expect(loadedWorkspace?.userInstructions).toBe('Specific test instructions');
-    expect(loadedWorkspace?.selectedFiles).toHaveLength(2);
-    expect(loadedWorkspace?.selectedFiles[0].path).toBe('file1.ts');
-    expect(loadedWorkspace?.expandedNodes['/test']).toBe(true);
-    expect(loadedWorkspace?.expandedNodes['/test/project']).toBe(true);
+    if (loadedWorkspace) {
+      const workspace = loadedWorkspace as WorkspaceState;
+      expect(workspace.selectedFolder).toBe('/test/project');
+      expect(workspace.userInstructions).toBe('Specific test instructions');
+      expect(workspace.selectedFiles).toHaveLength(2);
+      expect(workspace.selectedFiles[0].path).toBe('file1.ts');
+      expect(workspace.expandedNodes['/test']).toBe(true);
+      expect(workspace.expandedNodes['/test/project']).toBe(true);
+    }
   });
 
   test('handles corrupt workspace data gracefully', () => {
@@ -338,7 +341,7 @@ describe('Workspace Feature', () => {
     }
   });
 
-  test('preserves workspace ordering and uniqueness', () => {
+  test('preserves workspace ordering and uniqueness', async () => {
     const { result } = renderHook(() => useWorkspaceState());
     
     // Create mock workspace data
@@ -361,14 +364,14 @@ describe('Workspace Feature', () => {
     };
     
     // Create workspaces in specific order
-    act(() => {
-      result.current.saveWorkspace('zebra', mockWorkspaceData);
-      result.current.saveWorkspace('alpha', mockWorkspaceData);
-      result.current.saveWorkspace('beta', mockWorkspaceData);
-      result.current.saveWorkspace('alpha', mockWorkspaceData); // duplicate
+    await act(async () => {
+      await result.current.saveWorkspace('zebra', mockWorkspaceData);
+      await result.current.saveWorkspace('alpha', mockWorkspaceData);
+      await result.current.saveWorkspace('beta', mockWorkspaceData);
+      await result.current.saveWorkspace('alpha', mockWorkspaceData); // duplicate
     });
     
-    const names = result.current.getWorkspaceNames();
+    const names = await result.current.getWorkspaceNames();
     
     // Verify no duplicates and proper handling
     const uniqueNames = [...new Set(names)];
@@ -445,7 +448,7 @@ describe('Workspace Error Handling', () => {
     });
   });
   
-  test('should handle workspace deletion when workspace does not exist', () => {
+  test('should handle workspace deletion when workspace does not exist', async () => {
     const { result } = renderHook(() => useWorkspaceState());
     
     // Create mock workspace data
@@ -468,15 +471,15 @@ describe('Workspace Error Handling', () => {
     };
     
     // Create a workspace first
-    act(() => {
-      result.current.saveWorkspace('existing', mockWorkspaceData);
+    await act(async () => {
+      await result.current.saveWorkspace('existing', mockWorkspaceData);
     });
     
     // Try to delete non-existent workspace
     let deleteError = null;
-    act(() => {
+    await act(async () => {
       try {
-        result.current.deleteWorkspace('non-existent');
+        await result.current.deleteWorkspace('non-existent');
       } catch (error) {
         deleteError = error;
       }
@@ -486,7 +489,7 @@ describe('Workspace Error Handling', () => {
     expect(deleteError).toBeNull();                           // 1. No error thrown
     
     // Verify existing workspace is unaffected
-    const names = result.current.getWorkspaceNames();
+    const names = await result.current.getWorkspaceNames();
     expect(names).toContain('existing');                      // 2. Existing workspace intact
     expect(names.length).toBe(1);                             // 3. Count unchanged
   });

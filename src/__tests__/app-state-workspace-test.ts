@@ -104,7 +104,7 @@ describe('useAppState (Workspace Integration)', () => {
   test('should apply pending workspace data during initialization', async () => {
     // Setup
     const mockWorkspaceData: Partial<WorkspaceState> = {
-      selectedFiles: [{ path: 'test.ts', content: 'test content' }],
+      selectedFiles: [{ path: 'test.ts' }],
       userInstructions: 'test instructions',
       expandedNodes: { 'src': true },
       tokenCounts: { total: 100 },

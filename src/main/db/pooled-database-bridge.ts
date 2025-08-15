@@ -5,7 +5,8 @@ import * as fs from 'node:fs/promises';
 import { app } from 'electron';
 
 import { PooledDatabase, PooledDatabaseConfig } from './pooled-database';
-import { QueryResult, SqlParameters } from './connection-pool';
+import { QueryResult } from './connection-pool';
+import { WorkspaceState } from '../../types/file-types';
 
 export interface DatabaseBridgeConfig extends PooledDatabaseConfig {
   maxRetries?: number;
@@ -32,15 +33,14 @@ export interface PreferenceRecord extends QueryResult {
   value: string;
 }
 
-export interface WorkspaceState {
-  selectedFolder?: string;
-  selectedFiles?: {
-    path: string;
-    lines?: { start: number; end: number }[];
-  }[];
-  expandedNodes?: Record<string, boolean>;
-  userInstructions?: string;
-  customPrompts?: Record<string, string>;
+// Extended workspace state with database metadata
+export interface WorkspaceStateWithMetadata extends WorkspaceState {
+  id?: string;
+  name?: string;
+  folderPath?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  lastAccessed?: number;
 }
 
 export class PooledDatabaseBridge extends EventEmitter {
@@ -254,7 +254,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   // Workspace operations with proper typing
-  async listWorkspaces(): Promise<WorkspaceState[]> {
+  async listWorkspaces(): Promise<WorkspaceStateWithMetadata[]> {
     if (!this.db) throw new Error('Database not initialized');
     
     const rows = await this.db.all<WorkspaceRecord>(`
@@ -274,7 +274,7 @@ export class PooledDatabaseBridge extends EventEmitter {
     }));
   }
 
-  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = {}): Promise<WorkspaceState> {
+  async createWorkspace(name: string, folderPath: string, state: Partial<WorkspaceState> = {}): Promise<WorkspaceStateWithMetadata> {
     if (!this.db) throw new Error('Database not initialized');
     
     const result = await this.db.run(`
@@ -282,10 +282,10 @@ export class PooledDatabaseBridge extends EventEmitter {
       VALUES (?, ?, ?)
     `, [name, folderPath, JSON.stringify(state)]);
     
-    return this.getWorkspace(result.lastInsertRowid as string);
+    return this.getWorkspace(String(result.lastInsertRowid));
   }
 
-  async getWorkspace(nameOrId: string): Promise<WorkspaceState> {
+  async getWorkspace(nameOrId: string): Promise<WorkspaceStateWithMetadata> {
     if (!this.db) throw new Error('Database not initialized');
     
     const row = await this.db.get<WorkspaceRecord>(`
@@ -306,7 +306,7 @@ export class PooledDatabaseBridge extends EventEmitter {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lastAccessed: row.last_accessed
-    };
+    } as WorkspaceStateWithMetadata;
   }
 
   async updateWorkspace(name: string, state: WorkspaceState): Promise<void> {
@@ -455,11 +455,30 @@ export class PooledDatabaseBridge extends EventEmitter {
   // Utility methods
   private parseWorkspaceState(stateJson: string): WorkspaceState {
     try {
-      return stateJson ? JSON.parse(stateJson) : {};
+      return stateJson ? JSON.parse(stateJson) : this.getDefaultWorkspaceState();
     } catch (error) {
       console.warn('Failed to parse workspace state:', error);
-      return {};
+      return this.getDefaultWorkspaceState();
     }
+  }
+
+  private getDefaultWorkspaceState(): WorkspaceState {
+    return {
+      selectedFolder: null,
+      allFiles: [],
+      selectedFiles: [],
+      expandedNodes: {},
+      sortOrder: 'name',
+      searchTerm: '',
+      fileTreeMode: 'none',
+      exclusionPatterns: [],
+      userInstructions: '',
+      tokenCounts: {},
+      customPrompts: {
+        systemPrompts: [],
+        rolePrompts: []
+      }
+    };
   }
 
   // Performance and monitoring

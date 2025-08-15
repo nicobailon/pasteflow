@@ -1,6 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useWorkspaceAutoSave, computeWorkspaceSignature } from '../use-workspace-autosave';
-import type { FileTreeMode, SelectedFileReference } from '../../types/file-types';
+import type { FileTreeMode, SelectedFileReference, SystemPrompt, RolePrompt } from '../../types/file-types';
 
 // Mock the persistent state hook
 jest.mock('../use-persistent-state', () => ({
@@ -29,8 +29,8 @@ describe('useWorkspaceAutoSave', () => {
     exclusionPatterns: [],
     selectedInstructions: [],
     customPrompts: {
-      systemPrompts: [],
-      rolePrompts: []
+      systemPrompts: [] as SystemPrompt[],
+      rolePrompts: [] as RolePrompt[]
     },
     userInstructions: '',
     isApplyingWorkspaceData: false,
@@ -310,7 +310,7 @@ describe('useWorkspaceAutoSave', () => {
       ...defaultOptions,
       customPrompts: {
         systemPrompts: [
-          { id: 'prompt1', name: 'Test Prompt', content: 'test', selected: true }
+          { id: 'prompt1', name: 'Test Prompt', content: 'test' }
         ],
         rolePrompts: []
       }

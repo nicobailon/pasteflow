@@ -17,15 +17,15 @@ export function registerAllCaches(): void {
   const treeSortingService = getTreeSortingService();
   memoryMonitor.registerCache(
     'tree-sorting',
-    () => treeSortingService.getCacheStats().size,
+    () => treeSortingService.getCacheStats().entries,
     () => {
       const stats = treeSortingService.getCacheStats();
       // Estimate memory based on average entry size
       // Each entry has: key (string) + sorted nodes array
-      const avgEntrySize = stats.size > 0 ? 
+      const avgEntrySize = stats.entries > 0 ? 
         estimateObjectMemoryMB({ sample: 'tree-node-data' }) * 10 : // Rough estimate per entry
         0;
-      return stats.size * avgEntrySize;
+      return stats.entries * avgEntrySize;
     }
   );
   
@@ -39,8 +39,8 @@ export function registerAllCaches(): void {
   // Register enhanced file content cache
   memoryMonitor.registerCache(
     'file-content',
-    () => enhancedFileContentCache.getMetrics().cacheEntries,
-    () => enhancedFileContentCache.getMetrics().estimatedMemoryMB
+    () => enhancedFileContentCache.getMetrics().totalEntries,
+    () => enhancedFileContentCache.getMemoryUsageMB()
   );
   
   // Register token count cache
