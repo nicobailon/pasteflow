@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { unstable_batchedUpdates, flushSync } from 'react-dom';
 import { normalizePath } from '../utils/path-utils';
+import { logger } from '../utils/logger';
 
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
@@ -426,13 +427,13 @@ const useAppState = () => {
     const file = files.find((f: FileData) => f.path === filePath);
 
     if (!file) {
-      console.warn('[validateFileLoadRequest] File not found in allFiles:', filePath);
+      logger.warn('[validateFileLoadRequest] File not found in allFiles:', filePath);
       return { valid: false, reason: 'File not found' };
     }
 
     if (file.isContentLoaded) {
       // Debug-only: noisy but useful while investigating
-      console.debug('[validateFileLoadRequest] Already loaded, skipping:', filePath);
+      logger.debug('[validateFileLoadRequest] Already loaded, skipping:', filePath);
       return { valid: false, reason: 'Already loaded' };
     }
 
@@ -443,11 +444,11 @@ const useAppState = () => {
         const normalizedRoot = normalizePath(selectedFolder);
         const inside = normalizedFile === normalizedRoot || normalizedFile.startsWith(normalizedRoot + '/');
         if (!inside) {
-          console.warn('[validateFileLoadRequest] Outside workspace, skipping load:', { filePath, selectedFolder, normalizedFile, normalizedRoot });
+          logger.warn('[validateFileLoadRequest] Outside workspace, skipping load:', { filePath, selectedFolder, normalizedFile, normalizedRoot });
           return { valid: false, reason: 'Outside workspace' };
         }
       } catch (e) {
-        console.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', e);
+        logger.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', e);
         if (!filePath.startsWith(selectedFolder)) {
           return { valid: false, reason: 'Outside workspace' };
         }
@@ -459,7 +460,7 @@ const useAppState = () => {
 
   // Helper function to update file loading state
   const updateFileLoadingState = useCallback((filePath: string, isLoading: boolean) => {
-    console.debug('[updateFileLoadingState] Set isCountingTokens', { filePath, isLoading });
+    logger.debug('[updateFileLoadingState] Set isCountingTokens', { filePath, isLoading });
     flushSync(() => {
       setAllFiles((prev: FileData[]) => {
         const next = prev.map((f: FileData) =>
@@ -491,7 +492,7 @@ const useAppState = () => {
         return { tokenCount, error: 'Worker not ready, used estimation' };
       }
     } catch (error) {
-      console.error(`Token counting failed for ${filePath}:`, error);
+      logger.error(`Token counting failed for ${filePath}:`, error);
       const tokenCount = estimateTokenCount(content);
       return { tokenCount, error: 'Worker failed, used estimation' };
     }
@@ -504,7 +505,7 @@ const useAppState = () => {
     tokenCount: number,
     tokenCountError?: string
   ) => {
-    console.debug('[updateFileWithContent] Apply content and tokens', { filePath, tokenCount, hasContent: !!content, tokenCountError });
+    logger.debug('[updateFileWithContent] Apply content and tokens', { filePath, tokenCount, hasContent: !!content, tokenCountError });
     fileContentCache.set(filePath, content, tokenCount);
 
     // Invalidate token cache for this file when content changes
@@ -555,7 +556,7 @@ const useAppState = () => {
   }, [processFileTokens, updateFileWithContent]);
 
   const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
-    console.debug('[loadFileContent] Start', { filePath });
+    logger.debug('[loadFileContent] Start', { filePath });
     try {
       // Get current files state for validation
       const currentFiles = await new Promise<FileData[]>((resolve) => {
@@ -569,7 +570,7 @@ const useAppState = () => {
       const validation = validateFileLoadRequest(filePath, currentFiles);
       if (!validation.valid) {
         if (validation.reason === 'Outside workspace') {
-          console.warn(`Skipping file outside current workspace: ${filePath}`);
+          logger.warn(`Skipping file outside current workspace: ${filePath}`);
         }
         return;
       }
@@ -577,7 +578,7 @@ const useAppState = () => {
       // Check if already loading to prevent duplicate requests
       const file = validation.file;
       if (file && file.isCountingTokens) {
-        console.debug('[loadFileContent] Already counting tokens, skip duplicate request', { filePath });
+        logger.debug('[loadFileContent] Already counting tokens, skip duplicate request', { filePath });
         return;
       }
 
@@ -587,7 +588,7 @@ const useAppState = () => {
       // Check cache first
       const cached = fileContentCache.get(filePath);
       if (cached) {
-        console.debug('[loadFileContent] Served from cache', { filePath });
+        logger.debug('[loadFileContent] Served from cache', { filePath });
         await handleCachedContent(filePath, cached);
         return;
       }
@@ -595,7 +596,7 @@ const useAppState = () => {
       // Load from backend
       const result = await requestFileContent(filePath);
       if (result.success && result.content !== undefined) {
-        console.debug('[loadFileContent] Fetched from backend', { filePath, contentLength: result.content.length });
+        logger.debug('[loadFileContent] Fetched from backend', { filePath, contentLength: result.content.length });
 
         // Optimistic fast-path: update content immediately with an estimated token count
         const estimated = estimateTokenCount(result.content);
@@ -618,11 +619,11 @@ const useAppState = () => {
             }
           })
           .catch(err => {
-            console.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, err);
+            logger.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, err);
           });
       } else {
         // Handle error
-        console.error('[loadFileContent] Backend load failed', { filePath, error: result.error });
+        logger.error('[loadFileContent] Backend load failed', { filePath, error: result.error });
         setAllFiles((prev: FileData[]) => {
           const next = prev.map((f: FileData) =>
             f.path === filePath
@@ -634,7 +635,7 @@ const useAppState = () => {
         });
       }
     } catch (error) {
-      console.error(`Error loading file content for ${filePath}:`, error);
+      logger.error(`Error loading file content for ${filePath}:`, error);
       // Ensure loading state is cleared on any error
       setAllFiles((prev: FileData[]) => {
         const next = prev.map((f: FileData) =>
@@ -646,7 +647,7 @@ const useAppState = () => {
         return next;
       });
     } finally {
-      console.debug('[loadFileContent] End', { filePath });
+      logger.debug('[loadFileContent] End', { filePath });
     }
   }, [
     validateFileLoadRequest,
@@ -791,7 +792,7 @@ const useAppState = () => {
 
         updateFilesWithTokenCounts(filePaths, filePathToResult, filePathToTokenCount);
       } catch (error) {
-        console.error('Error in batch token counting:', error);
+        logger.error('Error in batch token counting:', error);
         await fallbackTokenCounting(successful);
       }
     }
@@ -985,7 +986,7 @@ const useAppState = () => {
       // Load file contents asynchronously
       Promise.all(filesToLoad.map(file => loadFileContent(file.path)))
         .catch(error => {
-          console.error('[useAppState.applySelectedFiles] Error loading file content:', error);
+          logger.error('[useAppState.applySelectedFiles] Error loading file content:', error);
         });
     }
   }, [setSelectionState, loadFileContent]);
@@ -1025,7 +1026,7 @@ const useAppState = () => {
   // This function handles applying workspace data, with proper file selection management
   const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null) => {
     if (!workspaceData || !workspaceName) {
-      console.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
+      logger.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
       setPendingWorkspaceData(null);
       isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
@@ -1033,7 +1034,7 @@ const useAppState = () => {
 
     // Prevent concurrent calls to avoid infinite loops
     if (isApplyingWorkspaceDataRef.current) {
-      console.warn("[useAppState.applyWorkspaceData] Already applying workspace data, skipping to prevent infinite loop");
+      logger.warn("[useAppState.applyWorkspaceData] Already applying workspace data, skipping to prevent infinite loop");
       return;
     }
 
@@ -1054,7 +1055,7 @@ const useAppState = () => {
       isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
     } else if (folderChanged && isProcessing) {
-      console.warn(`[useAppState.applyWorkspaceData] Folder changed but currently processing. Cannot change folder to "${workspaceFolder}". Aborting workspace load.`);
+      logger.warn(`[useAppState.applyWorkspaceData] Folder changed but currently processing. Cannot change folder to "${workspaceFolder}". Aborting workspace load.`);
       setPendingWorkspaceData(null);
       isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
@@ -1183,7 +1184,7 @@ const useAppState = () => {
         return cleanup;
       });
     } catch (error) {
-      console.error("Error setting up Electron handlers:", error);
+      logger.error("Error setting up Electron handlers:", error);
       setProcessingStatus({
         status: "error",
         message: `Error initializing app: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -1207,7 +1208,7 @@ const useAppState = () => {
 
   const saveCurrentWorkspace = useCallback(async () => {
     if (!currentWorkspace) {
-      console.warn("[useAppState.saveCurrentWorkspace] No current workspace selected, cannot save.");
+      logger.warn("[useAppState.saveCurrentWorkspace] No current workspace selected, cannot save.");
       return;
     }
     // Clear any existing timeout
@@ -1227,9 +1228,9 @@ const useAppState = () => {
       }, 1500); // Duration for the checkmark visibility
 
     } catch (error) {
-      console.error(`[useAppState.saveCurrentWorkspace] Error saving workspace "${currentWorkspace}":`, error);
+      logger.error(`[useAppState.saveCurrentWorkspace] Error saving workspace "${currentWorkspace}":`, error);
       setHeaderSaveState('idle');
-      console.error(`Failed to save workspace "${currentWorkspace}".`);
+      logger.error(`Failed to save workspace "${currentWorkspace}".`);
     }
   }, [currentWorkspace, saveWorkspace]);
 
@@ -1240,29 +1241,29 @@ const useAppState = () => {
 
         // Check if cancelled before proceeding
         if (token.cancelled) {
-          console.log(`[useAppState.loadWorkspace] Workspace load cancelled for "${name}"`);
+          logger.info(`[useAppState.loadWorkspace] Workspace load cancelled for "${name}"`);
           return null;
         }
 
         if (workspaceData) {
             // Ensure we have the folder path before applying
             if (!workspaceData.selectedFolder) {
-                console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
+                logger.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
             }
 
             // Check again if cancelled before applying data
             if (token.cancelled) {
-              console.log(`[useAppState.loadWorkspace] Workspace load cancelled before applying data for "${name}"`);
+              logger.info(`[useAppState.loadWorkspace] Workspace load cancelled before applying data for "${name}"`);
               return null;
             }
 
             applyWorkspaceData(name, workspaceData);
         } else {
-            console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
+            logger.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
         }
         return workspaceData;
       } catch (error) {
-        console.error(`[useAppState.loadWorkspace] Error loading workspace "${name}":`, error);
+        logger.error(`[useAppState.loadWorkspace] Error loading workspace "${name}":`, error);
         return null;
       }
     });
@@ -1398,7 +1399,7 @@ const useAppState = () => {
       applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
     } else {
-      console.warn("[useAppState.workspaceLoadedListener] Received 'workspaceLoaded' event with missing/invalid detail.", event.detail);
+      logger.warn("[useAppState.workspaceLoadedListener] Received 'workspaceLoaded' event with missing/invalid detail.", event.detail);
     }
   }, [applyWorkspaceData, persistWorkspace, fileSelection.selectedFiles]);
 
@@ -1409,7 +1410,7 @@ const useAppState = () => {
       applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
     } else {
-      console.warn("[useAppState.directFolderOpenedListener] Received 'directFolderOpened' event with missing/invalid detail.", event.detail);
+      logger.warn("[useAppState.directFolderOpenedListener] Received 'directFolderOpened' event with missing/invalid detail.", event.detail);
     }
   }, [applyWorkspaceData]);
 

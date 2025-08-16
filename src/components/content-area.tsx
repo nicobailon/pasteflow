@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { logger } from '../utils/logger';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
 import { getRelativePath, dirname, normalizePath } from '../utils/path-utils';
@@ -358,7 +359,7 @@ const ContentArea = ({
 
   const handleCopyWithLoading = async (getContent: () => string): Promise<string> => {
     // Always request loads for all selected files; loadFileContent will skip already-loaded ones
-    console.debug('[ContentArea.handleCopyWithLoading] Ensuring selected files are loaded', selectedFiles.map(f => f.path));
+    logger.debug('[ContentArea.handleCopyWithLoading] Ensuring selected files are loaded', selectedFiles.map(f => f.path));
     await Promise.all(selectedFiles.map((f) => loadFileContent(f.path)));
 
     // Minimal backoff loop: wait briefly if files are still marked loading
@@ -380,14 +381,14 @@ const ContentArea = ({
       const d = afterMap.get(sel.path);
       return { path: sel.path, isContentLoaded: !!d?.isContentLoaded, hasContent: !!d?.content, error: d?.error };
     });
-    console.debug('[ContentArea.handleCopyWithLoading] Post-load selected states (props snapshot)', stateSummary);
+    logger.debug('[ContentArea.handleCopyWithLoading] Post-load selected states (props snapshot)', stateSummary);
 
     // After loads resolve, call the provided getter (freshness-safe via refs)
     const result = getContent();
 
     // Optional: quickly check for placeholders
     if (result.includes('[Content is loading...]')) {
-      console.warn('[ContentArea.handleCopyWithLoading] Output still contains loading placeholders');
+      logger.warn('[ContentArea.handleCopyWithLoading] Output still contains loading placeholders');
     }
 
     return result;
@@ -404,7 +405,7 @@ const ContentArea = ({
     try {
       await navigator.clipboard.writeText(previewContent);
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
+      logger.error('Failed to copy to clipboard:', error);
       // Modern browsers should support clipboard API, but show alert if it fails
       alert('Failed to copy to clipboard. Please try selecting and copying the text manually.');
     }

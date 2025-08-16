@@ -1,49 +1,35 @@
 // Import jest-dom matchers
 require('@testing-library/jest-dom');
 
-// Mock lucide-react icons
-jest.mock('lucide-react', () => ({
-  Clock: () => null,
-  SortAsc: () => null,
-  GripVertical: () => null,
-  ChevronRight: () => null,
-  ChevronDown: () => null,
-  Folder: () => null,
-  FolderOpen: () => null,
-  File: () => null,
-  FileText: () => null,
-  Code: () => null,
-  FileCode: () => null,
-  FileJson: () => null,
-  Image: () => null,
-  Film: () => null,
-  Music: () => null,
-  Archive: () => null,
-  Copy: () => null,
-  Check: () => null,
-  X: () => null,
-  Plus: () => null,
-  Minus: () => null,
-  Settings: () => null,
-  Search: () => null,
-  Filter: () => null,
-  Download: () => null,
-  Upload: () => null,
-  Save: () => null,
-  Trash: () => null,
-  Edit: () => null,
-  Eye: () => null,
-  EyeOff: () => null,
-  RefreshCw: () => null,
-  AlertCircle: () => null,
-  Info: () => null,
-  HelpCircle: () => null,
-  Terminal: () => null,
-  Zap: () => null,
-  Package: () => null,
-  Layers: () => null,
-  Hash: () => null
-}));
+// Mock lucide-react icons with proxy for comprehensive coverage
+jest.mock('lucide-react', () => {
+  const React = require('react');
+  // Return a proxy so any icon import becomes a harmless component
+  return new Proxy({}, {
+    get: (_target, prop) => {
+      // Return a forwardRef component that renders a simple span
+      return React.forwardRef((props, ref) => 
+        React.createElement('span', { 
+          'data-icon': String(prop), 
+          ...props,
+          ref 
+        })
+      );
+    },
+  });
+});
+
+// Polyfill CustomEvent for JSDOM if needed
+if (typeof window !== 'undefined' && typeof window.CustomEvent !== 'function') {
+  function CustomEventPoly(event, params) {
+    params = params || { bubbles: false, cancelable: false, detail: null };
+    const evt = document.createEvent('CustomEvent');
+    evt.initCustomEvent(event, params.bubbles, params.cancelable, params.detail);
+    return evt;
+  }
+  CustomEventPoly.prototype = window.Event.prototype;
+  window.CustomEvent = CustomEventPoly;
+}
 
 // Mock import.meta for ES module compatibility
 if (typeof global !== 'undefined' && !global.import) {
