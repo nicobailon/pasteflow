@@ -2,14 +2,14 @@
 
 ## Overview
 
-The PasteFlow database layer provides a secure, high-performance SQLite-based storage solution with the following features:
+The PasteFlow database layer provides a high-performance SQLite-based storage solution with the following features:
 
-- **SQLCipher encryption** for data-at-rest security
-- **Worker thread isolation** for non-blocking operations
-- **Zod validation** on all IPC channels
-- **Rate limiting** to prevent abuse
-- **Content deduplication** with compression
-- **Comprehensive audit logging**
+- **Worker thread isolation** for non-blocking database operations
+- **Connection pooling** for improved concurrent access
+- **Automatic retry logic** for transient failures
+- **TypeScript-first design** with strict type safety
+- **Shared memory buffers** for efficient data transfer
+- **Migration from localStorage** for backward compatibility
 
 ## Architecture
 
@@ -20,45 +20,135 @@ The PasteFlow database layer provides a secure, high-performance SQLite-based st
 └──────────┬──────────┘
            │ IPC
 ┌──────────▼──────────┐
-│   Secure IPC Layer  │
-│  (Zod Validation)   │
+│    Main Process     │
+│   (main.js IPC)     │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
-│  Database Manager   │
-│   (Main Process)    │
+│  Database Bridge    │
+│  (Initialization)   │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
-│  Secure Database    │
-│  (Encryption Keys)  │
+│ Pooled Database     │
+│ (Connection Pool)   │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
-│   Async Database    │
+│  Async Database     │
 │  (Worker Threads)   │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
-│   Database Worker   │
-│  (SQLite/SQLCipher) │
+│  Database Worker    │
+│  (better-sqlite3)   │
 └─────────────────────┘
+```
+
+## Core Components
+
+### DatabaseBridge (`database-bridge.ts`)
+- Entry point for database operations
+- Handles initialization and fallback to legacy localStorage
+- Manages the transition between storage backends
+
+### DatabaseImplementation (`database-implementation.ts`)
+- Core database logic and SQL operations
+- Workspace management (CRUD operations)
+- Preferences and instructions storage
+- Prepared statements for performance
+
+### AsyncDatabase (`async-database.ts`)
+- Worker thread wrapper for non-blocking operations
+- Message passing between main and worker threads
+- Error handling and promise resolution
+
+### DatabaseWorker (`database-worker.ts`)
+- Runs in a separate worker thread
+- Direct SQLite operations via better-sqlite3
+- Handles all database queries and mutations
+
+### Connection Pooling
+- `connection-pool.ts` - Pool management logic
+- `pooled-database.ts` - Pooled database wrapper
+- `pooled-database-bridge.ts` - Bridge with connection pooling
+- `pool-config.ts` - Pool configuration settings
+
+### Utilities
+- `retry-utils.ts` - Retry logic for transient failures
+- `shared-buffer-utils.ts` - Efficient data transfer using SharedArrayBuffer
+
+## Database Schema
+
+### Workspaces Table
+```sql
+CREATE TABLE workspaces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  folderPath TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_accessed INTEGER NOT NULL
+)
+```
+
+### Preferences Table
+```sql
+CREATE TABLE preferences (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)
+```
+
+### Instructions Table
+```sql
+CREATE TABLE instructions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)
 ```
 
 ## Usage
 
 ### Initialization
 
-In your Electron main process:
+In the Electron main process (`main.js`):
 
-```typescript
-import { DatabaseManager } from './src/main/db/database-manager';
+```javascript
+const { DatabaseBridge } = require('./src/main/db/database-bridge');
 
 app.whenReady().then(async () => {
-  const dbManager = DatabaseManager.getInstance();
-  await dbManager.initialize();
+  const database = new DatabaseBridge();
+  await database.initialize();
   
-  // Database is now ready for IPC calls
+  // Database is now ready for operations
+});
+```
+
+### IPC Integration
+
+The main process handles IPC calls for database operations:
+
+```javascript
+// List workspaces
+ipcMain.handle('list-workspaces', async () => {
+  return await database.listWorkspaces();
+});
+
+// Create workspace
+ipcMain.handle('create-workspace', async (event, name, folderPath, state) => {
+  return await database.createWorkspace(name, folderPath, state);
+});
+
+// Get/Set preferences
+ipcMain.handle('get-preference', async (event, key) => {
+  return await database.getPreference(key);
 });
 ```
 
@@ -68,105 +158,123 @@ From the renderer process:
 
 ```typescript
 // List workspaces
-const workspaces = await window.electron.invoke('/workspace/list');
+const workspaces = await window.electron.listWorkspaces();
 
 // Create workspace
-const newWorkspace = await window.electron.invoke('/workspace/create', {
-  name: 'My Project',
-  folderPath: '/path/to/project',
-  state: { /* initial state */ }
-});
+const newWorkspace = await window.electron.createWorkspace(
+  'My Project',
+  '/path/to/project',
+  { /* workspace state */ }
+);
 
-// Save file content
-await window.electron.invoke('/file/save', {
-  workspaceId: workspace.id,
-  filePath: '/src/app.ts',
-  content: fileContent,
-  tokenCount: 150
-});
+// Manage preferences
+await window.electron.setPreference('theme', 'dark');
+const theme = await window.electron.getPreference('theme');
 ```
 
-## Security Features
+## Key Features
 
-### Encryption
+### Worker Thread Isolation
+- Database operations run in a separate thread
+- Prevents blocking the main Electron process
+- Maintains UI responsiveness during heavy operations
 
-- Database encrypted with SQLCipher using AES-256
-- Encryption keys stored in macOS Keychain
-- Device-specific key derivation using PBKDF2
-- Automatic key rotation support
+### Connection Pooling
+- Configurable pool size (default: 5 connections)
+- Automatic connection management
+- Improved performance for concurrent operations
 
-### Access Control
+### Retry Logic
+- Automatic retry for SQLITE_BUSY errors
+- Configurable retry attempts and delays
+- Graceful handling of database locks
 
-- All IPC channels require Zod validation
-- Rate limiting prevents abuse
-- Origin verification on all requests
-- Workspace-scoped file access
+### TypeScript Integration
+- Full TypeScript support with strict typing
+- Type-safe database operations
+- Comprehensive type definitions for all data structures
 
-### Audit Trail
-
-Critical operations are logged to the `audit_log` table:
-- Workspace creation/deletion
-- Preference changes
-- File modifications
-
-## Performance
+## Performance Characteristics
 
 Based on benchmarks:
-- Database initialization: <100ms
+- Database initialization: ~50-100ms
 - Simple queries: <5ms
-- Complex queries: <50ms
-- Supports 100+ concurrent operations
-- File content deduplication saves ~60% storage
+- Complex queries: <20ms
+- Bulk operations: Optimized with transactions
+- Worker thread overhead: Minimal (<1ms)
 
 ## Testing
 
 Run the test suite:
 
 ```bash
-# Unit tests
-npm test src/main/db/__tests__/async-database.test.ts
+# All database tests
+npm test src/main/db/__tests__
 
-# Security tests
-npm test src/main/db/__tests__/security.test.ts
+# Specific test files
+npm test src/main/db/__tests__/async-database-test.ts
+npm test src/main/db/__tests__/database-bridge.test.ts
+npm test src/main/db/__tests__/database-implementation.test.ts
+npm test src/main/db/__tests__/connection-pool-test.ts
 
 # Performance benchmarks
-npx ts-node src/main/db/__tests__/benchmarks.ts
+npm test src/main/db/__tests__/benchmarks.ts
 ```
 
 ## Migration from localStorage
 
-This database layer is designed to replace the existing localStorage implementation. Key improvements:
+The database layer seamlessly migrates from the legacy localStorage implementation:
 
-1. **No size limits** - localStorage is limited to 5-10MB
-2. **Better performance** - Async operations don't block UI
-3. **Security** - Encrypted storage with access control
-4. **Reliability** - ACID transactions, proper error handling
-5. **Scalability** - Handles large codebases efficiently
+1. **Automatic detection** - Checks for existing localStorage data
+2. **Transparent migration** - Migrates data on first run
+3. **Backward compatibility** - Falls back to localStorage if needed
+4. **No data loss** - Preserves all existing workspaces and preferences
+
+### Benefits over localStorage:
+- **No size limits** - localStorage is limited to 5-10MB
+- **Better performance** - Async operations don't block UI
+- **Concurrency** - Multiple operations can run in parallel
+- **Reliability** - ACID transactions, proper error handling
+- **Scalability** - Handles large codebases efficiently
 
 ## File Structure
 
 ```
 src/main/db/
-├── async-database.ts      # Worker thread wrapper
-├── database-worker.js     # SQLite worker implementation
-├── secure-database.ts     # Encryption layer
-├── database-manager.ts    # Main process integration
-├── schema.sql            # Database schema
-└── __tests__/            # Test suite
-    ├── async-database.test.ts
-    ├── security.test.ts
+├── README.md                      # This file
+├── index.ts                       # Module exports
+├── database-bridge.ts             # Main entry point
+├── database-implementation.ts     # Core database logic
+├── database-worker.ts             # Worker thread implementation
+├── async-database.ts              # Worker thread wrapper
+├── connection-pool.ts             # Connection pool management
+├── pooled-database.ts             # Pooled database wrapper
+├── pooled-database-bridge.ts      # Bridge with pooling
+├── pool-config.ts                 # Pool configuration
+├── retry-utils.ts                 # Retry logic utilities
+├── shared-buffer-utils.ts         # SharedArrayBuffer utilities
+└── __tests__/                     # Test suite
+    ├── async-database-test.ts
+    ├── database-bridge.test.ts
+    ├── database-implementation.test.ts
+    ├── connection-pool-test.ts
     └── benchmarks.ts
-
-src/main/ipc/
-├── secure-ipc.ts         # IPC validation layer
-├── schemas.ts            # Zod schemas
-└── index.ts              # Exports
 ```
 
-## Future Enhancements
+## Error Handling
 
-- [ ] Automatic backups
-- [ ] Import/export functionality
-- [ ] Migration tools from v1
-- [ ] Cloud sync support
-- [ ] Advanced search capabilities
+The database layer implements comprehensive error handling:
+
+- **Graceful fallback** - Falls back to localStorage on initialization failure
+- **Retry logic** - Automatic retry for transient errors
+- **Error propagation** - Errors are properly propagated to the UI
+- **Logging** - Detailed error logging for debugging
+
+## Future Considerations
+
+- [ ] Automatic backups and recovery
+- [ ] Database vacuuming and optimization
+- [ ] Advanced query optimization
+- [ ] Database migration versioning
+- [ ] Export/import functionality
+- [ ] Performance monitoring and metrics

@@ -364,17 +364,7 @@ function createWindow() {
 // eslint-disable-next-line unicorn/prefer-top-level-await
 app.whenReady().then(async () => {
   try {
-    // Check for legacy secure database file
-    const userDataPath = app.getPath('userData');
-    const secureDbPath = path.join(userDataPath, 'pasteflow-secure.db');
-    
-    if (fs.existsSync(secureDbPath)) {
-      console.log('Notice: Found legacy secure database file at:', secureDbPath);
-      console.log('This file is no longer used and can be safely deleted.');
-      // Optionally, we could show a dialog to the user or auto-delete with permission
-    }
-    
-    // Initialize DatabaseBridge (legacy is now the only path)
+    // Initialize DatabaseBridge
     database = new DatabaseBridge();
     await database.initialize();
     console.log('Database initialized successfully');
