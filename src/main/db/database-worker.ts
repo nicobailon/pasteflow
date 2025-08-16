@@ -1,7 +1,7 @@
-const { parentPort, workerData } = require('worker_threads');
-const Database = require('better-sqlite3');
-const crypto = require('crypto');
-const { retryUtility } = require('./retry-utils.js');
+import { parentPort, workerData } from 'worker_threads';
+import Database from 'better-sqlite3';
+import * as crypto from 'crypto';
+import { retryUtility } from './retry-utils';
 
 // Constants
 const CACHE_TTL_MS = 300000; // 5 minutes in milliseconds
@@ -11,12 +11,12 @@ const MAX_CONSECUTIVE_ERRORS = 10;
 
 // Error tracking
 let consecutiveErrors = 0;
-let lastErrorTime = null;
+let lastErrorTime: number | null = null;
 let operationCount = 0;
 let startTime = Date.now();
 
 // Initialize database with enhanced error handling
-let db;
+let db: Database.Database;
 try {
   db = new Database(workerData.dbPath);
   console.log('Database worker: Connection established to', workerData.dbPath);

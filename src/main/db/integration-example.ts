@@ -5,11 +5,14 @@
  * into the existing PasteFlow application with minimal changes.
  */
 
-const { PooledDatabaseBridge, getConfigForEnvironment } = require('./pooled-database-bridge');
+import { PooledDatabaseBridge, getConfigForEnvironment } from './pooled-database-bridge';
 
 // Example: Updating main.js to use pooled database
 
 class DatabaseManager {
+  private database: PooledDatabaseBridge | null = null;
+  private initialized = false;
+
   constructor() {
     this.database = null;
     this.initialized = false;
@@ -191,7 +194,7 @@ class DatabaseManager {
 
 // Example usage in main.js:
 /*
-const { app } = require('electron');
+import { app } from 'electron';
 const databaseManager = new DatabaseManager();
 
 app.whenReady().then(async () => {
@@ -212,20 +215,20 @@ app.on('before-quit', async () => {
 });
 
 // Export for use in IPC handlers
-module.exports = { databaseManager };
+export { databaseManager };
 */
 
 // For direct replacement in existing code:
 /*
 // Replace this:
-const { DatabaseBridge } = require('./src/main/db/database-bridge.js');
+import { DatabaseBridge } from './database-bridge';
 let database = new DatabaseBridge();
 
 // With this:
-const DatabaseManager = require('./src/main/db/integration-example.js');
+import { DatabaseManager } from './integration-example';
 let database = new DatabaseManager();
 
 // All existing method calls remain the same!
 */
 
-module.exports = { DatabaseManager };
+export { DatabaseManager };

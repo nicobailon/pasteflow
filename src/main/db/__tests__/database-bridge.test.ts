@@ -1,12 +1,12 @@
-const { DatabaseBridge } = require('../database-bridge.js');
-const { PasteFlowDatabase } = require('../database-implementation.js');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+import { DatabaseBridge } from '../database-bridge';
+import { PasteFlowDatabase } from '../database-implementation';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 // Mock electron app.getPath
 const mockApp = {
-  getPath: jest.fn()
+  getPath: jest.fn() as jest.Mock
 };
 
 // Mock the electron module
@@ -15,9 +15,9 @@ jest.mock('electron', () => ({
 }));
 
 describe('DatabaseBridge', () => {
-  let bridge;
-  let tempDir;
-  let tempDbPath;
+  let bridge: DatabaseBridge;
+  let tempDir: string;
+  let tempDbPath: string;
 
   beforeEach(() => {
     // Create a unique temporary directory for each test
@@ -116,7 +116,8 @@ describe('DatabaseBridge', () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
       
       // Mock PasteFlowDatabase constructor to always throw
-      const originalPasteFlowDatabase = require('../database-implementation.js').PasteFlowDatabase;
+      const dbModule = await import('../database-implementation');
+      const originalPasteFlowDatabase = dbModule.PasteFlowDatabase;
       const mockConstructor = jest.fn().mockImplementation(() => {
         throw new Error('Mock database failure');
       });
@@ -144,7 +145,8 @@ describe('DatabaseBridge', () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       
       let attemptCount = 0;
-      const originalPasteFlowDatabase = require('../database-implementation.js').PasteFlowDatabase;
+      const dbModule = await import('../database-implementation');
+      const originalPasteFlowDatabase = dbModule.PasteFlowDatabase;
       
       const mockConstructor = jest.fn().mockImplementation((dbPath) => {
         attemptCount++;

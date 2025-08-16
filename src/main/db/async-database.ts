@@ -83,7 +83,7 @@ export class AsyncDatabase extends EventEmitter {
     try {
       this.worker = new Worker(
         // eslint-disable-next-line unicorn/prefer-module
-        path.join(__dirname, 'database-worker.js'),
+        path.join(__dirname, 'database-worker.ts'),
         {
           workerData: { dbPath: this.dbPath, ...this.options }
         }
