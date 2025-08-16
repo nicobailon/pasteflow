@@ -81,41 +81,33 @@ function startElectron() {
     `🔌 Starting Electron app with Vite server at port ${vitePort}...`,
   );
 
-  // 1) Build schemas first
+  // Build schemas and TypeScript main layer
   try {
     console.log('📋 Building IPC schemas...');
     execSync('npm run build:schemas', { stdio: 'inherit' });
     
-    // 2) Compile TS main layer so build/main exists
     console.log('🛠️  Compiling main-layer TypeScript...');
-    const buildProc = spawn("node", ["scripts/build-main-ts.js"], { stdio: "inherit", shell: platform() === "win32" });
-    buildProc.on('close', (code) => {
-      if (code !== 0) {
-        console.error(`❌ build-main-ts failed with code ${code}`);
-        viteProcess.kill();
-        process.exit(code ?? 1);
-      } else {
-        // 3) Start Electron with SecureIpcLayer enabled
-        const electronProcess = spawn("npm", ["start"], {
-          stdio: "inherit",
-          shell: platform() === "win32", // Use shell on Windows
-          env: {
-            ...process.env,
-            NODE_ENV: "development",
-            ELECTRON_START_URL: `http://localhost:${vitePort}`,
-            SECURE_IPC: "1",
-          },
-        });
+    execSync('npm run build:main', { stdio: 'inherit' });
+    
+    // Start Electron
+    const electronProcess = spawn("npm", ["start"], {
+      stdio: "inherit",
+      shell: platform() === "win32", // Use shell on Windows
+      env: {
+        ...process.env,
+        NODE_ENV: "development",
+        ELECTRON_START_URL: `http://localhost:${vitePort}`,
+        // SECURE_IPC removed - no longer using secure database path
+      },
+    });
 
-        electronProcess.on("close", (code) => {
-          console.log(`Electron process exited with code ${code}`);
-          viteProcess.kill();
-          process.exit(code);
-        });
-      }
+    electronProcess.on("close", (code) => {
+      console.log(`Electron process exited with code ${code}`);
+      viteProcess.kill();
+      process.exit(code);
     });
   } catch (err) {
-    console.error('❌ Failed to compile main-layer TypeScript:', err?.message || err);
+    console.error('❌ Dev startup failed (schemas or main build step):', err?.message || err);
     viteProcess.kill();
     process.exit(1);
   }
@@ -123,10 +115,17 @@ function startElectron() {
 
 }
 
-// Handle process termination
+// Handle process termination gracefully
 process.on("SIGINT", () => {
+  console.log("\n⏹️  Shutting down development environment...");
   viteProcess.kill();
-  process.exit(0);
+  process.exit(130);
+});
+
+process.on("SIGTERM", () => {
+  console.log("\n⏹️  Terminating development environment...");
+  viteProcess.kill();
+  process.exit(143);
 });
 
 viteProcess.on("close", (code) => {

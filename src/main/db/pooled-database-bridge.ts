@@ -4,10 +4,70 @@ import * as fs from 'node:fs/promises';
 
 import { app } from 'electron';
 
-import { WorkspaceState } from '../../types/file-types';
-
 import { PooledDatabase, PooledDatabaseConfig } from './pooled-database';
 import { QueryResult } from './connection-pool';
+
+// Define precise types locally to avoid React dependencies
+interface FileData {
+  path: string;
+  name: string;
+  size: number;
+  isDirectory: boolean;
+  isSymlink?: boolean;
+  isBinary?: boolean;
+  extension?: string;
+  content?: string;
+  tokenCount?: number;
+}
+
+interface SelectedFileReference {
+  path: string;
+  lines?: { start: number; end: number }[];
+}
+
+interface SystemPrompt {
+  id: string;
+  name: string;
+  content: string;
+  isSelected: boolean;
+}
+
+interface RolePrompt {
+  id: string;
+  name: string;
+  content: string;
+  isSelected: boolean;
+}
+
+interface Instruction {
+  id: string;
+  title: string;
+  content: string;
+  isGlobal: boolean;
+  isSelected?: boolean;
+}
+
+type FileTreeMode = 'none' | 'selected' | 'selected_with_roots' | 'complete';
+
+interface WorkspaceState {
+  selectedFolder: string | null;
+  allFiles: FileData[];
+  selectedFiles: SelectedFileReference[];
+  expandedNodes: Record<string, boolean>;
+  sortOrder: string;
+  searchTerm: string;
+  fileTreeMode: FileTreeMode;
+  exclusionPatterns: string[];
+  userInstructions: string;
+  tokenCounts: Record<string, number>;
+  folderIndex?: Map<string, string[]>;
+  customPrompts: {
+    systemPrompts: SystemPrompt[];
+    rolePrompts: RolePrompt[];
+  };
+  selectedInstructions?: Instruction[];
+  savedAt?: number;
+}
 
 // Error messages
 const DATABASE_NOT_INITIALIZED_ERROR = 'Database is not initialized';

@@ -35,18 +35,8 @@ async function copyDir(srcDir, destDir) {
   try {
     execSync('npx tsc -p tsconfig.main.json', { stdio: 'inherit' });
 
-    // Copy runtime assets required by compiled main layer
-    const assets = [
-      ['src/main/db/database-worker.js', 'build/main/db/database-worker.js'],
-      ['src/main/db/schema.sql', 'build/main/db/schema.sql'],
-    ];
-    for (const [src, dest] of assets) {
-      if (fs.existsSync(src)) {
-        await copyFile(src, dest);
-      }
-    }
-    // Copy migrations directory
-    await copyDir('src/main/db/migrations', 'build/main/db/migrations');
+    // No runtime assets need to be copied currently
+    // The database-worker.js is only used by AsyncDatabase which is not in use
 
     console.log('Main TS compiled to CommonJS at build/main');
     process.exit(0);

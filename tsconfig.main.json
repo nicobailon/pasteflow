@@ -5,7 +5,7 @@
     "module": "CommonJS",
     "target": "ES2020",
     "outDir": "build/main",
-    "rootDir": "src",
+    "rootDir": "src/main",
     "noEmit": false,
     "moduleResolution": "Node",
     "esModuleInterop": true,
@@ -18,24 +18,19 @@
     "types": []
   },
   "include": [
-    "src/constants/app-constants.ts",
-    "src/main/ipc/secure-ipc.ts",
     "src/main/ipc/schemas.ts",
-    "src/main/handlers/state-handlers.ts",
-    "src/main/db/database-manager.ts",
-    "src/main/db/secure-database.ts",
     "src/main/db/async-database.ts",
+    "src/main/db/connection-pool.ts", 
+    "src/main/db/pool-config.ts",
+    "src/main/db/pooled-database.ts",
+    "src/main/db/pooled-database-bridge.ts",
     "src/main/db/retry-utils.ts",
     "src/main/db/shared-buffer-utils.ts",
-    "src/main/utils/token-utils.ts"
+    "src/main/db/database-implementation.ts",
+    "src/main/db/database-bridge.ts"
   ],
   "exclude": [
-    "src/main/db/__tests__/**",
-    "src/main/db/index.ts",
-    "src/main/db/connection-pool.ts",
-    "src/main/db/pooled-*.ts",
-    "src/main/db/pool-config.ts",
-    "src/main/db/pooled-database-bridge.ts"
+    "src/main/db/__tests__/**"
   ]
 }
 
