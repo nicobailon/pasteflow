@@ -235,6 +235,10 @@ export const UI = {
     VIRTUALIZATION_THRESHOLD: 1000,
     /** Throttle delay for DOM queries during drag operations (milliseconds) */
     DOM_QUERY_THROTTLE_MS: 16, // ~60fps
+    /** Backoff attempts used by preview/copy to wait for just-finished loads */
+    BACKOFF_MAX_ATTEMPTS: 3,
+    /** Backoff delay between attempts (milliseconds) */
+    BACKOFF_DELAY_MS: 150,
   },
   
   /** Icon sizes */

@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '../utils/logger';
+import { UI } from '../constants/app-constants';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
 import { getRelativePath, dirname, normalizePath } from '../utils/path-utils';
@@ -356,6 +357,8 @@ const ContentArea = ({
 }: ContentAreaProps) => {
 
   const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+  const BACKOFF_MAX_ATTEMPTS = UI?.MODAL?.BACKOFF_MAX_ATTEMPTS ?? 3;
+  const BACKOFF_DELAY_MS = UI?.MODAL?.BACKOFF_DELAY_MS ?? 150;
 
   const handleCopyWithLoading = async (getContent: () => string): Promise<string> => {
     // Always request loads for all selected files; loadFileContent will skip already-loaded ones
@@ -364,7 +367,7 @@ const ContentArea = ({
 
     // Minimal backoff loop: wait briefly if files are still marked loading
     let attempts = 0;
-    while (attempts < 3) {
+    while (attempts < BACKOFF_MAX_ATTEMPTS) {
       const map = new Map(allFiles.map(file => [file.path, file]));
       const pending = selectedFiles.some(sel => {
         const d = map.get(sel.path);
@@ -372,7 +375,7 @@ const ContentArea = ({
       });
       if (!pending) break;
       attempts += 1;
-      await delay(150);
+      await delay(BACKOFF_DELAY_MS);
     }
 
     // Sanity check: log loaded state for all selected files (from current props snapshot)

@@ -2,7 +2,7 @@
 const isDev = typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production';
 
 type LogArg = unknown;
-const noop = (..._args: LogArg[]) => undefined;
+const noop = (..._args: LogArg[]) => { /* no-op */ };
 
 export const logger = {
   debug: isDev ? console.debug.bind(console) : noop,

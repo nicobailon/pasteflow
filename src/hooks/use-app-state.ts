@@ -447,8 +447,8 @@ const useAppState = () => {
           logger.warn('[validateFileLoadRequest] Outside workspace, skipping load:', { filePath, selectedFolder, normalizedFile, normalizedRoot });
           return { valid: false, reason: 'Outside workspace' };
         }
-      } catch (e) {
-        logger.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', e);
+      } catch (error) {
+        logger.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', error);
         if (!filePath.startsWith(selectedFolder)) {
           return { valid: false, reason: 'Outside workspace' };
         }
@@ -478,6 +478,13 @@ const useAppState = () => {
   }, [setAllFiles]);
 
   // Helper function to process token counting
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const processFileTokens = useCallback(async (
     content: string,
     filePath: string,
@@ -605,6 +612,7 @@ const useAppState = () => {
         // Count tokens in background and update if necessary
         processFileTokens(result.content, filePath, 0)
           .then(({ tokenCount, error }) => {
+            if (!isMountedRef.current) return; // Component unmounted, skip state updates
             // If precise count differs or there was an error note, update the record
             if (tokenCount !== estimated || error) {
               setAllFiles((prev: FileData[]) => {
@@ -619,6 +627,7 @@ const useAppState = () => {
             }
           })
           .catch(err => {
+            if (!isMountedRef.current) return;
             logger.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, err);
           });
       } else {
