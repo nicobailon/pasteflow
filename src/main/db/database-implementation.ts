@@ -4,6 +4,15 @@ import * as fs from 'fs';
 import { app } from 'electron';
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
 
+// Define SQLite error type with proper constraints
+interface SQLiteError extends Error {
+  code?: 'SQLITE_BUSY' | 'SQLITE_LOCKED' | 'SQLITE_CORRUPT' | 'SQLITE_CANTOPEN' | 
+         'SQLITE_READONLY' | 'SQLITE_IOERR' | 'SQLITE_FULL' | 'SQLITE_CONSTRAINT' | 
+         'SQLITE_NOTADB' | 'SQLITE_PROTOCOL' | string;
+  errno?: number;
+  syscall?: string;
+}
+
 // Define precise types for workspace state
 export interface WorkspaceState {
   selectedFiles?: Array<{
@@ -129,6 +138,31 @@ export class PasteFlowDatabase {
       console.log('Database initialized successfully with retry support');
     } catch (error) {
       console.error('Failed to initialize database after all retries:', error);
+      
+      // Provide more granular error information based on SQLite error codes
+      const sqliteError = error as SQLiteError;
+      if (sqliteError.code) {
+        switch (sqliteError.code) {
+          case 'SQLITE_BUSY':
+            throw new Error(`Database is locked by another process: ${sqliteError.message}`);
+          case 'SQLITE_LOCKED':
+            throw new Error(`Database table is locked: ${sqliteError.message}`);
+          case 'SQLITE_CORRUPT':
+            throw new Error(`Database file is corrupted: ${sqliteError.message}`);
+          case 'SQLITE_CANTOPEN':
+            throw new Error(`Cannot open database file at ${this.dbPath}: ${sqliteError.message}`);
+          case 'SQLITE_READONLY':
+            throw new Error(`Database is read-only: ${sqliteError.message}`);
+          case 'SQLITE_IOERR':
+            throw new Error(`Database I/O error: ${sqliteError.message}`);
+          case 'SQLITE_FULL':
+            throw new Error(`Disk is full or database quota exceeded: ${sqliteError.message}`);
+          default:
+            throw new Error(`Database initialization failed (${sqliteError.code}): ${sqliteError.message}`);
+        }
+      }
+      
+      // For non-SQLite errors or errors without codes
       throw new Error(`Database initialization failed: ${(error as Error).message}`);
     }
   }

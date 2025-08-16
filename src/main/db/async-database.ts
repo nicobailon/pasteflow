@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { v4 as uuidv4 } from 'uuid';
 
-import { retryWorkerOperation, retryUtility, DatabaseErrorType, executeWithRetry } from './retry-utils.js';
+import { retryWorkerOperation, retryUtility, DatabaseErrorType, executeWithRetry } from './retry-utils';
 
 interface WorkerRequest {
   id: string;

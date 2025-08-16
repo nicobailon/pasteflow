@@ -81,13 +81,13 @@ function startElectron() {
     `🔌 Starting Electron app with Vite server at port ${vitePort}...`,
   );
 
-  // Build schemas and TypeScript main layer
+  // Build schemas only (tsx will handle TypeScript at runtime)
   try {
     console.log('📋 Building IPC schemas...');
     execSync('npm run build:schemas', { stdio: 'inherit' });
     
-    console.log('🛠️  Compiling main-layer TypeScript...');
-    execSync('npm run build:main', { stdio: 'inherit' });
+    // No need to compile TypeScript - tsx handles it at runtime
+    console.log('✨ Using tsx for TypeScript runtime compilation...');
     
     // Start Electron
     const electronProcess = spawn("npm", ["start"], {

@@ -8,6 +8,7 @@
     "rootDir": "src/main",
     "noEmit": false,
     "moduleResolution": "Node",
+    "allowImportingTsExtensions": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "declaration": false,

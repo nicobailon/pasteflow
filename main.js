@@ -6,9 +6,20 @@ const path = require("node:path");
 const { Worker } = require("worker_threads");
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+
+// Load database bridge - use compiled version in production, TypeScript in development
+let DatabaseBridge;
+if (process.env.NODE_ENV === 'development') {
+  // Register tsx to handle TypeScript files at runtime in development
+  require('tsx/cjs');
+  DatabaseBridge = require("./src/main/db/database-bridge.ts").DatabaseBridge;
+} else {
+  // Use compiled JavaScript in production
+  DatabaseBridge = require("./build/main/db/database-bridge.js").DatabaseBridge;
+}
+
 const { getPathValidator } = require("./src/security/path-validator.cjs");
 const { ipcValidator } = require("./src/validation/ipc-validator.js");
-const { DatabaseBridge } = require("./build/main/db/database-bridge.js");
 // Zod schemas (CommonJS) for main process validation
 const zSchemas = require("./lib/main/ipc/schemas.cjs");
 // Import centralized constants - moved here from line 209 to be available for createWindow()

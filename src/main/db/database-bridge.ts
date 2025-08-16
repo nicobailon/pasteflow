@@ -17,7 +17,7 @@ interface SQLiteError extends Error {
  */
 export class DatabaseBridge {
   private db: PasteFlowDatabase | null = null;
-  private initialized = false;
+  public initialized = false;
   private fallbackMode = false;
   private inMemoryDb: PasteFlowDatabase | null = null;
   private connectionAttempts = 0;
