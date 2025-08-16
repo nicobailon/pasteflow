@@ -29,8 +29,7 @@
     "src/main/db/shared-buffer-utils.ts",
     "src/main/db/database-implementation.ts",
     "src/main/db/database-bridge.ts",
-    "src/main/db/database-worker.ts",
-    "src/main/db/integration-example.ts"
+    "src/main/db/database-worker.ts"
   ],
   "exclude": [
     "src/main/db/__tests__/**"
