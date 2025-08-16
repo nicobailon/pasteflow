@@ -1,19 +1,6 @@
-import { FileData } from '../../types/file-types';
-
 // We'll test through a minimal component that uses the hook
 // since validateFileLoadRequest is an internal function
 describe('validateFileLoadRequest normalization', () => {
-  // Helper function for creating mock files (not used in these tests but kept for reference)
-  const createMockFile = (path: string): FileData => ({
-    path,
-    name: path.split('/').pop() || '',
-    isDirectory: false,
-    isBinary: false,
-    isContentLoaded: false,
-    isSkipped: false,
-    size: 100
-  });
-
   // Mock the electron handlers
   beforeEach(() => {
     const mockElectron = {
@@ -76,12 +63,10 @@ describe('validateFileLoadRequest normalization', () => {
   });
 
   it('should handle relative path components', () => {
-    const selectedFolder = '/root/project';
     const filePath = '/root/project/./src/../src/file.ts';
     
     // In a real implementation, path.normalize would resolve this
     // For testing, we verify the basic normalization logic
-    const normalizedSelectedFolder = selectedFolder.replace(/[\\/]+$/, '');
     const normalizedFile = filePath.replace(/\\/g, '/');
     
     // The file is still within the workspace even with relative components
@@ -92,10 +77,10 @@ describe('validateFileLoadRequest normalization', () => {
     const selectedFolder = '/';
     const filePath = '/any/file/path.ts';
     
-    const normalizedSelectedFolder = selectedFolder.replace(/[\\/]+$/, '') || '/';
+    const normalizedRoot = selectedFolder.replace(/[\\/]+$/, '') || '/';
     const normalizedFile = filePath.replace(/\\/g, '/');
     
-    expect(normalizedFile.startsWith(normalizedSelectedFolder)).toBe(true);
+    expect(normalizedFile.startsWith(normalizedRoot)).toBe(true);
   });
 
   it('should handle case-sensitive paths correctly', () => {
