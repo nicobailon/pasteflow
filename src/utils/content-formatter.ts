@@ -197,9 +197,22 @@ export const getSelectedFilesContentWithoutInstructions = (
       continue;
     }
     
-    // Handle files that are still loading
+    // Handle files that cannot be rendered as text
     if (!fileData.isContentLoaded || fileData.content === undefined) {
-      concatenatedString += `\nFile: ${file.path}\n\`\`\`\n[Content is loading...]\n\`\`\`\n`;
+      let placeholder: string;
+
+      if (fileData.isSkipped) {
+        placeholder = `[File skipped${fileData.error ? `: ${fileData.error}` : ''}]`;
+      } else if (fileData.isBinary) {
+        const ft = fileData.fileType ? fileData.fileType : 'BINARY';
+        placeholder = `[Binary file omitted${ft ? `: ${ft}` : ''}]`;
+      } else if (fileData.error) {
+        placeholder = `[Failed to load file${fileData.error ? `: ${fileData.error}` : ''}]`;
+      } else {
+        placeholder = `[Content is loading...]`;
+      }
+
+      concatenatedString += `\nFile: ${file.path}\n\`\`\`\n${placeholder}\n\`\`\`\n`;
       continue;
     }
     

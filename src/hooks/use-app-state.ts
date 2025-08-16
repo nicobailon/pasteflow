@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { unstable_batchedUpdates, flushSync } from 'react-dom';
+import { normalizePath } from '../utils/path-utils';
 
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
@@ -170,6 +171,10 @@ const useAppState = () => {
   useEffect(() => { selectedFolderRef.current = selectedFolder; }, [selectedFolder]);
   useEffect(() => { processingStatusRef.current = processingStatus; }, [processingStatus]);
   useEffect(() => { promptStateRef.current = promptState; }, [promptState]);
+
+  // Ref to always access latest selected files
+  const selectedFilesRef = useRef(selectedFiles);
+  useEffect(() => { selectedFilesRef.current = selectedFiles; }, [selectedFiles]);
 
   // Update instructions token count when user instructions change
   const [userInstructions, setUserInstructions] = useState('');
@@ -384,6 +389,21 @@ const useAppState = () => {
     userInstructions
   ]);
 
+  // Freshness-safe content getter that reads latest state via refs
+  const getFormattedContentFromLatest = useCallback(() => {
+    return getSelectedFilesContent(
+      allFilesRef.current,
+      selectedFilesRef.current,
+      sortOrderRef.current,
+      fileTreeModeRef.current,
+      selectedFolderRef.current,
+      promptStateRef.current.selectedSystemPrompts,
+      promptStateRef.current.selectedRolePrompts,
+      selectedInstructionsRef.current,
+      userInstructionsRef.current
+    );
+  }, []);
+
   // Get content without instructions
   const getFormattedContentWithoutInstructions = useCallback(() => {
     return getSelectedFilesContentWithoutInstructions(
@@ -406,15 +426,32 @@ const useAppState = () => {
     const file = files.find((f: FileData) => f.path === filePath);
 
     if (!file) {
+      console.warn('[validateFileLoadRequest] File not found in allFiles:', filePath);
       return { valid: false, reason: 'File not found' };
     }
 
     if (file.isContentLoaded) {
+      // Debug-only: noisy but useful while investigating
+      console.debug('[validateFileLoadRequest] Already loaded, skipping:', filePath);
       return { valid: false, reason: 'Already loaded' };
     }
 
-    if (selectedFolder && !filePath.startsWith(selectedFolder)) {
-      return { valid: false, reason: 'Outside workspace' };
+    // Normalize paths before workspace containment check to avoid false negatives
+    if (selectedFolder) {
+      try {
+        const normalizedFile = normalizePath(filePath);
+        const normalizedRoot = normalizePath(selectedFolder);
+        const inside = normalizedFile === normalizedRoot || normalizedFile.startsWith(normalizedRoot + '/');
+        if (!inside) {
+          console.warn('[validateFileLoadRequest] Outside workspace, skipping load:', { filePath, selectedFolder, normalizedFile, normalizedRoot });
+          return { valid: false, reason: 'Outside workspace' };
+        }
+      } catch (e) {
+        console.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', e);
+        if (!filePath.startsWith(selectedFolder)) {
+          return { valid: false, reason: 'Outside workspace' };
+        }
+      }
     }
 
     return { valid: true, file };
@@ -422,14 +459,17 @@ const useAppState = () => {
 
   // Helper function to update file loading state
   const updateFileLoadingState = useCallback((filePath: string, isLoading: boolean) => {
+    console.debug('[updateFileLoadingState] Set isCountingTokens', { filePath, isLoading });
     flushSync(() => {
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           f.path === filePath
             ? { ...f, isCountingTokens: isLoading }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
     });
 
     // Removed automatic file selection when loading content
@@ -464,6 +504,7 @@ const useAppState = () => {
     tokenCount: number,
     tokenCountError?: string
   ) => {
+    console.debug('[updateFileWithContent] Apply content and tokens', { filePath, tokenCount, hasContent: !!content, tokenCountError });
     fileContentCache.set(filePath, content, tokenCount);
 
     // Invalidate token cache for this file when content changes
@@ -472,8 +513,8 @@ const useAppState = () => {
     // Use flushSync to force React to process this update immediately
     // This fixes the issue where token counts don't appear until a second file is selected
     flushSync(() => {
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           f.path === filePath
             ? {
                 ...f,
@@ -485,8 +526,10 @@ const useAppState = () => {
                 tokenCountError
               }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
     });
 
     // Note: We don't call updateSelectedFile here because:
@@ -512,6 +555,7 @@ const useAppState = () => {
   }, [processFileTokens, updateFileWithContent]);
 
   const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
+    console.debug('[loadFileContent] Start', { filePath });
     try {
       // Get current files state for validation
       const currentFiles = await new Promise<FileData[]>((resolve) => {
@@ -533,6 +577,7 @@ const useAppState = () => {
       // Check if already loading to prevent duplicate requests
       const file = validation.file;
       if (file && file.isCountingTokens) {
+        console.debug('[loadFileContent] Already counting tokens, skip duplicate request', { filePath });
         return;
       }
 
@@ -542,6 +587,7 @@ const useAppState = () => {
       // Check cache first
       const cached = fileContentCache.get(filePath);
       if (cached) {
+        console.debug('[loadFileContent] Served from cache', { filePath });
         await handleCachedContent(filePath, cached);
         return;
       }
@@ -549,29 +595,58 @@ const useAppState = () => {
       // Load from backend
       const result = await requestFileContent(filePath);
       if (result.success && result.content !== undefined) {
-        // Process tokens and update state
-        const { tokenCount, error } = await processFileTokens(result.content, filePath, 0); // High priority for visible files
-        updateFileWithContent(filePath, result.content, tokenCount, error);
+        console.debug('[loadFileContent] Fetched from backend', { filePath, contentLength: result.content.length });
+
+        // Optimistic fast-path: update content immediately with an estimated token count
+        const estimated = estimateTokenCount(result.content);
+        updateFileWithContent(filePath, result.content, estimated);
+
+        // Count tokens in background and update if necessary
+        processFileTokens(result.content, filePath, 0)
+          .then(({ tokenCount, error }) => {
+            // If precise count differs or there was an error note, update the record
+            if (tokenCount !== estimated || error) {
+              setAllFiles((prev: FileData[]) => {
+                const next = prev.map((f: FileData) =>
+                  f.path === filePath
+                    ? { ...f, tokenCount, tokenCountError: error, isContentLoaded: true, isCountingTokens: false }
+                    : f
+                );
+                allFilesRef.current = next;
+                return next;
+              });
+            }
+          })
+          .catch(err => {
+            console.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, err);
+          });
       } else {
         // Handle error
-        setAllFiles((prev: FileData[]) =>
-          prev.map((f: FileData) =>
+        console.error('[loadFileContent] Backend load failed', { filePath, error: result.error });
+        setAllFiles((prev: FileData[]) => {
+          const next = prev.map((f: FileData) =>
             f.path === filePath
               ? { ...f, error: result.error, isContentLoaded: false, isCountingTokens: false }
               : f
-          )
-        );
+          );
+          allFilesRef.current = next;
+          return next;
+        });
       }
     } catch (error) {
       console.error(`Error loading file content for ${filePath}:`, error);
       // Ensure loading state is cleared on any error
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           f.path === filePath
             ? { ...f, error: 'Failed to load file', isContentLoaded: false, isCountingTokens: false }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
+    } finally {
+      console.debug('[loadFileContent] End', { filePath });
     }
   }, [
     validateFileLoadRequest,
@@ -584,13 +659,15 @@ const useAppState = () => {
 
   // Helper function to set batch loading state
   const setBatchLoadingState = useCallback((filePaths: string[], isLoading: boolean) => {
-    setAllFiles((prev: FileData[]) =>
-      prev.map((f: FileData) =>
+    setAllFiles((prev: FileData[]) => {
+      const next = prev.map((f: FileData) =>
         filePaths.includes(f.path)
           ? { ...f, isCountingTokens: isLoading }
           : f
-      )
-    );
+      );
+      allFilesRef.current = next;
+      return next;
+    });
   }, [setAllFiles]);
 
   // Helper function to process batch results
@@ -619,8 +696,8 @@ const useAppState = () => {
     filePathToResult: Map<string, any>,
     filePathToTokenCount: Map<string, number>
   ) => {
-    setAllFiles((prev: FileData[]) =>
-      prev.map((f: FileData) => {
+    setAllFiles((prev: FileData[]) => {
+      const next = prev.map((f: FileData) => {
         if (!filePaths.includes(f.path)) return f;
 
         const result = filePathToResult.get(f.path);
@@ -656,8 +733,10 @@ const useAppState = () => {
             isCountingTokens: false
           };
         }
-      })
-    );
+      });
+      allFilesRef.current = next;
+      return next;
+    });
   }, [setAllFiles]);
 
   // Helper function for fallback token counting
@@ -668,13 +747,15 @@ const useAppState = () => {
       const tokenCount = estimateTokenCount(content);
       fileContentCache.set(path, content, tokenCount);
 
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           f.path === path
             ? { ...f, content, tokenCount, isContentLoaded: true, isCountingTokens: false }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
     }
   }, [setAllFiles]);
 
@@ -716,13 +797,15 @@ const useAppState = () => {
     }
 
     if (failed.length > 0) {
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           failed.some((item: { path: string; error: string }) => item.path === f.path)
             ? { ...f, error: 'Failed to load content', isContentLoaded: false, isCountingTokens: false }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
     }
   }, [
     isTokenWorkerReady,
@@ -840,7 +923,7 @@ const useAppState = () => {
       if (workspaceData.expandedNodes) {
         setExpandedNodes(workspaceData.expandedNodes);
       }
-      
+
       const { selectedFolder: _selectedFolder, ...restOfData } = workspaceData;
       setPendingWorkspaceData(restOfData);
 
@@ -1000,7 +1083,7 @@ const useAppState = () => {
           return currentInstruction || savedInstruction;
         })
         .filter(inst => inst !== null); // Remove any null entries
-      
+
       setSelectedInstructions(reconciledInstructions);
     } else {
       setSelectedInstructions([]);
@@ -1042,23 +1125,23 @@ const useAppState = () => {
   useEffect(() => {
     currentWorkspaceRef.current = currentWorkspace;
   }, [currentWorkspace]);
-  
+
   useEffect(() => {
     expandedNodesRef.current = expandedNodes;
   }, [expandedNodes]);
-  
+
   useEffect(() => {
     fileTreeModeRef.current = fileTreeMode;
   }, [fileTreeMode]);
-  
+
   useEffect(() => {
     exclusionPatternsRef.current = exclusionPatterns;
   }, [exclusionPatterns]);
-  
+
   useEffect(() => {
     userInstructionsRef.current = userInstructions;
   }, [userInstructions]);
-  
+
   useEffect(() => {
     selectedInstructionsRef.current = selectedInstructions;
   }, [selectedInstructions]);
@@ -1188,10 +1271,10 @@ const useAppState = () => {
   // Auto-save callback that builds and saves the current workspace state
   const performAutoSave = useCallback(async () => {
     if (!currentWorkspace) return;
-    
+
     // Build workspace state (same as saveWorkspace)
     const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
-    
+
     const workspace: WorkspaceState = {
       selectedFolder: selectedFolder,
       expandedNodes: expandedNodes,
@@ -1217,7 +1300,7 @@ const useAppState = () => {
       },
       selectedInstructions: selectedInstructions
     };
-    
+
     // Save without changing header state (silent save)
     await persistWorkspace(currentWorkspace, workspace);
   }, [
@@ -1306,11 +1389,11 @@ const useAppState = () => {
           },
           selectedInstructions: selectedInstructionsRef.current
         };
-        
+
         // Wait for the save to complete before switching
         await persistWorkspace(currentWorkspaceRef.current, workspace);
       }
-      
+
       // Apply the workspace data, including the name
       applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
@@ -1341,9 +1424,9 @@ const useAppState = () => {
 
   useEffect(() => {
     // Wait for file loading and instructions to complete before applying workspace data
-    if (pendingWorkspaceData && 
-        currentWorkspace && 
-        allFiles.length > 0 && 
+    if (pendingWorkspaceData &&
+        currentWorkspace &&
+        allFiles.length > 0 &&
         processingStatus.status === "complete" &&
         !instructionsState.loading) {  // Also wait for instructions to load
 
@@ -1523,13 +1606,14 @@ const useAppState = () => {
     // Content formatting
     getFormattedContent,
     getFormattedContentWithoutInstructions,
+    getFormattedContentFromLatest,
 
     // Workspace management
     saveWorkspace,
     loadWorkspace,
     saveCurrentWorkspace,
     headerSaveState,
-    
+
     // Auto-save
     isAutoSaveEnabled: autoSave.isAutoSaveEnabled,
     setAutoSaveEnabled: autoSave.setAutoSaveEnabled,

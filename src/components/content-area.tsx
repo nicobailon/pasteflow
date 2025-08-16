@@ -354,25 +354,48 @@ const ContentArea = ({
   toggleExpanded,
 }: ContentAreaProps) => {
 
+  const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
   const handleCopyWithLoading = async (getContent: () => string): Promise<string> => {
-    // Create a Map of all files for quick lookup
-    const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
+    // Always request loads for all selected files; loadFileContent will skip already-loaded ones
+    console.debug('[ContentArea.handleCopyWithLoading] Ensuring selected files are loaded', selectedFiles.map(f => f.path));
+    await Promise.all(selectedFiles.map((f) => loadFileContent(f.path)));
 
-    // Find selected files that haven't loaded content yet
-    const unloadedFiles = selectedFiles.filter((selectedFile) => {
-      const file = allFilesMap.get(selectedFile.path);
-      return file && !file.isContentLoaded;
-    });
-
-    if (unloadedFiles.length > 0) {
-      await Promise.all(unloadedFiles.map((f) => loadFileContent(f.path)));
+    // Minimal backoff loop: wait briefly if files are still marked loading
+    let attempts = 0;
+    while (attempts < 3) {
+      const map = new Map(allFiles.map(file => [file.path, file]));
+      const pending = selectedFiles.some(sel => {
+        const d = map.get(sel.path);
+        return d && !d.isContentLoaded && d.isCountingTokens;
+      });
+      if (!pending) break;
+      attempts += 1;
+      await delay(150);
     }
-    return getContent();
+
+    // Sanity check: log loaded state for all selected files (from current props snapshot)
+    const afterMap = new Map(allFiles.map(file => [file.path, file]));
+    const stateSummary = selectedFiles.map(sel => {
+      const d = afterMap.get(sel.path);
+      return { path: sel.path, isContentLoaded: !!d?.isContentLoaded, hasContent: !!d?.content, error: d?.error };
+    });
+    console.debug('[ContentArea.handleCopyWithLoading] Post-load selected states (props snapshot)', stateSummary);
+
+    // After loads resolve, call the provided getter (freshness-safe via refs)
+    const result = getContent();
+
+    // Optional: quickly check for placeholders
+    if (result.includes('[Content is loading...]')) {
+      console.warn('[ContentArea.handleCopyWithLoading] Output still contains loading placeholders');
+    }
+
+    return result;
   };
 
   const handlePreview = async () => {
     const content = await handleCopyWithLoading(getSelectedFilesContent);
-    const totalTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens + 
+    const totalTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens +
                        instructionsTokens + (userInstructions.trim() ? instructionsTokenCount : 0);
     openClipboardPreviewModal(content, totalTokens);
   };
