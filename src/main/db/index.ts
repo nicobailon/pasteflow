@@ -1,8 +1,10 @@
+// Export database components
 export { AsyncDatabase, PreparedStatement } from './async-database';
-export { SecureDatabase } from './secure-database';
 export { ConnectionPool } from './connection-pool';
 export { PooledDatabase } from './pooled-database';
 export { PooledDatabaseBridge } from './pooled-database-bridge';
+
+// Export types
 export type { RunResult } from './async-database';
 export type { PoolStats, SqlParameters, QueryResult } from './connection-pool';
 export type { PooledDatabaseConfig, PerformanceMetrics } from './pooled-database';

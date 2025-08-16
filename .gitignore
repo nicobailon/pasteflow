@@ -66,8 +66,3 @@ coverage/
 # cursor / cline
 .cursor-tasks.md
 memory-bank/
-
-*.md
-!README.md
-!CLAUDE.md
-!TESTING.md

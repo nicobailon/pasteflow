@@ -1,17 +1,18 @@
-const Database = require('better-sqlite3');
-const { PasteFlowDatabase } = require('../database-implementation.js');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+import Database from 'better-sqlite3';
+import { PasteFlowDatabase } from '../database-implementation';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 describe('PasteFlowDatabase', () => {
-  let db;
-  let tempDbPath;
+  let db: PasteFlowDatabase;
+  let tempDbPath: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Use in-memory database for testing to avoid Node.js version issues
     tempDbPath = ':memory:';
     db = new PasteFlowDatabase(tempDbPath);
+    await db.initializeDatabase();
   });
 
   afterEach(() => {

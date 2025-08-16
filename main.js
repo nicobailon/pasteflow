@@ -6,32 +6,26 @@ const path = require("node:path");
 const { Worker } = require("worker_threads");
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
-const { getPathValidator } = require("./src/security/path-validator.cjs");
-const { ipcValidator } = require("./src/validation/ipc-validator.js");
-const { DatabaseBridge } = require("./src/main/db/database-bridge.js");
-// Zod schemas (CommonJS) for main process validation
-const zSchemas = require("./lib/main/ipc/schemas.cjs");
 
-// Feature flag to enable SecureIpcLayer path (TS compiled to build/main)
-const useSecureIpc = process.env.SECURE_IPC === '1';
-
-let SecureIpcLayer, StateHandlers, SecureDatabase;
-let secureIpcAvailable = false;
-
-try {
-  if (useSecureIpc) {
-    ({ SecureIpcLayer } = require("./build/main/ipc/secure-ipc.js"));
-    ({ StateHandlers } = require("./build/main/handlers/state-handlers.js"));
-    ({ SecureDatabase } = require("./build/main/db/secure-database.js"));
-    secureIpcAvailable = true;
-  }
-} catch (e) {
-  console.warn("Secure IPC modules not available; falling back to legacy handlers:", e?.message || e);
-  secureIpcAvailable = false;
+// Load database bridge - use compiled version in production, TypeScript in development
+let DatabaseBridge;
+if (process.env.NODE_ENV === 'development') {
+  // Register tsx to handle TypeScript files at runtime in development
+  require('tsx/cjs');
+  DatabaseBridge = require("./src/main/db/database-bridge.ts").DatabaseBridge;
+} else {
+  // Use compiled JavaScript in production
+  DatabaseBridge = require("./build/main/db/database-bridge.js").DatabaseBridge;
 }
 
-// Use secure IPC only if requested AND available
-const actuallyUseSecureIpc = useSecureIpc && secureIpcAvailable;
+const { getPathValidator } = require("./src/security/path-validator.cjs");
+const { ipcValidator } = require("./src/validation/ipc-validator.js");
+// Zod schemas (CommonJS) for main process validation
+const zSchemas = require("./lib/main/ipc/schemas.cjs");
+// Import centralized constants - moved here from line 209 to be available for createWindow()
+const { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } = require('./src/constants/app-constants.js');
+
+// SecureIpc has been removed - always use legacy handlers
 
 
 // Add error handling for console operations to prevent EIO errors
@@ -222,10 +216,7 @@ const BINARY_EXTENSIONS = new Set([
   ...(binaryExtensions || []) // Add any additional binary extensions from excluded-files.js
 ]);
 
-// Import centralized constants
-const { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } = require('./src/constants/app-constants.js');
-
-// Max file size to read
+// Max file size to read (constants already imported at top of file)
 const MAX_FILE_SIZE = FILE_PROCESSING.MAX_FILE_SIZE_BYTES;
 
 // Special file extensions to skip (not even try to read)
@@ -281,11 +272,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js"),
-      devTools: {
-        // Add these settings to prevent Autofill warnings
-        isDevToolsExtension: false,
-        htmlFullscreen: false,
-      },
+      // Note: devTools is controlled via webContents.openDevTools(), not here
+      // The Autofill warnings are harmless and come from Chrome DevTools
     },
   });
 
@@ -376,27 +364,10 @@ function createWindow() {
 // eslint-disable-next-line unicorn/prefer-top-level-await
 app.whenReady().then(async () => {
   try {
-    if (actuallyUseSecureIpc && SecureDatabase) {
-      // Initialize SecureDatabase (TS compiled to JS)
-      const userDataPath = app.getPath('userData');
-      const dbPath = path.join(userDataPath, 'pasteflow-secure.db');
-      database = await SecureDatabase.create(dbPath);
-      database.initialized = true; // flag to keep logic compatible below
-      console.log('SecureDatabase initialized successfully');
-
-      // Wire SecureIpcLayer + StateHandlers
-      if (SecureIpcLayer && StateHandlers) {
-        const ipcLayer = new SecureIpcLayer();
-        // StateHandlers will register handlers on constructor
-        // Use the same database instance
-        new StateHandlers(database, ipcLayer);
-      }
-    } else {
-      // Initialize legacy DatabaseBridge
-      database = new DatabaseBridge();
-      await database.initialize();
-      console.log('Database initialized successfully');
-    }
+    // Initialize DatabaseBridge
+    database = new DatabaseBridge();
+    await database.initialize();
+    console.log('Database initialized successfully');
   } catch (error) {
     console.error('Failed to initialize database:', error);
     console.log('Falling back to in-memory storage');
@@ -1014,13 +985,17 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
 });
 
 // Workspace management handlers
-if (!actuallyUseSecureIpc) {
 
 ipcMain.handle('/workspace/list', async () => {
   try {
     // Use database if available
     if (database && database.initialized) {
-      return await database.listWorkspaces();
+      const workspaces = await database.listWorkspaces();
+      // Convert numeric IDs to strings for compatibility with frontend expectations
+      return workspaces.map(workspace => ({
+        ...workspace,
+        id: String(workspace.id)
+      }));
     }
 
     // Fallback to in-memory store
@@ -1051,7 +1026,11 @@ ipcMain.handle('/workspace/create', async (event, params) => {
     // Use database if available
     if (database && database.initialized) {
       const workspace = await database.createWorkspace(name, folderPath, state);
-      return { success: true, workspace };
+      // Convert numeric ID to string for compatibility with frontend expectations
+      return { success: true, workspace: {
+        ...workspace,
+        id: String(workspace.id)
+      }};
     }
 
     // Fallback to in-memory store
@@ -1083,16 +1062,24 @@ ipcMain.handle('/workspace/load', async (event, params) => {
     // Use database if available
     if (database && database.initialized) {
       const workspace = await database.getWorkspace(id);
+      // Return null for non-existent workspaces instead of throwing
+      // This is expected during workspace auto-generation
       if (!workspace) {
-        throw new Error('Workspace not found');
+        return null;
       }
-      return workspace;
+      // Convert numeric ID to string for compatibility with frontend expectations
+      return {
+        ...workspace,
+        id: String(workspace.id)
+      };
     }
 
     // Fallback to in-memory store
     const workspace = workspaceStore.get(id);
     if (!workspace) {
-      throw new Error('Workspace not found');
+      // Return null for non-existent workspaces instead of throwing
+      // This is expected during workspace auto-generation
+      return null;
     }
 
     return {
@@ -1240,12 +1227,8 @@ ipcMain.handle('/workspace/rename', async (event, params) => {
   } catch (error) {
     console.error('Error renaming workspace:', error);
     return { success: false, error: error.message };
-}
-
+  }
 });
-}
-
-if (!actuallyUseSecureIpc) {
 
 // Instructions handlers
 ipcMain.handle('/instructions/list', async () => {
@@ -1298,7 +1281,6 @@ ipcMain.handle('/instructions/delete', async (event, params) => {
     throw error;
   }
 });
-}
 
 // Helper function to broadcast updates to all renderer processes
 function broadcastUpdate(channel, data) {
@@ -1307,8 +1289,6 @@ function broadcastUpdate(channel, data) {
     window.webContents.send(channel, data);
   }
 }
-
-if (!actuallyUseSecureIpc) {
 
 // Preferences handlers
 ipcMain.handle('/prefs/get', async (event, params) => {
@@ -1382,6 +1362,4 @@ ipcMain.handle('/prefs/set', async (event, params) => {
     throw error; // Let the renderer handle the error
   }
 });
-
-}
 

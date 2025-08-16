@@ -149,11 +149,10 @@ export const useDatabaseWorkspaceState = () => {
       if (!window.electron) return null;
       
       // Try to load the workspace - it may not exist yet which is fine
-      // The backend now returns null instead of throwing for non-existent workspaces
       const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', { id: name });
       return workspace || null;
     } catch (error) {
-      // Only log unexpected errors
+      // Log unexpected errors
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`Failed to find workspace '${name}': ${errorMessage}`);
       return null;
@@ -281,8 +280,9 @@ export const useDatabaseWorkspaceState = () => {
         
         return state ?? null;
       } catch (error) {
-        console.error(`Failed to load workspace '${name}': ${(error as Error).message}`);
-        safeSetError(`Failed to load workspace '${name}': ${(error as Error).message}. Verify workspace exists and database is accessible.`);
+        const errorMessage = (error as Error).message;
+        console.error(`Failed to load workspace '${name}': ${errorMessage}`);
+        safeSetError(`Failed to load workspace '${name}': ${errorMessage}. Verify workspace exists and database is accessible.`);
         return null;
       } finally {
         safeSetIsLoading(false);

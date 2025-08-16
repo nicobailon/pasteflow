@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { v4 as uuidv4 } from 'uuid';
 
-import { retryWorkerOperation, retryUtility, DatabaseErrorType, executeWithRetry } from './retry-utils.js';
+import { retryWorkerOperation, retryUtility, DatabaseErrorType, executeWithRetry } from './retry-utils';
 
 interface WorkerRequest {
   id: string;
@@ -83,7 +83,7 @@ export class AsyncDatabase extends EventEmitter {
     try {
       this.worker = new Worker(
         // eslint-disable-next-line unicorn/prefer-module
-        path.join(__dirname, 'database-worker.js'),
+        path.join(__dirname, 'database-worker.ts'),
         {
           workerData: { dbPath: this.dbPath, ...this.options }
         }

@@ -1,2 +1,2 @@
-export { SecureIpcLayer } from './secure-ipc';
+// SecureIpcLayer has been removed
 export * from './schemas';
