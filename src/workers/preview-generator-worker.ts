@@ -125,8 +125,14 @@ const DEFAULT_CHUNK_SIZE = 8;
 let currentChunkSize = DEFAULT_CHUNK_SIZE;
 // Timeout for pending files (30 seconds)
 const PENDING_FILE_TIMEOUT = 30_000;
-const RETRY_MAX_ATTEMPTS = 2;
+const RETRY_MAX_ATTEMPTS = 3;  // Increased for better resilience
 const RETRY_DELAY_MS = 200;
+const RETRY_BACKOFF_MULTIPLIER = 1.5;  // Exponential backoff for retries
+// Memory management limits
+const MAX_TRACKED_PATHS = 10000;  // Maximum paths to track in any single Set
+const MAX_PENDING_TIMEOUTS = 5000;  // Maximum concurrent pending timeouts
+const MAX_RETRY_COUNTS = 1000;  // Maximum retry counts to track (much smaller than paths)
+const CLEANUP_INTERVAL_MS = 30_000;  // Interval for memory cleanup
 
 function estimateTokens(text: string): number {
   return Math.ceil((text || '').length / CHARS_PER_TOKEN);
@@ -531,14 +537,32 @@ function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: 
           clearTimeout(timeout);
           pendingTimeouts.delete(p);
         }
+        // Clear retry count for successfully emitted file
+        retryCounts.delete(p);
         processedAfter = emittedPaths.size;
       } catch (error) {
         // Retry transient build failures a few times before marking as failed
         if (!emittedPaths.has(p)) {
-          scheduleRetry(p, userSelectedFolder, !!packOnly);
+          // Check if this is a likely transient error
+          const isTransient = isTransientError(error);
+          if (isTransient) {
+            scheduleRetry(p, userSelectedFolder, !!packOnly);
+          } else {
+            // Non-transient error, mark as failed immediately
+            pendingPaths.delete(p);
+            failedPaths.add(p);
+            skippedPaths.delete(p);
+            const timeout = pendingTimeouts.get(p);
+            if (timeout) {
+              clearTimeout(timeout);
+              pendingTimeouts.delete(p);
+            }
+            // Ensure no stale retry count
+            retryCounts.delete(p);
+          }
         }
         if (DEBUG_ENABLED) {
-          console.log('[Worker] Build blocks failed, scheduled retry:', p, error);
+          console.log('[Worker] Build blocks failed:', p, error);
         }
       }
     }
@@ -577,14 +601,24 @@ function scheduleRetry(path: string, userSelectedFolder: string | null, packOnly
       clearTimeout(timeout);
       pendingTimeouts.delete(path);
     }
+    // Clean up retry count for permanently failed file
+    retryCounts.delete(path);
+    if (DEBUG_ENABLED) {
+      console.log('[Worker] Max retries reached for path:', path);
+    }
     emitProgress();
     checkAndCompleteIfDone();
     return;
   }
   retryCounts.set(path, attempts + 1);
+  // Use exponential backoff for retries
+  const delay = Math.round(RETRY_DELAY_MS * Math.pow(RETRY_BACKOFF_MULTIPLIER, attempts));
   self.setTimeout(() => {
+    if (DEBUG_ENABLED) {
+      console.log('[Worker] Retrying path (attempt', attempts + 1, '):', path);
+    }
     tryEmitSingle(path, userSelectedFolder, packOnly);
-  }, RETRY_DELAY_MS);
+  }, delay);
 }
 
 function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly: boolean) {
@@ -611,6 +645,8 @@ function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly
       clearTimeout(timeout);
       pendingTimeouts.delete(path);
     }
+    // Clear retry count for successfully emitted file
+    retryCounts.delete(path);
 
     workerCtx.postMessage({
       type: 'CHUNK',
@@ -624,8 +660,28 @@ function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly
 
     emitProgress();
     checkAndCompleteIfDone();
-  } catch {
-    scheduleRetry(path, userSelectedFolder, packOnly);
+  } catch (error) {
+    // Check if this is a transient error that should be retried
+    if (isTransientError(error)) {
+      scheduleRetry(path, userSelectedFolder, packOnly);
+    } else {
+      // Non-transient error, mark as failed
+      pendingPaths.delete(path);
+      failedPaths.add(path);
+      skippedPaths.delete(path);
+      const timeout = pendingTimeouts.get(path);
+      if (timeout) {
+        clearTimeout(timeout);
+        pendingTimeouts.delete(path);
+      }
+      // Ensure no stale retry count
+      retryCounts.delete(path);
+      if (DEBUG_ENABLED) {
+        console.log('[Worker] Non-transient error for path:', path, error);
+      }
+      emitProgress();
+      checkAndCompleteIfDone();
+    }
   }
 }
 
@@ -660,6 +716,9 @@ async function streamPreview(payload: StartPayload) {
   skippedPaths = new Set();
   failedPaths = new Set();
   eligiblePathsSet = new Set();
+  
+  // Perform memory cleanup periodically
+  enforceMemoryLimits();
   tokenTotal = 0;
   headerEmitted = false;
   footerEmitted = false;
@@ -669,6 +728,7 @@ async function streamPreview(payload: StartPayload) {
     clearTimeout(timeout);
   }
   pendingTimeouts.clear();
+  retryCounts.clear();  // Clear retry counts from previous runs
 
   // Build sorted selection - all selected files including binary/skipped
   const allSelectedList = allFiles.filter(f => !f.isDirectory && currentSelectedMap.has(f.path));
@@ -746,52 +806,69 @@ async function streamPreview(payload: StartPayload) {
   checkAndCompleteIfDone();
 }
 
-// UPDATE handler
+// UPDATE handler with retry support for failed files
 function handleUpdateFiles(id: string, files: UpdateFile[], chunkSize: number) {
   if (!currentId || currentId !== id || isCancelled) return;
 
   const newlyReady: string[] = [];
   for (const f of files) {
-    const existing = currentAllMap.get(f.path) || {
-      name: f.path.split('/').pop() || f.path,
-      path: f.path,
-      isDirectory: false,
-      size: f.content?.length ?? 0,
-      isBinary: false,
-      isSkipped: false
-    } as FileData;
+    try {
+      const existing = currentAllMap.get(f.path) || {
+        name: f.path.split('/').pop() || f.path,
+        path: f.path,
+        isDirectory: false,
+        size: f.content?.length ?? 0,
+        isBinary: false,
+        isSkipped: false
+      } as FileData;
 
-    existing.content = f.content;
-    existing.isContentLoaded = true;
-    if (typeof f.tokenCount === 'number') existing.tokenCount = f.tokenCount;
-    currentAllMap.set(f.path, existing);
+      existing.content = f.content;
+      existing.isContentLoaded = true;
+      if (typeof f.tokenCount === 'number') existing.tokenCount = f.tokenCount;
+      currentAllMap.set(f.path, existing);
 
-    // Allow retrying failed/skipped files and processing pending files
-    if (!emittedPaths.has(f.path)) {
-      // Only process if this file was originally eligible
-      if (eligiblePathsSet.has(f.path)) {
-        if (pendingPaths.has(f.path) || failedPaths.has(f.path) || skippedPaths.has(f.path)) {
-          newlyReady.push(f.path);
-          // Clear timeout for pending files
-          const timeout = pendingTimeouts.get(f.path);
-          if (timeout) {
-            clearTimeout(timeout);
-            pendingTimeouts.delete(f.path);
+      // Allow retrying failed/skipped files and processing pending files
+      if (!emittedPaths.has(f.path)) {
+        // Only process if this file was originally eligible
+        if (eligiblePathsSet.has(f.path)) {
+          if (pendingPaths.has(f.path) || failedPaths.has(f.path) || skippedPaths.has(f.path)) {
+            newlyReady.push(f.path);
+            // Clear timeout for pending files
+            const timeout = pendingTimeouts.get(f.path);
+            if (timeout) {
+              clearTimeout(timeout);
+              pendingTimeouts.delete(f.path);
+            }
+            // If it was failed or skipped, move back to pending for retry
+            if (failedPaths.has(f.path)) {
+              failedPaths.delete(f.path);
+              pendingPaths.add(f.path);
+              // Set a new timeout for the retry
+              const newTimeout = self.setTimeout(() => handlePendingTimeout(f.path), PENDING_FILE_TIMEOUT);
+              pendingTimeouts.set(f.path, newTimeout);
+            } else if (skippedPaths.has(f.path)) {
+              skippedPaths.delete(f.path);
+              pendingPaths.add(f.path);
+              // Set a new timeout for the retry
+              const newTimeout = self.setTimeout(() => handlePendingTimeout(f.path), PENDING_FILE_TIMEOUT);
+              pendingTimeouts.set(f.path, newTimeout);
+            }
           }
-          // If it was failed or skipped, move back to pending for retry
-          if (failedPaths.has(f.path)) {
-            failedPaths.delete(f.path);
-            pendingPaths.add(f.path);
-            // Set a new timeout for the retry
-            const newTimeout = self.setTimeout(() => handlePendingTimeout(f.path), PENDING_FILE_TIMEOUT);
-            pendingTimeouts.set(f.path, newTimeout);
-          } else if (skippedPaths.has(f.path)) {
-            skippedPaths.delete(f.path);
-            pendingPaths.add(f.path);
-            // Set a new timeout for the retry
-            const newTimeout = self.setTimeout(() => handlePendingTimeout(f.path), PENDING_FILE_TIMEOUT);
-            pendingTimeouts.set(f.path, newTimeout);
-          }
+        }
+      }
+    } catch (error) {
+      // Handle errors in processing individual file updates
+      if (DEBUG_ENABLED) {
+        console.log('[Worker] Error processing file update:', f.path, error);
+      }
+      // Mark as failed if it's not a transient error
+      if (!isTransientError(error) && eligiblePathsSet.has(f.path)) {
+        pendingPaths.delete(f.path);
+        failedPaths.add(f.path);
+        const timeout = pendingTimeouts.get(f.path);
+        if (timeout) {
+          clearTimeout(timeout);
+          pendingTimeouts.delete(f.path);
         }
       }
     }
@@ -846,9 +923,11 @@ function handleUpdateFileStatus(id: string, path: string, status: FileStatus, re
   if (status === 'error') {
     failedPaths.add(path);
     skippedPaths.delete(path);  // Move from skipped to failed if needed
+    retryCounts.delete(path);  // Clean up retry count for failed file
   } else if (status === 'binary' || status === 'skipped') {
     skippedPaths.add(path);
     failedPaths.delete(path);  // Move from failed to skipped if needed
+    retryCounts.delete(path);  // Clean up retry count for skipped file
   }
   
   // Diagnostic logging
@@ -886,6 +965,7 @@ function handlePendingTimeout(path: string) {
       skippedPaths.delete(path);  // Move from skipped if needed
     }
     pendingTimeouts.delete(path);
+    retryCounts.delete(path);  // Clean up retry count for timed out file
     
     // Update progress and check for completion
     emitProgress();
@@ -919,7 +999,152 @@ function checkAndCompleteIfDone() {
     }
     pendingTimeouts.clear();
     
+    // Stop memory cleanup when complete
+    stopMemoryCleanup();
     emitFooterAndComplete(lastUserInstructions);
+  }
+}
+
+// Helper to identify transient errors that should be retried
+function isTransientError(error: unknown): boolean {
+  if (!error) return false;
+  
+  const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  
+  // Common transient error patterns (excluding persistent failures)
+  // More flexible patterns to catch variations
+  // Note: Error message is already converted to lowercase, so no /i flag needed
+  const transientPatterns = [
+    /\btimeout\b/,          // timeout
+    /\btimed?\s+out\b/,     // timed out, time out
+    /\btiming\s+out\b/,     // timing out
+    /\bnetwork\b/,          // network errors
+    /\bconnection\b.*\b(lost|failed|reset|refused|dropped)\b/,  // connection issues
+    /\bemfile\b/,           // Too many open files
+    /\benfile\b/,           // File table overflow
+    /\beagain\b/,           // Resource temporarily unavailable
+    /\bebusy\b/,            // Resource busy
+    /\betimedout\b/,        // Operation timed out (error code)
+    /\beconnreset\b/,       // Connection reset
+    /\bepipe\b/,            // Broken pipe
+    /\benomem\b/,           // Out of memory (might recover)
+    /\beconnrefused\b/,     // Connection refused (service might be starting)
+    /\behostunreach\b/,     // Host unreachable (network might recover)
+    /\btemporarily\s+unavailable\b/,  // Temporarily unavailable
+    /\bretry\b/,            // Explicit retry messages
+    /\btransient\b/         // Explicit transient errors
+  ];
+  
+  // Explicitly exclude non-transient errors
+  // Using word boundaries to avoid false matches
+  // Note: Error message is already converted to lowercase, so no /i flag needed
+  const nonTransientPatterns = [
+    /\benoent\b/,           // File not found - won't magically appear
+    /\bno\s+such\s+file\b/, // No such file or directory
+    /\beacces\b/,           // Permission denied - won't change without intervention
+    /\bpermission\s+denied\b/, // Permission denied message
+    /\beisdir\b/,           // Is a directory - won't become a file
+    /\benotdir\b/,          // Not a directory - won't become a directory
+    /\beexist\b/,           // File exists - won't disappear
+    /\balready\s+exists\b/, // File already exists
+    /\binvalid\b/,          // Invalid arguments/parameters
+    /\bmalformed\b/,        // Malformed data
+    /\bcorrupt\b/           // Corrupted data
+  ];
+  
+  // Check if it's explicitly non-transient first
+  if (nonTransientPatterns.some(pattern => pattern.test(errorMessage))) {
+    return false;
+  }
+  
+  return transientPatterns.some(pattern => pattern.test(errorMessage));
+}
+
+// Memory management utilities
+function enforceMemoryLimits() {
+  // Enforce limits on tracking Sets
+  if (emittedPaths.size > MAX_TRACKED_PATHS) {
+    // Convert to array, keep most recent entries
+    const pathsArray = [...emittedPaths];
+    const toKeep = new Set(pathsArray.slice(-MAX_TRACKED_PATHS));
+    // Clear and repopulate to maintain reference
+    emittedPaths.clear();
+    for (const path of toKeep) {
+      emittedPaths.add(path);
+    }
+    if (DEBUG_ENABLED) {
+      console.log('[Worker] Trimmed emittedPaths from', pathsArray.length, 'to', MAX_TRACKED_PATHS);
+    }
+  }
+  
+  // Clean up old pending timeouts
+  if (pendingTimeouts.size > MAX_PENDING_TIMEOUTS) {
+    const entries = [...pendingTimeouts.entries()];
+    const toRemove = entries.slice(0, entries.length - MAX_PENDING_TIMEOUTS);
+    for (const [path, timeout] of toRemove) {
+      clearTimeout(timeout);
+      pendingTimeouts.delete(path);
+      // Move from pending to failed if not already processed
+      if (pendingPaths.has(path)) {
+        pendingPaths.delete(path);
+        if (!emittedPaths.has(path)) {
+          failedPaths.add(path);
+        }
+      }
+    }
+    if (DEBUG_ENABLED) {
+      console.log('[Worker] Cleaned up', toRemove.length, 'old pending timeouts');
+    }
+  }
+  
+  // Limit failed and skipped paths as well
+  const halfLimit = Math.floor(MAX_TRACKED_PATHS / 2);
+  if (failedPaths.size > halfLimit) {
+    const pathsArray = [...failedPaths];
+    const toKeep = new Set(pathsArray.slice(-halfLimit));
+    failedPaths.clear();
+    for (const path of toKeep) {
+      failedPaths.add(path);
+    }
+  }
+  
+  if (skippedPaths.size > halfLimit) {
+    const pathsArray = [...skippedPaths];
+    const toKeep = new Set(pathsArray.slice(-halfLimit));
+    skippedPaths.clear();
+    for (const path of toKeep) {
+      skippedPaths.add(path);
+    }
+  }
+  
+  // Clean up old retry counts to prevent memory leak
+  if (retryCounts.size > MAX_RETRY_COUNTS) {
+    const entries = [...retryCounts.entries()];
+    const toKeep = entries.slice(-MAX_RETRY_COUNTS);
+    retryCounts.clear();
+    for (const [path, count] of toKeep) {
+      retryCounts.set(path, count);
+    }
+    if (DEBUG_ENABLED) {
+      console.log('[Worker] Trimmed retryCounts from', entries.length, 'to', MAX_RETRY_COUNTS);
+    }
+  }
+}
+
+// Set up periodic memory cleanup
+let cleanupInterval: number | null = null;
+function startMemoryCleanup() {
+  // Always stop existing interval before starting new one
+  stopMemoryCleanup();
+  cleanupInterval = self.setInterval(() => {
+    enforceMemoryLimits();
+  }, CLEANUP_INTERVAL_MS);
+}
+
+function stopMemoryCleanup() {
+  if (cleanupInterval !== null) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
   }
 }
 
@@ -942,6 +1167,8 @@ workerCtx.addEventListener('message', async (e: MessageEvent<Incoming>) => {
           clearTimeout(timeout);
         }
         pendingTimeouts.clear();
+        // Stop memory cleanup on cancel
+        stopMemoryCleanup();
         workerCtx.postMessage({ type: 'CANCELLED' as const, id: currentId! });
       }
       return;
@@ -952,6 +1179,8 @@ workerCtx.addEventListener('message', async (e: MessageEvent<Incoming>) => {
         workerCtx.postMessage({ type: 'ERROR' as const, id: p?.id || 'unknown', error: 'Invalid START payload' });
         return;
       }
+      // Start memory cleanup when processing begins
+      startMemoryCleanup();
       // streamPreview will store userInstructions
       await streamPreview(p);
       return;

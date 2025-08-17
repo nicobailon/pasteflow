@@ -1,7 +1,9 @@
 // Minimal logger utility for development/production logging control
 const isDev = typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production';
 
-type LogArg = unknown;
+type Primitive = string | number | boolean | undefined | null;
+type LogValue = Primitive | Error | Record<string, unknown>;
+type LogArg = LogValue | LogValue[];
 const noop = (..._args: LogArg[]) => { /* no-op */ };
 
 export const logger = {
