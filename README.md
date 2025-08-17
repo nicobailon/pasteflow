@@ -7,6 +7,7 @@ A desktop app for efficiently selecting and copying code to share with AI assist
 ## Features
 
 - **File Tree Navigation** - Browse and select files from your codebase
+- **Progressive Preview Pack** - Background file processing with seamless Pack → Preview/Copy workflow
 - **Token Counting** - Optimized token estimates for LLM context limits
 - **Smart Exclusions** - Automatically excludes binary files, build artifacts, and common non-source files
 - **Line Range Selection** - Select specific line ranges within files

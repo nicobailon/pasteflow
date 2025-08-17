@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { unstable_batchedUpdates, flushSync } from 'react-dom';
+import { normalizePath } from '../utils/path-utils';
+import { logger } from '../utils/logger';
 
 import { STORAGE_KEYS } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
@@ -171,6 +173,13 @@ const useAppState = () => {
   useEffect(() => { processingStatusRef.current = processingStatus; }, [processingStatus]);
   useEffect(() => { promptStateRef.current = promptState; }, [promptState]);
 
+  // Ref to always access latest selected files
+  const selectedFilesRef = useRef(selectedFiles);
+  useEffect(() => { selectedFilesRef.current = selectedFiles; }, [selectedFiles]);
+
+  // Track previous mtimes to detect changed files across refreshes
+  const prevMtimeByPathRef = useRef<Map<string, number>>(new Map());
+
   // Update instructions token count when user instructions change
   const [userInstructions, setUserInstructions] = useState('');
   const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
@@ -326,10 +335,9 @@ const useAppState = () => {
       isElectron,
       selectedFolder,
       exclusionPatterns,
-      setProcessingStatus,
-      fileSelection.clearSelectedFiles
+      setProcessingStatus
     );
-  }, [isElectron, selectedFolder, exclusionPatterns, fileSelection.clearSelectedFiles]);
+  }, [isElectron, selectedFolder, exclusionPatterns, setProcessingStatus]);
 
   // Toggle expand/collapse state changes
   const toggleExpanded = useCallback((nodeId: string, currentState?: boolean) => {
@@ -384,6 +392,21 @@ const useAppState = () => {
     userInstructions
   ]);
 
+  // Freshness-safe content getter that reads latest state via refs
+  const getFormattedContentFromLatest = useCallback(() => {
+    return getSelectedFilesContent(
+      allFilesRef.current,
+      selectedFilesRef.current,
+      sortOrderRef.current,
+      fileTreeModeRef.current,
+      selectedFolderRef.current,
+      promptStateRef.current.selectedSystemPrompts,
+      promptStateRef.current.selectedRolePrompts,
+      selectedInstructionsRef.current,
+      userInstructionsRef.current
+    );
+  }, []);
+
   // Get content without instructions
   const getFormattedContentWithoutInstructions = useCallback(() => {
     return getSelectedFilesContentWithoutInstructions(
@@ -406,15 +429,38 @@ const useAppState = () => {
     const file = files.find((f: FileData) => f.path === filePath);
 
     if (!file) {
+      logger.warn('[validateFileLoadRequest] File not found in allFiles:', filePath);
       return { valid: false, reason: 'File not found' };
     }
 
     if (file.isContentLoaded) {
+      // Debug-only: noisy but useful while investigating
+      logger.debug('[validateFileLoadRequest] Already loaded, skipping:', filePath);
       return { valid: false, reason: 'Already loaded' };
     }
 
-    if (selectedFolder && !filePath.startsWith(selectedFolder)) {
-      return { valid: false, reason: 'Outside workspace' };
+    // Skip files that are marked binary or skipped
+    if (file.isBinary || file.isSkipped) {
+      logger.debug('[validateFileLoadRequest] Binary or skipped file, skipping load:', filePath);
+      return { valid: false, reason: 'Binary or skipped' };
+    }
+
+    // Normalize paths before workspace containment check to avoid false negatives
+    if (selectedFolder) {
+      try {
+        const normalizedFile = normalizePath(filePath);
+        const normalizedRoot = normalizePath(selectedFolder);
+        const inside = normalizedFile === normalizedRoot || normalizedFile.startsWith(normalizedRoot + '/');
+        if (!inside) {
+          logger.warn('[validateFileLoadRequest] Outside workspace, skipping load:', { filePath, selectedFolder, normalizedFile, normalizedRoot });
+          return { valid: false, reason: 'Outside workspace' };
+        }
+      } catch (error) {
+        logger.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', error);
+        if (!filePath.startsWith(selectedFolder)) {
+          return { valid: false, reason: 'Outside workspace' };
+        }
+      }
     }
 
     return { valid: true, file };
@@ -422,14 +468,17 @@ const useAppState = () => {
 
   // Helper function to update file loading state
   const updateFileLoadingState = useCallback((filePath: string, isLoading: boolean) => {
+    logger.debug('[updateFileLoadingState] Set isCountingTokens', { filePath, isLoading });
     flushSync(() => {
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           f.path === filePath
             ? { ...f, isCountingTokens: isLoading }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
     });
 
     // Removed automatic file selection when loading content
@@ -437,6 +486,13 @@ const useAppState = () => {
   }, [setAllFiles]);
 
   // Helper function to process token counting
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const processFileTokens = useCallback(async (
     content: string,
     filePath: string,
@@ -451,7 +507,7 @@ const useAppState = () => {
         return { tokenCount, error: 'Worker not ready, used estimation' };
       }
     } catch (error) {
-      console.error(`Token counting failed for ${filePath}:`, error);
+      logger.error(`Token counting failed for ${filePath}:`, error);
       const tokenCount = estimateTokenCount(content);
       return { tokenCount, error: 'Worker failed, used estimation' };
     }
@@ -464,6 +520,7 @@ const useAppState = () => {
     tokenCount: number,
     tokenCountError?: string
   ) => {
+    logger.debug('[updateFileWithContent] Apply content and tokens', { filePath, tokenCount, hasContent: !!content, tokenCountError });
     fileContentCache.set(filePath, content, tokenCount);
 
     // Invalidate token cache for this file when content changes
@@ -472,8 +529,8 @@ const useAppState = () => {
     // Use flushSync to force React to process this update immediately
     // This fixes the issue where token counts don't appear until a second file is selected
     flushSync(() => {
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           f.path === filePath
             ? {
                 ...f,
@@ -485,8 +542,10 @@ const useAppState = () => {
                 tokenCountError
               }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
     });
 
     // Note: We don't call updateSelectedFile here because:
@@ -512,6 +571,7 @@ const useAppState = () => {
   }, [processFileTokens, updateFileWithContent]);
 
   const loadFileContent = useCallback(async (filePath: string): Promise<void> => {
+    logger.debug('[loadFileContent] Start', { filePath });
     try {
       // Get current files state for validation
       const currentFiles = await new Promise<FileData[]>((resolve) => {
@@ -525,7 +585,7 @@ const useAppState = () => {
       const validation = validateFileLoadRequest(filePath, currentFiles);
       if (!validation.valid) {
         if (validation.reason === 'Outside workspace') {
-          console.warn(`Skipping file outside current workspace: ${filePath}`);
+          logger.warn(`Skipping file outside current workspace: ${filePath}`);
         }
         return;
       }
@@ -533,6 +593,7 @@ const useAppState = () => {
       // Check if already loading to prevent duplicate requests
       const file = validation.file;
       if (file && file.isCountingTokens) {
+        logger.debug('[loadFileContent] Already counting tokens, skip duplicate request', { filePath });
         return;
       }
 
@@ -542,6 +603,7 @@ const useAppState = () => {
       // Check cache first
       const cached = fileContentCache.get(filePath);
       if (cached) {
+        logger.debug('[loadFileContent] Served from cache', { filePath });
         await handleCachedContent(filePath, cached);
         return;
       }
@@ -549,29 +611,66 @@ const useAppState = () => {
       // Load from backend
       const result = await requestFileContent(filePath);
       if (result.success && result.content !== undefined) {
-        // Process tokens and update state
-        const { tokenCount, error } = await processFileTokens(result.content, filePath, 0); // High priority for visible files
-        updateFileWithContent(filePath, result.content, tokenCount, error);
+        logger.debug('[loadFileContent] Fetched from backend', { filePath, contentLength: result.content.length });
+
+        // Optimistic fast-path: update content immediately with an estimated token count
+        const estimated = estimateTokenCount(result.content);
+        updateFileWithContent(filePath, result.content, estimated);
+
+        // Count tokens in background and update if necessary
+        processFileTokens(result.content, filePath, 0)
+          .then(({ tokenCount, error }) => {
+            if (!isMountedRef.current) return; // Component unmounted, skip state updates
+            // If precise count differs or there was an error note, update the record
+            if (tokenCount !== estimated || error) {
+              setAllFiles((prev: FileData[]) => {
+                const next = prev.map((f: FileData) =>
+                  f.path === filePath
+                    ? { ...f, tokenCount, tokenCountError: error, isContentLoaded: true, isCountingTokens: false }
+                    : f
+                );
+                allFilesRef.current = next;
+                return next;
+              });
+            }
+          })
+          .catch(err => {
+            if (!isMountedRef.current) return;
+            logger.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, err);
+          });
       } else {
         // Handle error
-        setAllFiles((prev: FileData[]) =>
-          prev.map((f: FileData) =>
+        logger.error('[loadFileContent] Backend load failed', { filePath, error: result.error });
+        setAllFiles((prev: FileData[]) => {
+          const next = prev.map((f: FileData) =>
             f.path === filePath
-              ? { ...f, error: result.error, isContentLoaded: false, isCountingTokens: false }
+              ? {
+                  ...f,
+                  error: result.error,
+                  isBinary: (result as any).isBinary === true ? true : f.isBinary,
+                  isContentLoaded: false,
+                  isCountingTokens: false
+                }
               : f
-          )
-        );
+          );
+          allFilesRef.current = next;
+          return next;
+        });
       }
     } catch (error) {
-      console.error(`Error loading file content for ${filePath}:`, error);
+      logger.error(`Error loading file content for ${filePath}:`, error);
       // Ensure loading state is cleared on any error
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           f.path === filePath
             ? { ...f, error: 'Failed to load file', isContentLoaded: false, isCountingTokens: false }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
+    } finally {
+      logger.debug('[loadFileContent] End', { filePath });
     }
   }, [
     validateFileLoadRequest,
@@ -584,29 +683,31 @@ const useAppState = () => {
 
   // Helper function to set batch loading state
   const setBatchLoadingState = useCallback((filePaths: string[], isLoading: boolean) => {
-    setAllFiles((prev: FileData[]) =>
-      prev.map((f: FileData) =>
+    setAllFiles((prev: FileData[]) => {
+      const next = prev.map((f: FileData) =>
         filePaths.includes(f.path)
           ? { ...f, isCountingTokens: isLoading }
           : f
-      )
-    );
+      );
+      allFilesRef.current = next;
+      return next;
+    });
   }, [setAllFiles]);
 
   // Helper function to process batch results
   const processBatchResults = useCallback((
-    results: { success: boolean; content?: string; error?: string }[],
+    results: { success: boolean; content?: string; error?: string; isBinary?: boolean }[],
     filePaths: string[]
   ) => {
     const successful: { path: string; content: string }[] = [];
-    const failed: { path: string; error: string }[] = [];
+    const failed: { path: string; error: string; isBinary?: boolean }[] = [];
 
     for (const [index, result] of results.entries()) {
       const path = filePaths[index];
-      if (result.success && result.content) {
+      if (result.success && result.content !== undefined) {
         successful.push({ path, content: result.content });
       } else {
-        failed.push({ path, error: result.error || 'Failed to load content' });
+        failed.push({ path, error: result.error || 'Failed to load content', isBinary: result.isBinary });
       }
     }
 
@@ -619,8 +720,8 @@ const useAppState = () => {
     filePathToResult: Map<string, any>,
     filePathToTokenCount: Map<string, number>
   ) => {
-    setAllFiles((prev: FileData[]) =>
-      prev.map((f: FileData) => {
+    setAllFiles((prev: FileData[]) => {
+      const next = prev.map((f: FileData) => {
         if (!filePaths.includes(f.path)) return f;
 
         const result = filePathToResult.get(f.path);
@@ -645,6 +746,7 @@ const useAppState = () => {
           return {
             ...f,
             error: result.error || 'Failed to load content',
+            isBinary: result.isBinary === true ? true : f.isBinary,
             isContentLoaded: false,
             isCountingTokens: false,
             tokenCountError: undefined
@@ -656,8 +758,10 @@ const useAppState = () => {
             isCountingTokens: false
           };
         }
-      })
-    );
+      });
+      allFilesRef.current = next;
+      return next;
+    });
   }, [setAllFiles]);
 
   // Helper function for fallback token counting
@@ -668,13 +772,15 @@ const useAppState = () => {
       const tokenCount = estimateTokenCount(content);
       fileContentCache.set(path, content, tokenCount);
 
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
+      setAllFiles((prev: FileData[]) => {
+        const next = prev.map((f: FileData) =>
           f.path === path
             ? { ...f, content, tokenCount, isContentLoaded: true, isCountingTokens: false }
             : f
-        )
-      );
+        );
+        allFilesRef.current = next;
+        return next;
+      });
     }
   }, [setAllFiles]);
 
@@ -710,19 +816,28 @@ const useAppState = () => {
 
         updateFilesWithTokenCounts(filePaths, filePathToResult, filePathToTokenCount);
       } catch (error) {
-        console.error('Error in batch token counting:', error);
+        logger.error('Error in batch token counting:', error);
         await fallbackTokenCounting(successful);
       }
     }
 
     if (failed.length > 0) {
-      setAllFiles((prev: FileData[]) =>
-        prev.map((f: FileData) =>
-          failed.some((item: { path: string; error: string }) => item.path === f.path)
-            ? { ...f, error: 'Failed to load content', isContentLoaded: false, isCountingTokens: false }
-            : f
-        )
-      );
+      setAllFiles((prev: FileData[]) => {
+        const failedMap = new Map(failed.map(item => [item.path, item]));
+        const next = prev.map((f: FileData) => {
+          const fail = failedMap.get(f.path);
+          if (!fail) return f;
+          return {
+            ...f,
+            error: fail.error || 'Failed to load content',
+            isBinary: fail.isBinary === true ? true : f.isBinary,
+            isContentLoaded: false,
+            isCountingTokens: false
+          };
+        });
+        allFilesRef.current = next;
+        return next;
+      });
     }
   }, [
     isTokenWorkerReady,
@@ -840,7 +955,7 @@ const useAppState = () => {
       if (workspaceData.expandedNodes) {
         setExpandedNodes(workspaceData.expandedNodes);
       }
-      
+
       const { selectedFolder: _selectedFolder, ...restOfData } = workspaceData;
       setPendingWorkspaceData(restOfData);
 
@@ -899,13 +1014,39 @@ const useAppState = () => {
     });
 
     if (filesToLoad.length > 0) {
-      // Load file contents asynchronously
-      Promise.all(filesToLoad.map(file => loadFileContent(file.path)))
-        .catch(error => {
-          console.error('[useAppState.applySelectedFiles] Error loading file content:', error);
-        });
+      // Batch loading to avoid main-thread saturation and keep tree-building responsive
+      const uniquePaths = Array.from(new Set(filesToLoad.map(f => f.path)));
+      const pending = [...uniquePaths];
+
+      // Adaptive batch size/priority based on selection size
+      const total = pending.length;
+      let BATCH = 20;
+      let PRIORITY = 8;
+      let STEP_DELAY_MS = 8;
+      if (total >= 2000) { BATCH = 120; PRIORITY = 12; STEP_DELAY_MS = 2; }
+      else if (total >= 1000) { BATCH = 80; PRIORITY = 10; STEP_DELAY_MS = 4; }
+      else if (total >= 500) { BATCH = 60; PRIORITY = 10; STEP_DELAY_MS = 6; }
+      else if (total >= 200) { BATCH = 40; PRIORITY = 10; STEP_DELAY_MS = 8; }
+      else if (total >= 80)  { BATCH = 30; PRIORITY = 8; STEP_DELAY_MS = 10; }
+
+      const step = async () => {
+        if (pending.length === 0) return;
+        const slice = pending.splice(0, BATCH);
+        try {
+          // Use pooled batch loader to minimize per-file flushes and state churn
+          await loadMultipleFileContents(slice, { priority: PRIORITY });
+        } catch (error) {
+          logger.error('[useAppState.applySelectedFiles] Error in batched file content load:', error);
+        }
+        if (pending.length > 0) {
+          setTimeout(step, STEP_DELAY_MS);
+        }
+      };
+
+      // Defer batch start to ensure UI (tree progress) paints first
+      setTimeout(step, 0);
     }
-  }, [setSelectionState, loadFileContent]);
+  }, [setSelectionState, loadMultipleFileContents]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
 
@@ -942,7 +1083,7 @@ const useAppState = () => {
   // This function handles applying workspace data, with proper file selection management
   const applyWorkspaceData = useCallback((workspaceName: string | null, workspaceData: WorkspaceState | null) => {
     if (!workspaceData || !workspaceName) {
-      console.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
+      logger.warn("[useAppState.applyWorkspaceData] Received null workspace data or name. Cannot apply.", { workspaceName, hasData: !!workspaceData });
       setPendingWorkspaceData(null);
       isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
@@ -950,7 +1091,7 @@ const useAppState = () => {
 
     // Prevent concurrent calls to avoid infinite loops
     if (isApplyingWorkspaceDataRef.current) {
-      console.warn("[useAppState.applyWorkspaceData] Already applying workspace data, skipping to prevent infinite loop");
+      logger.warn("[useAppState.applyWorkspaceData] Already applying workspace data, skipping to prevent infinite loop");
       return;
     }
 
@@ -971,7 +1112,7 @@ const useAppState = () => {
       isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
     } else if (folderChanged && isProcessing) {
-      console.warn(`[useAppState.applyWorkspaceData] Folder changed but currently processing. Cannot change folder to "${workspaceFolder}". Aborting workspace load.`);
+      logger.warn(`[useAppState.applyWorkspaceData] Folder changed but currently processing. Cannot change folder to "${workspaceFolder}". Aborting workspace load.`);
       setPendingWorkspaceData(null);
       isApplyingWorkspaceDataRef.current = false; // Reset flag
       return;
@@ -1000,7 +1141,7 @@ const useAppState = () => {
           return currentInstruction || savedInstruction;
         })
         .filter(inst => inst !== null); // Remove any null entries
-      
+
       setSelectedInstructions(reconciledInstructions);
     } else {
       setSelectedInstructions([]);
@@ -1042,23 +1183,23 @@ const useAppState = () => {
   useEffect(() => {
     currentWorkspaceRef.current = currentWorkspace;
   }, [currentWorkspace]);
-  
+
   useEffect(() => {
     expandedNodesRef.current = expandedNodes;
   }, [expandedNodes]);
-  
+
   useEffect(() => {
     fileTreeModeRef.current = fileTreeMode;
   }, [fileTreeMode]);
-  
+
   useEffect(() => {
     exclusionPatternsRef.current = exclusionPatterns;
   }, [exclusionPatterns]);
-  
+
   useEffect(() => {
     userInstructionsRef.current = userInstructions;
   }, [userInstructions]);
-  
+
   useEffect(() => {
     selectedInstructionsRef.current = selectedInstructions;
   }, [selectedInstructions]);
@@ -1100,7 +1241,7 @@ const useAppState = () => {
         return cleanup;
       });
     } catch (error) {
-      console.error("Error setting up Electron handlers:", error);
+      logger.error("Error setting up Electron handlers:", error);
       setProcessingStatus({
         status: "error",
         message: `Error initializing app: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -1124,7 +1265,7 @@ const useAppState = () => {
 
   const saveCurrentWorkspace = useCallback(async () => {
     if (!currentWorkspace) {
-      console.warn("[useAppState.saveCurrentWorkspace] No current workspace selected, cannot save.");
+      logger.warn("[useAppState.saveCurrentWorkspace] No current workspace selected, cannot save.");
       return;
     }
     // Clear any existing timeout
@@ -1144,9 +1285,9 @@ const useAppState = () => {
       }, 1500); // Duration for the checkmark visibility
 
     } catch (error) {
-      console.error(`[useAppState.saveCurrentWorkspace] Error saving workspace "${currentWorkspace}":`, error);
+      logger.error(`[useAppState.saveCurrentWorkspace] Error saving workspace "${currentWorkspace}":`, error);
       setHeaderSaveState('idle');
-      console.error(`Failed to save workspace "${currentWorkspace}".`);
+      logger.error(`Failed to save workspace "${currentWorkspace}".`);
     }
   }, [currentWorkspace, saveWorkspace]);
 
@@ -1157,29 +1298,29 @@ const useAppState = () => {
 
         // Check if cancelled before proceeding
         if (token.cancelled) {
-          console.log(`[useAppState.loadWorkspace] Workspace load cancelled for "${name}"`);
+          logger.info(`[useAppState.loadWorkspace] Workspace load cancelled for "${name}"`);
           return null;
         }
 
         if (workspaceData) {
             // Ensure we have the folder path before applying
             if (!workspaceData.selectedFolder) {
-                console.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
+                logger.warn(`[useAppState.loadWorkspace] Workspace "${name}" has no folder path`);
             }
 
             // Check again if cancelled before applying data
             if (token.cancelled) {
-              console.log(`[useAppState.loadWorkspace] Workspace load cancelled before applying data for "${name}"`);
+              logger.info(`[useAppState.loadWorkspace] Workspace load cancelled before applying data for "${name}"`);
               return null;
             }
 
             applyWorkspaceData(name, workspaceData);
         } else {
-            console.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
+            logger.error(`[useAppState.loadWorkspace] Failed to load workspace data for "${name}"`);
         }
         return workspaceData;
       } catch (error) {
-        console.error(`[useAppState.loadWorkspace] Error loading workspace "${name}":`, error);
+        logger.error(`[useAppState.loadWorkspace] Error loading workspace "${name}":`, error);
         return null;
       }
     });
@@ -1188,10 +1329,10 @@ const useAppState = () => {
   // Auto-save callback that builds and saves the current workspace state
   const performAutoSave = useCallback(async () => {
     if (!currentWorkspace) return;
-    
+
     // Build workspace state (same as saveWorkspace)
     const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
-    
+
     const workspace: WorkspaceState = {
       selectedFolder: selectedFolder,
       expandedNodes: expandedNodes,
@@ -1217,7 +1358,7 @@ const useAppState = () => {
       },
       selectedInstructions: selectedInstructions
     };
-    
+
     // Save without changing header state (silent save)
     await persistWorkspace(currentWorkspace, workspace);
   }, [
@@ -1274,6 +1415,74 @@ const useAppState = () => {
     }
   }, [appInitialized, allFiles]);
 
+  // Reconcile changed files after a refresh completes using mtimeMs
+  useEffect(() => {
+    if (processingStatus.status !== 'complete') return;
+
+    try {
+      // Build next map of mtimes (only when available)
+      const nextMap = new Map<string, number>();
+      for (const f of allFiles) {
+        if (typeof f.mtimeMs === 'number') {
+          nextMap.set(f.path, f.mtimeMs);
+        }
+      }
+
+      const prevMap = prevMtimeByPathRef.current;
+      const changedPaths: string[] = [];
+
+      // Detect files present in both with differing mtime
+      for (const [path, mtime] of nextMap.entries()) {
+        const prevMtime = prevMap.get(path);
+        if (prevMtime !== undefined && prevMtime !== mtime) {
+          changedPaths.push(path);
+        }
+      }
+
+      if (changedPaths.length > 0) {
+        // Invalidate caches for changed files
+        for (const p of changedPaths) {
+          try {
+            fileContentCache.delete(p);
+            tokenCountCache.invalidateFile(p);
+          } catch {
+            // best-effort invalidation
+          }
+        }
+
+        const changedSet = new Set(changedPaths);
+        // Mark changed files as not loaded so UI/content reloads lazily
+        setAllFiles((prev: FileData[]) => {
+          const next = prev.map((f: FileData) => {
+            if (!changedSet.has(f.path)) return f;
+            return {
+              ...f,
+              isContentLoaded: false,
+              isCountingTokens: false,
+              content: '', // clear to avoid stale display
+              tokenCount: undefined,
+              tokenCountError: undefined
+            };
+          });
+          allFilesRef.current = next;
+          return next;
+        });
+
+        // Prefetch up to 20 changed files that are currently selected for smoother UX
+        const selectedSet = new Set(selectedFilesRef.current.map(sf => sf.path));
+        const toPrefetch = changedPaths.filter(p => selectedSet.has(p)).slice(0, 20);
+        if (toPrefetch.length > 0) {
+          void loadMultipleFileContents(toPrefetch, { priority: 8 });
+        }
+      }
+
+      // Update snapshot for next reconciliation
+      prevMtimeByPathRef.current = nextMap;
+    } catch {
+      // ignore reconcile errors to avoid impacting UX
+    }
+  }, [processingStatus.status, allFiles, loadMultipleFileContents]);
+
   // Define the event handler using useCallback outside the effect
   const handleWorkspaceLoadedEvent = useCallback(async (event: CustomEvent) => {
     if (event.detail?.name && event.detail?.workspace) {
@@ -1306,16 +1515,16 @@ const useAppState = () => {
           },
           selectedInstructions: selectedInstructionsRef.current
         };
-        
+
         // Wait for the save to complete before switching
         await persistWorkspace(currentWorkspaceRef.current, workspace);
       }
-      
+
       // Apply the workspace data, including the name
       applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
     } else {
-      console.warn("[useAppState.workspaceLoadedListener] Received 'workspaceLoaded' event with missing/invalid detail.", event.detail);
+      logger.warn("[useAppState.workspaceLoadedListener] Received 'workspaceLoaded' event with missing/invalid detail.", event.detail);
     }
   }, [applyWorkspaceData, persistWorkspace, fileSelection.selectedFiles]);
 
@@ -1326,7 +1535,7 @@ const useAppState = () => {
       applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
     } else {
-      console.warn("[useAppState.directFolderOpenedListener] Received 'directFolderOpened' event with missing/invalid detail.", event.detail);
+      logger.warn("[useAppState.directFolderOpenedListener] Received 'directFolderOpened' event with missing/invalid detail.", event.detail);
     }
   }, [applyWorkspaceData]);
 
@@ -1341,9 +1550,9 @@ const useAppState = () => {
 
   useEffect(() => {
     // Wait for file loading and instructions to complete before applying workspace data
-    if (pendingWorkspaceData && 
-        currentWorkspace && 
-        allFiles.length > 0 && 
+    if (pendingWorkspaceData &&
+        currentWorkspace &&
+        allFiles.length > 0 &&
         processingStatus.status === "complete" &&
         !instructionsState.loading) {  // Also wait for instructions to load
 
@@ -1464,6 +1673,29 @@ const useAppState = () => {
     });
   }, []);
 
+  // Clear all selections: files + prompts + docs (but not free-text user instructions)
+  const clearAllSelections = useCallback(() => {
+    try {
+      // Clear file selections
+      setSelectionState([]);
+
+      // Deselect system prompts
+      const currentPrompts = promptStateRef.current;
+      for (const sp of [...currentPrompts.selectedSystemPrompts]) {
+        currentPrompts.toggleSystemPromptSelection(sp);
+      }
+      // Deselect role prompts
+      for (const rp of [...currentPrompts.selectedRolePrompts]) {
+        currentPrompts.toggleRolePromptSelection(rp);
+      }
+
+      // Clear selected docs/instructions
+      setSelectedInstructions([]);
+    } catch (error) {
+      logger.warn('[useAppState.clearAllSelections] Failed to clear some selections', error);
+    }
+  }, [setSelectionState]);
+
   return {
     isElectron,
     selectedFolder,
@@ -1511,6 +1743,7 @@ const useAppState = () => {
     handleResetFolderState,
     handleFileOperations,
     handleWorkspaceUpdate,
+    clearAllSelections,
 
     // Calculations
     calculateTotalTokens,
@@ -1523,13 +1756,14 @@ const useAppState = () => {
     // Content formatting
     getFormattedContent,
     getFormattedContentWithoutInstructions,
+    getFormattedContentFromLatest,
 
     // Workspace management
     saveWorkspace,
     loadWorkspace,
     saveCurrentWorkspace,
     headerSaveState,
-    
+
     // Auto-save
     isAutoSaveEnabled: autoSave.isAutoSaveEnabled,
     setAutoSaveEnabled: autoSave.setAutoSaveEnabled,

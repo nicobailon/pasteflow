@@ -48,6 +48,7 @@ The application uses a custom hook architecture instead of traditional state man
 - `usePromptState()` - System and role prompts management
 - `useModalState()` - Modal visibility and state
 - `useWorkspaceState()` - Workspace persistence and loading
+- `usePreviewPack()` - Progressive preview pack workflow management
 
 #### 2. Electron Main/Renderer Split
 - **Main Process** (`main.js`) - File system operations, security validation, IPC handlers
@@ -58,6 +59,14 @@ The application uses a custom hook architecture instead of traditional state man
 ```
 Directory Scan → Batch Processing → Lazy Content Loading → Token Counting → UI Display
 ```
+
+#### 4. Progressive Preview Pack Workflow
+```
+Pack (Background Processing) → Ready State → Preview/Copy Actions
+```
+- Background file loading without UI blocking
+- Deterministic signature-based caching
+- State machine for workflow management (idle → packing → ready)
 
 ## Development Environment
 
@@ -339,6 +348,7 @@ When referencing code locations, always use VS Code-compatible format:
 ### State Management
 - `src/hooks/use-file-selection-state.ts` - File selection with line ranges
 - `src/hooks/use-workspace-state.ts` - Workspace persistence
+- `src/hooks/use-preview-pack.ts` - Progressive preview pack workflow
 - `src/handlers/electron-handlers.ts` - IPC communication setup
 
 ### UI Components
@@ -350,6 +360,10 @@ When referencing code locations, always use VS Code-compatible format:
 - `src/utils/token-utils.ts` - Token counting and estimation
 - `src/utils/file-processing.ts` - File system operations
 - `src/security/path-validator.ts` - Security validation
+
+### Background Processing
+- `src/workers/preview-generator-worker.ts` - Web Worker for preview generation
+- `src/hooks/use-preview-generator.ts` - Worker integration hook
 
 ### Database Layer
 - `src/main/db/database.ts` - SQLite database connection and queries
@@ -366,6 +380,19 @@ Understanding these files will provide a solid foundation for working with the P
 - **Token-Aware Selection**: Real-time token counting for LLM context limits
 - **Workspace Persistence**: Complete application state can be saved and restored
 - **Smart Exclusion**: GitIgnore-style pattern matching with validation
+
+### Progressive Preview Pack System
+- **Background Processing**: Files are processed in a Web Worker without blocking the UI
+- **Pack Workflow States**: 
+  - `idle` - Pack button available
+  - `packing` - Shows progress, cancellable
+  - `ready` - Preview and Copy buttons active
+  - `error`/`cancelled` - Retry Pack button
+- **Optimized Performance**: 
+  - Minimal UI updates during packing
+  - Deterministic signature-based caching
+  - LRU cache with capacity 1 for memory efficiency
+- **Seamless Experience**: Pack → Loading → Preview/Copy workflow without UI freezing
 
 ### File Tree Modes
 The application supports different file tree inclusion modes:

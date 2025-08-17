@@ -133,7 +133,7 @@ const App = () => {
             sortDropdownOpen={appState.sortDropdownOpen}
             toggleSortDropdown={appState.toggleSortDropdown}
             sortOptions={SORT_OPTIONS}
-            getSelectedFilesContent={appState.getFormattedContent}
+            getSelectedFilesContent={appState.getFormattedContentFromLatest}
             calculateTotalTokens={appState.calculateTotalTokens}
             instructionsTokenCount={appState.instructionsTokenCount}
             userInstructions={appState.userInstructions}
@@ -154,6 +154,8 @@ const App = () => {
             selectedFolder={appState.selectedFolder}
             expandedNodes={appState.expandedNodes}
             toggleExpanded={appState.toggleExpanded}
+            fileTreeMode={appState.fileTreeMode}
+            clearAllSelections={appState.clearAllSelections}
           />
         </div>
         

@@ -1007,6 +1007,57 @@ input[type="search"]:focus {
   }
 }
 
+/* Shared token recalculation pulse animation */
+@keyframes token-recalc-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+/* Token recalculation indicator styles */
+.token-recalculating-indicator {
+  margin-left: 6px;
+  font-size: 0.85em;
+  opacity: 0.7;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.recalc-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: currentColor;
+  animation: token-recalc-pulse 1.5s ease-in-out infinite;
+}
+
+/* Animation delays for the three dots using explicit classes for robustness */
+.recalc-dot-1 {
+  /* Default delay: 0s */
+}
+
+.recalc-dot-2 {
+  animation-delay: 0.3s;
+}
+
+.recalc-dot-3 {
+  animation-delay: 0.6s;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .recalc-dot {
+    animation: none;
+    /* Don't set opacity here as parent already has opacity: 0.7 */
+  }
+}
+
 /* Responsive adjustments for smaller screens */
 @media (max-width: 48rem) {
   .ascii-logo {

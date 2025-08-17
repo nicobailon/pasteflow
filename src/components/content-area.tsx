@@ -1,7 +1,11 @@
-import { Check, ChevronDown, Eye, FileText, Settings, User } from 'lucide-react';
+import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { logger } from '../utils/logger';
+import { FEATURES, UI } from '../constants/app-constants';
+import { usePreviewPack, type PackState } from '../hooks/use-preview-pack';
+import { type PreviewState } from '../hooks/use-preview-generator';
 
-import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt } from '../types/file-types';
+import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
 import { getRelativePath, dirname, normalizePath } from '../utils/path-utils';
 
 import CopyButton from './copy-button';
@@ -288,7 +292,7 @@ interface ContentAreaProps {
   sortDropdownOpen: boolean;
   toggleSortDropdown: () => void;
   sortOptions: { value: string; label: string }[];
-  getSelectedFilesContent: () => string;
+  getSelectedFilesContent: () => string;  // Legacy - kept for interface compatibility
   calculateTotalTokens: () => number;
   instructionsTokenCount: number;
   userInstructions: string;
@@ -301,6 +305,7 @@ interface ContentAreaProps {
   setRolePromptsModalOpen: (open: boolean) => void;
   setInstructionsModalOpen: (open: boolean) => void;
   loadFileContent: (filePath: string) => Promise<void>;
+  loadMultipleFileContents: (filePaths: string[], options?: { priority?: number }) => Promise<void>;
   clipboardPreviewModalOpen: boolean;
   previewContent: string;
   previewTokenCount: number;
@@ -309,7 +314,53 @@ interface ContentAreaProps {
   selectedFolder: string | null;
   expandedNodes: Record<string, boolean>;
   toggleExpanded: (path: string, currentState?: boolean) => void;
+  fileTreeMode: FileTreeMode;
+  // New: clear all selections (files + prompts + docs)
+  clearAllSelections?: () => void;
 }
+
+/**
+ * Helper to robustly select clipboard text with fallback options
+ * @param preferDisplay - Whether to prefer display-optimized content (for Preview modal)
+ * @param packState - Current pack state
+ * @param streamingPreview - Current streaming preview state
+ * @returns Text content to use, never empty
+ */
+const getClipboardTextWithBackoff = (
+  preferDisplay: boolean,
+  packState: PackState,
+  streamingPreview: PreviewState | null
+): string => {
+  // For Preview modal (preferDisplay = true), use this selection chain:
+  if (preferDisplay) {
+    // 1. Try packState.contentForDisplay (already sliced)
+    if (packState.contentForDisplay && packState.contentForDisplay.trim()) {
+      return packState.contentForDisplay;
+    }
+    
+    // 2. Try packState.fullContent (slice for modal display)
+    if (packState.fullContent && packState.fullContent.trim()) {
+      return packState.fullContent.slice(0, 200_000);
+    }
+    
+    // 3. Try streamingPreview.contentForDisplay
+    if (streamingPreview?.contentForDisplay && streamingPreview.contentForDisplay.trim()) {
+      return streamingPreview.contentForDisplay;
+    }
+    
+    // 4. Try streamingPreview.fullContent (slice for modal display)
+    if (streamingPreview?.fullContent && streamingPreview.fullContent.trim()) {
+      return streamingPreview.fullContent.slice(0, 200_000);
+    }
+    
+    // 5. Fallback to placeholder
+    return 'Preparing preview…';
+  }
+  
+  // For Copy operations (preferDisplay = false), use fullContent
+  const fullContent = packState.fullContent || streamingPreview?.fullContent || '';
+  return fullContent.trim() ? fullContent : 'Preparing content…';
+};
 
 const ContentArea = ({
   selectedFiles,
@@ -331,7 +382,7 @@ const ContentArea = ({
   sortOrder,
   handleSortChange,
   sortOptions,
-  getSelectedFilesContent,
+  getSelectedFilesContent: _getSelectedFilesContent,  // Kept for interface compatibility
   calculateTotalTokens,
   instructionsTokenCount,
   userInstructions,
@@ -344,6 +395,7 @@ const ContentArea = ({
   setRolePromptsModalOpen,
   setInstructionsModalOpen,
   loadFileContent,
+  loadMultipleFileContents,
   clipboardPreviewModalOpen,
   previewContent,
   previewTokenCount,
@@ -352,36 +404,290 @@ const ContentArea = ({
   selectedFolder,
   expandedNodes,
   toggleExpanded,
+  fileTreeMode,
+  clearAllSelections,
 }: ContentAreaProps) => {
+  const onClearAll = clearAllSelections || (() => {});
 
-  const handleCopyWithLoading = async (getContent: () => string): Promise<string> => {
-    // Create a Map of all files for quick lookup
-    const allFilesMap = new Map(allFiles.map(file => [file.path, file]));
 
-    // Find selected files that haven't loaded content yet
-    const unloadedFiles = selectedFiles.filter((selectedFile) => {
-      const file = allFilesMap.get(selectedFile.path);
-      return file && !file.isContentLoaded;
-    });
+  const { 
+    pack, 
+    cancelPack, 
+    packState, 
+    previewState: streamingPreview, 
+    pushFileUpdates,
+    pushFileStatus
+  } = usePreviewPack({
+    allFiles,
+    selectedFiles,
+    sortOrder,
+    selectedFolder,
+    selectedSystemPrompts,
+    selectedRolePrompts,
+    selectedInstructions,
+    userInstructions,
+    fileTreeMode,
+  });
 
-    if (unloadedFiles.length > 0) {
-      await Promise.all(unloadedFiles.map((f) => loadFileContent(f.path)));
+  // Track which files have already been pushed to the worker to avoid duplicates
+  const lastPushedRef = useRef<Set<string>>(new Set());
+  const reportedErrorsRef = useRef<Set<string>>(new Set());
+
+  // Memoize header file stats to avoid recomputing during streaming UI updates
+  const headerFileStats = useMemo(() => {
+    // Count all content items
+    const fileCount = selectedFiles.length;
+    const promptCount = selectedSystemPrompts.length + selectedRolePrompts.length;
+    const docCount = selectedInstructions.length;
+    const totalItems = fileCount + promptCount + docCount;
+
+    // Calculate total tokens including all sources - using Map for O(1) lookups
+    const sizeByPath = new Map(
+      allFiles
+        .filter(f => !f.isDirectory && !f.isBinary && !f.isSkipped)
+        .map(f => [f.path, f.size ?? 0])
+    );
+    const totalSize = selectedFiles.reduce((sum, s) => sum + (sizeByPath.get(s.path) ?? 0), 0);
+    const filesTokens = Math.round(totalSize / 4);
+
+    const totalEstimatedTokens = filesTokens + systemPromptTokens + rolePromptTokens + instructionsTokens;
+
+    return `${totalItems} items | ~${totalEstimatedTokens.toLocaleString()} tokens (estimated)`;
+  }, [
+    selectedFiles,
+    selectedSystemPrompts.length,
+    selectedRolePrompts.length,
+    selectedInstructions.length,
+    allFiles,
+    systemPromptTokens,
+    rolePromptTokens,
+    instructionsTokens
+  ]);
+
+  // Memoize token count display computation to prevent per-frame recomputation
+  const memoTokenCount = useMemo(() => {
+    let total = calculateTotalTokens();
+    total += fileTreeTokens + systemPromptTokens + rolePromptTokens + instructionsTokens;
+    if (userInstructions.trim()) {
+      total += instructionsTokenCount;
     }
-    return getContent();
-  };
+    return total;
+  }, [
+    calculateTotalTokens,
+    fileTreeTokens,
+    systemPromptTokens,
+    rolePromptTokens,
+    instructionsTokens,
+    userInstructions,
+    instructionsTokenCount
+  ]);
 
-  const handlePreview = async () => {
-    const content = await handleCopyWithLoading(getSelectedFilesContent);
-    const totalTokens = calculateTotalTokens() + fileTreeTokens + systemPromptTokens + rolePromptTokens + 
-                       instructionsTokens + (userInstructions.trim() ? instructionsTokenCount : 0);
-    openClipboardPreviewModal(content, totalTokens);
-  };
+  // Push newly loaded file contents to the worker so it can stream them
+  useEffect(() => {
+    if (!FEATURES?.PREVIEW_WORKER_ENABLED) return;
+
+    // Feed the worker during packing or when ready (for updates)
+    const shouldFeedWorker = packState?.status === 'packing' || packState?.status === 'ready';
+    
+    if (!shouldFeedWorker) {
+      return; // The separate effect handles clearing
+    }
+
+    const map = new Map(allFiles.map(f => [f.path, f]));
+    const updates: { path: string; content: string; tokenCount?: number }[] = [];
+
+    for (const sel of selectedFiles) {
+      const fd = map.get(sel.path);
+      if (!fd) continue;
+      if (fd.isContentLoaded && typeof fd.content === 'string' && !lastPushedRef.current.has(fd.path)) {
+        updates.push({ path: fd.path, content: fd.content, tokenCount: fd.tokenCount });
+      }
+    }
+
+    if (updates.length > 0) {
+      const BATCH = 50;
+      for (let i = 0; i < updates.length; i += BATCH) {
+        const slice = updates.slice(i, i + BATCH);
+        setTimeout(() => pushFileUpdates(slice), 0);
+      }
+      updates.forEach(u => lastPushedRef.current.add(u.path));
+    }
+  }, [allFiles, selectedFiles, packState?.status, pushFileUpdates]);
+
+  // Background progressive file loader for streaming preview
+  // Loads not-yet-loaded selected files in small batches without blocking UI.
+  useEffect(() => {
+    if (!FEATURES?.PREVIEW_WORKER_ENABLED) return;
+    
+    // Load files during packing
+    const shouldLoadFiles = packState?.status === 'packing';
+    
+    if (!shouldLoadFiles) return;
+
+     // Build quick lookup for file metadata
+     const byPath = new Map(allFiles.map(f => [f.path, f]));
+    
+     // Collect pending file paths (not loaded, not binary/skipped)
+     const pending: string[] = [];
+     const errorFiles: string[] = [];
+     for (const sel of selectedFiles) {
+       const fd = byPath.get(sel.path);
+       if (!fd) continue;
+       if (fd.isDirectory) continue;
+       if (fd.isBinary || fd.isSkipped) continue;
+       // If backend previously flagged this as binary, skip re-requests even before isBinary propagates
+       if (fd.error && /binary/i.test(String(fd.error))) continue;
+       // Track files with other errors for status update
+       if (fd.error && !fd.isContentLoaded) {
+         errorFiles.push(sel.path);
+         continue;
+       }
+       if (fd.isContentLoaded || fd.isCountingTokens) continue;
+       pending.push(sel.path);
+     }
+
+     // Send error status for files that have terminal errors
+     if (pushFileStatus && errorFiles.length > 0) {
+       for (const path of errorFiles) {
+         if (!reportedErrorsRef.current.has(path)) {
+           const fd = byPath.get(path);
+           pushFileStatus(path, 'error', fd?.error || 'Failed to load file');
+           reportedErrorsRef.current.add(path);
+         }
+       }
+     }
+
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+
+    // Adaptive loader pacing for many selected files:
+    // - Larger batches and shorter delays when selection is large
+    // - Keeps UI responsive for small selections
+    const n = selectedFiles.length;
+    let BATCH = 10;
+    let STEP_DELAY_MS = 25;
+    if (n >= 1000) { BATCH = 40; STEP_DELAY_MS = 8; }
+    else if (n >= 500) { BATCH = 30; STEP_DELAY_MS = 12; }
+    else if (n >= 200) { BATCH = 20; STEP_DELAY_MS = 16; }
+    else if (n >= 80)  { BATCH = 14; STEP_DELAY_MS = 20; }
+
+    const step = async () => {
+      if (cancelled) return;
+      const slice = pending.splice(0, BATCH);
+      if (slice.length === 0) return;
+
+      try {
+        // Load this batch using batched loading for better performance
+        await loadMultipleFileContents(slice, { priority: 10 });
+        
+        // Check for any files that failed to load and report them to the worker
+        if (pushFileStatus) {
+          for (const path of slice) {
+            const fd = byPath.get(path);
+            if (fd && fd.error && !fd.isContentLoaded && !reportedErrorsRef.current.has(path)) {
+              pushFileStatus(path, 'error', fd.error);
+              reportedErrorsRef.current.add(path);
+            }
+          }
+        }
+      } catch (error) {
+        // Log the error for debugging but continue processing
+        logger.debug('[Progressive loader] Batch load failed', { 
+          batchSize: slice.length, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+        
+        // Report any files with errors to the worker
+        if (pushFileStatus) {
+          for (const path of slice) {
+            const fd = byPath.get(path);
+            if (fd && fd.error && !fd.isContentLoaded && !reportedErrorsRef.current.has(path)) {
+              pushFileStatus(path, 'error', fd.error);
+              reportedErrorsRef.current.add(path);
+            }
+          }
+        }
+      }
+
+      if (pending.length > 0 && !cancelled) {
+        setTimeout(step, STEP_DELAY_MS);
+      }
+    };
+
+    // Kick off after a short delay to ensure modal has painted
+    const t = setTimeout(step, STEP_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [allFiles, selectedFiles, packState?.status, loadMultipleFileContents, pushFileStatus]);
+
+  // Clear lastPushedRef and reportedErrorsRef when pack starts or when idle/error/cancelled/ready
+  useEffect(() => {
+    if (packState?.status === 'packing') {
+      lastPushedRef.current.clear();
+      reportedErrorsRef.current.clear();
+    } else if (packState?.status === 'idle' || packState?.status === 'error' || packState?.status === 'cancelled' || packState?.status === 'ready') {
+      // Also clear when not actively packing or when complete to prevent memory leak
+      lastPushedRef.current.clear();
+      reportedErrorsRef.current.clear();
+    }
+  }, [packState?.status]);
+
+  // Periodic housekeeping during long packing sessions to prevent unbounded growth of tracking sets.
+  // Trims oldest entries when size exceeds UI.PREVIEW.MAX_TRACKED_PATHS.
+  useEffect(() => {
+    if (packState?.status !== 'packing') return;
+
+    const trimSet = (s: Set<string>) => {
+      const max = UI.PREVIEW?.MAX_TRACKED_PATHS ?? 0;
+      if (!max || s.size <= max) return;
+      let excess = s.size - max;
+      for (const v of s) {
+        s.delete(v);
+        if (--excess <= 0) break;
+      }
+    };
+
+    const interval = window.setInterval(() => {
+      trimSet(lastPushedRef.current);
+      trimSet(reportedErrorsRef.current);
+    }, UI.PREVIEW?.CLEANUP_INTERVAL_MS ?? 30000);
+
+    return () => window.clearInterval(interval);
+  }, [packState?.status]);
+
+
 
   const handleCopyFromPreview = async () => {
     try {
-      await navigator.clipboard.writeText(previewContent);
+      // Prioritize packState content when in ready state
+      const getText = () => {
+        if (packState.status === 'ready' && packState.fullContent) {
+          return packState.fullContent;
+        }
+        // Fallback to streaming preview or modal content
+        return streamingPreview?.fullContent || previewContent || '';
+      };
+      const isPlaceholder = (t: string) => /\[Content is loading\.\.\.\]/.test(t);
+
+      // Backoff to avoid copying placeholders when preview just started
+      let textToCopy = getText();
+      for (let attempt = 0; attempt < UI.MODAL.BACKOFF_MAX_ATTEMPTS; attempt++) {
+        if (textToCopy && !isPlaceholder(textToCopy)) {
+          break;
+        }
+        if (attempt < UI.MODAL.BACKOFF_MAX_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, UI.MODAL.BACKOFF_DELAY_MS));
+          textToCopy = getText();
+        }
+      }
+
+      await navigator.clipboard.writeText(textToCopy);
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
+      logger.error('Failed to copy to clipboard:', error);
       // Modern browsers should support clipboard API, but show alert if it fails
       alert('Failed to copy to clipboard. Please try selecting and copying the text manually.');
     }
@@ -408,29 +714,18 @@ const ContentArea = ({
               activeItemClassName="active"
             />
             <div className="file-stats">
-              {(() => {
-                // Count all content items
-                const fileCount = selectedFiles.length;
-                const promptCount = selectedSystemPrompts.length + selectedRolePrompts.length;
-                const docCount = selectedInstructions.length;
-                const totalItems = fileCount + promptCount + docCount;
-                
-                // Calculate total tokens including all sources - using Map for O(1) lookups
-                const sizeByPath = new Map(
-                  allFiles
-                    .filter(f => !f.isDirectory && !f.isBinary && !f.isSkipped)
-                    .map(f => [f.path, f.size ?? 0])
-                );
-                const totalSize = selectedFiles.reduce((sum, s) => sum + (sizeByPath.get(s.path) ?? 0), 0);
-                const filesTokens = Math.round(totalSize / 4);
-                
-                const totalEstimatedTokens = filesTokens + systemPromptTokens + rolePromptTokens + instructionsTokens;
-                
-                return `${totalItems} items | ~${totalEstimatedTokens.toLocaleString()} tokens (estimated)`;
-              })()}
-            </div>
+             {headerFileStats}
+           </div>
           </div>
           <div className="prompts-buttons-container">
+            <button
+              className="clear-all-button"
+              onClick={onClearAll}
+              title="Clear all selections"
+            >
+              <Eraser size={16} />
+              <span>Clear All</span>
+            </button>
             <button
               className="system-prompts-button"
               onClick={() => setSystemPromptsModalOpen(true)}
@@ -511,42 +806,145 @@ const ContentArea = ({
                 selectedRolePrompts.length > 0 ||
                 selectedInstructions.length > 0 ||
                 userInstructions.trim().length > 0;
+              
+              if (!hasPreviewableContent) return null;
+              
+              // Idle state - show Pack button
+              if (packState.status === 'idle') {
+                return (
+                  <button
+                    className="preview-button"
+                    onClick={() => pack()}
+                    disabled={!hasPreviewableContent}
+                  >
+                    <Eye size={16} />
+                    <span>Pack</span>
+                  </button>
+                );
+              }
+              
+              // Packing state - show progress and Cancel
+              if (packState.status === 'packing') {
+                return (
+                  <>
+                    <button 
+                      className="preview-button packing" 
+                      disabled 
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={packState.total > 0 ? packState.percent : undefined}
+                      aria-valuetext={packState.total > 0 
+                        ? `Packing: ${packState.percent}% complete`
+                        : 'Packing in progress'
+                      }
+                    >
+                      <div 
+                        className={`progress-fill ${packState.total === 0 ? 'indeterminate' : ''}`}
+                        style={packState.total > 0 ? { insetInlineEnd: `${100 - packState.percent}%` } : undefined}
+                        aria-hidden="true"
+                      />
+                      <Eye size={16} />
+                      <span aria-live="polite">
+                        {packState.total > 0 
+                          ? `Packing… ${packState.processed}/${packState.total} (${packState.percent}%)`
+                          : 'Packing…'
+                        }
+                      </span>
+                    </button>
+                    <button 
+                      className="preview-button" 
+                      onClick={cancelPack}
+                      aria-label="Cancel packing"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                );
+              }
+              
+              // Ready state - show Pack (as Packed or Repack), Preview and Copy
+              if (packState.status === 'ready') {
+                // Check if signature has changed (content is out of date)
+                const contentOutdated = packState.hasSignatureChanged || false;
+                
+                return (
+                  <>
+                    <button
+                      className="preview-button"
+                      onClick={() => pack()}
+                      disabled={!contentOutdated}
+                      title={contentOutdated ? "Content has changed - click to update pack" : "Content is up to date"}
+                    >
+                      <Package size={16} />
+                      <span>{contentOutdated ? 'Repack' : 'Packed'}</span>
+                    </button>
+                    <button
+                      className="preview-button"
+                      onClick={() => {
+                        // When ready, pass the packed content directly to the modal
+                        // The modal will receive this via the content and tokenCount props
+                        const display = packState.contentForDisplay || packState.fullContent?.slice(0, UI.PREVIEW.DISPLAY_CONTENT_MAX_LENGTH) || '';
+                        const tokens = packState.tokenEstimate || 0;
+                        openClipboardPreviewModal(display, tokens);
+                      }}
+                      title={contentOutdated ? "Preview (outdated content)" : "Preview packed content"}
+                    >
+                      <Eye size={16} />
+                      <span>Preview</span>
+                    </button>
+                    <CopyButton
+                      text={() => packState.fullContent || streamingPreview?.fullContent || ''}
+                      className="primary copy-selected-files-btn"
+                      title={contentOutdated ? "Copy (outdated content)" : "Copy packed content"}
+                    >
+                      <span>Copy</span>
+                    </CopyButton>
+                  </>
+                );
+              }
+              
+              // Error or cancelled state - show Retry Pack
+              if (packState.status === 'error' || packState.status === 'cancelled') {
+                return (
+                  <button
+                    className="preview-button"
+                    onClick={() => pack()}
+                    disabled={!hasPreviewableContent}
+                  >
+                    <Eye size={16} />
+                    <span>Retry Pack</span>
+                  </button>
+                );
+              }
+              
+              return null;
+            })()}
+          </div>
+          <div className="token-count-display">
+            ~{memoTokenCount.toLocaleString()} tokens (loaded files only)
+            {/* Show recalculating indicator when packing or streaming */}
+            {(() => {
+              const isRecalculating = packState.status === 'packing' || 
+                (streamingPreview && (streamingPreview.status === 'loading' || streamingPreview.status === 'streaming'));
+              
+              if (!isRecalculating) return null;
+              
               return (
-                <button
-                  className="preview-button"
-                  onClick={handlePreview}
-                  disabled={!hasPreviewableContent}
-                >
-                  <Eye size={16} />
-                  <span>Preview</span>
-                </button>
+              <span 
+                className="token-recalculating-indicator"
+                aria-label="Recalculating token count"
+              >
+                <span className="recalc-dot recalc-dot-1" aria-hidden="true" />
+                <span className="recalc-dot recalc-dot-2" aria-hidden="true" />
+                <span className="recalc-dot recalc-dot-3" aria-hidden="true" />
+              </span>
               );
             })()}
-            <CopyButton
-              text={() => handleCopyWithLoading(getSelectedFilesContent)}
-              className="primary copy-selected-files-btn"
-            >
-              <span>COPY ALL SELECTED ({selectedFiles.length} files)</span>
-            </CopyButton>
-            <div className="token-count-display">
-              ~{(() => {
-                // Calculate total tokens for selected files
-                const filesTokens = calculateTotalTokens();
-
-                // Add tokens for file tree and prompts from props
-                let total = filesTokens + fileTreeTokens + systemPromptTokens + rolePromptTokens + instructionsTokens;
-
-                // Add tokens for user instructions if they exist
-                if (userInstructions.trim()) {
-                  total += instructionsTokenCount;
-                }
-
-                return total.toLocaleString();
-              })().toString()} tokens (loaded files only)
-            </div>
           </div>
         </div>
       </div>
+
 
       <ClipboardPreviewModal
         isOpen={clipboardPreviewModalOpen}
@@ -554,6 +952,8 @@ const ContentArea = ({
         content={previewContent}
         tokenCount={previewTokenCount}
         onCopy={handleCopyFromPreview}
+        previewState={(FEATURES?.PREVIEW_WORKER_ENABLED && packState.status === 'packing') ? streamingPreview : undefined}
+        onCancel={FEATURES?.PREVIEW_WORKER_ENABLED ? cancelPack : undefined}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { logger } from './logger';
 
 import { FileData, FileTreeMode, Instruction, RolePrompt, SelectedFileReference, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
 
@@ -193,13 +194,26 @@ export const getSelectedFilesContentWithoutInstructions = (
     const fileData = allFilesMap.get(file.path);
     
     if (!fileData) {
-      console.warn(`File data not found for ${file.path} when formatting. Skipping.`);
+      logger.warn(`File data not found for ${file.path} when formatting. Skipping.`);
       continue;
     }
     
-    // Handle files that are still loading
+    // Handle files that cannot be rendered as text
     if (!fileData.isContentLoaded || fileData.content === undefined) {
-      concatenatedString += `\nFile: ${file.path}\n\`\`\`\n[Content is loading...]\n\`\`\`\n`;
+      let placeholder: string;
+
+      if (fileData.isSkipped) {
+        placeholder = `[File skipped${fileData.error ? `: ${fileData.error}` : ''}]`;
+      } else if (fileData.isBinary) {
+        const ft = fileData.fileType ? fileData.fileType : 'BINARY';
+        placeholder = `[Binary file omitted${ft ? `: ${ft}` : ''}]`;
+      } else if (fileData.error) {
+        placeholder = `[Failed to load file${fileData.error ? `: ${fileData.error}` : ''}]`;
+      } else {
+        placeholder = `[Content is loading...]`;
+      }
+
+      concatenatedString += `\nFile: ${file.path}\n\`\`\`\n${placeholder}\n\`\`\`\n`;
       continue;
     }
     
@@ -223,7 +237,7 @@ export const getSelectedFilesContentWithoutInstructions = (
       try {
         relativePath = getRelativePath(normalizedFilePath, normalizedRootPath);
       } catch (error) {
-        console.error("Error calculating relative path:", error);
+        logger.error("Error calculating relative path:", error);
       }
     }
 
@@ -372,7 +386,7 @@ export const getSimpleFileContent = (
         const fileType = getFileType(fileName);
         return `\`\`\`${fileType}\n${fileContent}\n\`\`\``;
       } catch (error) {
-        console.error(`Error reading file ${filePath}:`, error);
+        logger.error(`Error reading file ${filePath}:`, error);
         return `Error reading file ${filePath}`;
       }
     })

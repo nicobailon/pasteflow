@@ -172,6 +172,25 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   // Compute current signature
   const currentSignature = computeWorkspaceSignature(signatureData);
 
+  // Stable refs for lifetime event handlers (prevents listener re-registration)
+  const autoSaveEnabledRef = useRef(autoSaveEnabled);
+  useEffect(() => { autoSaveEnabledRef.current = autoSaveEnabled; }, [autoSaveEnabled]);
+
+  const currentSignatureRef = useRef(currentSignature);
+  useEffect(() => { currentSignatureRef.current = currentSignature; }, [currentSignature]);
+
+  const currentWorkspaceRef = useRef(currentWorkspace);
+  useEffect(() => { currentWorkspaceRef.current = currentWorkspace; }, [currentWorkspace]);
+
+  const isApplyingWorkspaceDataRef = useRef(isApplyingWorkspaceData);
+  useEffect(() => { isApplyingWorkspaceDataRef.current = isApplyingWorkspaceData; }, [isApplyingWorkspaceData]);
+
+  const isProcessingRef = useRef(isProcessing);
+  useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
+
+  const onAutoSaveRef = useRef(onAutoSave);
+  useEffect(() => { onAutoSaveRef.current = onAutoSave; }, [onAutoSave]);
+
   // Reset baseline when workspace changes and we're not in applying phase
   useEffect(() => {
     if (currentWorkspace !== prevWorkspaceRef.current && !isApplyingWorkspaceData) {
@@ -267,73 +286,84 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally once
 
-  // Add handlers for app close and visibility changes
+  // Add handlers for app close and visibility changes (stable, single registration)
   useEffect(() => {
-    // Handle Electron's app-will-quit event for reliable shutdown saves
-    const handleAppWillQuit = () => {
-      // Synchronously check if we need to save
-      if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
-        // Mark that we're saving to prevent duplicate saves
+    // Stable handler reads latest values from refs to avoid re-registering on every render
+    const handleAppWillQuitStable = () => {
+      const needSave =
+        !!autoSaveEnabledRef.current &&
+        !!currentWorkspaceRef.current &&
+        !isApplyingWorkspaceDataRef.current &&
+        !isProcessingRef.current &&
+        !saveInProgressRef.current &&
+        currentSignatureRef.current !== lastSignatureRef.current;
+
+      if (needSave) {
         saveInProgressRef.current = true;
-        
-        // Perform save and signal completion back to main process
-        onAutoSave()
+        Promise.resolve(onAutoSaveRef.current?.())
           .then(() => {
-            lastSignatureRef.current = currentSignature;
-            // Signal to main process that save is complete
+            lastSignatureRef.current = currentSignatureRef.current;
             if (window.electron?.ipcRenderer) {
               window.electron.ipcRenderer.send('app-will-quit-save-complete', {});
             }
           })
-          .catch(error => {
-            console.error('[AutoSave] Emergency save failed:', error);
-            // Still signal completion even on error to prevent hanging
+          .catch(() => {
             if (window.electron?.ipcRenderer) {
               window.electron.ipcRenderer.send('app-will-quit-save-complete', { error: true });
             }
           });
       } else {
-        // If no save needed, signal completion immediately
         if (window.electron?.ipcRenderer) {
           window.electron.ipcRenderer.send('app-will-quit-save-complete', { skipped: true });
         }
       }
     };
 
-    // Listen for Electron IPC message
     if (window.electron?.ipcRenderer) {
-      window.electron.ipcRenderer.on('app-will-quit', handleAppWillQuit);
+      window.electron.ipcRenderer.on('app-will-quit', handleAppWillQuitStable);
     }
-    
-    // Fallback: browser beforeunload event
+
+    // Fallback and focus-loss saves using stable refs
     const handleBeforeUnload = () => {
-      if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
-        // Attempt to save (may not complete in all cases)
-        void performAutoSave();
+      const needSave =
+        !!autoSaveEnabledRef.current &&
+        !!currentWorkspaceRef.current &&
+        !isApplyingWorkspaceDataRef.current &&
+        !isProcessingRef.current &&
+        !saveInProgressRef.current &&
+        currentSignatureRef.current !== lastSignatureRef.current;
+
+      if (needSave) {
+        void onAutoSaveRef.current?.();
       }
     };
-
     window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    // Also listen for visibility change to save when app loses focus
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        if (canAutoSave() && currentSignature !== lastSignatureRef.current) {
-          void performAutoSave();
+        const needSave =
+          !!autoSaveEnabledRef.current &&
+          !!currentWorkspaceRef.current &&
+          !isApplyingWorkspaceDataRef.current &&
+          !isProcessingRef.current &&
+          !saveInProgressRef.current &&
+          currentSignatureRef.current !== lastSignatureRef.current;
+
+        if (needSave) {
+          void onAutoSaveRef.current?.();
         }
       }
     };
-    
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.removeListener('app-will-quit', handleAppWillQuit);
+        window.electron.ipcRenderer.removeListener('app-will-quit', handleAppWillQuitStable);
       }
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [canAutoSave, currentSignature, performAutoSave, onAutoSave]);
+  }, []); // intentionally once
   
   // Trigger auto-save on signature changes
   useEffect(() => {

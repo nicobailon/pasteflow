@@ -7,7 +7,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 if (process.env.NODE_ENV === 'development') {
   // Set a higher limit to accommodate StrictMode behavior
   // We have ~13 usePersistentState hooks, so 30 should be safe for double mounting
-  ipcRenderer.setMaxListeners(30);
+  ipcRenderer.setMaxListeners(100);
 }
 
 // Helper function to ensure data is serializable
@@ -39,6 +39,39 @@ function ensureSerializable(data) {
     }
   }
   return result;
+}
+
+// Map channel -> WeakMap<originalFn, wrapperFn>
+// Using WeakMap so original function references don't prevent GC when user code drops them
+const __ipcListenerWrappers = new Map();
+// Centralized, deduplicated listener for 'app-will-quit' to prevent leaks across re-renders
+const __appWillQuitSubscribers = new Set();
+let __appWillQuitRegistered = false;
+const __appWillQuitHandler = () => {
+  for (const cb of Array.from(__appWillQuitSubscribers)) {
+    try {
+      typeof cb === 'function' && cb();
+    } catch (err) {
+      console.error('Error in app-will-quit subscriber:', err);
+    }
+  }
+};
+function addAppWillQuitListener(cb) {
+  if (!__appWillQuitRegistered) {
+    ipcRenderer.on('app-will-quit', __appWillQuitHandler);
+    __appWillQuitRegistered = true;
+  }
+  __appWillQuitSubscribers.add(cb);
+  return cb;
+}
+function removeAppWillQuitListener(cb) {
+  __appWillQuitSubscribers.delete(cb);
+  if (__appWillQuitRegistered && __appWillQuitSubscribers.size === 0) {
+    try {
+      ipcRenderer.removeListener('app-will-quit', __appWillQuitHandler);
+    } catch {}
+    __appWillQuitRegistered = false;
+  }
 }
 
 // Expose protected methods that allow the renderer process to use
@@ -76,6 +109,11 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.send(channel, ...serializedArgs);
     },
     on: (channel, func) => {
+      // Deduplicate app-will-quit: maintain a single underlying ipcRenderer listener
+      if (channel === 'app-will-quit') {
+        return addAppWillQuitListener(func);
+      }
+
       const wrapper = (event, ...args) => {
         try {
           // Don't pass the event object to the callback, only pass the serialized args
@@ -86,12 +124,37 @@ contextBridge.exposeInMainWorld("electron", {
         }
       };
       ipcRenderer.on(channel, wrapper);
-      // Store the wrapper function for removal later
+
+      // Store the wrapper so removeListener can work when called with the original function
+      let mapForChannel = __ipcListenerWrappers.get(channel);
+      if (!mapForChannel) {
+        mapForChannel = new WeakMap();
+        __ipcListenerWrappers.set(channel, mapForChannel);
+      }
+      mapForChannel.set(func, wrapper);
+
+      // Return the wrapper for callers that keep and remove it directly
       return wrapper;
     },
     removeListener: (channel, func) => {
       try {
-        ipcRenderer.removeListener(channel, func);
+        // Special handling for app-will-quit deduped subscription
+        if (channel === 'app-will-quit') {
+          removeAppWillQuitListener(func);
+          return;
+        }
+
+        const mapForChannel = __ipcListenerWrappers.get(channel);
+        const maybeWrapper = mapForChannel ? mapForChannel.get(func) : undefined;
+
+        if (maybeWrapper) {
+          ipcRenderer.removeListener(channel, maybeWrapper);
+          // Clean mapping
+          mapForChannel.delete(func);
+        } else {
+          // Fall back to removing the provided function (in case caller stored the wrapper)
+          ipcRenderer.removeListener(channel, func);
+        }
       } catch (error) {
         console.error(`Error removing listener for channel ${channel}:`, error);
       }
