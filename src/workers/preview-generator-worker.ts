@@ -669,7 +669,6 @@ async function streamPreview(payload: StartPayload) {
     clearTimeout(timeout);
   }
   pendingTimeouts.clear();
-  retryCounts.clear();
 
   // Build sorted selection - all selected files including binary/skipped
   const allSelectedList = allFiles.filter(f => !f.isDirectory && currentSelectedMap.has(f.path));
