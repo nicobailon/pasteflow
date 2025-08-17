@@ -368,7 +368,8 @@ function generateFileTreeItems(
       ];
     }
     case 'complete': {
-      return allFiles.filter(f => !f.isSkipped).map(f => ({ path: normalizePath(f.path), isFile: !f.isDirectory }));
+      // Include all files (even skipped/binary) in the tree to reflect complete selection
+      return allFiles.map(f => ({ path: normalizePath(f.path), isFile: !f.isDirectory }));
     }
     default:
       return [];
@@ -457,9 +458,13 @@ function emitHeaderAndPrimingChunk(opts: {
   header += '<codebase>\n';
   
   // Add note about excluded files if any
-  const totalExcluded = excludedBinaryCount + excludedSkippedCount;
+  const totalExcluded = excludedBinaryCount + excludedSkippedCount + excludedErrorCount;
   if (totalExcluded > 0) {
-    header += `<!-- Note: ${totalExcluded} file(s) excluded from content (${excludedBinaryCount} binary, ${excludedSkippedCount} skipped) but shown in tree -->\n`;
+    const parts: string[] = [];
+    if (excludedBinaryCount > 0) parts.push(`${excludedBinaryCount} binary`);
+    if (excludedSkippedCount > 0) parts.push(`${excludedSkippedCount} skipped`);
+    if (excludedErrorCount > 0) parts.push(`${excludedErrorCount} error`);
+    header += `<!-- Note: ${totalExcluded} file(s) excluded from content (${parts.join(', ')}) but shown in tree -->\n`;
   }
 
   if (fileTreeMode !== 'none' && selectedFolder) {
@@ -539,6 +544,12 @@ function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: 
         }
         // Clear retry count for successfully emitted file
         retryCounts.delete(p);
+        
+        // Enforce memory limits during active processing (every 100 files)
+        if (emittedPaths.size % 100 === 0) {
+          enforceMemoryLimits();
+        }
+        
         processedAfter = emittedPaths.size;
       } catch (error) {
         // Retry transient build failures a few times before marking as failed
@@ -1062,18 +1073,21 @@ function isTransientError(error: unknown): boolean {
 
 // Memory management utilities
 function enforceMemoryLimits() {
-  // Enforce limits on tracking Sets
+  // Enforce limits on tracking Sets using LRU-like eviction
+  // Keep 90% of limit to avoid constant trimming
+  const targetSize = Math.floor(MAX_TRACKED_PATHS * 0.9);
+  
   if (emittedPaths.size > MAX_TRACKED_PATHS) {
-    // Convert to array, keep most recent entries
+    // Convert to array, keep most recent entries (LRU-style)
     const pathsArray = [...emittedPaths];
-    const toKeep = new Set(pathsArray.slice(-MAX_TRACKED_PATHS));
+    const toKeep = new Set(pathsArray.slice(-targetSize));
     // Clear and repopulate to maintain reference
     emittedPaths.clear();
     for (const path of toKeep) {
       emittedPaths.add(path);
     }
     if (DEBUG_ENABLED) {
-      console.log('[Worker] Trimmed emittedPaths from', pathsArray.length, 'to', MAX_TRACKED_PATHS);
+      console.log('[Worker] Trimmed emittedPaths from', pathsArray.length, 'to', targetSize);
     }
   }
   
