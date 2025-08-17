@@ -371,7 +371,7 @@ function createElectronHandlers(
   const handleFolderSelected = createFolderSelectedHandler(params, accumulatedFiles, handlerId);
   
   const processFileData = createFileDataProcessor(accumulatedFiles, params);
-  const handleFileListData = createFileListDataHandler(params, currentRequestId, processFileData);
+  const handleFileListData = createFileListDataHandler(params, currentRequestId, processFileData, accumulatedFiles);
   const handleProcessingStatus = createProcessingStatusHandlerInternal(params);
   
   return {
@@ -573,10 +573,20 @@ function createFileListDataHandler(
     processedCount: number;
     directoriesCount: number;
     totalCount: number;
-  }
+  },
+  accumulatedFiles: FileData[]
 ) {
+  // Track last seen request ID to reliably reset accumulation on new refreshes
+  let lastRequestId: string | null = null;
+
   return (data: FileListIPCData) => {
     window.sessionStorage.setItem('lastFileListUpdate', Date.now().toString());
+
+    // Robust reset on new request ID to prevent duplicate accumulation across refreshes
+    if (!Array.isArray(data) && 'requestId' in data && data.requestId && data.requestId !== lastRequestId) {
+      accumulatedFiles.length = 0; // clear for new stream
+      lastRequestId = data.requestId;
+    }
 
     const { filesArray, isComplete, processedCount, directoriesCount, totalCount } = processFileData(data, currentRequestId);
 
@@ -751,13 +761,14 @@ export const requestFileContent = async (filePath: string): Promise<{
   content?: string;
   tokenCount?: number;
   error?: string;
+  isBinary?: boolean;
 }> => {
   if (!window.electron?.ipcRenderer?.invoke) {
     return { success: false, error: "Electron IPC not available" };
   }
   try {
     const result = await window.electron.ipcRenderer.invoke("request-file-content", filePath);
-    return result as { success: boolean; content?: string; tokenCount?: number; error?: string };
+    return result as { success: boolean; content?: string; tokenCount?: number; error?: string; isBinary?: boolean };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }

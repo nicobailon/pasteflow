@@ -177,6 +177,9 @@ const useAppState = () => {
   const selectedFilesRef = useRef(selectedFiles);
   useEffect(() => { selectedFilesRef.current = selectedFiles; }, [selectedFiles]);
 
+  // Track previous mtimes to detect changed files across refreshes
+  const prevMtimeByPathRef = useRef<Map<string, number>>(new Map());
+
   // Update instructions token count when user instructions change
   const [userInstructions, setUserInstructions] = useState('');
   const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
@@ -332,10 +335,9 @@ const useAppState = () => {
       isElectron,
       selectedFolder,
       exclusionPatterns,
-      setProcessingStatus,
-      fileSelection.clearSelectedFiles
+      setProcessingStatus
     );
-  }, [isElectron, selectedFolder, exclusionPatterns, fileSelection.clearSelectedFiles]);
+  }, [isElectron, selectedFolder, exclusionPatterns, setProcessingStatus]);
 
   // Toggle expand/collapse state changes
   const toggleExpanded = useCallback((nodeId: string, currentState?: boolean) => {
@@ -435,6 +437,12 @@ const useAppState = () => {
       // Debug-only: noisy but useful while investigating
       logger.debug('[validateFileLoadRequest] Already loaded, skipping:', filePath);
       return { valid: false, reason: 'Already loaded' };
+    }
+
+    // Skip files that are marked binary or skipped
+    if (file.isBinary || file.isSkipped) {
+      logger.debug('[validateFileLoadRequest] Binary or skipped file, skipping load:', filePath);
+      return { valid: false, reason: 'Binary or skipped' };
     }
 
     // Normalize paths before workspace containment check to avoid false negatives
@@ -636,7 +644,13 @@ const useAppState = () => {
         setAllFiles((prev: FileData[]) => {
           const next = prev.map((f: FileData) =>
             f.path === filePath
-              ? { ...f, error: result.error, isContentLoaded: false, isCountingTokens: false }
+              ? {
+                  ...f,
+                  error: result.error,
+                  isBinary: (result as any).isBinary === true ? true : f.isBinary,
+                  isContentLoaded: false,
+                  isCountingTokens: false
+                }
               : f
           );
           allFilesRef.current = next;
@@ -682,18 +696,18 @@ const useAppState = () => {
 
   // Helper function to process batch results
   const processBatchResults = useCallback((
-    results: { success: boolean; content?: string; error?: string }[],
+    results: { success: boolean; content?: string; error?: string; isBinary?: boolean }[],
     filePaths: string[]
   ) => {
     const successful: { path: string; content: string }[] = [];
-    const failed: { path: string; error: string }[] = [];
+    const failed: { path: string; error: string; isBinary?: boolean }[] = [];
 
     for (const [index, result] of results.entries()) {
       const path = filePaths[index];
-      if (result.success && result.content) {
+      if (result.success && result.content !== undefined) {
         successful.push({ path, content: result.content });
       } else {
-        failed.push({ path, error: result.error || 'Failed to load content' });
+        failed.push({ path, error: result.error || 'Failed to load content', isBinary: result.isBinary });
       }
     }
 
@@ -732,6 +746,7 @@ const useAppState = () => {
           return {
             ...f,
             error: result.error || 'Failed to load content',
+            isBinary: result.isBinary === true ? true : f.isBinary,
             isContentLoaded: false,
             isCountingTokens: false,
             tokenCountError: undefined
@@ -808,11 +823,18 @@ const useAppState = () => {
 
     if (failed.length > 0) {
       setAllFiles((prev: FileData[]) => {
-        const next = prev.map((f: FileData) =>
-          failed.some((item: { path: string; error: string }) => item.path === f.path)
-            ? { ...f, error: 'Failed to load content', isContentLoaded: false, isCountingTokens: false }
-            : f
-        );
+        const failedMap = new Map(failed.map(item => [item.path, item]));
+        const next = prev.map((f: FileData) => {
+          const fail = failedMap.get(f.path);
+          if (!fail) return f;
+          return {
+            ...f,
+            error: fail.error || 'Failed to load content',
+            isBinary: fail.isBinary === true ? true : f.isBinary,
+            isContentLoaded: false,
+            isCountingTokens: false
+          };
+        });
         allFilesRef.current = next;
         return next;
       });
@@ -992,13 +1014,39 @@ const useAppState = () => {
     });
 
     if (filesToLoad.length > 0) {
-      // Load file contents asynchronously
-      Promise.all(filesToLoad.map(file => loadFileContent(file.path)))
-        .catch(error => {
-          logger.error('[useAppState.applySelectedFiles] Error loading file content:', error);
-        });
+      // Batch loading to avoid main-thread saturation and keep tree-building responsive
+      const uniquePaths = Array.from(new Set(filesToLoad.map(f => f.path)));
+      const pending = [...uniquePaths];
+
+      // Adaptive batch size/priority based on selection size
+      const total = pending.length;
+      let BATCH = 20;
+      let PRIORITY = 8;
+      let STEP_DELAY_MS = 8;
+      if (total >= 2000) { BATCH = 120; PRIORITY = 12; STEP_DELAY_MS = 2; }
+      else if (total >= 1000) { BATCH = 80; PRIORITY = 10; STEP_DELAY_MS = 4; }
+      else if (total >= 500) { BATCH = 60; PRIORITY = 10; STEP_DELAY_MS = 6; }
+      else if (total >= 200) { BATCH = 40; PRIORITY = 10; STEP_DELAY_MS = 8; }
+      else if (total >= 80)  { BATCH = 30; PRIORITY = 8; STEP_DELAY_MS = 10; }
+
+      const step = async () => {
+        if (pending.length === 0) return;
+        const slice = pending.splice(0, BATCH);
+        try {
+          // Use pooled batch loader to minimize per-file flushes and state churn
+          await loadMultipleFileContents(slice, { priority: PRIORITY });
+        } catch (error) {
+          logger.error('[useAppState.applySelectedFiles] Error in batched file content load:', error);
+        }
+        if (pending.length > 0) {
+          setTimeout(step, STEP_DELAY_MS);
+        }
+      };
+
+      // Defer batch start to ensure UI (tree progress) paints first
+      setTimeout(step, 0);
     }
-  }, [setSelectionState, loadFileContent]);
+  }, [setSelectionState, loadMultipleFileContents]);
 
   const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
 
@@ -1367,6 +1415,74 @@ const useAppState = () => {
     }
   }, [appInitialized, allFiles]);
 
+  // Reconcile changed files after a refresh completes using mtimeMs
+  useEffect(() => {
+    if (processingStatus.status !== 'complete') return;
+
+    try {
+      // Build next map of mtimes (only when available)
+      const nextMap = new Map<string, number>();
+      for (const f of allFiles) {
+        if (typeof f.mtimeMs === 'number') {
+          nextMap.set(f.path, f.mtimeMs);
+        }
+      }
+
+      const prevMap = prevMtimeByPathRef.current;
+      const changedPaths: string[] = [];
+
+      // Detect files present in both with differing mtime
+      for (const [path, mtime] of nextMap.entries()) {
+        const prevMtime = prevMap.get(path);
+        if (prevMtime !== undefined && prevMtime !== mtime) {
+          changedPaths.push(path);
+        }
+      }
+
+      if (changedPaths.length > 0) {
+        // Invalidate caches for changed files
+        for (const p of changedPaths) {
+          try {
+            fileContentCache.delete(p);
+            tokenCountCache.invalidateFile(p);
+          } catch {
+            // best-effort invalidation
+          }
+        }
+
+        const changedSet = new Set(changedPaths);
+        // Mark changed files as not loaded so UI/content reloads lazily
+        setAllFiles((prev: FileData[]) => {
+          const next = prev.map((f: FileData) => {
+            if (!changedSet.has(f.path)) return f;
+            return {
+              ...f,
+              isContentLoaded: false,
+              isCountingTokens: false,
+              content: '', // clear to avoid stale display
+              tokenCount: undefined,
+              tokenCountError: undefined
+            };
+          });
+          allFilesRef.current = next;
+          return next;
+        });
+
+        // Prefetch up to 20 changed files that are currently selected for smoother UX
+        const selectedSet = new Set(selectedFilesRef.current.map(sf => sf.path));
+        const toPrefetch = changedPaths.filter(p => selectedSet.has(p)).slice(0, 20);
+        if (toPrefetch.length > 0) {
+          void loadMultipleFileContents(toPrefetch, { priority: 8 });
+        }
+      }
+
+      // Update snapshot for next reconciliation
+      prevMtimeByPathRef.current = nextMap;
+    } catch {
+      // ignore reconcile errors to avoid impacting UX
+    }
+  }, [processingStatus.status, allFiles, loadMultipleFileContents]);
+
   // Define the event handler using useCallback outside the effect
   const handleWorkspaceLoadedEvent = useCallback(async (event: CustomEvent) => {
     if (event.detail?.name && event.detail?.workspace) {
@@ -1557,6 +1673,29 @@ const useAppState = () => {
     });
   }, []);
 
+  // Clear all selections: files + prompts + docs (but not free-text user instructions)
+  const clearAllSelections = useCallback(() => {
+    try {
+      // Clear file selections
+      setSelectionState([]);
+
+      // Deselect system prompts
+      const currentPrompts = promptStateRef.current;
+      for (const sp of [...currentPrompts.selectedSystemPrompts]) {
+        currentPrompts.toggleSystemPromptSelection(sp);
+      }
+      // Deselect role prompts
+      for (const rp of [...currentPrompts.selectedRolePrompts]) {
+        currentPrompts.toggleRolePromptSelection(rp);
+      }
+
+      // Clear selected docs/instructions
+      setSelectedInstructions([]);
+    } catch (error) {
+      logger.warn('[useAppState.clearAllSelections] Failed to clear some selections', error);
+    }
+  }, [setSelectionState]);
+
   return {
     isElectron,
     selectedFolder,
@@ -1604,6 +1743,7 @@ const useAppState = () => {
     handleResetFolderState,
     handleFileOperations,
     handleWorkspaceUpdate,
+    clearAllSelections,
 
     // Calculations
     calculateTotalTokens,

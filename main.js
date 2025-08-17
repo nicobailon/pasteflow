@@ -224,13 +224,13 @@ const SPECIAL_FILE_EXTENSIONS = new Set(['.asar', '.bin', '.dll', '.exe', '.so',
 
 // Function to check if a character is likely a binary/control character
 function isControlOrBinaryChar(codePoint) {
+  // Treat only non-whitespace ASCII control chars as binary; allow all Unicode >= 128
   return (
     (codePoint >= 0 && codePoint <= 8) ||
     codePoint === 11 || // VT
     codePoint === 12 || // FF
     (codePoint >= 14 && codePoint <= 31) ||
-    codePoint === 127 || // DEL
-    (codePoint >= 128 && codePoint <= 255) // Extended ASCII
+    codePoint === 127 // DEL
   );
 }
 
@@ -559,7 +559,7 @@ function countTokens(text) {
 }
 
 // Function to process a single file - OPTIMIZED VERSION
-function processFile(dirent, fullPath, folderPath, fileSize) {
+function processFile(dirent, fullPath, folderPath, fileSize, mtimeMs) {
   // Skip files that are too large
   if (fileSize > MAX_FILE_SIZE) {
     return {
@@ -568,6 +568,7 @@ function processFile(dirent, fullPath, folderPath, fileSize) {
       tokenCount: 0,
       size: fileSize,
       content: "",
+      mtimeMs,
       isBinary: false,
       isSkipped: true,
       error: "File too large to process",
@@ -584,6 +585,7 @@ function processFile(dirent, fullPath, folderPath, fileSize) {
       tokenCount: 0,
       size: fileSize,
       content: "",
+      mtimeMs,
       isBinary: true,
       isSkipped: true,
       fileType: path.extname(fullPath).slice(1).toUpperCase(),
@@ -603,6 +605,7 @@ function processFile(dirent, fullPath, folderPath, fileSize) {
     tokenCount: 0, // Will be calculated on-demand
     size: fileSize,
     content: "", // Will be loaded on-demand
+    mtimeMs,
     isBinary: isBinary,
     isSkipped: false,
     fileType: path.extname(fullPath).slice(1).toUpperCase() || 'TEXT',
@@ -628,7 +631,7 @@ function processDirectory(dirPath, folderPath, depth, ignoreFilter) {
       if (dirent.isFile()) {
         try {
           const stats = fs.statSync(fullPath);
-          results.push(processFile(dirent, fullPath, folderPath, stats.size));
+          results.push(processFile(dirent, fullPath, folderPath, stats.size, stats.mtimeMs));
         } catch (error) {
           console.error(`Error processing file ${fullPath}:`, error);
         }
@@ -701,6 +704,7 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
         tokenCount: file.tokenCount || 0,
         size: file.size || 0,
         content: "", // No content during initial load
+        mtimeMs: file.mtimeMs,
         isBinary: Boolean(file.isBinary),
         isSkipped: Boolean(file.isSkipped),
         isDirectory: Boolean(file.isDirectory),
@@ -780,7 +784,7 @@ ipcMain.on("request-file-list", async (event, folderPath, exclusionPatterns = []
               // Queue file processing for parallel execution
               filePromises.push(
                 fs.promises.stat(fullPath).then(stats => {
-                  const fileInfo = processFile(dirent, fullPath, folderPath, stats.size);
+                  const fileInfo = processFile(dirent, fullPath, folderPath, stats.size, stats.mtimeMs);
                   currentBatchFiles.push(fileInfo);
                   allFiles.push(fileInfo);
                 }).catch(error => {
@@ -972,6 +976,10 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
     return { success: false, error: 'Access denied', reason: validation.reason };
   }
 
+  // Preflight: skip known binary/special files before reading
+  if (isBinaryFile(filePath) || isSpecialFile(filePath)) {
+    return { success: false, error: 'File contains binary data', isBinary: true };
+  }
   try {
     const content = await fs.promises.readFile(validation.sanitizedPath, 'utf8');
     if (isLikelyBinaryContent(content, filePath)) {
@@ -980,7 +988,9 @@ ipcMain.handle('request-file-content', async (event, filePath) => {
     const tokenCount = countTokens(content);
     return { success: true, content, tokenCount };
   } catch (error) {
-    return { success: false, error: error.message };
+    // If read failed, hint binary based on extension to help the UI stop retrying
+    const extIsBinary = isBinaryFile(filePath) || isSpecialFile(filePath);
+    return { success: false, error: error.message, isBinary: extIsBinary };
   }
 });
 

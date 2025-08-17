@@ -154,6 +154,8 @@ const App = () => {
             selectedFolder={appState.selectedFolder}
             expandedNodes={appState.expandedNodes}
             toggleExpanded={appState.toggleExpanded}
+            fileTreeMode={appState.fileTreeMode}
+            clearAllSelections={appState.clearAllSelections}
           />
         </div>
         

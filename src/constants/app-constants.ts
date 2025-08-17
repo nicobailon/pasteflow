@@ -247,6 +247,12 @@ export const UI = {
   },
 } as const;
 
+// ==================== FEATURE FLAGS ====================
+
+export const FEATURES = {
+  /** Enable WebWorker-based progressive Preview generation */
+  PREVIEW_WORKER_ENABLED: true,
+} as const;
 // ==================== DATABASE ====================
 
 export const DATABASE = {

@@ -61,14 +61,13 @@ export const applyFiltersAndSort = (
 
 /**
  * Saves exclusion patterns and optionally refreshes file list
- * 
+ *
  * @param {string[]} patterns - Exclusion patterns
  * @param {boolean} refreshFiles - Whether to refresh files
  * @param {Function} setExclusionPatterns - Setter for exclusion patterns
  * @param {string | null} selectedFolder - Selected folder path
  * @param {boolean} isElectron - Whether running in Electron
  * @param {Function} setProcessingStatus - Setter for processing status
- * @param {Function} clearSelectedFiles - Function to clear selected files
  */
 export const saveFilters = (
   patterns: string[],
@@ -76,8 +75,7 @@ export const saveFilters = (
   setExclusionPatterns: (patterns: string[]) => void,
   selectedFolder: string | null,
   isElectron: boolean,
-  setProcessingStatus: (status: any) => void,
-  clearSelectedFiles: () => void
+  setProcessingStatus: (status: any) => void
 ): void => {
   setExclusionPatterns(patterns);
   
@@ -87,9 +85,6 @@ export const saveFilters = (
       message: "Refreshing file list with new filters...",
     });
     
-    // Clear selected files to avoid issues with files that might be filtered out
-    clearSelectedFiles();
-    
     // Request file list with updated exclusion patterns
     requestFileList(isElectron, selectedFolder, patterns, setProcessingStatus);
   }
@@ -97,28 +92,23 @@ export const saveFilters = (
 
 /**
  * Refreshes the file tree with current filters
- * 
+ *
  * @param {boolean} isElectron - Whether running in Electron
  * @param {string | null} selectedFolder - Selected folder path
  * @param {string[]} exclusionPatterns - Exclusion patterns
  * @param {Function} setProcessingStatus - Setter for processing status
- * @param {Function} clearSelectedFiles - Function to clear selected files
  */
 export const refreshFileTree = (
   isElectron: boolean,
   selectedFolder: string | null,
   exclusionPatterns: string[],
-  setProcessingStatus: (status: any) => void,
-  clearSelectedFiles: () => void
+  setProcessingStatus: (status: any) => void
 ): void => {
   if (isElectron && selectedFolder) {
     setProcessingStatus({
       status: "processing",
       message: "Refreshing file list...",
     });
-    
-    // Clear selected files to avoid issues with files that might be filtered out
-    clearSelectedFiles();
     
     // Request file list with current exclusion patterns
     requestFileList(isElectron, selectedFolder, exclusionPatterns, setProcessingStatus);

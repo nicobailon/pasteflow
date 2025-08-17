@@ -4,7 +4,8 @@ const USED_ICONS = [
   'Archive', 'Check', 'CheckSquare', 'ChevronDown', 'ChevronRight', 'ChevronUp',
   'CirclePlus', 'Clipboard', 'Copy', 'Edit', 'Eye', 'File', 'FileText', 'Filter',
   'Folder', 'FolderOpen', 'Loader2', 'MessageSquareCode', 'Moon', 'Pencil', 'Plus',
-  'RefreshCw', 'Save', 'Search', 'Settings', 'Square', 'Sun', 'Trash', 'User', 'X'
+  'RefreshCw', 'Save', 'Search', 'Settings', 'Square', 'Sun', 'Trash', 'User', 'X',
+  'Eraser'
 ];
 
 // Convert camelCase to kebab-case

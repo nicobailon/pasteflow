@@ -152,23 +152,12 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
   }, [toggleFilterModal]);
   
   /**
-   * Refreshes the file tree and resets sorting and selection state.
-   * Resets sort to default, deselects all files, and triggers a refresh.
+   * Refreshes the file tree while preserving selections and current sort.
    */
   const handleRefreshFileTree = useCallback(() => {
-    // Reset sort to "Developer" option
-    setCurrentSortOption('default');
-    localStorage.setItem(STORAGE_KEYS.FILE_TREE_SORT_ORDER, 'default');
-    
-    // Deselect all files
-    deselectAllFiles();
-    
-    // Refresh the file tree
+    // Do not change sort or selections; just trigger a refresh
     refreshFileTree();
-    
-    // Notify about sort change
-    onFileTreeSortChange('default');
-  }, [refreshFileTree, deselectAllFiles, onFileTreeSortChange]);
+  }, [refreshFileTree]);
 
   // Define sort options for the dropdown
   const sortOptions = useMemo(() => createSortOptions(), []);

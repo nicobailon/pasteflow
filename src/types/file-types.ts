@@ -23,6 +23,8 @@ export interface FileData {
   children?: FileData[];
   content?: string;
   size: number;
+  /** File modification time in milliseconds (from fs.stat.mtimeMs) */
+  mtimeMs?: number;
   isBinary: boolean;
   isSkipped: boolean;
   error?: string;

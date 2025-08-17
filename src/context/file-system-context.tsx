@@ -149,10 +149,9 @@ export const FileSystemProvider = ({
       isElectron,
       selectedFolder,
       exclusionPatterns,
-      setProcessingStatusState,
-      clearSelectedFilesFunc
+      setProcessingStatusState
     );
-  }, [isElectron, selectedFolder, exclusionPatterns, setProcessingStatusState, clearSelectedFilesFunc]);
+  }, [isElectron, selectedFolder, exclusionPatterns, setProcessingStatusState]);
 
   const handleResetFolderState = useCallback(() => {
     resetFolderStateUtil(
