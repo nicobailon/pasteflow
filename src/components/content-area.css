@@ -246,3 +246,5 @@
   flex: 1;
   overflow-y: auto;
 }
+
+/* Animation moved to src/styles/index.css for shared use */

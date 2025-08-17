@@ -10,7 +10,12 @@
 
 declare const jest: { fn?: unknown } | undefined;
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition as reactStartTransition } from 'react';
+
+// Type-safe wrapper for startTransition with fallback
+// React 18 exports startTransition, earlier versions will have undefined
+const startTransition: typeof reactStartTransition = 
+  reactStartTransition ?? ((fn: () => void) => { fn(); });
 import type {
   FileData,
   SelectedFileReference,
@@ -19,6 +24,7 @@ import type {
   RolePrompt,
   FileTreeMode,
 } from '../types/file-types';
+import { trackTokenAccuracy, trackPreviewStart, trackPreviewCancel } from '../utils/dev-metrics';
 
 export type PreviewStatus = 'idle' | 'loading' | 'streaming' | 'complete' | 'error' | 'cancelled';
 
@@ -50,6 +56,7 @@ export interface StartPreviewParams {
 
 type WorkerMessage =
   | { type: 'READY' }
+  | { type: 'INIT_COMPLETE' } // For Jest MockWorker compatibility
   | {
       type: 'CHUNK';
       id: string;
@@ -105,6 +112,7 @@ export function usePreviewGenerator() {
   const currentIdRef = useRef<string | null>(null);
   const rafPendingRef = useRef<boolean>(false);
   const lastFlushTimeRef = useRef<number>(0);
+  const fileTreeModeRef = useRef<FileTreeMode>('none');
 
   // Mutable accumulation buffers
   const displayBufferRef = useRef<string>('');
@@ -130,9 +138,9 @@ export function usePreviewGenerator() {
     if (workerRef.current) return workerRef.current;
     const w = createWorker();
     const readyListener = (e: MessageEvent) => {
-      const t = (e.data as any)?.type;
+      const msg = e.data as WorkerMessage;
       // Accept READY from real worker and INIT_COMPLETE from Jest MockWorker
-      if (t === 'READY' || t === 'INIT_COMPLETE') {
+      if (msg.type === 'READY' || msg.type === 'INIT_COMPLETE') {
         setIsReady(true);
       }
     };
@@ -157,17 +165,21 @@ export function usePreviewGenerator() {
       return;
     }
     lastFlushTimeRef.current = now;
-    setPreviewState((prev) => ({
-      id: currentIdRef.current,
-      status: prev.status === 'idle' ? 'loading' : prev.status,
-      processed: processedRef.current,
-      total: totalRef.current,
-      percent: percentRef.current,
-      tokenEstimate: tokenEstimateRef.current,
-      contentForDisplay: displayBufferRef.current,
-      fullContent: fullBufferRef.current,
-      error: prev.error,
-    }));
+    
+    // Wrap non-urgent updates in startTransition for better responsiveness
+    startTransition(() => {
+      setPreviewState((prev) => ({
+        id: currentIdRef.current,
+        status: prev.status === 'idle' ? 'loading' : prev.status,
+        processed: processedRef.current,
+        total: totalRef.current,
+        percent: percentRef.current,
+        tokenEstimate: tokenEstimateRef.current,
+        contentForDisplay: displayBufferRef.current,
+        fullContent: fullBufferRef.current,
+        error: prev.error,
+      }));
+    });
   }, []);
 
   const scheduleFlush = useCallback(() => {
@@ -189,12 +201,17 @@ export function usePreviewGenerator() {
         setIsReady(true);
         break;
       }
+      case 'INIT_COMPLETE': {
+        // Jest MockWorker compatibility
+        setIsReady(true);
+        break;
+      }
       case 'CHUNK': {
-        if (currentIdRef.current !== (msg as any).id) return;
+        if (msg.type !== 'CHUNK' || currentIdRef.current !== msg.id) return;
 
         // Prefer new fields; fall back to legacy 'chunk' for back-compat
-        const displayPart = (msg as any).displayChunk ?? (msg as any).chunk ?? '';
-        const fullPart = (msg as any).fullChunk ?? (msg as any).chunk ?? '';
+        const displayPart = msg.displayChunk ?? msg.chunk ?? '';
+        const fullPart = msg.fullChunk ?? msg.chunk ?? '';
 
         // Append to buffers
         fullBufferRef.current += fullPart;
@@ -203,13 +220,13 @@ export function usePreviewGenerator() {
           ? combined.slice(0, DISPLAY_TRUNCATION_LIMIT)
           : combined;
 
-        processedRef.current = (msg as any).processed;
-        totalRef.current = (msg as any).total;
+        processedRef.current = msg.processed;
+        totalRef.current = msg.total;
         percentRef.current = Math.min(100, Math.round((processedRef.current / Math.max(1, totalRef.current)) * 100));
 
         const fallbackLen = typeof fullPart === 'string' ? fullPart.length : 0;
-        tokenEstimateRef.current += (typeof (msg as any).tokenDelta === 'number'
-          ? (msg as any).tokenDelta
+        tokenEstimateRef.current += (typeof msg.tokenDelta === 'number'
+          ? msg.tokenDelta
           : Math.ceil(fallbackLen / 4));
 
         // Move to streaming on first data
@@ -219,7 +236,7 @@ export function usePreviewGenerator() {
         break;
       }
       case 'PROGRESS': {
-        if (currentIdRef.current !== msg.id) return;
+        if (msg.type !== 'PROGRESS' || currentIdRef.current !== msg.id) return;
         processedRef.current = msg.processed;
         totalRef.current = msg.total;
         percentRef.current = msg.percent;
@@ -230,10 +247,10 @@ export function usePreviewGenerator() {
         break;
       }
       case 'COMPLETE': {
-        if (currentIdRef.current !== (msg as any).id) return;
+        if (msg.type !== 'COMPLETE' || currentIdRef.current !== msg.id) return;
 
-        const finalDisplay = (msg as any).finalDisplayChunk ?? (msg as any).finalChunk ?? '';
-        const finalFull = (msg as any).finalFullChunk ?? (msg as any).finalChunk ?? '';
+        const finalDisplay = msg.finalDisplayChunk ?? msg.finalChunk ?? '';
+        const finalFull = msg.finalFullChunk ?? msg.finalChunk ?? '';
 
         // Append final chunks/footer from worker
         fullBufferRef.current += finalFull;
@@ -242,11 +259,24 @@ export function usePreviewGenerator() {
           ? combined.slice(0, DISPLAY_TRUNCATION_LIMIT)
           : combined;
 
-        if (typeof (msg as any).tokenTotal === 'number') {
-          tokenEstimateRef.current = Math.max(tokenEstimateRef.current, (msg as any).tokenTotal);
+        const estimatedBeforeFinal = tokenEstimateRef.current;
+        if (typeof msg.tokenTotal === 'number') {
+          tokenEstimateRef.current = Math.max(tokenEstimateRef.current, msg.tokenTotal);
         }
         percentRef.current = 100;
         processedRef.current = totalRef.current;
+
+        // Track token accuracy metrics (dev-only)
+        // Only track if we have meaningful data (received chunks with estimates)
+        if (currentIdRef.current && estimatedBeforeFinal > 0 && tokenEstimateRef.current > 0) {
+          trackTokenAccuracy({
+            sessionId: currentIdRef.current,
+            estimatedTokens: estimatedBeforeFinal,
+            finalTokens: tokenEstimateRef.current,
+            fileCount: totalRef.current,
+            selectionMode: fileTreeModeRef.current,
+          });
+        }
 
         setPreviewState({
           id: currentIdRef.current,
@@ -261,7 +291,14 @@ export function usePreviewGenerator() {
         break;
       }
       case 'CANCELLED': {
+        if (msg.type !== 'CANCELLED') return;
         if (currentIdRef.current && msg.id && currentIdRef.current !== msg.id) return;
+        
+        // Track cancellation (dev-only)
+        if (currentIdRef.current) {
+          trackPreviewCancel(currentIdRef.current);
+        }
+        
         setPreviewState((prev) => ({
           ...prev,
           status: 'cancelled',
@@ -296,6 +333,12 @@ export function usePreviewGenerator() {
 
   const startPreview = useCallback((params: StartPreviewParams): string => {
     const id = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    // Store fileTreeMode for later use in metrics
+    fileTreeModeRef.current = params.fileTreeMode;
+
+    // Track preview start (dev-only)
+    trackPreviewStart(id, params.selectedFiles.length);
 
     // Reset buffers and set loading state
     resetBuffers(id);

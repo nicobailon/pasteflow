@@ -838,6 +838,24 @@ const ContentArea = ({
             })()}
             <div className="token-count-display">
              ~{memoTokenCount.toLocaleString()} tokens (loaded files only)
+             {/* Show recalculating indicator when packing or streaming */}
+             {(() => {
+               const isRecalculating = packState.status === 'packing' || 
+                 (streamingPreview && (streamingPreview.status === 'loading' || streamingPreview.status === 'streaming'));
+               
+               if (!isRecalculating) return null;
+               
+               return (
+               <span 
+                 className="token-recalculating-indicator"
+                 aria-label="Recalculating token count"
+               >
+                 <span className="recalc-dot recalc-dot-1" aria-hidden="true" />
+                 <span className="recalc-dot recalc-dot-2" aria-hidden="true" />
+                 <span className="recalc-dot recalc-dot-3" aria-hidden="true" />
+               </span>
+               );
+             })()}
            </div>
           </div>
         </div>

@@ -156,8 +156,6 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
           handleClose();
         }
       }}
-      role="presentation"
-      aria-hidden="true"
     >
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
@@ -189,6 +187,17 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
           <span className="clipboard-preview-token-label">Total:</span>
           <span className="clipboard-preview-token-count">
             ~{tokenEstimate.toLocaleString()} tokens
+            {/* Recalculating indicator for streaming mode */}
+            {isLoadingOrStreaming && (
+              <span 
+                className="token-recalculating-indicator"
+                aria-label="Recalculating token count"
+              >
+                <span className="recalc-dot recalc-dot-1" aria-hidden="true" />
+                <span className="recalc-dot recalc-dot-2" aria-hidden="true" />
+                <span className="recalc-dot recalc-dot-3" aria-hidden="true" />
+              </span>
+            )}
           </span>
 
           {/* Streaming progress/announcements */}
