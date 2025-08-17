@@ -1,7 +1,7 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '../utils/logger';
-import { FEATURES } from '../constants/app-constants';
+import { FEATURES, UI } from '../constants/app-constants';
 import { usePreviewPack } from '../hooks/use-preview-pack';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
@@ -585,12 +585,48 @@ const ContentArea = ({
     }
   }, [packState?.status]);
 
+  // Periodic housekeeping during long packing sessions to prevent unbounded growth of tracking sets.
+  // Trims oldest entries when size exceeds UI.PREVIEW.MAX_TRACKED_PATHS.
+  useEffect(() => {
+    if (packState?.status !== 'packing') return;
+
+    const trimSet = (s: Set<string>) => {
+      const max = UI.PREVIEW?.MAX_TRACKED_PATHS ?? 0;
+      if (!max || s.size <= max) return;
+      let excess = s.size - max;
+      for (const v of s) {
+        s.delete(v);
+        if (--excess <= 0) break;
+      }
+    };
+
+    const interval = window.setInterval(() => {
+      trimSet(lastPushedRef.current);
+      trimSet(reportedErrorsRef.current);
+    }, UI.PREVIEW?.CLEANUP_INTERVAL_MS ?? 30000);
+
+    return () => window.clearInterval(interval);
+  }, [packState?.status]);
+
 
 
   const handleCopyFromPreview = async () => {
     try {
-      // Use packed content if available, otherwise fall back to preview content
-      const textToCopy = packState.fullContent || streamingPreview?.fullContent || previewContent || '';
+      const getText = () => packState.fullContent || streamingPreview?.fullContent || previewContent || '';
+      const isPlaceholder = (t: string) => /\[Content is loading\.\.\.\]/.test(t);
+
+      // Backoff to avoid copying placeholders when preview just started
+      let textToCopy = getText();
+      for (let attempt = 0; attempt < UI.MODAL.BACKOFF_MAX_ATTEMPTS; attempt++) {
+        if (textToCopy && !isPlaceholder(textToCopy)) {
+          break;
+        }
+        if (attempt < UI.MODAL.BACKOFF_MAX_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, UI.MODAL.BACKOFF_DELAY_MS));
+          textToCopy = getText();
+        }
+      }
+
       await navigator.clipboard.writeText(textToCopy);
     } catch (error) {
       logger.error('Failed to copy to clipboard:', error);

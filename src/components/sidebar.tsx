@@ -28,7 +28,6 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
     toggleFolderSelection,
     searchTerm,
     onSearchChange,
-    deselectAllFiles,
     expandedNodes,
     toggleExpanded,
     resetFolderState,

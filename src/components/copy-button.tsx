@@ -1,11 +1,38 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
+import { UI } from "../constants/app-constants";
 import "./copy-button.css";
 
 interface CopyButtonProps {
   text: string | (() => string) | (() => Promise<string>);
   className?: string;
   children?: JSX.Element | string;
+}
+
+/**
+ * Small backoff helper to accommodate optimistic/streaming content.
+ * Retries resolving text when placeholder is present, up to UI.MODAL.BACKOFF_MAX_ATTEMPTS.
+ * This prevents copying "[Content is loading...]" immediately after users click Copy.
+ */
+const LOADING_PLACEHOLDER_REGEX = /\[Content is loading\.\.\.\]/;
+
+async function resolveTextWithBackoff(source: CopyButtonProps['text']): Promise<string> {
+  for (let attempt = 0; attempt < UI.MODAL.BACKOFF_MAX_ATTEMPTS; attempt++) {
+    const result = typeof source === 'function' ? (source as any)() : source;
+    const text = result instanceof Promise ? await result : result;
+
+    if (text && !LOADING_PLACEHOLDER_REGEX.test(text)) {
+      return text;
+    }
+
+    if (attempt < UI.MODAL.BACKOFF_MAX_ATTEMPTS - 1) {
+      await new Promise((r) => setTimeout(r, UI.MODAL.BACKOFF_DELAY_MS));
+    }
+  }
+
+  // Final attempt: return whatever we have
+  const finalResult = typeof source === 'function' ? (source as any)() : source;
+  return finalResult instanceof Promise ? await finalResult : finalResult;
 }
 
 /**
@@ -56,22 +83,15 @@ const CopyButton = ({ text, className = "", children }: CopyButtonProps) => {
 
   const handleCopy = async () => {
     try {
-      // Get the text to copy - either use the string directly or call the function
-      let textToCopy;
-      if (typeof text === 'function') {
-        const result = text();
-        // Handle both regular functions and async functions
-        textToCopy = result instanceof Promise ? await result : result;
-      } else {
-        textToCopy = text;
-      }
-      
-      // Try to use modern clipboard API first
+      // Resolve text with a small backoff to avoid copying loading placeholders
+      const textToCopy = await resolveTextWithBackoff(text);
+
+      // Try modern clipboard API first
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(textToCopy);
         setCopied(true);
       } else {
-        // Fall back to older method if modern API is not available
+        // Fallback method if modern API is unavailable
         const success = fallbackCopyTextToClipboard(textToCopy);
         setCopied(success);
       }

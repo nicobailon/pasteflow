@@ -245,6 +245,14 @@ export const UI = {
   ICONS: {
     CHEVRON_SIZE: 16,
   },
+
+  /** Preview streaming housekeeping */
+  PREVIEW: {
+    /** Maximum entries to retain in tracking sets to prevent memory growth */
+    MAX_TRACKED_PATHS: 5000,
+    /** Periodic cleanup interval while packing (milliseconds) */
+    CLEANUP_INTERVAL_MS: 30_000,
+  },
 } as const;
 
 // ==================== FEATURE FLAGS ====================

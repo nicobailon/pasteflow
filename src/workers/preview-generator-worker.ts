@@ -116,6 +116,7 @@ let tokenTotal = 0;
 let headerEmitted = false;
 let footerEmitted = false;
 const pendingTimeouts: Map<string, number> = new Map();  // Timeouts for pending files
+const retryCounts: Map<string, number> = new Map();
 
 // Token estimate: ~1 token per 4 chars
 const CHARS_PER_TOKEN = 4;
@@ -124,6 +125,8 @@ const DEFAULT_CHUNK_SIZE = 8;
 let currentChunkSize = DEFAULT_CHUNK_SIZE;
 // Timeout for pending files (30 seconds)
 const PENDING_FILE_TIMEOUT = 30_000;
+const RETRY_MAX_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 200;
 
 function estimateTokens(text: string): number {
   return Math.ceil((text || '').length / CHARS_PER_TOKEN);
@@ -530,21 +533,12 @@ function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: 
         }
         processedAfter = emittedPaths.size;
       } catch (error) {
-        // If building blocks fails, mark the file as failed
-        // Always ensure the file ends up in failedPaths if not already emitted
+        // Retry transient build failures a few times before marking as failed
         if (!emittedPaths.has(p)) {
-          pendingPaths.delete(p);
-          failedPaths.add(p);
-          skippedPaths.delete(p);  // Remove from skipped if it was there
-          // Clear any timeout
-          const timeout = pendingTimeouts.get(p);
-          if (timeout) {
-            clearTimeout(timeout);
-            pendingTimeouts.delete(p);
-          }
+          scheduleRetry(p, userSelectedFolder, !!packOnly);
         }
         if (DEBUG_ENABLED) {
-          console.log('[Worker] Failed to build blocks for file:', p, error);
+          console.log('[Worker] Build blocks failed, scheduled retry:', p, error);
         }
       }
     }
@@ -567,6 +561,72 @@ function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: 
   // After processing all chunks, check if we're done
   // This is important if some files failed to emit
   checkAndCompleteIfDone();
+}
+
+// Retry helpers for transient build failures
+function scheduleRetry(path: string, userSelectedFolder: string | null, packOnly: boolean) {
+  if (isCancelled) return;
+  const attempts = retryCounts.get(path) ?? 0;
+  if (attempts >= RETRY_MAX_ATTEMPTS) {
+    // Give up; mark as failed for completion accounting
+    pendingPaths.delete(path);
+    failedPaths.add(path);
+    skippedPaths.delete(path);
+    const timeout = pendingTimeouts.get(path);
+    if (timeout) {
+      clearTimeout(timeout);
+      pendingTimeouts.delete(path);
+    }
+    emitProgress();
+    checkAndCompleteIfDone();
+    return;
+  }
+  retryCounts.set(path, attempts + 1);
+  self.setTimeout(() => {
+    tryEmitSingle(path, userSelectedFolder, packOnly);
+  }, RETRY_DELAY_MS);
+}
+
+function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly: boolean) {
+  if (isCancelled || emittedPaths.has(path)) return;
+  const fd = currentAllMap.get(path);
+  if (!fd || !fd.isContentLoaded || fd.content === undefined) {
+    // Stay pending; await further updates or timeout
+    return;
+  }
+
+  try {
+    const selRef = currentSelectedMap.get(path);
+    const { displayBlock, fullBlock, tokenDelta } = buildFileBlocks(fd, selRef, userSelectedFolder);
+
+    tokenTotal += tokenDelta;
+
+    emittedPaths.add(path);
+    pendingPaths.delete(path);
+    failedPaths.delete(path);
+    skippedPaths.delete(path);
+
+    const timeout = pendingTimeouts.get(path);
+    if (timeout) {
+      clearTimeout(timeout);
+      pendingTimeouts.delete(path);
+    }
+
+    workerCtx.postMessage({
+      type: 'CHUNK',
+      id: currentId!,
+      displayChunk: packOnly ? '' : displayBlock,
+      fullChunk: fullBlock,
+      processed: emittedPaths.size,
+      total: totalEligibleFiles,
+      tokenDelta
+    });
+
+    emitProgress();
+    checkAndCompleteIfDone();
+  } catch {
+    scheduleRetry(path, userSelectedFolder, packOnly);
+  }
 }
 
 // START handler
@@ -609,6 +669,7 @@ async function streamPreview(payload: StartPayload) {
     clearTimeout(timeout);
   }
   pendingTimeouts.clear();
+  retryCounts.clear();
 
   // Build sorted selection - all selected files including binary/skipped
   const allSelectedList = allFiles.filter(f => !f.isDirectory && currentSelectedMap.has(f.path));
