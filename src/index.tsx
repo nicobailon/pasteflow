@@ -146,6 +146,7 @@ const App = () => {
             setRolePromptsModalOpen={appState.setRolePromptsModalOpen}
             setInstructionsModalOpen={appState.setInstructionsModalOpen}
             loadFileContent={appState.loadFileContent}
+            loadMultipleFileContents={appState.loadMultipleFileContents}
             clipboardPreviewModalOpen={appState.clipboardPreviewModalOpen}
             previewContent={appState.previewContent}
             previewTokenCount={appState.previewTokenCount}

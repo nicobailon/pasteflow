@@ -467,9 +467,9 @@ const useAppState = () => {
   }, [selectedFolder]);
 
   // Helper function to update file loading state
-  const updateFileLoadingState = useCallback((filePath: string, isLoading: boolean) => {
+  const updateFileLoadingState = useCallback((filePath: string, isLoading: boolean, isBulkOperation = false) => {
     logger.debug('[updateFileLoadingState] Set isCountingTokens', { filePath, isLoading });
-    flushSync(() => {
+    const updateFn = () => {
       setAllFiles((prev: FileData[]) => {
         const next = prev.map((f: FileData) =>
           f.path === filePath
@@ -479,7 +479,14 @@ const useAppState = () => {
         allFilesRef.current = next;
         return next;
       });
-    });
+    };
+
+    // Only use flushSync for single-file user interactions, not bulk operations
+    if (!isBulkOperation) {
+      flushSync(updateFn);
+    } else {
+      updateFn();
+    }
 
     // Removed automatic file selection when loading content
     // Files should only be selected via explicit user action (checkbox or Apply in modal)
@@ -518,7 +525,8 @@ const useAppState = () => {
     filePath: string,
     content: string,
     tokenCount: number,
-    tokenCountError?: string
+    tokenCountError?: string,
+    isBulkOperation = false
   ) => {
     logger.debug('[updateFileWithContent] Apply content and tokens', { filePath, tokenCount, hasContent: !!content, tokenCountError });
     fileContentCache.set(filePath, content, tokenCount);
@@ -526,9 +534,7 @@ const useAppState = () => {
     // Invalidate token cache for this file when content changes
     tokenCountCache.invalidateFile(filePath);
 
-    // Use flushSync to force React to process this update immediately
-    // This fixes the issue where token counts don't appear until a second file is selected
-    flushSync(() => {
+    const updateFn = () => {
       setAllFiles((prev: FileData[]) => {
         const next = prev.map((f: FileData) =>
           f.path === filePath
@@ -546,7 +552,15 @@ const useAppState = () => {
         allFilesRef.current = next;
         return next;
       });
-    });
+    };
+
+    // Use flushSync only for single-file user interactions, not bulk operations
+    // This fixes the issue where token counts don't appear until a second file is selected
+    if (!isBulkOperation) {
+      flushSync(updateFn);
+    } else {
+      updateFn();
+    }
 
     // Note: We don't call updateSelectedFile here because:
     // 1. The file is already in the selection if it was selected
