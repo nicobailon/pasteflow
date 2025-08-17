@@ -32,7 +32,7 @@ exports.RATE_LIMITS = {
     WINDOW_MS: 60 * 1000, // 60 seconds
     /** Request limits per window for different IPC operations */
     REQUESTS: {
-        FILE_LIST: 100,
+        FILE_LIST: 200,  // Increased for preference reads during workspace loading
         FILE_CONTENT: 500,
         OPEN_DOCS: 20,
         OPEN_FOLDER: 20,
@@ -221,6 +221,15 @@ exports.UI = {
     /** Icon sizes */
     ICONS: {
         CHEVRON_SIZE: 16,
+    },
+    /** Preview streaming housekeeping */
+    PREVIEW: {
+        /** Maximum entries to retain in tracking sets to prevent memory growth */
+        MAX_TRACKED_PATHS: 5000,
+        /** Periodic cleanup interval while packing (milliseconds) */
+        CLEANUP_INTERVAL_MS: 30000,
+        /** Maximum characters to display in preview modal (200KB) */
+        DISPLAY_CONTENT_MAX_LENGTH: 200000,
     },
 };
 // ==================== DATABASE ====================

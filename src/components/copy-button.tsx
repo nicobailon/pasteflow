@@ -18,10 +18,20 @@ const LOADING_PLACEHOLDER_REGEX = /\[Content is loading\.\.\.\]/;
 
 async function resolveTextWithBackoff(source: CopyButtonProps['text']): Promise<string> {
   for (let attempt = 0; attempt < UI.MODAL.BACKOFF_MAX_ATTEMPTS; attempt++) {
-    const result = typeof source === 'function' ? (source as any)() : source;
-    const text = result instanceof Promise ? await result : result;
+    let text: string;
+    
+    if (typeof source === 'function') {
+      // Type guard for function types
+      const sourceFunc = source as (() => string) | (() => Promise<string>);
+      const result = sourceFunc();
+      text = result instanceof Promise ? await result : result;
+    } else {
+      // Source is a string
+      text = source;
+    }
 
-    if (text && !LOADING_PLACEHOLDER_REGEX.test(text)) {
+    // Accept only non-empty text (trimmed) that does not match the placeholder regex
+    if (text && text.trim() && !LOADING_PLACEHOLDER_REGEX.test(text)) {
       return text;
     }
 
@@ -30,9 +40,18 @@ async function resolveTextWithBackoff(source: CopyButtonProps['text']): Promise<
     }
   }
 
-  // Final attempt: return whatever we have
-  const finalResult = typeof source === 'function' ? (source as any)() : source;
-  return finalResult instanceof Promise ? await finalResult : finalResult;
+  // Final attempt: return whatever we have, but still reject empty text
+  let finalText: string;
+  if (typeof source === 'function') {
+    const sourceFunc = source as (() => string) | (() => Promise<string>);
+    const finalResult = sourceFunc();
+    finalText = finalResult instanceof Promise ? await finalResult : finalResult;
+  } else {
+    finalText = source;
+  }
+  
+  // If still empty after all retries, return a placeholder that won't be copied
+  return finalText && finalText.trim() ? finalText : '[Content is loading...]';
 }
 
 /**

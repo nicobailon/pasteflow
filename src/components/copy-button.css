@@ -112,6 +112,7 @@
 
 /* Preview button styles */
 .preview-button {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -151,4 +152,63 @@
 .preview-button svg {
   width: 16px;
   height: 16px;
+}
+
+/* Preview button content - ensure it's above progress fill */
+.preview-button > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Progress fill for packing state */
+.preview-button .progress-fill {
+  position: absolute;
+  inset: 0 100% 0 0;
+  background: var(--accent-blue, #0084ff);
+  opacity: 0.18;
+  pointer-events: none;
+  z-index: 0;
+  transition: inset-inline-end 120ms linear;
+}
+
+/* Dark mode progress fill */
+.dark-mode .preview-button .progress-fill {
+  opacity: 0.25;
+}
+
+/* Indeterminate progress animation */
+.preview-button .progress-fill.indeterminate {
+  animation: shimmer 1.5s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent-blue, #0084ff) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  opacity: 0.25;
+  inset: 0;
+}
+
+/* Shimmer animation for indeterminate state */
+@keyframes shimmer {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 100% 0;
+  }
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .preview-button .progress-fill {
+    transition: none;
+  }
+  
+  .preview-button .progress-fill.indeterminate {
+    animation: none;
+    background: var(--accent-blue, #0084ff);
+    opacity: 0.18;
+  }
 }

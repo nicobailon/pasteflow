@@ -252,6 +252,8 @@ export const UI = {
     MAX_TRACKED_PATHS: 5000,
     /** Periodic cleanup interval while packing (milliseconds) */
     CLEANUP_INTERVAL_MS: 30_000,
+    /** Maximum characters to display in preview modal (200KB) */
+    DISPLAY_CONTENT_MAX_LENGTH: 200_000,
   },
 } as const;
 
