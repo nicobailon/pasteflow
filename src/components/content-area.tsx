@@ -1,8 +1,9 @@
-import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser } from 'lucide-react';
+import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '../utils/logger';
 import { FEATURES, UI } from '../constants/app-constants';
-import { usePreviewPack } from '../hooks/use-preview-pack';
+import { usePreviewPack, type PackState } from '../hooks/use-preview-pack';
+import { type PreviewState } from '../hooks/use-preview-generator';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
 import { getRelativePath, dirname, normalizePath } from '../utils/path-utils';
@@ -304,6 +305,7 @@ interface ContentAreaProps {
   setRolePromptsModalOpen: (open: boolean) => void;
   setInstructionsModalOpen: (open: boolean) => void;
   loadFileContent: (filePath: string) => Promise<void>;
+  loadMultipleFileContents: (filePaths: string[], options?: { priority?: number }) => Promise<void>;
   clipboardPreviewModalOpen: boolean;
   previewContent: string;
   previewTokenCount: number;
@@ -316,6 +318,49 @@ interface ContentAreaProps {
   // New: clear all selections (files + prompts + docs)
   clearAllSelections?: () => void;
 }
+
+/**
+ * Helper to robustly select clipboard text with fallback options
+ * @param preferDisplay - Whether to prefer display-optimized content (for Preview modal)
+ * @param packState - Current pack state
+ * @param streamingPreview - Current streaming preview state
+ * @returns Text content to use, never empty
+ */
+const getClipboardTextWithBackoff = (
+  preferDisplay: boolean,
+  packState: PackState,
+  streamingPreview: PreviewState | null
+): string => {
+  // For Preview modal (preferDisplay = true), use this selection chain:
+  if (preferDisplay) {
+    // 1. Try packState.contentForDisplay (already sliced)
+    if (packState.contentForDisplay && packState.contentForDisplay.trim()) {
+      return packState.contentForDisplay;
+    }
+    
+    // 2. Try packState.fullContent (slice for modal display)
+    if (packState.fullContent && packState.fullContent.trim()) {
+      return packState.fullContent.slice(0, 200_000);
+    }
+    
+    // 3. Try streamingPreview.contentForDisplay
+    if (streamingPreview?.contentForDisplay && streamingPreview.contentForDisplay.trim()) {
+      return streamingPreview.contentForDisplay;
+    }
+    
+    // 4. Try streamingPreview.fullContent (slice for modal display)
+    if (streamingPreview?.fullContent && streamingPreview.fullContent.trim()) {
+      return streamingPreview.fullContent.slice(0, 200_000);
+    }
+    
+    // 5. Fallback to placeholder
+    return 'Preparing preview…';
+  }
+  
+  // For Copy operations (preferDisplay = false), use fullContent
+  const fullContent = packState.fullContent || streamingPreview?.fullContent || '';
+  return fullContent.trim() ? fullContent : 'Preparing content…';
+};
 
 const ContentArea = ({
   selectedFiles,
@@ -350,6 +395,7 @@ const ContentArea = ({
   setRolePromptsModalOpen,
   setInstructionsModalOpen,
   loadFileContent,
+  loadMultipleFileContents,
   clipboardPreviewModalOpen,
   previewContent,
   previewTokenCount,
@@ -532,8 +578,8 @@ const ContentArea = ({
       if (slice.length === 0) return;
 
       try {
-        // Load this batch; loadFileContent already avoids duplicates and uses worker token counting
-        await Promise.all(slice.map(p => loadFileContent(p)));
+        // Load this batch using batched loading for better performance
+        await loadMultipleFileContents(slice, { priority: 10 });
         
         // Check for any files that failed to load and report them to the worker
         if (pushFileStatus) {
@@ -545,8 +591,13 @@ const ContentArea = ({
             }
           }
         }
-      } catch {
-        // swallow per-batch errors; UI will still show placeholders
+      } catch (error) {
+        // Log the error for debugging but continue processing
+        logger.debug('[Progressive loader] Batch load failed', { 
+          batchSize: slice.length, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+        
         // Report any files with errors to the worker
         if (pushFileStatus) {
           for (const path of slice) {
@@ -571,15 +622,15 @@ const ContentArea = ({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [allFiles, selectedFiles, packState?.status, loadFileContent, pushFileStatus]);
+  }, [allFiles, selectedFiles, packState?.status, loadMultipleFileContents, pushFileStatus]);
 
-  // Clear lastPushedRef and reportedErrorsRef when pack starts or when idle/error/cancelled
+  // Clear lastPushedRef and reportedErrorsRef when pack starts or when idle/error/cancelled/ready
   useEffect(() => {
     if (packState?.status === 'packing') {
       lastPushedRef.current.clear();
       reportedErrorsRef.current.clear();
-    } else if (packState?.status === 'idle' || packState?.status === 'error' || packState?.status === 'cancelled') {
-      // Also clear when not actively packing to prevent memory leak
+    } else if (packState?.status === 'idle' || packState?.status === 'error' || packState?.status === 'cancelled' || packState?.status === 'ready') {
+      // Also clear when not actively packing or when complete to prevent memory leak
       lastPushedRef.current.clear();
       reportedErrorsRef.current.clear();
     }
@@ -612,7 +663,14 @@ const ContentArea = ({
 
   const handleCopyFromPreview = async () => {
     try {
-      const getText = () => packState.fullContent || streamingPreview?.fullContent || previewContent || '';
+      // Prioritize packState content when in ready state
+      const getText = () => {
+        if (packState.status === 'ready' && packState.fullContent) {
+          return packState.fullContent;
+        }
+        // Fallback to streaming preview or modal content
+        return streamingPreview?.fullContent || previewContent || '';
+      };
       const isPlaceholder = (t: string) => /\[Content is loading\.\.\.\]/.test(t);
 
       // Backoff to avoid copying placeholders when preview just started
@@ -769,9 +827,25 @@ const ContentArea = ({
               if (packState.status === 'packing') {
                 return (
                   <>
-                    <button className="preview-button" disabled>
+                    <button 
+                      className="preview-button packing" 
+                      disabled 
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={packState.total > 0 ? packState.percent : undefined}
+                      aria-valuetext={packState.total > 0 
+                        ? `Packing: ${packState.percent}% complete`
+                        : 'Packing in progress'
+                      }
+                    >
+                      <div 
+                        className={`progress-fill ${packState.total === 0 ? 'indeterminate' : ''}`}
+                        style={packState.total > 0 ? { insetInlineEnd: `${100 - packState.percent}%` } : undefined}
+                        aria-hidden="true"
+                      />
                       <Eye size={16} />
-                      <span>
+                      <span aria-live="polite">
                         {packState.total > 0 
                           ? `Packing… ${packState.processed}/${packState.total} (${packState.percent}%)`
                           : 'Packing…'
@@ -789,23 +863,32 @@ const ContentArea = ({
                 );
               }
               
-              // Ready state - show Preview and Copy
+              // Ready state - show Pack (as Packed or Repack), Preview and Copy
               if (packState.status === 'ready') {
+                // Check if signature has changed (content is out of date)
+                const contentOutdated = packState.hasSignatureChanged || false;
+                
                 return (
                   <>
                     <button
                       className="preview-button"
+                      onClick={() => pack()}
+                      disabled={!contentOutdated}
+                      title={contentOutdated ? "Content has changed - click to update pack" : "Content is up to date"}
+                    >
+                      <Package size={16} />
+                      <span>{contentOutdated ? 'Repack' : 'Packed'}</span>
+                    </button>
+                    <button
+                      className="preview-button"
                       onClick={() => {
-                        // Use the packed content for instant preview with fallback to fullContent
-                        const display =
-                          packState.contentForDisplay && packState.contentForDisplay.length > 0
-                            ? packState.contentForDisplay
-                            : packState.fullContent && packState.fullContent.length > 0 
-                              ? packState.fullContent.slice(0, 200_000) 
-                              : streamingPreview?.contentForDisplay || '';
-                        const tokens = packState.tokenEstimate || streamingPreview?.tokenEstimate || 0;
+                        // When ready, pass the packed content directly to the modal
+                        // The modal will receive this via the content and tokenCount props
+                        const display = packState.contentForDisplay || packState.fullContent?.slice(0, UI.PREVIEW.DISPLAY_CONTENT_MAX_LENGTH) || '';
+                        const tokens = packState.tokenEstimate || 0;
                         openClipboardPreviewModal(display, tokens);
                       }}
+                      title={contentOutdated ? "Preview (outdated content)" : "Preview packed content"}
                     >
                       <Eye size={16} />
                       <span>Preview</span>
@@ -813,6 +896,7 @@ const ContentArea = ({
                     <CopyButton
                       text={() => packState.fullContent || streamingPreview?.fullContent || ''}
                       className="primary copy-selected-files-btn"
+                      title={contentOutdated ? "Copy (outdated content)" : "Copy packed content"}
                     >
                       <span>Copy</span>
                     </CopyButton>
@@ -868,7 +952,7 @@ const ContentArea = ({
         content={previewContent}
         tokenCount={previewTokenCount}
         onCopy={handleCopyFromPreview}
-        previewState={(FEATURES?.PREVIEW_WORKER_ENABLED && packState.status !== 'ready') ? streamingPreview : undefined}
+        previewState={(FEATURES?.PREVIEW_WORKER_ENABLED && packState.status === 'packing') ? streamingPreview : undefined}
         onCancel={FEATURES?.PREVIEW_WORKER_ENABLED ? cancelPack : undefined}
       />
     </div>

@@ -126,7 +126,7 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
     } else {
       el.textContent = next;
     }
-  }, [displayText, usingStreaming]);
+  }, [displayText, usingStreaming, isOpen]); // Added isOpen to ensure content is set when modal reopens
 
   if (!isOpen) return null;
 

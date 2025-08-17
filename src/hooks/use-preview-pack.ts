@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { usePreviewGenerator } from './use-preview-generator';
 import type { StartPreviewParams } from './use-preview-generator';
 import type {
@@ -23,6 +23,7 @@ export interface PackState {
   contentForDisplay?: string;
   signature: string;
   error?: string;
+  hasSignatureChanged?: boolean;
 }
 
 export interface UsePreviewPackParams {
@@ -147,26 +148,37 @@ export function usePreviewPack(params: UsePreviewPackParams) {
     // Only sync state if we have an active packing session
     if (currentSignatureRef.current && previewState.id) {
       // Update pack state with preview progress
-      if (packState.status === 'packing' || packState.status === 'idle') {
+      // Don't read packState.status from outer closure - rely on functional update
+      // Wrap in startTransition for non-urgent updates during heavy streaming
+      startTransition(() => {
         setPackState(prev => {
           // Don't update if we've already completed or cancelled
-          if (prev.status === 'ready' || prev.status === 'cancelled') {
+          if (prev.status === 'ready' || prev.status === 'cancelled' || prev.status === 'error') {
             return prev;
           }
           
-          return {
-            ...prev,
-            status: prev.status === 'idle' ? 'packing' : prev.status,
-            processed: previewState.processed,
-            total: previewState.total,
-            percent: previewState.percent,
-            tokenEstimate: previewState.tokenEstimate,
-            fullContent: previewState.fullContent,
-            contentForDisplay: previewState.contentForDisplay,
-          };
+          // Only update if we're in idle or packing state
+          if (prev.status === 'idle' || prev.status === 'packing') {
+            return {
+              ...prev,
+              status: prev.status === 'idle' ? 'packing' : prev.status,
+              processed: previewState.processed,
+              total: previewState.total,
+              percent: previewState.percent,
+              tokenEstimate: previewState.tokenEstimate,
+              // Only update content if new content is available, preserve existing otherwise
+              fullContent: previewState.fullContent || prev.fullContent,
+              contentForDisplay: previewState.contentForDisplay || prev.contentForDisplay,
+            };
+          }
+          
+          return prev;
         });
-      }
-
+      });
+    }
+    
+    // Handle completion, error, and cancellation states
+    if (currentSignatureRef.current && previewState.id) {
       // Check if preview is complete
       if (previewState.status === 'complete') {
         logger.info('[Pack] Pack operation completed', {
@@ -185,9 +197,17 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           fullContent: previewState.fullContent,
           contentForDisplay: previewState.contentForDisplay,
           signature: currentSignatureRef.current,
+          hasSignatureChanged: false,  // Content is now up-to-date
         };
         
-        setPackState(completeState);
+        // Use functional update to avoid race with startTransition above
+        setPackState(prev => {
+          // Don't override if already cancelled or ready
+          if (prev.status === 'cancelled' || prev.status === 'ready') {
+            return prev;
+          }
+          return completeState;
+        });
         cacheRef.current.set(currentSignatureRef.current, completeState);
       } else if (previewState.status === 'error') {
         logger.error('[Pack] Pack operation failed', { error: previewState.error });
@@ -207,12 +227,24 @@ export function usePreviewPack(params: UsePreviewPackParams) {
         }));
       }
     }
-  }, [previewState]); // Remove packState.status to avoid infinite loop
+  }, [previewState]); // Only depend on previewState
 
   // Auto-cancel and reset if signature changes
   useEffect(() => {
+    // Don't reset if we're in ready state - preserve the packed content
+    if (packState.status === 'ready' && signature !== currentSignatureRef.current) {
+      // Mark that signature has changed so UI can show Repack button
+      setPackState(prev => ({
+        ...prev,
+        hasSignatureChanged: true,
+      }));
+      // IMPORTANT: Update the signature reference to prevent infinite loop
+      currentSignatureRef.current = signature;
+      return;
+    }
+    
     if (signature !== currentSignatureRef.current && 
-        (packState.status === 'packing' || packState.status === 'ready' || packState.status === 'error' || packState.status === 'cancelled')) {
+        (packState.status === 'packing' || packState.status === 'error' || packState.status === 'cancelled')) {
       // Signature changed, cancel current pack if in progress
       if (packState.status === 'packing') {
         cancel();
@@ -236,7 +268,7 @@ export function usePreviewPack(params: UsePreviewPackParams) {
         });
       }
     }
-  }, [signature, packState.status, cancel]);
+  }, [signature, packState.status, packState.fullContent, cancel]);
 
   // Pack function - starts background processing without opening modal
   const pack = useCallback(() => {
@@ -247,7 +279,10 @@ export function usePreviewPack(params: UsePreviewPackParams) {
     if (cached && cached.status === 'ready') {
       logger.debug('[Pack] Using cached result', { signature });
       currentSignatureRef.current = signature;  // Set BEFORE updating state
-      setPackState(cached);
+      setPackState({
+        ...cached,
+        hasSignatureChanged: false,  // Clear the flag since we're now up-to-date
+      });
       return;
     }
     
@@ -260,6 +295,7 @@ export function usePreviewPack(params: UsePreviewPackParams) {
       percent: 0,
       tokenEstimate: 0,
       signature,
+      hasSignatureChanged: false,  // Clear the flag when starting new pack
     });
 
     logger.info('[Pack] Starting preview generation', { 
