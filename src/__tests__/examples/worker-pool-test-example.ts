@@ -3,6 +3,7 @@
  */
 
 import { TokenWorkerPool } from '../../utils/token-worker-pool';
+import { TOKEN_COUNTING } from '../../constants/app-constants';
 
 // Strategy 1: Using manual mock (if jest.mock is configured)
 describe('TokenWorkerPool with Manual Mock', () => {
@@ -21,8 +22,8 @@ describe('TokenWorkerPool with Manual Mock', () => {
     const text = 'Hello, world!';
     const count = await pool.countTokens(text);
     
-    // Mock returns text.length / 4
-    expect(count).toBe(Math.ceil(text.length / 4));
+    // Mock returns text.length / CHARS_PER_TOKEN
+    expect(count).toBe(Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN));
     expect(count).toBe(4); // 'Hello, world!' is 13 chars, 13/4 = 3.25, rounded up to 4
   });
 
@@ -39,7 +40,7 @@ describe('TokenWorkerPool with Manual Mock', () => {
     } else {
       // Use the default mock behavior to ensure test always validates something
       const count = await pool.countTokens('test');
-      expect(count).toBe(1); // Mock returns Math.ceil(text.length / 4)
+      expect(count).toBe(1); // Mock returns Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN)
       expect(count).toBeGreaterThan(0);
     }
   });
@@ -128,8 +129,8 @@ describe('TokenWorkerPool Advanced Scenarios', () => {
     const text = 'Large text content';
     const result = await pool.countTokens(text);
     
-    // Mock returns Math.ceil(text.length / 4)
-    expect(result).toBe(Math.ceil(text.length / 4));
+    // Mock returns Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN)
+    expect(result).toBe(Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN));
     expect(result).toBe(5); // 18 characters / 4 = 4.5, rounded up to 5
   });
 

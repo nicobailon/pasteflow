@@ -1,5 +1,7 @@
 // Mock token counter worker for testing
 
+import { TOKEN_COUNTING } from '../../constants/app-constants';
+
 // Worker message types based on real implementation
 interface WorkerInitMessage {
   type: 'INIT';
@@ -83,15 +85,15 @@ export default class TokenCounterWorker {
             break;
             
           case 'COUNT_TOKENS':
-            // Simple approximation: 4 characters per token
-            const tokenCount = Math.ceil(data.payload.text.length / 4);
+            // Simple approximation using constant
+            const tokenCount = Math.ceil(data.payload.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
             this.onmessage(new MessageEvent('message', {
               data: { type: 'TOKEN_COUNT', id: data.id, result: tokenCount, fallback: false } satisfies WorkerTokenCountResponse
             }));
             break;
             
           case 'BATCH_COUNT':
-            const results = data.payload.texts.map(text => Math.ceil(text.length / 4));
+            const results = data.payload.texts.map(text => Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN));
             this.onmessage(new MessageEvent('message', {
               data: { type: 'BATCH_RESULT', id: data.id, results } satisfies WorkerBatchResultResponse
             }));

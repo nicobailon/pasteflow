@@ -1,4 +1,5 @@
 import { WorkspaceState, DatabaseWorkspace, Instruction } from '../../types/workspace-types';
+import { TOKEN_COUNTING } from '../../constants/app-constants';
 
 // Define precise types for IPC channels and their data/response types
 type WorkspaceChannels = {
@@ -222,7 +223,7 @@ export function getMockFileContent(filePath: string): { content: string; tokenCo
   };
 
   const content = mockContents[extension] || `Mock content for ${filePath}`;
-  const tokenCount = Math.floor(content.length / 4); // Rough approximation
+  const tokenCount = Math.ceil(content.length / TOKEN_COUNTING.CHARS_PER_TOKEN); // Rough approximation
 
   return { content, tokenCount };
 }

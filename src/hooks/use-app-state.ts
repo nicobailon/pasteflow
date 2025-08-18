@@ -3,7 +3,7 @@ import { unstable_batchedUpdates, flushSync } from 'react-dom';
 import { normalizePath } from '../utils/path-utils';
 import { logger } from '../utils/logger';
 
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS, TOKEN_COUNTING } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
@@ -297,8 +297,8 @@ const useAppState = () => {
             for (const range of selectedFile.lines) {
               selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
             }
-            // Simple estimation: ~4 characters per token
-            total += Math.ceil(selectedContent.length / 4);
+            // Simple estimation using centralized constant
+            total += Math.ceil(selectedContent.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
           } else {
             // Full file selected
             total += fileData.tokenCount;
@@ -307,8 +307,8 @@ const useAppState = () => {
           // If content not loaded, estimate based on file size
           // Skip binary and skipped files
           if (!fileData.isBinary && !fileData.isSkipped) {
-            // Rough estimation: 1 token per 4 characters
-            total += Math.round(fileData.size / 4);
+            // Rough estimation using centralized constant
+            total += Math.round(fileData.size / TOKEN_COUNTING.CHARS_PER_TOKEN);
           }
         }
       }
@@ -456,7 +456,7 @@ const useAppState = () => {
           return { valid: false, reason: 'Outside workspace' };
         }
       } catch (error) {
-        logger.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', error);
+        logger.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', error as Error);
         if (!filePath.startsWith(selectedFolder)) {
           return { valid: false, reason: 'Outside workspace' };
         }
@@ -1706,7 +1706,7 @@ const useAppState = () => {
       // Clear selected docs/instructions
       setSelectedInstructions([]);
     } catch (error) {
-      logger.warn('[useAppState.clearAllSelections] Failed to clear some selections', error);
+      logger.warn('[useAppState.clearAllSelections] Failed to clear some selections', error as Error);
     }
   }, [setSelectionState]);
 

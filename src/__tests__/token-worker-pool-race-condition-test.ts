@@ -1,5 +1,6 @@
 import { TokenWorkerPool } from '../utils/token-worker-pool';
 import { estimateTokenCount } from '../utils/token-utils';
+import { TOKEN_COUNTING } from '../constants/app-constants';
 
 // Mock Worker API
 interface MockWorkerInstance {
@@ -58,7 +59,7 @@ class MockWorker implements MockWorkerInstance {
                 data: { 
                   type: 'TOKEN_COUNT', 
                   id: message.id, 
-                  result: Math.floor(message.payload.text.length / 4),
+                  result: Math.ceil(message.payload.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN),
                   fallback: false 
                 } 
               } as MessageEvent);

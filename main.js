@@ -254,8 +254,7 @@ function isLikelyBinaryContent(content, filePath) {
     }
   }
 
-  // Also check for special tokens
-  return content.includes("<|endoftext|>");
+  return false;
 }
 
 // Function to check if file has special extension that should be skipped
@@ -513,22 +512,12 @@ function isBinaryFile(filePath) {
 
 // Function to sanitize text for token counting
 function sanitizeTextForTokenCount(text) {
-  // Remove the problematic token
-  let sanitizedText = text.replace(/<\|endoftext\|>/g, "");
-
-  // Remove control characters
-  let result = "";
-  for (let i = 0; i < sanitizedText.length; i++) {
-    const codePoint = sanitizedText.codePointAt(i);
-    if (!isControlOrBinaryChar(codePoint) ||
-        codePoint === 9 ||  // Tab
-        codePoint === 10 || // LF
-        codePoint === 13) { // CR
-      result += sanitizedText[i];
-    }
-  }
-
-  return result;
+  // Remove problematic characters that cause tiktoken to fail
+  return text
+    .replace(/<\|[^|>]+\|>/g, '') // Remove special tokens with <|...|> pattern
+    .replace(/\u0000/g, '') // Remove null characters
+    .replace(/[\uFFF0-\uFFFF]/g, '') // Remove special use area
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, ''); // Remove supplementary private use area
 }
 
 // Count tokens using tiktoken with o200k_base encoding
@@ -546,7 +535,7 @@ function countTokens(text) {
     // If the sanitization removed a significant portion of the text, fall back to estimation
     if (sanitizedText.length < text.length * 0.9) {
       console.warn("Text contained many special tokens, using estimation instead");
-      return Math.ceil(text.length / 4);
+      return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
     }
 
     const tokens = encoder.encode(sanitizedText);

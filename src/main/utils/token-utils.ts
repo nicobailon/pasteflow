@@ -1,3 +1,5 @@
+import { TOKEN_COUNTING } from '../../constants/app-constants';
+
 interface TiktokenEncoder {
   encode(text: string): Uint32Array;
 }
@@ -33,8 +35,9 @@ function ensureEncoderInitialized(): Promise<TiktokenEncoder | null> {
  * Sanitize text to remove special characters that can cause tiktoken issues
  */
 function sanitizeTextForTokenCount(text: string): string {
-  // Remove null characters and other problematic special characters
+  // Remove problematic characters that cause tiktoken to fail
   return text
+    .replace(/<\|[^|>]+\|>/g, '') // Remove special tokens with <|...|> pattern
     // eslint-disable-next-line no-control-regex
     .replace(/\u0000/g, '') // Remove null characters
     .replace(/[\uFFF0-\uFFFF]/g, '') // Remove special use area
@@ -51,13 +54,13 @@ export function countTokens(text: string): number {
     // Start initialization but don't wait for it
     ensureEncoderInitialized();
     // Use fallback for this call
-    return Math.ceil(text.length / 4);
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
   
   // Simple fallback implementation if encoder fails
   if (!encoder) {
-    // Very rough estimate: ~4 characters per token on average
-    return Math.ceil(text.length / 4);
+    // Very rough estimate using centralized constant
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 
   try {
@@ -67,7 +70,7 @@ export function countTokens(text: string): number {
     // If the sanitization removed a significant portion of the text, fall back to estimation
     if (sanitizedText.length < text.length * 0.9) {
       console.warn('Text contained many special tokens, using estimation instead');
-      return Math.ceil(text.length / 4);
+      return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
     }
     
     const tokens = encoder.encode(sanitizedText);
@@ -75,6 +78,6 @@ export function countTokens(text: string): number {
   } catch (error) {
     console.error('Error counting tokens:', error);
     // Fallback to character-based estimation on error
-    return Math.ceil(text.length / 4);
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 }

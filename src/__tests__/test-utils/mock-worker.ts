@@ -1,3 +1,5 @@
+import { TOKEN_COUNTING } from '../../constants/app-constants';
+
 export interface MockWorkerOptions {
   autoRespond?: boolean;
   responseDelay?: number;
@@ -53,7 +55,7 @@ export class MockWorker {
         } else if (data.type === 'HEALTH_CHECK') {
           this.simulateMessage({ type: 'HEALTH_RESPONSE', id: data.id, healthy: true });
         } else if (data.type === 'COUNT_TOKENS' && data.payload) {
-          const tokenCount = Math.ceil(data.payload.text.length / 4);
+          const tokenCount = Math.ceil(data.payload.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
           this.simulateMessage({ 
             type: 'TOKEN_COUNT', 
             id: data.id, 
