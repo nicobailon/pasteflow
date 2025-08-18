@@ -1,65 +1,78 @@
 # Docker Setup for PasteFlow
 
-This guide explains how to use Docker for building the PasteFlow Electron application.
+This guide explains how to use Docker to build PasteFlow binaries with electron-builder. Running the GUI app inside the container is not supported.
 
 ## Prerequisites
 
-- Docker
-- Docker Compose
+- Docker 24+
+- Docker Compose v2
 
-## Setup and Usage
-
-### 1. Build the Docker Image
+## Build the image
 
 ```bash
 docker compose build
 ```
 
-### 2. Start and enter the Container
+## Launch a dev shell
 
 ```bash
 docker compose run --rm pasteflow-dev bash
 ```
 
-### 3. Inside the Container
-
-Once inside the container, you can run the build commands:
+## Inside the container
 
 ```bash
-# Install dependencies
-npm install
+# Install dependencies (native rebuilds included)
+npm ci
 
-# Package the application for your platform
-npm run package:win    # For Windows
-npm run package:mac    # For macOS
-npm run package:linux  # For Linux
-npm run package:all    # For all platforms
+# Package for Linux (container target)
+npm run package:linux
+
+# Or the generic packaging command for current platform
+npm run package
 ```
 
-### 4. Ensure the host can access the built artifacts
+## Notes on platform targets
 
-From the host, run:
+- Linux packages (AppImage, deb, rpm) are supported inside the container.
+- macOS and Windows binaries should be built on their respective host OSes for proper code signing and toolchain support.
+- Cross‑compilation from Linux → macOS/Windows is not supported by electron‑builder without additional native tooling and signing credentials.
+
+## Where artifacts go
+
+- Binaries are written to the `release-builds` directory mounted from your host. You can inspect them on the host after the container exits.
+
+```bash
+# On host
+ls -la release-builds
+```
+
+## Permissions (optional)
+
+If your host user needs access to container‑generated files:
+
 ```bash
 chmod -R 777 release-builds
 ```
 
-### 5. Run the Application
+## Development flow with Docker
 
-The built application will be available in the `release-builds` directory on your host machine. You can run it directly from there.
+1. Edit code on your host (the workspace is mounted into the container)
+2. Use the container only for packaging/testing packaging steps
+3. Run the packaged app on the host
 
-For example, on Windows, it is built at:
-```
-`.\pasteflow\release-builds\win-unpacked\PasteFlow.exe`
-```
+## Related scripts (TypeScript)
 
-## Workflow
+- All build/packaging scripts live in `scripts/*.ts` and are executed with `tsx` during development or compiled to CommonJS into `build/scripts` for runtime hooks (e.g., electron‑builder `afterSign`).
 
-1. Develop and edit code on your host machine
-2. Use the container for building and packaging
-3. Run the packaged application on your host machine
+## Useful npm scripts
 
-## Notes
+```bash
+# Compile TS build scripts to CJS for packaging hooks
+npm run build:scripts
 
-- This setup is for building only. The Electron app cannot run inside the container with a GUI.
-- The project directory is mounted as a volume, so any changes you make on your host are immediately available in the container.
-- Build artifacts created in the container are immediately available on your host.
+# Verify electron-builder configuration
+npm run verify-build
+
+# Test end-to-end local packaging on host OS
+npm run test-build
