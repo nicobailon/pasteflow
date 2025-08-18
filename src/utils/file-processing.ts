@@ -36,7 +36,8 @@ const isLikelyBinaryContent = (content: string, filePath: string): boolean => {
     return false;
   }
   // Check for sequences of non-ASCII characters
-  // Special tokens handled via sanitization, not binary detection
+  // Special tokens handled via sanitization during token counting,
+  // not during binary detection, to allow analysis of AI/ML codebases
   return BINARY_CONTENT_REGEX.test(content);
 };
 

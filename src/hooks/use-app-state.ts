@@ -3,7 +3,7 @@ import { unstable_batchedUpdates, flushSync } from 'react-dom';
 import { normalizePath } from '../utils/path-utils';
 import { logger } from '../utils/logger';
 
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS, TOKEN_COUNTING } from '../constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
@@ -297,8 +297,8 @@ const useAppState = () => {
             for (const range of selectedFile.lines) {
               selectedContent += lines.slice(range.start - 1, range.end).join('\n') + '\n';
             }
-            // Simple estimation: ~4 characters per token
-            total += Math.ceil(selectedContent.length / 4);
+            // Simple estimation using centralized constant
+            total += Math.ceil(selectedContent.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
           } else {
             // Full file selected
             total += fileData.tokenCount;

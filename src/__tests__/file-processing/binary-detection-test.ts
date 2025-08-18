@@ -115,35 +115,3 @@ describe('Binary File Detection', () => {
     expect(results.every(r => r.isBinary)).toBe(true);
   });
 });
-
-describe('Token Sanitization', () => {
-  it('should remove endoftext tokens', () => {
-    const input = 'Code with <|endoftext|> token';
-    const sanitized = input.replace(/<\|endoftext\|>/g, '');
-    
-    expect(sanitized).toBe('Code with  token');
-    expect(sanitized).not.toContain('<|endoftext|>');
-  });
-  
-  it('should handle multiple tokens', () => {
-    const input = 'A <|endoftext|> B <|endoftext|> C';
-    const sanitized = input.replace(/<\|endoftext\|>/g, '');
-    
-    expect(sanitized).toBe('A  B  C');
-    expect(sanitized).not.toContain('<|endoftext|>');
-  });
-  
-  it('should handle tokens at different positions', () => {
-    const cases = [
-      { input: '<|endoftext|>start', expected: 'start' },
-      { input: 'end<|endoftext|>', expected: 'end' },
-      { input: 'middle<|endoftext|>text', expected: 'middletext' },
-      { input: '<|endoftext|><|endoftext|>', expected: '' }
-    ];
-    
-    cases.forEach(({ input, expected }) => {
-      const sanitized = input.replace(/<\|endoftext\|>/g, '');
-      expect(sanitized).toBe(expected);
-    });
-  });
-});
