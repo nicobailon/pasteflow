@@ -2,8 +2,7 @@ import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } fr
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '../utils/logger';
 import { FEATURES, UI, TOKEN_COUNTING } from '../constants/app-constants';
-import { usePreviewPack, type PackState } from '../hooks/use-preview-pack';
-import { type PreviewState } from '../hooks/use-preview-generator';
+import { usePreviewPack } from '../hooks/use-preview-pack';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
 import { getRelativePath, dirname, normalizePath } from '../utils/path-utils';
@@ -319,48 +318,6 @@ interface ContentAreaProps {
   clearAllSelections?: () => void;
 }
 
-/**
- * Helper to robustly select clipboard text with fallback options
- * @param preferDisplay - Whether to prefer display-optimized content (for Preview modal)
- * @param packState - Current pack state
- * @param streamingPreview - Current streaming preview state
- * @returns Text content to use, never empty
- */
-const getClipboardTextWithBackoff = (
-  preferDisplay: boolean,
-  packState: PackState,
-  streamingPreview: PreviewState | null
-): string => {
-  // For Preview modal (preferDisplay = true), use this selection chain:
-  if (preferDisplay) {
-    // 1. Try packState.contentForDisplay (already sliced)
-    if (packState.contentForDisplay && packState.contentForDisplay.trim()) {
-      return packState.contentForDisplay;
-    }
-    
-    // 2. Try packState.fullContent (slice for modal display)
-    if (packState.fullContent && packState.fullContent.trim()) {
-      return packState.fullContent.slice(0, 200_000);
-    }
-    
-    // 3. Try streamingPreview.contentForDisplay
-    if (streamingPreview?.contentForDisplay && streamingPreview.contentForDisplay.trim()) {
-      return streamingPreview.contentForDisplay;
-    }
-    
-    // 4. Try streamingPreview.fullContent (slice for modal display)
-    if (streamingPreview?.fullContent && streamingPreview.fullContent.trim()) {
-      return streamingPreview.fullContent.slice(0, 200_000);
-    }
-    
-    // 5. Fallback to placeholder
-    return 'Preparing preview…';
-  }
-  
-  // For Copy operations (preferDisplay = false), use fullContent
-  const fullContent = packState.fullContent || streamingPreview?.fullContent || '';
-  return fullContent.trim() ? fullContent : 'Preparing content…';
-};
 
 const ContentArea = ({
   selectedFiles,
@@ -896,7 +853,6 @@ const ContentArea = ({
                     <CopyButton
                       text={() => packState.fullContent || streamingPreview?.fullContent || ''}
                       className="primary copy-selected-files-btn"
-                      title={contentOutdated ? "Copy (outdated content)" : "Copy packed content"}
                     >
                       <span>Copy</span>
                     </CopyButton>
