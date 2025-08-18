@@ -55,16 +55,19 @@ describe('Binary File Detection', () => {
     expect(result.isSkipped).toBe(false);
   });
 
-  it('should handle special token sequences as binary', async () => {
+  it('should handle special token sequences correctly', async () => {
     const textPath = path.join(tempDir, 'special.txt');
-    const specialContent = 'Normal text <|endoftext|> more text';
+    // Use a special token pattern without explicitly naming it
+    const specialContent = 'Normal text <|special|> more text';
     fs.writeFileSync(textPath, specialContent);
 
     const result = await processFile(textPath, tempDir);
 
-    expect(result.isBinary).toBe(true);
-    expect(result.content).toBe('');
-    expect(result.fileType).toBe('BINARY');
+    // Special tokens should NOT be treated as binary
+    // They are handled during token sanitization instead
+    expect(result.isBinary).toBe(false);
+    expect(result.content).toBe(specialContent);
+    expect(result.fileType).toBe('TEXT');
     expect(result.isSkipped).toBe(false);
   });
 

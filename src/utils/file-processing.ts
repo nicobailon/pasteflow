@@ -35,7 +35,7 @@ const isLikelyBinaryContent = (content: string, filePath: string): boolean => {
   if (filePath && path.extname(filePath).toLowerCase() === '.js') {
     return false;
   }
-  // Special tokens (e.g., <|endoftext|>) handled via sanitization during token counting,
+  // Special tokens handled via sanitization during token counting,
   // not during binary detection, to allow analysis of AI/ML codebases
   // Check for sequences of non-ASCII characters
   return BINARY_CONTENT_REGEX.test(content);
