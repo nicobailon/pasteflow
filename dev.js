@@ -30,6 +30,7 @@ const viteProcess = spawn("npm", ["run", "dev"], {
 
 // Flag to track if Vite has started
 let viteStarted = false;
+let mainWatch = null;
 
 // Listen for Vite server ready message
 viteProcess.stdout?.on("data", (data) => {
@@ -86,9 +87,16 @@ function startElectron() {
     console.log('📋 Building IPC schemas...');
     execSync('npm run build:schemas', { stdio: 'inherit' });
     
-    // No need to compile TypeScript - tsx handles it at runtime
-    console.log('✨ Using tsx for TypeScript runtime compilation...');
-    
+    // Compile main once, then start a watcher for incremental rebuilds
+    console.log('🛠️ Building main (once)...');
+    execSync('npm run build:main', { stdio: 'inherit' });
+
+    console.log('🔁 Starting main build watcher...');
+    mainWatch = spawn('npm', ['run', 'build:main:watch'], {
+      stdio: 'inherit',
+      shell: platform() === 'win32'
+    });
+
     // Start Electron
     const electronProcess = spawn("npm", ["start"], {
       stdio: "inherit",
@@ -103,6 +111,9 @@ function startElectron() {
 
     electronProcess.on("close", (code) => {
       console.log(`Electron process exited with code ${code}`);
+      if (mainWatch) {
+        try { mainWatch.kill(); } catch {}
+      }
       viteProcess.kill();
       process.exit(code);
     });
@@ -118,12 +129,18 @@ function startElectron() {
 // Handle process termination gracefully
 process.on("SIGINT", () => {
   console.log("\n⏹️  Shutting down development environment...");
+  if (mainWatch) {
+    try { mainWatch.kill(); } catch {}
+  }
   viteProcess.kill();
   process.exit(130);
 });
 
 process.on("SIGTERM", () => {
   console.log("\n⏹️  Terminating development environment...");
+  if (mainWatch) {
+    try { mainWatch.kill(); } catch {}
+  }
   viteProcess.kill();
   process.exit(143);
 });

@@ -28,6 +28,22 @@ const isRateLimitError = (error: unknown): boolean => {
 
 const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
+/**
+ * Unwraps standardized IPC envelopes { success, data } | { success, error }
+ * Falls back to legacy raw values for backward compatibility.
+ */
+function unwrapIpcResult<R>(res: unknown): R {
+  const obj = res as { success?: boolean; data?: unknown; error?: unknown };
+  if (obj && typeof obj === 'object' && 'success' in obj) {
+    if (obj.success !== true) {
+      const errMsg = (obj.error as string) || 'IPC request failed';
+      throw new Error(errMsg);
+    }
+    return (obj.data as R) ?? (undefined as unknown as R);
+  }
+  return res as R;
+}
+
 export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
   channel: string,
   initialData: T,
@@ -84,7 +100,8 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
     setError(null);
 
     try {
-      const result = await window.electron.ipcRenderer.invoke(channel, params || {});
+      const raw = await window.electron.ipcRenderer.invoke(channel, params || {});
+      const result = unwrapIpcResult<T>(raw);
       setData(result);
       setCached(cacheKey, result);
       return result;
@@ -112,7 +129,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
         pendingUpdates.current.set(updateId, optimisticData);
       }
 
-      const result = await window.electron.ipcRenderer.invoke(updateChannel, params);
+      const raw = await window.electron.ipcRenderer.invoke(updateChannel, params);
 
       pendingUpdates.current.delete(updateId);
 
@@ -134,7 +151,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
         }
       }
 
-      return result;
+      return unwrapIpcResult<R>(raw);
     } catch (error_) {
       if (pendingUpdates.current.has(updateId)) {
         pendingUpdates.current.delete(updateId);
@@ -150,7 +167,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
     }
   }, [options.optimisticUpdate, fetchData]);
 
-  const handleUpdate = useCallback((_event: Electron.IpcRendererEvent, updatedData?: T) => {
+  const handleUpdate = useCallback((_event: unknown, updatedData?: T) => {
     if (updatedData !== undefined) {
       setData(updatedData);
     }

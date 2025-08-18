@@ -2,6 +2,17 @@ import { WorkspaceState } from '../types/file-types';
 
 import { WorkspaceSortMode, WorkspaceInfo, sortWorkspaces } from './workspace-sorting';
 
+// IPC envelope unwrap helper compatible with legacy raw values
+function unwrapIpc<T>(res: any): T {
+  if (res && typeof res === 'object' && 'success' in res) {
+    if ((res as any).success !== true) {
+      throw new Error((res as any).error || 'IPC request failed');
+    }
+    return (res as any).data as T;
+  }
+  return res as T;
+}
+
 interface DatabaseWorkspace {
   id: string;
   name: string;
@@ -148,7 +159,7 @@ export class WorkspaceCacheManager {
         throw new Error('Electron IPC not available');
       }
       
-      const workspaces: DatabaseWorkspace[] = await window.electron.ipcRenderer.invoke('/workspace/list', {});
+      const workspaces = unwrapIpc<DatabaseWorkspace[]>(await window.electron.ipcRenderer.invoke('/workspace/list', {}));
       
       const workspaceInfos = new Map<string, WorkspaceInfo>();
       

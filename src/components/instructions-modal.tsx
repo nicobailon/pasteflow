@@ -11,12 +11,12 @@ import { Instruction, InstructionsModalProps } from "../types/file-types";
 const InstructionsModal = ({
   isOpen,
   onClose,
-  instructions,
+  instructions = [],
   onAddInstruction,
   onDeleteInstruction,
   onUpdateInstruction,
   selectedInstructions = [],
-  toggleInstructionSelection,
+  toggleInstructionSelection = () => {},
   initialEditInstruction,
 }: InstructionsModalProps): JSX.Element => {
   const [editingInstruction, setEditingInstruction] = useState<Instruction | null>(null);
@@ -89,12 +89,12 @@ const InstructionsModal = ({
           
           <div className="modal-body">
             <div className="sidebar instructions-list">
-              {instructions.length === 0 ? (
+              {(!Array.isArray(instructions) || instructions.length === 0) ? (
                 <div className="no-prompts-message">
                   No instructions yet. Add one to get started.
                 </div>
               ) : (
-                instructions.map((instruction) => (
+                (instructions || []).map((instruction) => (
                   <div 
                     key={instruction.id} 
                     className={`instruction-item ${isInstructionSelected(instruction) ? 'selected' : ''}`}
@@ -115,9 +115,9 @@ const InstructionsModal = ({
                     <div className="prompt-details">
                       <div className="prompt-title">{instruction.name}</div>
                       <div className="prompt-preview">
-                        {instruction.content.length > 60 
-                          ? instruction.content.slice(0, 60) + "..." 
-                          : instruction.content}
+                        {(instruction.content ?? '').length > 60
+                          ? (instruction.content ?? '').slice(0, 60) + "..."
+                          : (instruction.content ?? '')}
                       </div>
                     </div>
                     <div className="prompt-actions">

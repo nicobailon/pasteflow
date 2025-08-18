@@ -1404,8 +1404,14 @@ const useAppState = () => {
     exclusionPatterns,
     selectedInstructions: selectedInstructions.map(i => i.id),
     customPrompts: {
-      systemPrompts: promptState.systemPrompts.map(p => ({ ...p, selected: promptState.selectedSystemPrompts.some(sp => sp.id === p.id) })),
-      rolePrompts: promptState.rolePrompts.map(p => ({ ...p, selected: promptState.selectedRolePrompts.some(rp => rp.id === p.id) }))
+      systemPrompts: (promptState.systemPrompts ?? []).map(p => ({
+        ...p,
+        selected: (promptState.selectedSystemPrompts ?? []).some(sp => sp.id === p.id)
+      })),
+      rolePrompts: (promptState.rolePrompts ?? []).map(p => ({
+        ...p,
+        selected: (promptState.selectedRolePrompts ?? []).some(rp => rp.id === p.id)
+      }))
     },
     userInstructions,
     isApplyingWorkspaceData: isApplyingWorkspaceDataRef.current,

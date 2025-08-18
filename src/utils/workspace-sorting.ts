@@ -13,10 +13,14 @@ export interface WorkspaceInfo {
 export const getWorkspaceSortMode = async (): Promise<WorkspaceSortMode> => {
   try {
     if (window.electron) {
-      const savedMode = await window.electron.ipcRenderer.invoke('/prefs/get', {
+      const resp = await window.electron.ipcRenderer.invoke('/prefs/get', {
         key: STORAGE_KEYS.WORKSPACE_SORT_MODE
       });
-      return (savedMode as WorkspaceSortMode) || 'recent';
+      // Accept either envelope or legacy raw value
+      const savedMode = (resp && typeof resp === 'object' && 'success' in (resp as any))
+        ? ((resp as any).success === true ? ((resp as any).data as WorkspaceSortMode | null) : null)
+        : (resp as WorkspaceSortMode | null);
+      return savedMode || 'recent';
     }
   } catch (error) {
     console.error('Error getting workspace sort mode:', error);
@@ -27,11 +31,19 @@ export const getWorkspaceSortMode = async (): Promise<WorkspaceSortMode> => {
 export const setWorkspaceSortMode = async (mode: WorkspaceSortMode): Promise<void> => {
   try {
     if (window.electron) {
-      await window.electron.ipcRenderer.invoke('/prefs/set', {
+      const resp = await window.electron.ipcRenderer.invoke('/prefs/set', {
         key: STORAGE_KEYS.WORKSPACE_SORT_MODE,
         value: mode,
         encrypted: false
       });
+      // Accept either envelope or legacy boolean true
+      if (resp && typeof resp === 'object' && 'success' in (resp as any)) {
+        if ((resp as any).success !== true) {
+          throw new Error((resp as any).error || 'IPC /prefs/set failed');
+        }
+      } else if (resp !== true) {
+        throw new Error('IPC /prefs/set failed');
+      }
     }
   } catch (error) {
     console.error('Error setting workspace sort mode:', error);
@@ -41,10 +53,17 @@ export const setWorkspaceSortMode = async (mode: WorkspaceSortMode): Promise<voi
 export const getWorkspaceManualOrder = async (): Promise<string[]> => {
   try {
     if (window.electron) {
-      const savedOrder = await window.electron.ipcRenderer.invoke('/prefs/get', {
+      const resp = await window.electron.ipcRenderer.invoke('/prefs/get', {
         key: STORAGE_KEYS.WORKSPACE_MANUAL_ORDER
       });
-      return savedOrder || [];
+      // Accept envelope or legacy raw array
+      if (resp && typeof resp === 'object' && 'success' in (resp as any)) {
+        if ((resp as any).success === true) {
+          return ((resp as any).data as string[]) || [];
+        }
+        return [];
+      }
+      return (resp as string[]) || [];
     }
   } catch (error) {
     console.error('Error getting workspace manual order:', error);
@@ -55,11 +74,19 @@ export const getWorkspaceManualOrder = async (): Promise<string[]> => {
 export const setWorkspaceManualOrder = async (order: string[]): Promise<void> => {
   try {
     if (window.electron) {
-      await window.electron.ipcRenderer.invoke('/prefs/set', {
+      const resp = await window.electron.ipcRenderer.invoke('/prefs/set', {
         key: STORAGE_KEYS.WORKSPACE_MANUAL_ORDER,
         value: order,
         encrypted: false
       });
+      // Accept either envelope or legacy boolean true
+      if (resp && typeof resp === 'object' && 'success' in (resp as any)) {
+        if ((resp as any).success !== true) {
+          throw new Error((resp as any).error || 'IPC /prefs/set failed');
+        }
+      } else if (resp !== true) {
+        throw new Error('IPC /prefs/set failed');
+      }
     }
   } catch (error) {
     console.error('Error setting workspace manual order:', error);

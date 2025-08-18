@@ -11,13 +11,13 @@ import { RolePrompt, RolePromptsModalProps } from "../types/file-types";
 const RolePromptsModal = ({
   isOpen,
   onClose,
-  rolePrompts,
+  rolePrompts = [],
   onAddPrompt,
   onDeletePrompt,
   onUpdatePrompt,
   // onSelectPrompt, // This prop seems unused in the component
   selectedRolePrompts = [],
-  toggleRolePromptSelection,
+  toggleRolePromptSelection = () => {},
   initialEditPrompt,
 }: RolePromptsModalProps): JSX.Element => {
   const [editingPrompt, setEditingPrompt] = useState<RolePrompt | null>(null);
@@ -82,12 +82,12 @@ const RolePromptsModal = ({
           
           <div className="modal-body">
             <div className="sidebar role-prompts-list">
-              {rolePrompts.length === 0 ? (
+              {(!Array.isArray(rolePrompts) || rolePrompts.length === 0) ? (
                 <div className="no-prompts-message">
                   No role prompts yet. Add one to get started.
                 </div>
               ) : (
-                rolePrompts.map((prompt) => (
+                (rolePrompts || []).map((prompt) => (
                   <div 
                     key={prompt.id} 
                     className={`role-prompt-item ${isPromptSelected(prompt) ? 'selected' : ''}`}
@@ -108,9 +108,9 @@ const RolePromptsModal = ({
                     <div className="prompt-details">
                       <div className="prompt-title">{prompt.name}</div>
                       <div className="prompt-preview">
-                        {prompt.content.length > 60 
-                          ? prompt.content.slice(0, 60) + "..." 
-                          : prompt.content}
+                        {(prompt.content ?? '').length > 60
+                          ? (prompt.content ?? '').slice(0, 60) + "..."
+                          : (prompt.content ?? '')}
                       </div>
                     </div>
                     <div className="prompt-actions">
