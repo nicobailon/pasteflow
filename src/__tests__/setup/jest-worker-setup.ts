@@ -120,11 +120,11 @@ export function setupWorkerEnvironment(): void {
     return worker;
   });
 
-  // Add static methods and properties to match Worker interface if Worker exists
-  if (typeof Worker !== 'undefined') {
-    MockWorkerConstructor.prototype = Worker.prototype;
-  }
-  
+  // Ensure spies like jest.spyOn(global.Worker.prototype, 'postMessage') work
+  // by pointing the constructor prototype at our MockWorker prototype.
+  // This allows tests to observe postMessage calls made by instances.
+  MockWorkerConstructor.prototype = (MockWorker as unknown as { prototype: any }).prototype;
+
   Object.defineProperty(global, 'Worker', {
     writable: true,
     configurable: true,
