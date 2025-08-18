@@ -4,31 +4,19 @@ import o200k_base from 'tiktoken/encoders/o200k_base.json';
 
 let encoder: Tiktoken | null = null;
 
-// Port control character detection from main process
-function isControlOrBinaryChar(codePoint: number | undefined): boolean {
-  if (codePoint === undefined) return false;
-  // Control characters: 0x00-0x1F (excluding tab, newline, carriage return) and 0x7F-0x9F
-  return (codePoint >= 0x00 && codePoint <= 0x08) ||
-      (codePoint >= 0x0B && codePoint <= 0x0C) ||
-      (codePoint >= 0x0E && codePoint <= 0x1F) ||
-      (codePoint >= 0x7F && codePoint <= 0x9F);
-}
+// Constants for token counting
+const CHARS_PER_TOKEN = 4;
+const MIN_TEXT_RETENTION_RATIO = 0.9;
 
 // Port sanitization function from main process
 function sanitizeTextForTokenCount(text: string): string {
-  // Remove special tiktoken end-of-text markers
-  const sanitizedText = text.replace(/<\|endoftext\|>/g, "");
-  
-  // Remove control and binary characters except tab, newline, carriage return
-  let result = "";
-  for (let i = 0; i < sanitizedText.length; i++) {
-    const codePoint = sanitizedText.codePointAt(i);
-    if (!isControlOrBinaryChar(codePoint) || 
-        codePoint === 9 || codePoint === 10 || codePoint === 13) {
-      result += sanitizedText[i];
-    }
-  }
-  return result;
+  // Remove problematic characters that cause tiktoken to fail
+  return text
+    .replace(/<\|[^|>]+\|>/g, '') // Remove special tokens with <|...|> pattern
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u0000/g, '') // Remove null characters
+    .replace(/[\uFFF0-\uFFFF]/g, '') // Remove special use area
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, ''); // Remove supplementary private use area
 }
 
 // Initialize encoder with proper error handling
@@ -84,6 +72,20 @@ self.addEventListener('message', async (event) => {
         }
         
         const sanitizedText = sanitizeTextForTokenCount(payload.text);
+        
+        // If the sanitization removed a significant portion of the text, fall back to estimation
+        if (sanitizedText.length < payload.text.length * MIN_TEXT_RETENTION_RATIO) {
+          console.warn('Text contained many special tokens, using estimation instead');
+          const estimatedCount = Math.ceil(payload.text.length / CHARS_PER_TOKEN);
+          self.postMessage({ 
+            type: 'TOKEN_COUNT', 
+            id, 
+            result: estimatedCount,
+            fallback: true 
+          });
+          break;
+        }
+        
         const count = encoder ? encoder.encode(sanitizedText).length : -1;
         
         self.postMessage({ 
@@ -99,6 +101,13 @@ self.addEventListener('message', async (event) => {
         const results = await Promise.all(
           payload.texts.map((text: string) => {
             const sanitized = sanitizeTextForTokenCount(text);
+            
+            // If the sanitization removed a significant portion, use estimation
+            if (sanitized.length < text.length * MIN_TEXT_RETENTION_RATIO) {
+              console.warn('Text contained many special tokens, using estimation instead');
+              return Math.ceil(text.length / CHARS_PER_TOKEN);
+            }
+            
             return encoder ? encoder.encode(sanitized).length : -1;
           })
         );

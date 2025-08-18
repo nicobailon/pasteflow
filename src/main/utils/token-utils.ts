@@ -35,8 +35,9 @@ function ensureEncoderInitialized(): Promise<TiktokenEncoder | null> {
  * Sanitize text to remove special characters that can cause tiktoken issues
  */
 function sanitizeTextForTokenCount(text: string): string {
-  // Remove null characters and other problematic special characters
+  // Remove problematic characters that cause tiktoken to fail
   return text
+    .replace(/<\|[^|>]+\|>/g, '') // Remove special tokens with <|...|> pattern
     // eslint-disable-next-line no-control-regex
     .replace(/\u0000/g, '') // Remove null characters
     .replace(/[\uFFF0-\uFFFF]/g, '') // Remove special use area
