@@ -1,5 +1,6 @@
 import { TEST_CONSTANTS } from './test-constants';
 import { TokenWorkerPool } from '../utils/token-worker-pool';
+import { TOKEN_COUNTING } from '../constants/app-constants';
 
 describe('TokenWorkerPool Behavioral Tests', () => {
   let pool: TokenWorkerPool;
@@ -24,7 +25,7 @@ describe('TokenWorkerPool Behavioral Tests', () => {
       const result = await promise;
       
       expect(result).toBeGreaterThan(0);
-      expect(result).toBeCloseTo(Math.ceil(text.length / 4), 2);
+      expect(result).toBeCloseTo(Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN), 2);
     });
 
     it('should handle empty text input', async () => {
@@ -50,7 +51,7 @@ describe('TokenWorkerPool Behavioral Tests', () => {
       expect(results).toHaveLength(3);
       results.forEach((result, index) => {
         expect(result).toBeGreaterThan(0);
-        expect(result).toBeCloseTo(Math.ceil(texts[index].length / 4), 2);
+        expect(result).toBeCloseTo(Math.ceil(texts[index].length / TOKEN_COUNTING.CHARS_PER_TOKEN), 2);
       });
     });
   });
@@ -73,7 +74,7 @@ describe('TokenWorkerPool Behavioral Tests', () => {
       const result = await promise;
       
       expect(result).toBeGreaterThan(0);
-      expect(result).toBeCloseTo(Math.ceil(maxSizeText.length / 4), 100);
+      expect(result).toBeCloseTo(Math.ceil(maxSizeText.length / TOKEN_COUNTING.CHARS_PER_TOKEN), 100);
     });
   });
 
@@ -104,8 +105,8 @@ describe('TokenWorkerPool Behavioral Tests', () => {
       const [result1, result2] = await Promise.all([promise1, promise2]);
       
       expect(result1).not.toBe(result2);
-      expect(result1).toBeCloseTo(Math.ceil(text1.length / 4), 2);
-      expect(result2).toBeCloseTo(Math.ceil(text2.length / 4), 2);
+      expect(result1).toBeCloseTo(Math.ceil(text1.length / TOKEN_COUNTING.CHARS_PER_TOKEN), 2);
+      expect(result2).toBeCloseTo(Math.ceil(text2.length / TOKEN_COUNTING.CHARS_PER_TOKEN), 2);
       expect(result2).toBeGreaterThan(result1); // Longer text should have more tokens
     });
   });
@@ -195,7 +196,7 @@ describe('TokenWorkerPool Behavioral Tests', () => {
         const result = await promise;
         
         expect(result).toBeGreaterThan(0);
-        expect(result).toBeCloseTo(Math.ceil(text.length / 4), 2);
+        expect(result).toBeCloseTo(Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN), 2);
       } finally {
         singleWorkerPool.terminate();
       }

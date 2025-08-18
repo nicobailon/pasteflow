@@ -1,13 +1,14 @@
 import { Eye, MessageSquareCode, X } from "lucide-react";
 
 import { SystemPrompt } from "../types/file-types";
+import { TOKEN_COUNTING } from "../constants/app-constants";
 
 import CopyButton from "./copy-button";
 import "./system-prompt-card.css";
 
 // Estimate token count for the prompt (simple calculation)
 const estimateTokenCount = (text: string) => {
-  return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
 };
 
 interface SystemPromptCardProps {

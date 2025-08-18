@@ -1,7 +1,7 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '../utils/logger';
-import { FEATURES, UI } from '../constants/app-constants';
+import { FEATURES, UI, TOKEN_COUNTING } from '../constants/app-constants';
 import { usePreviewPack, type PackState } from '../hooks/use-preview-pack';
 import { type PreviewState } from '../hooks/use-preview-generator';
 
@@ -448,7 +448,7 @@ const ContentArea = ({
         .map(f => [f.path, f.size ?? 0])
     );
     const totalSize = selectedFiles.reduce((sum, s) => sum + (sizeByPath.get(s.path) ?? 0), 0);
-    const filesTokens = Math.round(totalSize / 4);
+    const filesTokens = Math.round(totalSize / TOKEN_COUNTING.CHARS_PER_TOKEN);
 
     const totalEstimatedTokens = filesTokens + systemPromptTokens + rolePromptTokens + instructionsTokens;
 

@@ -1,6 +1,7 @@
 import { render, waitFor } from '@testing-library/react';
 import ContentArea from '../../components/content-area';
 import { FileData, SelectedFileReference } from '../../types/file-types';
+import { TOKEN_COUNTING } from '../../constants/app-constants';
 
 // Mock the feature flags
 jest.mock('../../constants/app-constants', () => ({
@@ -54,7 +55,7 @@ describe('Preview Pack Background Loading', () => {
     isSkipped: false,
     isContentLoaded,
     content,
-    tokenCount: content ? Math.ceil(content.length / 4) : undefined,
+    tokenCount: content ? Math.ceil(content.length / TOKEN_COUNTING.CHARS_PER_TOKEN) : undefined,
   });
 
   const defaultProps = {

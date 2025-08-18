@@ -11,6 +11,7 @@
 declare const jest: { fn?: unknown } | undefined;
 
 import { useCallback, useEffect, useRef, useState, startTransition as reactStartTransition } from 'react';
+import { TOKEN_COUNTING } from '../constants/app-constants';
 
 // Type-safe wrapper for startTransition with fallback
 // React 18 exports startTransition, earlier versions will have undefined
@@ -227,7 +228,7 @@ export function usePreviewGenerator() {
         const fallbackLen = typeof fullPart === 'string' ? fullPart.length : 0;
         tokenEstimateRef.current += (typeof msg.tokenDelta === 'number'
           ? msg.tokenDelta
-          : Math.ceil(fallbackLen / 4));
+          : Math.ceil(fallbackLen / TOKEN_COUNTING.CHARS_PER_TOKEN));
 
         // Move to streaming on first data
         setPreviewState((prev) => (prev.status === 'loading' ? { ...prev, status: 'streaming' } : prev));

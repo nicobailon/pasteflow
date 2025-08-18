@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
+import { TOKEN_COUNTING } from '../../constants/app-constants';
 
 /**
  * This test suite focuses on the behavior and outcomes of file processing
@@ -128,7 +129,7 @@ async function simulateFileProcessing(
         
         if (!isBinary) {
           const content = buffer.toString('utf8');
-          const tokenCount = Math.ceil(content.length / 4); // Simple token estimation
+          const tokenCount = Math.ceil(content.length / TOKEN_COUNTING.CHARS_PER_TOKEN); // Simple token estimation
           
           files.push({
             name: entry.name,
@@ -214,7 +215,7 @@ async function simulateFileProcessingRecursive(
           
           if (!isBinary) {
             const content = buffer.toString('utf8');
-            const tokenCount = Math.ceil(content.length / 4);
+            const tokenCount = Math.ceil(content.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
             
             files.push({
               name: entry.name,
@@ -348,7 +349,7 @@ describe('File Processing IPC Communication', () => {
           name: entries[i],
           path: filePath,
           content,
-          tokenCount: Math.ceil(content.length / 4),
+          tokenCount: Math.ceil(content.length / TOKEN_COUNTING.CHARS_PER_TOKEN),
           isBinary: false
         });
       }

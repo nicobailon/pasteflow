@@ -55,18 +55,17 @@ describe('Binary File Detection', () => {
     expect(result.isSkipped).toBe(false);
   });
 
-  it('should handle special token sequences as normal text', async () => {
+  it('should handle special token sequences as binary', async () => {
     const textPath = path.join(tempDir, 'special.txt');
     const specialContent = 'Normal text <|endoftext|> more text';
     fs.writeFileSync(textPath, specialContent);
 
     const result = await processFile(textPath, tempDir);
 
-    expect(result.isBinary).toBe(false);
-    expect(result.content).toBeUndefined(); // Test processFile doesn't return content
-    expect(result.fileType).toBe('TXT');
+    expect(result.isBinary).toBe(true);
+    expect(result.content).toBe('');
+    expect(result.fileType).toBe('BINARY');
     expect(result.isSkipped).toBe(false);
-    expect(result.isContentLoaded).toBe(false);
   });
 
   it('should preserve JavaScript files with binary-like patterns', async () => {

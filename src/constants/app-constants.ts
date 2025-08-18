@@ -68,6 +68,8 @@ export const VALIDATION = {
 export const TOKEN_COUNTING = {
   /** Characters per token estimation ratio */
   CHARS_PER_TOKEN: 4,
+  /** Special token to replace in content */
+  PROBLEMATIC_TOKEN: '<|endoftext|>',
   /** Minimum text retention ratio after sanitization */
   MIN_TEXT_RETENTION_RATIO: 0.9,
   /** Line-based token estimation multiplier for GPT models */

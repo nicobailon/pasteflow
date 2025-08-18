@@ -1,6 +1,8 @@
 // Mock TokenWorkerPool that behaves like the real implementation
 // This mock focuses on testing the behavioral contracts, not implementation details
 
+import { TOKEN_COUNTING } from '../../constants/app-constants';
+
 export class TokenWorkerPool {
   private workers: MockWorker[] = [];
   private queue: Array<{ id: string; resolve: (value: number) => void; reject: (error: Error) => void; text: string }> = [];
@@ -40,7 +42,7 @@ export class TokenWorkerPool {
     
     // Fast path for recycling state
     if (this.isRecycling) {
-      return Math.ceil(text.length / 4); // Estimation fallback
+      return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN); // Estimation fallback
     }
     
     // Input size validation - exact same as real implementation
@@ -64,7 +66,7 @@ export class TokenWorkerPool {
         const dropped = this.queue.shift();
         if (dropped) {
           this.droppedRequests++;
-          dropped.resolve(Math.ceil(dropped.text.length / 4)); // Fallback estimation
+          dropped.resolve(Math.ceil(dropped.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN)); // Fallback estimation
         }
       }
       
@@ -126,7 +128,7 @@ export class TokenWorkerPool {
       worker.removeEventListener('error', errorHandler);
       cleanup();
       this.failureCount++;
-      job.resolve(Math.ceil(job.text.length / 4)); // Fallback estimation
+      job.resolve(Math.ceil(job.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN)); // Fallback estimation
     };
     
     worker.addEventListener('message', messageHandler);
@@ -141,7 +143,7 @@ export class TokenWorkerPool {
       worker.removeEventListener('error', errorHandler);
       cleanup();
       this.failureCount++;
-      job.resolve(Math.ceil(job.text.length / 4)); // Timeout fallback
+      job.resolve(Math.ceil(job.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN)); // Timeout fallback
     }, 30000); // 30 second timeout
   }
   
@@ -198,7 +200,7 @@ export class TokenWorkerPool {
     while (this.queue.length > 0) {
       const item = this.queue.shift();
       if (item) {
-        item.resolve(Math.ceil(item.text.length / 4)); // Estimation fallback
+        item.resolve(Math.ceil(item.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN)); // Estimation fallback
       }
     }
     
@@ -225,7 +227,7 @@ export class TokenWorkerPool {
   async countTokensBatch(texts: string[]): Promise<number[]> {
     // Fast path for recycling state
     if (this.isRecycling) {
-      return texts.map(text => Math.ceil(text.length / 4));
+      return texts.map(text => Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN));
     }
     
     return Promise.all(texts.map(text => this.countTokens(text)));
@@ -236,7 +238,7 @@ export class TokenWorkerPool {
     this.workers.forEach(worker => worker.terminate());
     // Complete pending jobs with estimation instead of rejecting
     this.queue.forEach(job => {
-      const estimation = Math.ceil(job.text.length / 4);
+      const estimation = Math.ceil(job.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
       job.resolve(estimation);
     });
     this.queue.length = 0;
@@ -279,8 +281,8 @@ class MockWorker {
       }
       
       if (data.type === 'COUNT_TOKENS' && data.payload) {
-        // Simple token estimation: 4 chars per token
-        const tokenCount = Math.ceil(data.payload.text.length / 4);
+        // Simple token estimation using constant
+        const tokenCount = Math.ceil(data.payload.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
         const event = new MessageEvent('message', {
           data: { type: 'TOKEN_COUNT', id: data.id, result: tokenCount, fallback: false }
         });

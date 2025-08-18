@@ -307,8 +307,8 @@ const useAppState = () => {
           // If content not loaded, estimate based on file size
           // Skip binary and skipped files
           if (!fileData.isBinary && !fileData.isSkipped) {
-            // Rough estimation: 1 token per 4 characters
-            total += Math.round(fileData.size / 4);
+            // Rough estimation using centralized constant
+            total += Math.round(fileData.size / TOKEN_COUNTING.CHARS_PER_TOKEN);
           }
         }
       }

@@ -3,6 +3,8 @@
  * This avoids the import.meta.url issue entirely by mocking at the module level
  */
 
+import { TOKEN_COUNTING } from '../../constants/app-constants';
+
 export class MockTokenWorkerPool {
   private isTerminated = false;
   private mockDelay = 10;
@@ -24,7 +26,7 @@ export class MockTokenWorkerPool {
     await new Promise(resolve => setTimeout(resolve, this.mockDelay));
 
     // Simple token estimation for tests
-    return Math.ceil(text.length / 4);
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 
   terminate(): void {
