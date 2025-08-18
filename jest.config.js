@@ -5,6 +5,10 @@ module.exports = {
     customExportConditions: ['node', 'node-addons'],
   },
   moduleNameMapper: {
+    '^@constants$': '<rootDir>/src/constants/index.ts',
+    '^@constants/(.*)$': '<rootDir>/src/constants/$1',
+    '^@shared/(.*)$': '<rootDir>/src/shared/$1',
+
     // Handle CSS imports (with CSS modules)
     '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.js',
     // Handle image imports

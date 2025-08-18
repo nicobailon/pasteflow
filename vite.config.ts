@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
+import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
   plugins: [
@@ -12,11 +13,11 @@ export default defineConfig({
       },
     }),
     wasm(),
-    topLevelAwait()
+    topLevelAwait(),
+    tsconfigPaths()
   ],
   resolve: {
-    extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
-    preferRelative: true
+    extensions: ['.ts', '.tsx', '.js', '.jsx', '.json']
   },
   worker: {
     format: 'es',

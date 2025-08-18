@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
-    "prestart": "node scripts/build-main-ts.js",
     "start": "electron .",
-    "build:main": "node scripts/build-main-ts.js",
+    "build:main": "tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
+    "build:main:watch": "tsc -p tsconfig.main.json --watch & tsc-alias -p tsconfig.main.json --watch",
     "build:schemas": "node scripts/build-schemas.js",
     "dev": "vite",
     "dev:electron": "node dev.js",
@@ -144,11 +144,13 @@
     "jsonc-eslint-parser": "^2.4.0",
     "prettier": "^2.8.8",
     "ts-jest": "^29.1.2",
+    "tsc-alias": "^1.8.16",
     "tsx": "^4.20.4",
     "typescript": "^5.3.3",
     "vite": "^5.0.8",
     "vite-plugin-top-level-await": "^1.6.0",
-    "vite-plugin-wasm": "^3.5.0"
+    "vite-plugin-wasm": "^3.5.0",
+    "vite-tsconfig-paths": "^4.3.2"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
