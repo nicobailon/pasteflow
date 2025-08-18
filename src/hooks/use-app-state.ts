@@ -456,7 +456,7 @@ const useAppState = () => {
           return { valid: false, reason: 'Outside workspace' };
         }
       } catch (error) {
-        logger.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', error);
+        logger.warn('[validateFileLoadRequest] Path normalization failed; proceeding with conservative check', error as Error);
         if (!filePath.startsWith(selectedFolder)) {
           return { valid: false, reason: 'Outside workspace' };
         }
@@ -1706,7 +1706,7 @@ const useAppState = () => {
       // Clear selected docs/instructions
       setSelectedInstructions([]);
     } catch (error) {
-      logger.warn('[useAppState.clearAllSelections] Failed to clear some selections', error);
+      logger.warn('[useAppState.clearAllSelections] Failed to clear some selections', error as Error);
     }
   }, [setSelectionState]);
 
