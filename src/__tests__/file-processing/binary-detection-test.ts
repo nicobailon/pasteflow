@@ -55,17 +55,18 @@ describe('Binary File Detection', () => {
     expect(result.isSkipped).toBe(false);
   });
 
-  it('should handle special token sequences as binary', async () => {
+  it('should handle special token sequences as normal text', async () => {
     const textPath = path.join(tempDir, 'special.txt');
     const specialContent = 'Normal text <|endoftext|> more text';
     fs.writeFileSync(textPath, specialContent);
 
     const result = await processFile(textPath, tempDir);
 
-    expect(result.isBinary).toBe(true);
-    expect(result.content).toBe('');
-    expect(result.fileType).toBe('BINARY');
+    expect(result.isBinary).toBe(false);
+    expect(result.content).toBeUndefined(); // Test processFile doesn't return content
+    expect(result.fileType).toBe('TXT');
     expect(result.isSkipped).toBe(false);
+    expect(result.isContentLoaded).toBe(false);
   });
 
   it('should preserve JavaScript files with binary-like patterns', async () => {
@@ -112,5 +113,37 @@ describe('Binary File Detection', () => {
     });
     expect(results).toHaveLength(5);
     expect(results.every(r => r.isBinary)).toBe(true);
+  });
+});
+
+describe('Token Sanitization', () => {
+  it('should remove endoftext tokens', () => {
+    const input = 'Code with <|endoftext|> token';
+    const sanitized = input.replace(/<\|endoftext\|>/g, '');
+    
+    expect(sanitized).toBe('Code with  token');
+    expect(sanitized).not.toContain('<|endoftext|>');
+  });
+  
+  it('should handle multiple tokens', () => {
+    const input = 'A <|endoftext|> B <|endoftext|> C';
+    const sanitized = input.replace(/<\|endoftext\|>/g, '');
+    
+    expect(sanitized).toBe('A  B  C');
+    expect(sanitized).not.toContain('<|endoftext|>');
+  });
+  
+  it('should handle tokens at different positions', () => {
+    const cases = [
+      { input: '<|endoftext|>start', expected: 'start' },
+      { input: 'end<|endoftext|>', expected: 'end' },
+      { input: 'middle<|endoftext|>text', expected: 'middletext' },
+      { input: '<|endoftext|><|endoftext|>', expected: '' }
+    ];
+    
+    cases.forEach(({ input, expected }) => {
+      const sanitized = input.replace(/<\|endoftext\|>/g, '');
+      expect(sanitized).toBe(expected);
+    });
   });
 });

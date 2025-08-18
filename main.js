@@ -254,8 +254,8 @@ function isLikelyBinaryContent(content, filePath) {
     }
   }
 
-  // Also check for special tokens
-  return content.includes("<|endoftext|>");
+  // Special tokens handled via sanitization in token counting pipeline
+  return false;
 }
 
 // Function to check if file has special extension that should be skipped
@@ -516,15 +516,31 @@ function sanitizeTextForTokenCount(text) {
   // Remove the problematic token
   let sanitizedText = text.replace(/<\|endoftext\|>/g, "");
 
-  // Remove control characters
+  // Remove control characters (with proper Unicode handling)
   let result = "";
-  for (let i = 0; i < sanitizedText.length; i++) {
+  let i = 0;
+  while (i < sanitizedText.length) {
     const codePoint = sanitizedText.codePointAt(i);
+    if (codePoint === undefined) {
+      i++;
+      continue;
+    }
+    
+    // Check if it's a control character we want to keep (tab, LF, CR) or not a control char
     if (!isControlOrBinaryChar(codePoint) ||
         codePoint === 9 ||  // Tab
         codePoint === 10 || // LF
         codePoint === 13) { // CR
-      result += sanitizedText[i];
+      // For surrogate pairs (codePoint > 0xFFFF), we need to copy both characters
+      if (codePoint > 0xFFFF) {
+        result += sanitizedText[i] + sanitizedText[i + 1];
+        i += 2;
+      } else {
+        result += sanitizedText[i];
+        i++;
+      }
+    } else {
+      i++;
     }
   }
 
@@ -544,9 +560,9 @@ function countTokens(text) {
     const sanitizedText = sanitizeTextForTokenCount(text);
 
     // If the sanitization removed a significant portion of the text, fall back to estimation
-    if (sanitizedText.length < text.length * 0.9) {
+    if (sanitizedText.length < text.length * TOKEN_COUNTING.MIN_TEXT_RETENTION_RATIO) {
       console.warn("Text contained many special tokens, using estimation instead");
-      return Math.ceil(text.length / 4);
+      return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
     }
 
     const tokens = encoder.encode(sanitizedText);

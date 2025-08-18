@@ -28,7 +28,6 @@ const isBinaryFile = (filePath: string): boolean => {
 // Regex pattern to detect potential binary content
 /* eslint-disable-next-line no-control-regex */
 const BINARY_CONTENT_REGEX = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u00FF]{50,}/;
-const SPECIAL_TOKEN_REGEX = /<\|endoftext\|>/;
 
 // Function to check if file content is likely binary
 const isLikelyBinaryContent = (content: string, filePath: string): boolean => {
@@ -37,7 +36,8 @@ const isLikelyBinaryContent = (content: string, filePath: string): boolean => {
     return false;
   }
   // Check for sequences of non-ASCII characters
-  return BINARY_CONTENT_REGEX.test(content) || SPECIAL_TOKEN_REGEX.test(content);
+  // Special tokens handled via sanitization, not binary detection
+  return BINARY_CONTENT_REGEX.test(content);
 };
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB

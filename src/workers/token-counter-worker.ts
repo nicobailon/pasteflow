@@ -21,11 +21,27 @@ function sanitizeTextForTokenCount(text: string): string {
   
   // Remove control and binary characters except tab, newline, carriage return
   let result = "";
-  for (let i = 0; i < sanitizedText.length; i++) {
+  let i = 0;
+  while (i < sanitizedText.length) {
     const codePoint = sanitizedText.codePointAt(i);
+    if (codePoint === undefined) {
+      i++;
+      continue;
+    }
+    
+    // Check if it's a control character we want to keep or not a control char
     if (!isControlOrBinaryChar(codePoint) || 
         codePoint === 9 || codePoint === 10 || codePoint === 13) {
-      result += sanitizedText[i];
+      // For surrogate pairs (codePoint > 0xFFFF), we need to copy both characters
+      if (codePoint > 0xFFFF) {
+        result += sanitizedText[i] + sanitizedText[i + 1];
+        i += 2;
+      } else {
+        result += sanitizedText[i];
+        i++;
+      }
+    } else {
+      i++;
     }
   }
   return result;
