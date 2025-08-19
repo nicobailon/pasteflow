@@ -357,14 +357,18 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
   // Check if node structure changed
   if (hasNodeStructureChanged(prevProps.node, nextProps.node)) return false;
   
-  // Check if selection state changed for this specific node
-  const prevSelected = prevProps.selectedFiles.find(f => f.path === prevProps.node.path);
-  const nextSelected = nextProps.selectedFiles.find(f => f.path === nextProps.node.path);
+  // Check if selection state changed for this specific node (prefer O(1) maps if available)
+  const prevSelected =
+    prevProps.selectedFilesLookup?.get(prevProps.node.path) ??
+    prevProps.selectedFiles.find(f => f.path === prevProps.node.path);
+  const nextSelected =
+    nextProps.selectedFilesLookup?.get(nextProps.node.path) ??
+    nextProps.selectedFiles.find(f => f.path === nextProps.node.path);
   
   if (hasSelectionChanged(prevSelected, nextSelected)) return false;
   
   // Check if expanded state changed for directories
-  if (prevProps.node.type === 'directory' && 
+  if (prevProps.node.type === 'directory' &&
       prevProps.node.isExpanded !== nextProps.node.isExpanded) {
     return false;
   }
@@ -373,7 +377,7 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
   if (prevProps.node.children?.length !== nextProps.node.children?.length) return false;
   
   // Check if fileData changed for files
-  if (prevProps.node.type === 'file' && 
+  if (prevProps.node.type === 'file' &&
       hasFileDataChanged(prevProps.node.fileData, nextProps.node.fileData)) {
     return false;
   }
@@ -392,10 +396,12 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
 const getTreeItemState = (
   node: TreeNode,
   selectedFiles: SelectedFileReference[],
-  folderSelectionCache?: DirectorySelectionCache
+  folderSelectionCache?: DirectorySelectionCache,
+  selectedFilesLookup?: Map<string, SelectedFileReference>
 ) => {
   const { path, type, fileData } = node;
-  const selectedFile = selectedFiles.find(f => f.path === path);
+  // Prefer O(1) lookup when available to avoid per-node linear scans
+  const selectedFile = selectedFilesLookup?.get(path) ?? selectedFiles.find(f => f.path === path);
   const isSelected = !!selectedFile;
   const isPartiallySelected = isSelected && !!selectedFile?.lines?.length;
   const isDisabled = fileData ? fileData.isBinary || fileData.isSkipped : false;
@@ -432,10 +438,11 @@ const getTreeItemState = (
 const useTreeItemState = (
   node: TreeNode,
   selectedFiles: SelectedFileReference[],
-  folderSelectionCache?: DirectorySelectionCache
+  folderSelectionCache?: DirectorySelectionCache,
+  selectedFilesLookup?: Map<string, SelectedFileReference>
 ) => {
   // Get computed state
-  const state = getTreeItemState(node, selectedFiles, folderSelectionCache);
+  const state = getTreeItemState(node, selectedFiles, folderSelectionCache, selectedFilesLookup);
 
   return {
     ...state
@@ -445,6 +452,7 @@ const useTreeItemState = (
 const TreeItem = memo(({
   node,
   selectedFiles,
+  selectedFilesLookup,
   toggleFileSelection,
   toggleFolderSelection,
   toggleExpanded,
@@ -452,7 +460,7 @@ const TreeItem = memo(({
   folderSelectionCache
 }: TreeItemProps) => {
   const { name, path, type, level, isExpanded, fileData } = node;
-  const state = useTreeItemState(node, selectedFiles, folderSelectionCache);
+  const state = useTreeItemState(node, selectedFiles, folderSelectionCache, selectedFilesLookup);
 
   const getTreeItemClassNames = () => {
     const classes = ['tree-item'];

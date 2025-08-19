@@ -1,8 +1,8 @@
 import { VariableSizeList as List } from 'react-window';
 import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect, useMemo, memo } from 'react';
-
-import { TreeNode } from '../types/file-types';
-
+ 
+import { TreeNode, SelectedFileReference } from '../types/file-types';
+ 
 import TreeItem from './tree-item';
 
 interface VirtualizedTreeProps {
@@ -20,6 +20,7 @@ interface VirtualizedTreeProps {
 interface ItemData {
   nodes: TreeNode[];
   selectedFiles: { path: string; lines?: { start: number; end: number }[] }[];
+  selectedFilesLookup?: Map<string, SelectedFileReference>;
   toggleFileSelection: (path: string) => void;
   toggleFolderSelection: (path: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
   toggleExpanded: (path: string) => void;
@@ -46,6 +47,7 @@ const Row = memo(({ index, style, data }: { index: number; style: React.CSSPrope
         key={node.path}  // Add key to ensure proper component identity
         node={node}
         selectedFiles={data.selectedFiles}
+        selectedFilesLookup={data.selectedFilesLookup}
         toggleFileSelection={data.toggleFileSelection}
         toggleFolderSelection={data.toggleFolderSelection}
         toggleExpanded={data.toggleExpanded}
@@ -109,16 +111,23 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
   
   const getItemSize = useCallback(() => ITEM_HEIGHT, []);
   
+  // Build O(1) lookup map for selection state to avoid per-node linear scans
+  const selectedFilesLookup = useMemo(
+    () => new Map<string, SelectedFileReference>(selectedFiles.map(f => [f.path, f])),
+    [selectedFiles]
+  );
+  
   const itemData: ItemData = useMemo(() => ({
     nodes: visibleTree,
     selectedFiles,
+    selectedFilesLookup,
     toggleFileSelection,
     toggleFolderSelection,
     toggleExpanded,
     onViewFile,
     loadFileContent,
     folderSelectionCache
-  }), [visibleTree, selectedFiles, toggleFileSelection, toggleFolderSelection, toggleExpanded, onViewFile, loadFileContent, folderSelectionCache]);
+  }), [visibleTree, selectedFiles, selectedFilesLookup, toggleFileSelection, toggleFolderSelection, toggleExpanded, onViewFile, loadFileContent, folderSelectionCache]);
   
   const handleScroll = useCallback(({ scrollOffset }: { scrollOffset: number }) => {
     scrollOffsetRef.current = scrollOffset;

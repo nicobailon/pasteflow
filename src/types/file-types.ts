@@ -152,6 +152,7 @@ export interface FileCardProps {
 export interface TreeItemProps {
   node: TreeNode;
   selectedFiles: SelectedFileReference[]; // Updated type
+  selectedFilesLookup?: Map<string, SelectedFileReference>; // O(1) lookup for selection state
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
   toggleExpanded: (path: string, currentState?: boolean) => void;

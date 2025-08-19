@@ -1,4 +1,5 @@
 import { FileData, SelectedFileReference } from '../types/file-types';
+import { BoundedLRUCache } from './bounded-lru-cache';
 
 export type SelectionState = 'full' | 'partial' | 'none';
 
@@ -7,6 +8,40 @@ export interface DirectorySelectionCache {
   set(path: string, state: SelectionState): void;
   bulkUpdate(updates: Map<string, SelectionState>): void;
   clear(): void;
+}
+
+/**
+ * Lightweight structure cache to avoid rebuilding static directory maps
+ * on every selection change for large workspaces.
+ * Keyed by a canonicalized, sorted list of file paths.
+ * TTL keeps memory bounded and allows eventual consistency after file structure changes.
+ */
+const DIRECTORY_STRUCTURE_CACHE = new BoundedLRUCache<
+  string,
+  { directoryMap: Map<string, Set<string>>; allDirectories: Set<string> }
+>(8, 5 * 60 * 1000); // 8 entries, 5 minutes TTL
+
+function computeFilesKey(files: FileData[]): string {
+  try {
+    // Canonical key based on sorted absolute paths
+    return files.map(f => f.path).sort().join('|');
+  } catch {
+    // Fallback to length-only key if something unexpected happens
+    return String(files.length);
+  }
+}
+
+function getOrBuildDirectoryStructure(allFiles: FileData[]): {
+  directoryMap: Map<string, Set<string>>;
+  allDirectories: Set<string>;
+} {
+  const key = computeFilesKey(allFiles);
+  const cached = DIRECTORY_STRUCTURE_CACHE.get(key);
+  if (cached) return cached;
+
+  const built = buildDirectoryStructure(allFiles);
+  DIRECTORY_STRUCTURE_CACHE.set(key, built);
+  return built;
 }
 
 /**
@@ -34,7 +69,8 @@ export function createDirectorySelectionCache(
     return f.path;
   }).filter(Boolean));
   
-  const { directoryMap, allDirectories } = buildDirectoryStructure(allFiles);
+  // Reuse static directory structure when possible
+  const { directoryMap, allDirectories } = getOrBuildDirectoryStructure(allFiles);
   const cache = calculateDirectorySelectionStates(directoryMap, allDirectories, selectedPaths);
   
   return createDirectorySelectionCacheInterface(cache);

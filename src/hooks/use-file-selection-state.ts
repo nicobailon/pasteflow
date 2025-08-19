@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 
 import { STORAGE_KEYS, FILE_PROCESSING } from '../constants';
 import { FileData, LineRange, SelectedFileReference } from '../types/file-types';
@@ -6,7 +6,7 @@ import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/f
 import { createDirectorySelectionCache } from '../utils/selection-cache';
 import { BoundedLRUCache } from '../utils/bounded-lru-cache';
 
-import { usePersistentState } from './use-persistent-state';
+import { useDebouncedPersistentState } from './use-debounced-persistent-state';
 
 /**
  * Custom hook to manage file selection state
@@ -15,9 +15,10 @@ import { usePersistentState } from './use-persistent-state';
  * @returns {Object} File selection state and functions
  */
 const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: string | null, providedFolderIndex?: FolderIndex) => {
-  const [selectedFiles, setSelectedFiles] = usePersistentState<SelectedFileReference[]>(
+  const [selectedFiles, setSelectedFiles] = useDebouncedPersistentState<SelectedFileReference[]>(
     STORAGE_KEYS.SELECTED_FILES,
-    []
+    [],
+    FILE_PROCESSING.DEBOUNCE_DELAY_MS
   );
   
   // Build folder index if not provided
@@ -27,6 +28,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     }
     return buildFolderIndex(allFiles);
   }, [allFiles, providedFolderIndex]);
+
+  // Precompute map for O(1) file lookups by path
+  const allFilesMap = useMemo(() => new Map(allFiles.map(f => [f.path, f])), [allFiles]);
   
   // Track optimistic folder updates with bounded cache to prevent unbounded memory growth
   const optimisticFolderStatesRef = useRef(new BoundedLRUCache<string, 'full' | 'none'>(100));
@@ -117,8 +121,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const validateSelectedFilesExist = useCallback(() => {
     if (allFiles.length === 0) return;
     
-    // Create a Set of all current file paths for O(1) lookup
-    const existingFilePaths = new Set(allFiles.map(f => f.path));
+    // Create a Set of all current file paths for O(1) lookup (leveraging precomputed map)
+    const existingFilePaths = new Set<string>([...allFilesMap.keys()]);
     
     setSelectedFiles(prev => {
       // Filter out any selected files that no longer exist in allFiles
@@ -130,7 +134,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       }
       return prev;
     });
-  }, [allFiles, setSelectedFiles]);
+  }, [allFiles.length, allFilesMap, setSelectedFiles]);
 
   // Function to update a selected file with line selections
   const updateSelectedFile = useCallback((path: string, lines?: LineRange[]): void => {
@@ -246,19 +250,22 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       return;
     }
     
-    // Filter to only selectable files
+    // Filter to only selectable files with O(1) lookups
     const selectableFiles = filesInFolderPaths.filter((filePath) => {
-      const file = allFiles.find(f => f.path === filePath);
+      const file = allFilesMap.get(filePath);
       return file && !file.isBinary && !file.isSkipped;
     });
     
     if (selectableFiles.length === 0) {
       return;
     }
+
+    // Precompute set for fast membership checks
+    const selectableFilesSet = new Set(selectableFiles);
     
     // Check current selection state of folder
     const selectedFilesInFolder = selectedFiles.filter(
-      (f: SelectedFileReference) => selectableFiles.includes(f.path)
+      (f: SelectedFileReference) => selectableFilesSet.has(f.path)
     );
     
     // Determine if we should actually toggle
@@ -305,31 +312,35 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     // Perform the actual update
     if (isSelected) {
       // Add all files from this folder that aren't already selected
-      setSelectedFiles((prev: SelectedFileReference[]) => {
-        // Convert to Map for faster lookups
-        const prevMap = new Map(prev.map(f => [f.path, f]));
-        
-        // Add all files from folder that aren't already selected
-        for (const filePath of selectableFiles) {
-          if (!prevMap.has(filePath)) {
-            prevMap.set(filePath, {
-              path: filePath
-              // lines undefined means entire file
-            });
+      startTransition(() => {
+        setSelectedFiles((prev: SelectedFileReference[]) => {
+          // Convert to Map for faster lookups
+          const prevMap = new Map(prev.map(f => [f.path, f]));
+          
+          // Add all files from folder that aren't already selected
+          for (const filePath of selectableFiles) {
+            if (!prevMap.has(filePath)) {
+              prevMap.set(filePath, {
+                path: filePath
+                // lines undefined means entire file
+              });
+            }
           }
-        }
-        
-        // Convert back to array
-        return [...prevMap.values()];
+          
+          // Convert back to array
+          return [...prevMap.values()];
+        });
       });
     } else {
       // Remove all files from this folder
-      setSelectedFiles((prev: SelectedFileReference[]) => {
-        // Create a Set of paths to remove for faster lookups
-        const folderPathsSet = new Set(selectableFiles);
-        
-        // Keep only paths that are not in the folder
-        return prev.filter(f => !folderPathsSet.has(f.path));
+      startTransition(() => {
+        setSelectedFiles((prev: SelectedFileReference[]) => {
+          // Create a Set of paths to remove for faster lookups
+          const folderPathsSet = new Set(selectableFiles);
+          
+          // Keep only paths that are not in the folder
+          return prev.filter(f => !folderPathsSet.has(f.path));
+        });
       });
     }
     
@@ -337,7 +348,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (opts?.optimistic !== false) {
       pendingOperationsRef.current.delete(folderPath);
     }
-  }, [allFiles, selectedFiles, setSelectedFiles, folderIndex]);
+  }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex]);
 
   // Handle select all files
   const selectAllFiles = useCallback((displayedFiles: FileData[]) => {
@@ -348,19 +359,21 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         // lines undefined means entire file
       }));
 
-    setSelectedFiles((prev: SelectedFileReference[]) => {
-      // Convert to Map for faster lookups
-      const prevMap = new Map(prev.map(f => [f.path, f]));
-      
-      // Add each new file if not already in selection
-      for (const file of selectablePaths) {
-        if (!prevMap.has(file.path)) {
-          prevMap.set(file.path, file);
+    startTransition(() => {
+      setSelectedFiles((prev: SelectedFileReference[]) => {
+        // Convert to Map for faster lookups
+        const prevMap = new Map(prev.map(f => [f.path, f]));
+        
+        // Add each new file if not already in selection
+        for (const file of selectablePaths) {
+          if (!prevMap.has(file.path)) {
+            prevMap.set(file.path, file);
+          }
         }
-      }
-      
-      // Convert back to array
-      return [...prevMap.values()];
+        
+        // Convert back to array
+        return [...prevMap.values()];
+      });
     });
   }, [setSelectedFiles]);
 
@@ -369,9 +382,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     // Convert displayed paths to a Set for faster lookups
     const displayedPathsSet = new Set(displayedFiles.map((file: FileData) => file.path));
     
-    setSelectedFiles((prev: SelectedFileReference[]) =>
-      prev.filter((f: SelectedFileReference) => !displayedPathsSet.has(f.path))
-    );
+    startTransition(() => {
+      setSelectedFiles((prev: SelectedFileReference[]) =>
+        prev.filter((f: SelectedFileReference) => !displayedPathsSet.has(f.path))
+      );
+    });
   }, [setSelectedFiles]);
 
   // Clear all selected files
