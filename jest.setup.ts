@@ -1,17 +1,22 @@
 import '@testing-library/jest-dom';
 
+/**
+* Notes on type assertions in this test setup:
+* - JSDOM/Electron test globals are not fully typed; localized assertions are used when assigning polyfills.
+* - Default generics prefer `unknown` over `any` to retain type safety where possible.
+*/
 // Robust CustomEvent poly that extends Event to ensure dispatchEvent accepts it
 (() => {
-  if (typeof window !== 'undefined') {
-    class CustomEventPoly<T = any> extends Event {
-      detail: T;
-      constructor(type: string, params?: CustomEventInit<T>) {
-        super(type, params);
-        this.detail = (params && 'detail' in params ? (params as any).detail : undefined) as T;
-      }
-    }
-    (window as any).CustomEvent = CustomEventPoly as any;
-  }
+ if (typeof window !== 'undefined') {
+   class CustomEventPoly<T = unknown> extends Event {
+     detail: T;
+     constructor(type: string, params?: CustomEventInit<T>) {
+       super(type, params);
+       this.detail = (params?.detail as T);
+     }
+   }
+   (window as unknown as { CustomEvent: unknown }).CustomEvent = CustomEventPoly as unknown as typeof CustomEvent;
+ }
 })();
 
 // Mock import.meta for ES module compatibility
@@ -25,14 +30,14 @@ if (typeof global !== 'undefined' && !(global as any).import) {
 
 // Mock Worker for worker pool tests
 if (typeof (global as any).Worker === 'undefined') {
-  class MockMessageEvent<T = any> extends Event {
+  class MockMessageEvent<T = unknown> extends Event {
     data: T;
     constructor(type: string, init?: { data?: T }) {
       super(type);
       this.data = init?.data as T;
     }
   }
-  (global as any).MessageEvent = MockMessageEvent as any;
+  (global as unknown as { MessageEvent: unknown }).MessageEvent = MockMessageEvent as unknown as typeof MessageEvent;
 
   class MockWorker {
     url: string | URL;

@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+/**
+ * Ensure data is JSON-serializable across the Electron preload boundary.
+ * - Functions and symbols are dropped.
+ * - Objects and arrays are traversed recursively.
+ */
 function ensureSerializable(data: unknown): unknown {
   if (data == null) return data;
   if (typeof data !== 'object') return data;
@@ -119,6 +124,11 @@ contextBridge.exposeInMainWorld('electron', {
       mapForChannel.set(func, wrapper);
       return wrapper;
     },
+    /**
+     * Remove an IPC listener with wrapper lookup.
+     * Note: Electron's typings for removeListener do not model our wrapper WeakMap;
+     * we perform localized assertions to pass the correct wrapper reference to Electron.
+     */
     removeListener: (channel: string, func: IpcFn) => {
       if (channel === 'app-will-quit') {
         return removeAppWillQuitListener(func as () => void);
@@ -126,10 +136,10 @@ contextBridge.exposeInMainWorld('electron', {
       const mapForChannel = __ipcListenerWrappers.get(channel);
       const maybeWrapper = mapForChannel?.get(func);
       if (maybeWrapper) {
-        ipcRenderer.removeListener(channel, maybeWrapper as any);
+        ipcRenderer.removeListener(channel, maybeWrapper as unknown as Parameters<typeof ipcRenderer.removeListener>[1]);
         mapForChannel?.delete(func);
       } else {
-        ipcRenderer.removeListener(channel, func as any);
+        ipcRenderer.removeListener(channel, func as unknown as Parameters<typeof ipcRenderer.removeListener>[1]);
       }
     },
     invoke: async (channel: string, data?: unknown): Promise<unknown> => {

@@ -5,7 +5,13 @@ import { notarize } from '@electron/notarize';
 // This script is called by electron-builder after signing the app
 // It's used for notarizing macOS applications
 // Important: Keep CommonJS export shape for electron-builder hook compatibility
-module.exports = async function (params: any) {
+type AfterSignParams = {
+  appOutDir: string;
+  packager: { appInfo: { productFilename: string } };
+};
+
+// This function must remain CommonJS-compatible for electron-builder
+module.exports = async function (params: AfterSignParams) {
   // Only notarize the app on macOS and when publishing (not during development)
   if (process.platform !== 'darwin' || !process.env.NOTARIZE) {
     console.log('Skipping notarization: Not on macOS or NOTARIZE env var not set');
@@ -51,8 +57,9 @@ module.exports = async function (params: any) {
     });
 
     console.log(`Successfully notarized ${appPath}`);
-  } catch (error: any) {
-    console.error(`Notarization failed: ${error?.message ?? String(error)}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Notarization failed: ${message}`);
     throw error;
   }
 };
