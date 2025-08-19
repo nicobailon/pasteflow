@@ -34,6 +34,7 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
 > {
   private initializationError: Error | null = null;
   private isInitialized = false;
+  private initPromise: Promise<void>;
 
   constructor() {
     super(
@@ -48,13 +49,14 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
       2000  // cancelTimeoutMs
     );
 
-    // Auto-initialize on construction
-    this.initialize();
+    // Initialize asynchronously and track the promise
+    this.initPromise = this.initialize();
   }
 
   private async initialize(): Promise<void> {
     try {
-      // Trigger initialization by starting a dummy streaming operation
+      // Simply trigger initialization by starting and immediately canceling
+      // This forces the worker to initialize
       const handle = this.startStreaming(
         {
           files: [],
@@ -64,16 +66,18 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
         },
         {
           onChunk: () => {},
-          onComplete: () => { this.isInitialized = true; },
-          onError: (error) => { this.initializationError = error; }
+          onComplete: () => {},
+          onError: () => {}
         }
       );
       
-      // Immediately cancel to just complete initialization
+      // Cancel immediately to free up the worker
       await handle.cancel();
       this.isInitialized = true;
     } catch (error) {
       this.initializationError = error as Error;
+      this.isInitialized = false;
+      throw error;
     }
   }
 
@@ -148,6 +152,11 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
     expandedNodes: Record<string, boolean> = {},
     chunkSize?: number
   ): { cancel: () => Promise<void> } {
+    // Ensure initialization before starting
+    this.initPromise.catch(() => {
+      callbacks.onError(this.initializationError || new Error('Worker initialization failed'));
+    });
+    
     return this.startStreaming(
       {
         files,

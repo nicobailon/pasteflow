@@ -7,32 +7,26 @@ export interface HandshakeConfig {
   healthResponseType?: string;
 }
 
-export function resolveWorkerUrl(workerRelativePath: string): URL | string {
+export function resolveWorkerUrl(workerRelativePath: string): string {
   // Jest environment - return mock path
   if (typeof jest !== 'undefined') {
     return '/mock/worker/path';
   }
 
-  // Try to use import.meta.url for ES modules
-  try {
-    // Use eval to prevent Jest from parsing this
-    const metaUrl = eval('import.meta.url');
-    return new URL(workerRelativePath, metaUrl);
-  } catch {
-    // Fall back to development or production paths
-    if (typeof window !== 'undefined') {
-      const hostname = window.location?.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        // Development path
-        const basename = workerRelativePath.split('/').pop() ?? '';
-        return `/src/workers/${basename}`;
-      }
+  // Extract basename for use in paths
+  const basename = workerRelativePath.split('/').pop() ?? '';
+
+  // In Electron renderer, check if we're in development
+  if (typeof window !== 'undefined') {
+    const hostname = window.location?.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      // Development path - Vite serves from /src
+      return `/src/workers/${basename}`;
     }
-    
-    // Electron production path
-    const basename = workerRelativePath.split('/').pop() ?? '';
-    return `./assets/${basename.replace('.ts', '.js')}`;
   }
+  
+  // Electron production path - workers are bundled to assets
+  return `./assets/${basename.replace('.ts', '.js')}`;
 }
 
 export function addWorkerListeners(

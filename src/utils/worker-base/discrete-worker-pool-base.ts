@@ -56,6 +56,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   private acceptingJobs = true;
   private preparingForShutdown = false;
   private isRecycling = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor(
     protected poolSize: number,
@@ -66,7 +67,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     protected healthMonitorIntervalSec: number,
     protected queueMaxSize: number
   ) {
-    this.init();
+    this.initPromise = this.init();
   }
 
   protected abstract buildJobMessage(
@@ -207,10 +208,10 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
       return;
     }
     
-    await this.dispatch(item, workerId);
+    this.dispatch(item, workerId);
   }
 
-  private async dispatch(item: QueueItem<TReq, TRes>, workerId: number): Promise<void> {
+  private dispatch(item: QueueItem<TReq, TRes>, workerId: number): void {
     const worker = this.workers[workerId];
     if (!worker) {
       item.resolve(this.fallbackValue(item.req));
@@ -337,6 +338,16 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     request: TReq,
     options?: { signal?: AbortSignal; priority?: number }
   ): Promise<TRes> {
+    // Ensure workers are initialized
+    if (this.initPromise) {
+      try {
+        await this.initPromise;
+      } catch {
+        // Initialization failed, use fallback
+        return this.fallbackValue(request);
+      }
+    }
+    
     if (!this.acceptingJobs || this.isTerminated) {
       return this.fallbackValue(request);
     }

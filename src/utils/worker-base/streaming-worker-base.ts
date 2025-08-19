@@ -83,7 +83,7 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
       // Wait for ongoing initialization
       return new Promise((resolve, reject) => {
         let attempts = 0;
-        const maxAttempts = this.initTimeoutMs / 10;
+        const maxAttempts = Math.max(1, Math.floor(this.initTimeoutMs / 10));
         const checkState = setInterval(() => {
           attempts++;
           if (this.state === 'ready') {
