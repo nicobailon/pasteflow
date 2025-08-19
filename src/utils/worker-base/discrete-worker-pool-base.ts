@@ -398,19 +398,21 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     
     if (batchMessage) {
       // Use batch processing with timeout
+      const workerId = this.findAvailableWorker();
+      if (workerId === null) {
+        // Fallback to parallel processing
+        return Promise.all(requests.map(req => this.countOne(req, options)));
+      }
+      
+      const worker = this.workers[workerId];
+      const id = batchMessage.id;
+      let handlers: {
+        message: (e: MessageEvent) => void;
+        error: () => void;
+      } | null = null;
+      
       const innerPromise = new Promise<TRes[]>((resolve) => {
-        const workerId = this.findAvailableWorker();
-        if (workerId === null) {
-          // Fallback to parallel processing
-          Promise.all(requests.map(req => this.countOne(req, options)))
-            .then(resolve);
-          return;
-        }
-        
-        const worker = this.workers[workerId];
-        const id = batchMessage.id;
-        
-        const handlers = {
+        handlers = {
           message: (e: MessageEvent) => {
             if (e.data?.id !== id) return;
             const results = this.parseBatchJobResult(e, requests);
@@ -429,11 +431,14 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         worker.postMessage(batchMessage);
       });
       
-      // Wrap with timeout
+      // Wrap with timeout and ensure cleanup
       try {
         return await withTimeout(innerPromise, this.operationTimeoutMs, 'Batch operation');
       } catch {
-        // On timeout, return fallback values  
+        // On timeout, clean up listeners and return fallback values
+        if (handlers) {
+          removeWorkerListeners(worker, handlers);
+        }
         return requests.map(req => this.fallbackValue(req));
       }
     } else {

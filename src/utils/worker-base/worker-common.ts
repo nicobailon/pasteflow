@@ -10,33 +10,25 @@ export interface HandshakeConfig {
 }
 
 export function resolveWorkerUrl(workerRelativePath: string): string {
-  // Try import.meta.url first
-  try {
-    const metaUrl = eval('import.meta.url');
-    return new URL(workerRelativePath, metaUrl).toString();
-  } catch {
-    // Fallback to existing logic
-    
-    // Jest environment - return mock path
-    if (typeof jest !== 'undefined') {
-      return '/mock/worker/path';
-    }
-
-    // Extract basename for use in paths
-    const basename = workerRelativePath.split('/').pop() ?? '';
-
-    // In Electron renderer, check if we're in development
-    if (typeof window !== 'undefined') {
-      const hostname = window.location?.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        // Development path - Vite serves from /src
-        return `/src/workers/${basename}`;
-      }
-    }
-    
-    // Electron production path - workers are bundled to assets
-    return `./assets/${basename.replace('.ts', '.js')}`;
+  // Jest environment - return mock path
+  if (typeof jest !== 'undefined') {
+    return '/mock/worker/path';
   }
+
+  // Extract basename for use in paths
+  const basename = workerRelativePath.split('/').pop() ?? '';
+
+  // In Electron renderer, check if we're in development
+  if (typeof window !== 'undefined') {
+    const hostname = window.location?.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      // Development path - Vite serves from /src
+      return `/src/workers/${basename}`;
+    }
+  }
+  
+  // Electron production path - workers are bundled to assets
+  return `./assets/${basename.replace('.ts', '.js')}`;
 }
 
 export function addWorkerListeners(
