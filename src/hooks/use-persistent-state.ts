@@ -121,8 +121,11 @@ export function usePersistentState<T>(
         await addRandomDelay();
 
         const dbValue = await fetchData({ key });
-        if (dbValue !== null) {
+        if (dbValue !== null && dbValue !== undefined) {
           setPersistedValue(dbValue as T);
+        } else {
+          // Ensure we never propagate undefined/null to callers
+          setPersistedValue(initialValue);
         }
         setHasInitialized(true);
       } catch (error) {
@@ -184,7 +187,8 @@ export function usePersistentState<T>(
   }, [key, isValidKey, valuesEqual, saveToDatabase]);
 
   // Return the persisted value immediately, which will be updated when database loads
-  return [hasInitialized ? persistedValue : initialValue, setValue];
+  // Extra safety: coalesce to initialValue to avoid undefined leaking to consumers
+  return [hasInitialized ? (persistedValue ?? initialValue) : initialValue, setValue];
 }
 
 // Default export for backward compatibility

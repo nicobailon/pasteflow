@@ -24,7 +24,7 @@ const SearchBar = ({
         type="text"
         className="search-input"
         placeholder={placeholder}
-        value={searchTerm}
+        value={searchTerm ?? ""}
         onChange={(e) => onSearchChange(e.target.value)}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
