@@ -45,9 +45,10 @@ try {
   log('🔨 Building Vite app...');
   execSync('npm run build', { stdio: 'inherit' });
   log('✅ Build complete');
-} catch (error: any) {
+} catch (error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
   err('❌ Build failed:');
-  err(error?.message || String(error));
+  err(message);
   process.exit(1);
 }
 
@@ -85,9 +86,10 @@ try {
   log(`Running command: ${command}`);
   execSync(command, { stdio: 'inherit' });
   log('✅ Packaging complete');
-} catch (error: any) {
+} catch (error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
   err('❌ Packaging failed:');
-  err(error?.message || String(error));
+  err(message);
   process.exit(1);
 }
 
@@ -102,9 +104,10 @@ if (!fs.existsSync(releasesPath)) {
 let files: string[];
 try {
   files = fs.readdirSync(releasesPath);
-} catch (error: any) {
+} catch (error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
   err('❌ Failed to read release-builds directory:');
-  err(error?.message || String(error));
+  err(message);
   process.exit(1);
 }
 

@@ -29,8 +29,9 @@ async function main(): Promise<void> {
     console.log('📦 Packaging application...');
     execSync('npm run package', { stdio: 'inherit' });
     console.log('✅ Packaging completed!');
-  } catch (error: any) {
-    console.error('❌ Build failed:', error?.message || error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('❌ Build failed:', message);
     process.exit(1);
   }
 }

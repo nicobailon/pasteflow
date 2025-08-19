@@ -21,11 +21,12 @@ async function runCommand(command: string): Promise<CommandResult> {
       stderr,
       success: true,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const anyErr = error as { code?: number; stdout?: string; stderr?: string; message?: string };
     return {
-      exitCode: error?.code || 1,
-      stdout: error?.stdout || '',
-      stderr: error?.stderr || error?.message || String(error),
+      exitCode: typeof anyErr.code === 'number' ? anyErr.code : 1,
+      stdout: typeof anyErr.stdout === 'string' ? anyErr.stdout : '',
+      stderr: typeof anyErr.stderr === 'string' ? anyErr.stderr : (anyErr.message ?? String(error)),
       success: false,
     };
   }
@@ -390,15 +391,17 @@ if (require.main === module) {
   const command = process.argv[2];
 
   if (command === 'notes') {
-    generateReleaseNotes().catch((error) => {
+    generateReleaseNotes().catch((error: unknown) => {
       // eslint-disable-next-line no-console
-      console.error('Failed to generate release notes:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Failed to generate release notes:', message);
       process.exit(1);
     });
   } else {
-    performReleaseChecklist().catch((error) => {
+    performReleaseChecklist().catch((error: unknown) => {
       // eslint-disable-next-line no-console
-      console.error('Release checklist failed:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Release checklist failed:', message);
       process.exit(1);
     });
   }

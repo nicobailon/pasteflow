@@ -47,8 +47,9 @@ function fixDependencies(): void {
     // Write updated package.json
     fs.writeFileSync(pkgPath, JSON.stringify(packageJson, null, 2));
     console.log('✅ Updated package.json build.asarUnpack for critical deps');
-  } catch (error: any) {
-    console.error('❌ Error fixing dependencies:', error?.message || error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error fixing dependencies:', message);
     process.exit(1);
   }
 }

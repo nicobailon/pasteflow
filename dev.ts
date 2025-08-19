@@ -11,8 +11,9 @@ try {
   require('ignore');
   require('tiktoken');
   require('gpt-3-encoder');
-} catch (error: any) {
-  console.error(`\n❌ Missing dependency: ${error?.message}`);
+} catch (error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`\n❌ Missing dependency: ${message}`);
   console.error('Please run: npm install\n');
   process.exit(1);
 }
@@ -55,7 +56,8 @@ viteProcess.stdout?.on('data', (data: Buffer) => {
 });
 
 // Listen for errors that might indicate port conflicts
-(viteProcess as any).stderr?.on('data', (data: Buffer) => {
+const viteStderr = viteProcess.stderr as import('stream').Readable | null;
+viteStderr?.on('data', (data: Buffer) => {
   const output = data.toString();
   console.error(output); // Echo error output to console
 
@@ -80,8 +82,6 @@ function startElectron(): void {
 
   // Build schemas only (tsx will handle TypeScript at runtime)
   try {
-    console.log('📋 Building IPC schemas...');
-    execSync('npm run build:schemas', { stdio: 'inherit' });
 
     // Compile main once, then start a watcher for incremental rebuilds
     console.log('🛠️ Building main (once)...');
@@ -115,8 +115,9 @@ function startElectron(): void {
       viteProcess.kill();
       process.exit(code ?? 0);
     });
-  } catch (err: any) {
-    console.error('❌ Dev startup failed (schemas or main build step):', err?.message || err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('❌ Dev startup failed (schemas or main build step):', message);
     viteProcess.kill();
     process.exit(1);
   }
