@@ -50,7 +50,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   private pendingByHash = new Map<string, Promise<TRes>>();
   private recoveryLocks = new Map<number, boolean>();
   private recoveryQueue = new Map<number, Promise<void>>();
-  private healthMonitorInterval?: NodeJS.Timeout;
+  private healthMonitorInterval?: ReturnType<typeof setInterval>;
   
   private isTerminated = false;
   private acceptingJobs = true;
@@ -226,11 +226,12 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     
     this.activeJobs.set(item.id, job);
     
-    let timeoutId: NodeJS.Timeout | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let isCompleted = false;
     
     const handlers = {
       message: (e: MessageEvent) => {
+        if (e.data?.id !== item.id) return;
         const result = this.parseJobResult(e, item.req);
         if (result) {
           isCompleted = true;
@@ -324,6 +325,9 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         this.workerHealthy[workerId] = true;
         
         this.onWorkerRecovered(workerId);
+        
+        // Process any queued jobs after recovery
+        this.processNext();
       } finally {
         this.recoveryLocks.delete(workerId);
         this.recoveryQueue.delete(workerId);
@@ -393,8 +397,8 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     const batchMessage = this.buildBatchJobMessage(requests, `batch-${Date.now()}`);
     
     if (batchMessage) {
-      // Use batch processing
-      return new Promise<TRes[]>((resolve) => {
+      // Use batch processing with timeout
+      const innerPromise = new Promise<TRes[]>((resolve) => {
         const workerId = this.findAvailableWorker();
         if (workerId === null) {
           // Fallback to parallel processing
@@ -408,6 +412,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         
         const handlers = {
           message: (e: MessageEvent) => {
+            if (e.data?.id !== id) return;
             const results = this.parseBatchJobResult(e, requests);
             if (results) {
               removeWorkerListeners(worker, handlers);
@@ -423,6 +428,14 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         addWorkerListeners(worker, handlers);
         worker.postMessage(batchMessage);
       });
+      
+      // Wrap with timeout
+      try {
+        return await withTimeout(innerPromise, this.operationTimeoutMs, 'Batch operation');
+      } catch {
+        // On timeout, return fallback values  
+        return requests.map(req => this.fallbackValue(req));
+      }
     } else {
       // Parallel processing
       return Promise.all(
@@ -445,13 +458,14 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     const results = await Promise.all(
       this.workers.map(async (worker, i) => {
         const start = Date.now();
+        const healthId = `health-${Date.now()}-${i}`;
         
         try {
           await withTimeout(
             new Promise<boolean>((resolve) => {
               const handlers = {
                 message: (e: MessageEvent) => {
-                  if (e.data?.type === this.handshake.healthResponseType) {
+                  if (e.data?.type === this.handshake.healthResponseType && e.data?.id === healthId) {
                     removeWorkerListeners(worker, handlers);
                     resolve(e.data.healthy ?? true);
                   }
@@ -459,7 +473,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
               };
               
               addWorkerListeners(worker, handlers);
-              worker.postMessage({ type: this.handshake.healthCheckType });
+              worker.postMessage({ type: this.handshake.healthCheckType, id: healthId });
             }),
             this.healthCheckTimeoutMs,
             `Worker ${i} health check`
@@ -477,6 +491,17 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     );
     
     return results;
+  }
+
+  public getStats() {
+    return {
+      queueLength: this.queue.length,
+      activeJobs: this.activeJobs.size,
+      workerCount: this.workers.length,
+      healthyWorkers: this.workerHealthy.filter(Boolean).length,
+      acceptingJobs: this.acceptingJobs,
+      isTerminated: this.isTerminated
+    };
   }
 
   public async performHealthMonitoring(): Promise<void> {

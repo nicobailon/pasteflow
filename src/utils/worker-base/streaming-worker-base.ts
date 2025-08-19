@@ -317,6 +317,14 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
     };
   }
 
+  public getSnapshot() {
+    return {
+      state: this.state,
+      queueLength: this.queue.length,
+      hasActive: !!this.active
+    };
+  }
+
   public async terminate(): Promise<void> {
     // Cancel active operation
     if (this.active) {

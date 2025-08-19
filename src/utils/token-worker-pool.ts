@@ -135,11 +135,12 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
   }
 
   getStatus() {
+    const s = this.getStats();
     return {
-      isHealthy: true,
-      activeJobs: 0, // Base class doesn't expose this
-      queueLength: 0, // Base class doesn't expose this
-      workerCount: this.poolSize
+      isHealthy: s.healthyWorkers === s.workerCount && s.workerCount > 0,
+      activeJobs: s.activeJobs,
+      queueLength: s.queueLength,
+      workerCount: s.workerCount
     };
   }
 

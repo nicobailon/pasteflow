@@ -3,9 +3,6 @@
  * Provides deterministic cancellation, queue deduplication, and resource management.
  */
 
-// Declare jest global for test environment detection with precise type
-declare const jest: { fn?: unknown } | undefined;
-
 import { UI } from '@constants';
 import { StreamingWorkerBase } from './worker-base/streaming-worker-base';
 import type { FileData, TreeNode } from '../types/file-types';
@@ -196,10 +193,11 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
   }
 
   getStatus() {
+    const snap = this.getSnapshot();
     return {
-      state: this.isReady() ? 'ready' : this.initializationError ? 'error' : 'initializing',
-      queueLength: 0, // Base class doesn't expose queue
-      hasActiveBuild: false // Base class doesn't expose active state
+      state: snap.state,
+      queueLength: snap.queueLength,
+      hasActiveBuild: snap.hasActive
     };
   }
 
