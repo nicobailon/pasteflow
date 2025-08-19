@@ -37,10 +37,14 @@ const preferencesStore = new Map<string, unknown>();
 let database: DatabaseBridge | null = null;
 
 /** Optional tokenizer (tiktoken) */
-let tiktoken: any = null;
+type TiktokenModule = {
+  get_encoding: (name: string) => { encode: (s: string) => number[] };
+};
+
+let tiktoken: TiktokenModule | null = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  tiktoken = require('tiktoken');
+  tiktoken = require('tiktoken') as TiktokenModule;
 } catch {
   // Module unavailable; will fall back
 }
@@ -327,9 +331,9 @@ app.whenReady().then(async () => {
     await database.initialize();
     // eslint-disable-next-line no-console
     console.log('Database initialized successfully');
-  } catch (err) {
+  } catch (error: unknown) {
     // eslint-disable-next-line no-console
-    console.error('Failed to initialize database:', err);
+    console.error('Failed to initialize database:', error);
     database = null;
   }
   createWindow();
@@ -357,9 +361,9 @@ app.on('before-quit', async (event) => {
         // eslint-disable-next-line no-console
         console.warn('Auto-save timeout during shutdown - proceeding with quit');
       }
-    } catch (err) {
+    } catch (error: unknown) {
       // eslint-disable-next-line no-console
-      console.error('Error during shutdown save:', err);
+      console.error('Error during shutdown save:', error);
     }
   }
 
@@ -369,9 +373,9 @@ app.on('before-quit', async (event) => {
       await (database as unknown as { close: () => Promise<void> }).close();
       // eslint-disable-next-line no-console
       console.log('Database closed successfully');
-    } catch (err) {
+    } catch (error: unknown) {
       // eslint-disable-next-line no-console
-      console.error('Error closing database:', err);
+      console.error('Error closing database:', error);
     }
   }
 
@@ -528,9 +532,9 @@ ipcMain.on(
                       currentBatchFiles.push(fi);
                       allFiles.push(fi);
                     })
-                    .catch((err) => {
+                    .catch((error: unknown) => {
                       // eslint-disable-next-line no-console
-                      console.error(`Error processing file ${fullPath}:`, err);
+                      console.error(`Error processing file ${fullPath}:`, error);
                     })
                 );
 
@@ -544,9 +548,9 @@ ipcMain.on(
             if (filePromises.length > 0) {
               await Promise.all(filePromises);
             }
-          } catch (err) {
+          } catch (error: unknown) {
             // eslint-disable-next-line no-console
-            console.error(`Error reading directory ${dirPath}:`, err);
+            console.error(`Error reading directory ${dirPath}:`, error);
           }
 
           dynamicBatchSize = batcher.calculateBatchSize(currentBatchFiles);
