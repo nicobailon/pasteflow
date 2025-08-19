@@ -16,9 +16,9 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
     failureCount: 0
   };
 
-  constructor() {
+  constructor(poolSize?: number) {
     super(
-      Math.min(navigator.hardwareConcurrency || WORKER_POOL.DEFAULT_WORKERS, WORKER_POOL.MAX_WORKERS),
+      poolSize ?? Math.min(navigator.hardwareConcurrency || WORKER_POOL.DEFAULT_WORKERS, WORKER_POOL.MAX_WORKERS),
       '../workers/token-counter-worker.ts',
       {
         readySignalType: 'WORKER_READY',

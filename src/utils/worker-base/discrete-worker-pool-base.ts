@@ -133,38 +133,32 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   }
 
   private async handshakeWorker(worker: Worker, workerId: number): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      const handlers = {
-        message: (e: MessageEvent) => {
-          if (e.data?.type === this.handshake.readySignalType) {
-            // Send init request
-            worker.postMessage({ 
-              type: this.handshake.initRequestType, 
-              id: `init-${workerId}` 
-            });
-          } else if (e.data?.type === this.handshake.initResponseType) {
+    return withTimeout(
+      new Promise<void>((resolve, reject) => {
+        const handlers = {
+          message: (e: MessageEvent) => {
+            if (e.data?.type === this.handshake.readySignalType) {
+              // Send init request
+              worker.postMessage({ 
+                type: this.handshake.initRequestType, 
+                id: `init-${workerId}` 
+              });
+            } else if (e.data?.type === this.handshake.initResponseType) {
+              removeWorkerListeners(worker, handlers);
+              resolve();
+            }
+          },
+          error: (e: ErrorEvent) => {
             removeWorkerListeners(worker, handlers);
-            resolve();
+            reject(new Error(`Worker ${workerId} error during handshake: ${e.message}`));
           }
-        },
-        error: (e: ErrorEvent) => {
-          removeWorkerListeners(worker, handlers);
-          reject(new Error(`Worker ${workerId} error during handshake: ${e.message}`));
-        }
-      };
-      
-      addWorkerListeners(worker, handlers);
-      
-      // Add timeout
-      withTimeout(
-        new Promise<void>((_, timeoutReject) => {
-          // This promise will be resolved by the handlers above
-          setTimeout(() => timeoutReject(new Error('Handshake timeout')), this.operationTimeoutMs);
-        }),
-        this.operationTimeoutMs,
-        `Worker ${workerId} handshake`
-      ).catch(reject);
-    });
+        };
+        
+        addWorkerListeners(worker, handlers);
+      }),
+      this.operationTimeoutMs,
+      `Worker ${workerId} handshake`
+    );
   }
 
   private findAvailableWorker(): number | null {
@@ -231,20 +225,29 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     
     this.activeJobs.set(item.id, job);
     
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isCompleted = false;
+    
     const handlers = {
       message: (e: MessageEvent) => {
         const result = this.parseJobResult(e, item.req);
         if (result) {
+          isCompleted = true;
+          if (timeoutId) clearTimeout(timeoutId);
           this.cleanupJob(item.id);
           item.resolve(result.value);
           this.processNext();
         } else if (e.data?.type === this.handshake.errorType && e.data?.id === item.id) {
+          isCompleted = true;
+          if (timeoutId) clearTimeout(timeoutId);
           this.cleanupJob(item.id);
           item.resolve(this.fallbackValue(item.req));
           this.processNext();
         }
       },
       error: () => {
+        isCompleted = true;
+        if (timeoutId) clearTimeout(timeoutId);
         this.cleanupJob(item.id);
         item.resolve(this.fallbackValue(item.req));
         this.processNext();
@@ -255,17 +258,14 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     addWorkerListeners(worker, handlers);
     
     // Set up timeout
-    const timeoutPromise = withTimeout(
-      new Promise<void>(() => {}), // Never resolves on its own
-      this.operationTimeoutMs,
-      `Job ${item.id}`
-    );
-    
-    timeoutPromise.catch(() => {
-      this.cleanupJob(item.id);
-      item.resolve(this.fallbackValue(item.req));
-      this.processNext();
-    });
+    timeoutId = setTimeout(() => {
+      if (!isCompleted) {
+        isCompleted = true;
+        this.cleanupJob(item.id);
+        item.resolve(this.fallbackValue(item.req));
+        this.processNext();
+      }
+    }, this.operationTimeoutMs);
     
     // Send job message
     worker.postMessage(this.buildJobMessage(item.req, item.id));
