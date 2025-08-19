@@ -1,5 +1,5 @@
 import { FileData } from '../../types/file-types';
-import { countTokens } from '../../utils/token-counter';
+import { estimateTokenCount } from '../../utils/token-utils';
 
 describe('Large File Processing Performance', () => {
   it('should process 1000 files within reasonable time', async () => {
@@ -30,7 +30,7 @@ describe('Large File Processing Performance', () => {
       const processedBatch = batch.map(file => ({
         ...file,
         isContentLoaded: true,
-        tokenCount: file.tokenCount || countTokens(file.content || '')
+        tokenCount: file.tokenCount || estimateTokenCount(file.content || '')
       }));
       
       results.push(...processedBatch);

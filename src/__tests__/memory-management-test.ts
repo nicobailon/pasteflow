@@ -1,5 +1,5 @@
-import { enhancedFileContentCache } from '../utils/enhanced-file-cache';
-import { tokenCountCache } from '../utils/token-cache';
+import { enhancedFileContentCache } from '../utils/enhanced-file-cache-adapter';
+import { tokenCountCache } from '../utils/token-cache-adapter';
 
 describe('Memory Management on Workspace Changes', () => {
   beforeEach(() => {

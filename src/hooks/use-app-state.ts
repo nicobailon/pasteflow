@@ -11,9 +11,9 @@ import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instr
 import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } from '../utils/content-formatter';
 import { resetFolderState } from '../utils/file-utils';
 import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
-import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache';
+import { enhancedFileContentCache as fileContentCache } from '../utils/enhanced-file-cache-adapter';
 import { mapFileTreeSortToContentSort } from '../utils/sort-utils';
-import { tokenCountCache } from '../utils/token-cache';
+import { tokenCountCache } from '../utils/token-cache-adapter';
 import { buildFolderIndex } from '../utils/folder-selection-index';
 import { VirtualFileLoader } from '../utils/virtual-file-loader';
 
@@ -24,7 +24,7 @@ import { useDebouncedPersistentState } from './use-debounced-persistent-state';
 import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
-import { useTokenCounter } from './use-token-counter';
+import { useTokenService } from './use-token-service';
 import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
@@ -159,8 +159,8 @@ const useAppState = () => {
   const validateSelectedFilesExist = fileSelection.validateSelectedFilesExist;
   const selectedFiles = fileSelection.selectedFiles;
 
-  // Token counter hook - always enabled
-  const { countTokens: workerCountTokens, countTokensBatch, isReady: isTokenWorkerReady } = useTokenCounter();
+  // Token service hook - always enabled
+  const { countTokens: serviceCountTokens, countTokensBatch, isReady: isServiceReady } = useTokenService();
 
   // Refs for state values needed in callbacks to avoid unstable dependencies
   const allFilesRef = useRef(allFiles);
@@ -507,19 +507,16 @@ const useAppState = () => {
     priority = 0
   ): Promise<{ tokenCount: number; error?: string }> => {
     try {
-      if (isTokenWorkerReady) {
-        const tokenCount = await workerCountTokens(content, priority);
-        return { tokenCount };
-      } else {
-        const tokenCount = estimateTokenCount(content);
-        return { tokenCount, error: 'Worker not ready, used estimation' };
-      }
+      // Always use the service facade - it handles backend selection and fallback
+      const tokenCount = await serviceCountTokens(content);
+      return { tokenCount };
     } catch (error) {
       logger.error(`Token counting failed for ${filePath}:`, error);
+      // Service should have already fallen back, but use estimate as last resort
       const tokenCount = estimateTokenCount(content);
-      return { tokenCount, error: 'Worker failed, used estimation' };
+      return { tokenCount, error: 'Token service failed, used estimation' };
     }
-  }, [isTokenWorkerReady, workerCountTokens]);
+  }, [serviceCountTokens]);
 
   // Helper function to update file with content and tokens
   const updateFileWithContent = useCallback((
@@ -801,7 +798,7 @@ const useAppState = () => {
 
   // Batch load multiple file contents
   const loadMultipleFileContents = useCallback(async (filePaths: string[], options?: { priority?: number }): Promise<void> => {
-    if (!isTokenWorkerReady) {
+    if (!isServiceReady) {
       for (const path of filePaths) {
         await loadFileContent(path);
       }
@@ -819,7 +816,7 @@ const useAppState = () => {
     if (successful.length > 0) {
       try {
         const contents = successful.map((item: { path: string; content: string }) => item.content);
-        const tokenCounts = await countTokensBatch(contents, { priority: options?.priority ?? 10 });
+        const tokenCounts = await countTokensBatch(contents);
 
         const filePathToTokenCount = new Map(
           successful.map((item: { path: string; content: string }, index: number) => [item.path, tokenCounts[index]])
@@ -855,7 +852,7 @@ const useAppState = () => {
       });
     }
   }, [
-    isTokenWorkerReady,
+    isServiceReady,
     loadFileContent,
     countTokensBatch,
     setBatchLoadingState,

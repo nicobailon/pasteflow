@@ -6,8 +6,8 @@
 import { memoryMonitor, estimateObjectMemoryMB } from './memory-monitor';
 import { getTreeSortingService } from './tree-sorting-service';
 import { getFlattenCacheStats } from './tree-node-transform';
-import { enhancedFileContentCache } from './enhanced-file-cache';
-import { tokenCountCache } from './token-cache';
+import { enhancedFileContentCache } from './enhanced-file-cache-adapter';
+import { tokenCountCache } from './token-cache-adapter';
 
 /**
  * Register all application caches with the memory monitor

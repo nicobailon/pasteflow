@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 
 import { memoryMonitor } from '../utils/memory-monitor';
-import { enhancedFileContentCache } from '../utils/enhanced-file-cache';
-import { tokenCountCache } from '../utils/token-cache';
+import { enhancedFileContentCache } from '../utils/enhanced-file-cache-adapter';
+import { tokenCountCache } from '../utils/token-cache-adapter';
 import { DirectorySelectionCache } from '../utils/selection-cache';
 import { getTreeSortingService } from '../utils/tree-sorting-service';
 import { getFlattenCacheStats } from '../utils/tree-node-transform';
@@ -20,7 +20,7 @@ export function useMemoryMonitoring(
     memoryMonitor.registerCache(
       'FileContentCache',
       () => enhancedFileContentCache.getMetrics().totalEntries,
-      () => enhancedFileContentCache.getMetrics().totalMemoryUsage / (1024 * 1024)
+      () => enhancedFileContentCache.getMemoryUsageMB()
     );
 
     // Register token count cache

@@ -20,6 +20,8 @@
     "src/validation/**/*.ts",
     "src/constants/**/*.ts",
     "src/shared/**/*.ts",
+    "src/services/token-service.ts",
+    "src/services/token-service-main.ts",
     "src/types/**/*.d.ts"
   ],
   "exclude": [

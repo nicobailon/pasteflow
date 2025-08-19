@@ -8,6 +8,7 @@ import { excludedFiles, binaryExtensions } from '../shared/excluded-files';
 import { getPathValidator } from '../security/path-validator';
 import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
+import { getMainTokenService } from '../services/token-service-main';
 
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
 
@@ -36,27 +37,8 @@ const preferencesStore = new Map<string, unknown>();
 // Database instance (initialized in whenReady)
 let database: DatabaseBridge | null = null;
 
-/** Optional tokenizer (tiktoken) */
-type TiktokenModule = {
-  get_encoding: (name: string) => { encode: (s: string) => number[] };
-};
-
-let tiktoken: TiktokenModule | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  tiktoken = require('tiktoken') as TiktokenModule;
-} catch {
-  // Module unavailable; will fall back
-}
-
-let encoder: { encode: (s: string) => number[] } | null = null;
-try {
-  if (tiktoken) {
-    encoder = tiktoken.get_encoding('o200k_base'); // gpt-4o encoding
-  }
-} catch {
-  encoder = null;
-}
+// Initialize token service
+const tokenService = getMainTokenService();
 
 /** Binary/special files */
 const BINARY_EXTENSIONS = new Set<string>([
@@ -119,27 +101,13 @@ function isBinaryFile(filePath: string): boolean {
   return BINARY_EXTENSIONS.has(ext) || isSpecialFile(filePath);
 }
 
-function sanitizeTextForTokenCount(text: string): string {
-  return text
-    .replace(/<\|[^|>]+\|>/g, '') // Remove special tokens like <|...|>
-    .replace(/\u0000/g, '') // Null chars
-    .replace(/[\uFFF0-\uFFFF]/g, '') // Special use area
-    .replace(/[\u{10000}-\u{10FFFF}]/gu, ''); // Supplementary private use area
-}
-
-function countTokens(text: string): number {
-  if (!encoder) {
-    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
-  }
+async function countTokens(text: string): Promise<number> {
   try {
-    const sanitized = sanitizeTextForTokenCount(text);
-    if (sanitized.length < text.length * 0.9) {
-      // Too many removals, fallback to estimate
-      return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
-    }
-    const tokens = encoder.encode(sanitized);
-    return tokens.length;
-  } catch {
+    const result = await tokenService.countTokens(text);
+    return result.count;
+  } catch (error) {
+    console.error('Token counting failed:', error);
+    // Fallback to simple estimation
     return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
   }
 }
@@ -367,6 +335,13 @@ app.on('before-quit', async (event) => {
     }
   }
 
+  // Clean up token service
+  try {
+    await tokenService.cleanup();
+  } catch (error) {
+    console.warn('Error cleaning up token service:', error);
+  }
+  
   // Best-effort close database
   if (database && (database as unknown as { initialized?: boolean }).initialized) {
     try {
@@ -680,7 +655,7 @@ ipcMain.handle('request-file-content', async (_event, filePath: string) => {
     if (isLikelyBinaryContent(content, filePath)) {
       return { success: false, error: 'File contains binary data', isBinary: true };
     }
-    const tokenCount = countTokens(content);
+    const tokenCount = await countTokens(content);
     return { success: true, data: { content, tokenCount } };
   } catch (error: unknown) {
     const extIsBinary = isBinaryFile(filePath) || isSpecialFile(filePath);
