@@ -1,0 +1,514 @@
+import {
+  type HandshakeConfig,
+  resolveWorkerUrl,
+  addWorkerListeners,
+  removeWorkerListeners,
+  withTimeout,
+} from './worker-common';
+
+interface QueueItem<TReq, TRes> {
+  id: string;
+  req: TReq;
+  resolve: (value: TRes) => void;
+  reject: (error: Error) => void;
+  priority: number;
+}
+
+interface ActiveJob<TReq> {
+  workerId: number;
+  start: number;
+  req: TReq;
+  listeners?: {
+    message: (e: MessageEvent) => void;
+    error?: (e: ErrorEvent) => void;
+  };
+}
+
+/**
+ * Base class for discrete worker pools that process individual jobs with N workers.
+ * Manages a pool of workers, job queue, deduplication, health monitoring, and recovery.
+ * 
+ * Handshake lifecycle:
+ * 1. Workers send readySignalType on boot
+ * 2. Pool sends initRequestType
+ * 3. Workers respond with initResponseType
+ * 
+ * Timeout and fallback policy:
+ * - Jobs timeout after operationTimeoutMs and resolve with fallback value
+ * - Queue drops lowest priority items when full, resolving with fallback
+ * 
+ * Recovery strategy:
+ * - Health checks run at healthMonitorIntervalSec intervals
+ * - Unhealthy workers are recovered with lock to prevent duplicate recovery
+ */
+export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
+  private workers: Worker[] = [];
+  private workerReady: boolean[] = [];
+  private workerHealthy: boolean[] = [];
+  private queue: QueueItem<TReq, TRes>[] = [];
+  private activeJobs = new Map<string, ActiveJob<TReq>>();
+  private pendingByHash = new Map<string, Promise<TRes>>();
+  private recoveryLocks = new Map<number, boolean>();
+  private recoveryQueue = new Map<number, Promise<void>>();
+  private healthMonitorInterval?: NodeJS.Timeout;
+  
+  private isTerminated = false;
+  private acceptingJobs = true;
+  private preparingForShutdown = false;
+  private isRecycling = false;
+
+  constructor(
+    protected poolSize: number,
+    protected workerRelativePath: string,
+    protected handshake: HandshakeConfig,
+    protected operationTimeoutMs: number,
+    protected healthCheckTimeoutMs: number,
+    protected healthMonitorIntervalSec: number,
+    protected queueMaxSize: number
+  ) {
+    this.init();
+  }
+
+  protected abstract buildJobMessage(
+    request: TReq,
+    id: string
+  ): { type: string; id: string; payload: unknown };
+
+  protected abstract parseJobResult(
+    event: MessageEvent,
+    request: TReq
+  ): { value: TRes; usedFallback: boolean } | null;
+
+  protected abstract buildBatchJobMessage(
+    requests: TReq[],
+    id: string
+  ): { type: string; id: string; payload: unknown } | null;
+
+  protected abstract parseBatchJobResult(
+    event: MessageEvent,
+    requests: TReq[]
+  ): TRes[] | null;
+
+  protected abstract fallbackValue(request: TReq): TRes;
+
+  protected hashRequest(request: TReq): string {
+    const str = JSON.stringify(request);
+    let hash = 0;
+    for (let i = 0; i < Math.min(str.length, 1024); i++) {
+      hash = (hash << 5) - hash + (str.codePointAt(i) ?? 0);
+      hash |= 0;
+    }
+    return `${str.length}-${hash}`;
+  }
+
+  protected onWorkerRecovered(workerId: number): void {
+    // Optional hook for subclasses
+  }
+
+  private async init(): Promise<void> {
+    const url = resolveWorkerUrl(this.workerRelativePath);
+    
+    for (let i = 0; i < this.poolSize; i++) {
+      try {
+        const worker = new Worker(url, { type: 'module' });
+        this.workers[i] = worker;
+        this.workerReady[i] = false;
+        this.workerHealthy[i] = false;
+        
+        await this.handshakeWorker(worker, i);
+        
+        this.workerReady[i] = true;
+        this.workerHealthy[i] = true;
+      } catch (error) {
+        console.error(`Failed to initialize worker ${i}:`, error);
+        this.workerReady[i] = false;
+        this.workerHealthy[i] = false;
+      }
+    }
+    
+    // Start health monitoring
+    if (this.handshake.healthCheckType) {
+      this.startHealthMonitoring();
+    }
+  }
+
+  private async handshakeWorker(worker: Worker, workerId: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const handlers = {
+        message: (e: MessageEvent) => {
+          if (e.data?.type === this.handshake.readySignalType) {
+            // Send init request
+            worker.postMessage({ 
+              type: this.handshake.initRequestType, 
+              id: `init-${workerId}` 
+            });
+          } else if (e.data?.type === this.handshake.initResponseType) {
+            removeWorkerListeners(worker, handlers);
+            resolve();
+          }
+        },
+        error: (e: ErrorEvent) => {
+          removeWorkerListeners(worker, handlers);
+          reject(new Error(`Worker ${workerId} error during handshake: ${e.message}`));
+        }
+      };
+      
+      addWorkerListeners(worker, handlers);
+      
+      // Add timeout
+      withTimeout(
+        new Promise<void>((_, timeoutReject) => {
+          // This promise will be resolved by the handlers above
+          setTimeout(() => timeoutReject(new Error('Handshake timeout')), this.operationTimeoutMs);
+        }),
+        this.operationTimeoutMs,
+        `Worker ${workerId} handshake`
+      ).catch(reject);
+    });
+  }
+
+  private findAvailableWorker(): number | null {
+    for (let i = 0; i < this.workers.length; i++) {
+      if (this.workerHealthy[i] && !this.isWorkerBusy(i)) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  private isWorkerBusy(workerId: number): boolean {
+    for (const job of this.activeJobs.values()) {
+      if (job.workerId === workerId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private enqueue(item: QueueItem<TReq, TRes>): void {
+    this.queue.push(item);
+    this.queue.sort((a, b) => a.priority - b.priority);
+    
+    // Enforce queue size limit - drop highest priority value (lowest priority)
+    while (this.queue.length > this.queueMaxSize) {
+      const dropped = this.queue.pop();
+      if (dropped) {
+        dropped.resolve(this.fallbackValue(dropped.req));
+      }
+    }
+  }
+
+  private async processNext(): Promise<void> {
+    if (this.queue.length === 0 || this.isTerminated) {
+      return;
+    }
+    
+    const workerId = this.findAvailableWorker();
+    if (workerId === null) {
+      return;
+    }
+    
+    const item = this.queue.shift();
+    if (!item) {
+      return;
+    }
+    
+    await this.dispatch(item, workerId);
+  }
+
+  private async dispatch(item: QueueItem<TReq, TRes>, workerId: number): Promise<void> {
+    const worker = this.workers[workerId];
+    if (!worker) {
+      item.resolve(this.fallbackValue(item.req));
+      return;
+    }
+    
+    const job: ActiveJob<TReq> = {
+      workerId,
+      start: Date.now(),
+      req: item.req
+    };
+    
+    this.activeJobs.set(item.id, job);
+    
+    const handlers = {
+      message: (e: MessageEvent) => {
+        const result = this.parseJobResult(e, item.req);
+        if (result) {
+          this.cleanupJob(item.id);
+          item.resolve(result.value);
+          this.processNext();
+        } else if (e.data?.type === this.handshake.errorType && e.data?.id === item.id) {
+          this.cleanupJob(item.id);
+          item.resolve(this.fallbackValue(item.req));
+          this.processNext();
+        }
+      },
+      error: () => {
+        this.cleanupJob(item.id);
+        item.resolve(this.fallbackValue(item.req));
+        this.processNext();
+      }
+    };
+    
+    job.listeners = handlers;
+    addWorkerListeners(worker, handlers);
+    
+    // Set up timeout
+    const timeoutPromise = withTimeout(
+      new Promise<void>(() => {}), // Never resolves on its own
+      this.operationTimeoutMs,
+      `Job ${item.id}`
+    );
+    
+    timeoutPromise.catch(() => {
+      this.cleanupJob(item.id);
+      item.resolve(this.fallbackValue(item.req));
+      this.processNext();
+    });
+    
+    // Send job message
+    worker.postMessage(this.buildJobMessage(item.req, item.id));
+  }
+
+  private cleanupJob(id: string): void {
+    const job = this.activeJobs.get(id);
+    if (job && job.listeners) {
+      const worker = this.workers[job.workerId];
+      if (worker) {
+        removeWorkerListeners(worker, job.listeners);
+      }
+    }
+    this.activeJobs.delete(id);
+  }
+
+  private startHealthMonitoring(): void {
+    this.healthMonitorInterval = setInterval(
+      () => this.performHealthMonitoring(),
+      this.healthMonitorIntervalSec * 1000
+    );
+  }
+
+  private async recoverWorker(workerId: number): Promise<void> {
+    // Check if already recovering
+    if (this.recoveryLocks.get(workerId)) {
+      const existing = this.recoveryQueue.get(workerId);
+      if (existing) {
+        return existing;
+      }
+    }
+    
+    // Set lock
+    this.recoveryLocks.set(workerId, true);
+    
+    const recoveryPromise = (async () => {
+      try {
+        // Clean up old worker
+        const oldWorker = this.workers[workerId];
+        if (oldWorker) {
+          oldWorker.terminate();
+        }
+        
+        // Create new worker
+        const url = resolveWorkerUrl(this.workerRelativePath);
+        const newWorker = new Worker(url, { type: 'module' });
+        this.workers[workerId] = newWorker;
+        this.workerReady[workerId] = false;
+        this.workerHealthy[workerId] = false;
+        
+        // Handshake
+        await this.handshakeWorker(newWorker, workerId);
+        
+        this.workerReady[workerId] = true;
+        this.workerHealthy[workerId] = true;
+        
+        this.onWorkerRecovered(workerId);
+      } finally {
+        this.recoveryLocks.delete(workerId);
+        this.recoveryQueue.delete(workerId);
+      }
+    })();
+    
+    this.recoveryQueue.set(workerId, recoveryPromise);
+    return recoveryPromise;
+  }
+
+  public async countOne(
+    request: TReq,
+    options?: { signal?: AbortSignal; priority?: number }
+  ): Promise<TRes> {
+    if (!this.acceptingJobs || this.isTerminated) {
+      return this.fallbackValue(request);
+    }
+    
+    const hash = this.hashRequest(request);
+    const existing = this.pendingByHash.get(hash);
+    if (existing) {
+      return existing;
+    }
+    
+    const promise = new Promise<TRes>((resolve, reject) => {
+      const id = `job-${Date.now()}-${Math.random()}`;
+      const workerId = this.findAvailableWorker();
+      
+      const item: QueueItem<TReq, TRes> = {
+        id,
+        req: request,
+        resolve,
+        reject,
+        priority: options?.priority ?? 0
+      };
+      
+      if (workerId !== null) {
+        this.dispatch(item, workerId);
+      } else {
+        this.enqueue(item);
+      }
+    });
+    
+    this.pendingByHash.set(hash, promise);
+    
+    promise.finally(() => {
+      this.pendingByHash.delete(hash);
+    });
+    
+    return promise;
+  }
+
+  public async countBatch(
+    requests: TReq[],
+    options?: { signal?: AbortSignal; priority?: number }
+  ): Promise<TRes[]> {
+    const batchMessage = this.buildBatchJobMessage(requests, `batch-${Date.now()}`);
+    
+    if (batchMessage) {
+      // Use batch processing
+      return new Promise<TRes[]>((resolve) => {
+        const workerId = this.findAvailableWorker();
+        if (workerId === null) {
+          // Fallback to parallel processing
+          Promise.all(requests.map(req => this.countOne(req, options)))
+            .then(resolve);
+          return;
+        }
+        
+        const worker = this.workers[workerId];
+        const id = batchMessage.id;
+        
+        const handlers = {
+          message: (e: MessageEvent) => {
+            const results = this.parseBatchJobResult(e, requests);
+            if (results) {
+              removeWorkerListeners(worker, handlers);
+              resolve(results);
+            }
+          },
+          error: () => {
+            removeWorkerListeners(worker, handlers);
+            resolve(requests.map(req => this.fallbackValue(req)));
+          }
+        };
+        
+        addWorkerListeners(worker, handlers);
+        worker.postMessage(batchMessage);
+      });
+    } else {
+      // Parallel processing
+      return Promise.all(
+        requests.map(req => this.countOne(req, { ...options, priority: (options?.priority ?? 0) + 1 }))
+      );
+    }
+  }
+
+  public async healthCheck(): Promise<
+    Array<{ workerId: number; healthy: boolean; responseTime: number }>
+  > {
+    if (!this.handshake.healthCheckType || !this.handshake.healthResponseType) {
+      return this.workers.map((_, i) => ({
+        workerId: i,
+        healthy: this.workerHealthy[i],
+        responseTime: 0
+      }));
+    }
+    
+    const results = await Promise.all(
+      this.workers.map(async (worker, i) => {
+        const start = Date.now();
+        
+        try {
+          await withTimeout(
+            new Promise<boolean>((resolve) => {
+              const handlers = {
+                message: (e: MessageEvent) => {
+                  if (e.data?.type === this.handshake.healthResponseType) {
+                    removeWorkerListeners(worker, handlers);
+                    resolve(e.data.healthy ?? true);
+                  }
+                }
+              };
+              
+              addWorkerListeners(worker, handlers);
+              worker.postMessage({ type: this.handshake.healthCheckType });
+            }),
+            this.healthCheckTimeoutMs,
+            `Worker ${i} health check`
+          );
+          
+          const responseTime = Date.now() - start;
+          this.workerHealthy[i] = true;
+          
+          return { workerId: i, healthy: true, responseTime };
+        } catch {
+          this.workerHealthy[i] = false;
+          return { workerId: i, healthy: false, responseTime: Date.now() - start };
+        }
+      })
+    );
+    
+    return results;
+  }
+
+  public async performHealthMonitoring(): Promise<void> {
+    const results = await this.healthCheck();
+    
+    for (const result of results) {
+      if (!result.healthy) {
+        await this.recoverWorker(result.workerId);
+      }
+    }
+  }
+
+  public terminate(): void {
+    this.isTerminated = true;
+    this.acceptingJobs = false;
+    
+    // Clear health monitor
+    if (this.healthMonitorInterval) {
+      clearInterval(this.healthMonitorInterval);
+    }
+    
+    // Resolve pending with fallback
+    for (const item of this.queue) {
+      item.resolve(this.fallbackValue(item.req));
+    }
+    this.queue = [];
+    
+    // Clean up active jobs
+    for (const [id, job] of this.activeJobs) {
+      this.cleanupJob(id);
+    }
+    
+    // Terminate workers
+    for (const worker of this.workers) {
+      if (worker) {
+        worker.terminate();
+      }
+    }
+    
+    // Clear all maps
+    this.activeJobs.clear();
+    this.pendingByHash.clear();
+    this.recoveryLocks.clear();
+    this.recoveryQueue.clear();
+  }
+}
