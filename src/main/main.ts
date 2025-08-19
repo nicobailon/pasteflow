@@ -3,7 +3,7 @@ import path from 'node:path';
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import ignore from 'ignore';
 
-import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants/app-constants';
+import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants';
 import { excludedFiles, binaryExtensions } from '../shared/excluded-files';
 import { getPathValidator } from '../security/path-validator';
 import * as zSchemas from './ipc/schemas';

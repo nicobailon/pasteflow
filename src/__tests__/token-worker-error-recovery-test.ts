@@ -1,6 +1,6 @@
 import { TokenWorkerPool } from '../utils/token-worker-pool';
 import { estimateTokenCount } from '../utils/token-utils';
-import { TOKEN_COUNTING } from '../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 // Mock Worker API
 const mockWorkers: MockWorker[] = [];

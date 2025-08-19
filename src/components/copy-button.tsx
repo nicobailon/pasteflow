@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
-import { UI } from "../constants/app-constants";
+import { UI } from "@constants";
 import "./copy-button.css";
 
 interface CopyButtonProps {

@@ -1,7 +1,7 @@
 // Mock TokenWorkerPool that behaves like the real implementation
 // This mock focuses on testing the behavioral contracts, not implementation details
 
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 export class TokenWorkerPool {
   private workers: MockWorker[] = [];

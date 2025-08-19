@@ -1,4 +1,4 @@
-import { MEMORY } from '../constants/app-constants';
+import { MEMORY } from '@constants';
 
 /**
  * Memory monitoring utility for tracking cache usage across the application.

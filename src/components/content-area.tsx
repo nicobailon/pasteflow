@@ -1,7 +1,7 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '../utils/logger';
-import { FEATURES, UI, TOKEN_COUNTING } from '../constants/app-constants';
+import { FEATURES, UI, TOKEN_COUNTING } from '@constants';
 import { usePreviewPack } from '../hooks/use-preview-pack';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';

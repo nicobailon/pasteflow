@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { render } from './test-setup';
 import App from '../../index';
 import { createTempTestDirectory, cleanupTempDirectory } from '../test-helpers';
-import { DEFAULT_EXCLUSION_PATTERNS } from '../../constants';
+import { DEFAULT_EXCLUSION_PATTERNS } from '@constants';
 
 // Define precise types for IPC event channels (kept for documentation)
 // type IpcEventChannel = 'folder-selected' | 'file-list-data' | 'file-processing-status' | 'file-loading-complete' | 'file-loading-error';

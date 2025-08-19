@@ -3,7 +3,7 @@ import { unstable_batchedUpdates, flushSync } from 'react-dom';
 import { normalizePath } from '../utils/path-utils';
 import { logger } from '../utils/logger';
 
-import { STORAGE_KEYS, TOKEN_COUNTING } from '../constants';
+import { STORAGE_KEYS, TOKEN_COUNTING } from '@constants';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';

@@ -66,6 +66,14 @@ interface PreferenceSetParams {
  *   []
  * );
  */
+
+// Stable options object to prevent recreation on every render
+const DATABASE_STATE_OPTIONS = {
+  cache: true,
+  cacheTTL: CACHE_TTL_MS,
+  optimisticUpdate: true
+} as const;
+
 export function usePersistentState<T>(
   key: string,
   initialValue: T
@@ -82,11 +90,7 @@ export function usePersistentState<T>(
   } = useDatabaseState<T | null, PreferenceGetParams, PreferenceSetParams, boolean>(
     channel,
     null,
-    {
-      cache: true,
-      cacheTTL: CACHE_TTL_MS,
-      optimisticUpdate: true
-    }
+    DATABASE_STATE_OPTIONS
   );
 
   // Helper to validate key
@@ -137,8 +141,7 @@ export function usePersistentState<T>(
     };
     
     loadValue();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, isValidKey, shouldLogError, addRandomDelay]); // fetchData intentionally omitted to avoid identity-change loop
+  }, [key, fetchData, isValidKey, shouldLogError, addRandomDelay]); // Only depend on key and fetchData to avoid infinite loops
 
   // Helper to check if values are equal
   const valuesEqual = useCallback((a: T, b: T): boolean => {

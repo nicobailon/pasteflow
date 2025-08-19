@@ -2,7 +2,7 @@
 declare const jest: { fn?: unknown } | undefined;
 
 import type { FileData, TreeNode } from '../types/file-types';
-import { UI } from '../constants/app-constants';
+import { UI } from '@constants';
 
 export interface TreeChunk {
   nodes: TreeNode[];

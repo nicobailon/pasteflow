@@ -1,6 +1,6 @@
 // Mock token counter worker for testing
 
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 // Worker message types based on real implementation
 interface WorkerInitMessage {

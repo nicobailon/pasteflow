@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import WorkspaceModal from '../components/workspace-modal';
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 import { setupMockLocalStorage } from './test-helpers';
 import type { AppState } from '../hooks/use-app-state';
 

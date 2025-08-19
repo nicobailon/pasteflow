@@ -1,7 +1,7 @@
 import { Eye, User, X } from "lucide-react";
 
 import { RolePrompt } from "../types/file-types";
-import { TOKEN_COUNTING } from "../constants/app-constants";
+import { TOKEN_COUNTING } from "@constants";
 
 import CopyButton from "./copy-button";
 import "./role-prompt-card.css";

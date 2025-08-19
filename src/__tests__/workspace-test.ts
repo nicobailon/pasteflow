@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 
 import useAppState from '../hooks/use-app-state';
 import { useWorkspaceState } from '../hooks/use-workspace-state';
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 import { WorkspaceState } from '../types/file-types';
 
 describe('Workspace Feature', () => {

@@ -1,6 +1,6 @@
 import { TEST_CONSTANTS } from './test-constants';
 import { TokenWorkerPool } from '../utils/token-worker-pool';
-import { TOKEN_COUNTING } from '../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 describe('TokenWorkerPool Behavioral Tests', () => {
   let pool: TokenWorkerPool;

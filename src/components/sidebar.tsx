@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronUp, Filter, Folder, FolderOpen, RefreshCw, X } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 import useFileTree from "../hooks/use-file-tree";
 import { useSidebarResize } from "../hooks/use-sidebar-resize";
 import { useTreeLoadingState } from "../hooks/use-tree-loading-state";

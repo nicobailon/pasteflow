@@ -1,4 +1,4 @@
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 
 import { WorkspaceCacheManager } from './workspace-cache-manager';
 import { sortWorkspaces, WorkspaceInfo } from './workspace-sorting';

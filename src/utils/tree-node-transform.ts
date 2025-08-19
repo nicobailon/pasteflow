@@ -5,7 +5,7 @@
  */
 
 import type { FileData, TreeNode } from '../types/file-types';
-import { TREE_FLATTEN_CACHE } from '../constants/app-constants';
+import { TREE_FLATTEN_CACHE } from '@constants';
 
 import { normalizePath } from './path-utils';
 import { BoundedLRUCache } from './bounded-lru-cache';

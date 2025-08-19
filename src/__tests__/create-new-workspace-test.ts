@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 import useAppState from '../hooks/use-app-state';
 import { setupMockLocalStorage } from './test-helpers';
 

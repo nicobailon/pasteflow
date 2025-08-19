@@ -1,4 +1,4 @@
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 
 export type WorkspaceSortMode = 'recent' | 'alphabetical' | 'manual';
 

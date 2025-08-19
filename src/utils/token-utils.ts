@@ -1,5 +1,5 @@
 import { FileData, FileTreeMode, RolePrompt, SelectedFileReference, SystemPrompt } from "../types/file-types";
-import { TOKEN_COUNTING } from '../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 import { generateAsciiFileTree, getAllDirectories, normalizePath } from "./path-utils";
 

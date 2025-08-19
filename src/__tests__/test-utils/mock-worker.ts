@@ -1,4 +1,4 @@
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 export interface MockWorkerOptions {
   autoRespond?: boolean;

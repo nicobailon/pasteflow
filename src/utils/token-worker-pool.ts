@@ -1,7 +1,7 @@
 // Declare jest global for test environment detection with precise type
 declare const jest: { fn?: unknown } | undefined;
 
-import { WORKER_POOL, PRIORITY } from '../constants/app-constants';
+import { WORKER_POOL, PRIORITY } from '@constants';
 
 import { estimateTokenCount } from './token-utils';
 

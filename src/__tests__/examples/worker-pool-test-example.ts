@@ -3,7 +3,7 @@
  */
 
 import { TokenWorkerPool } from '../../utils/token-worker-pool';
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 // Strategy 1: Using manual mock (if jest.mock is configured)
 describe('TokenWorkerPool with Manual Mock', () => {

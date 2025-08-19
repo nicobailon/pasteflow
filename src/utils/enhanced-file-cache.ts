@@ -7,7 +7,7 @@ interface CacheEntry {
   isCompressed?: boolean;
 }
 
-import { CACHE } from '../constants/app-constants';
+import { CACHE } from '@constants';
 
 interface MemoryAwareCacheConfig {
   maxMemoryMB: number;

@@ -1,4 +1,4 @@
-import { TOKEN_COUNTING } from '../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 /**
  * Estimates token count for a given text string.

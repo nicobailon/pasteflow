@@ -1,4 +1,4 @@
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '../../constants';
 
 interface TiktokenEncoder {
   encode(text: string): Uint32Array;

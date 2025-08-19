@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 
-import { STORAGE_KEYS, FILE_PROCESSING } from '../constants';
+import { STORAGE_KEYS, FILE_PROCESSING } from '@constants';
 import { FileData, LineRange, SelectedFileReference } from '../types/file-types';
 import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/folder-selection-index';
 import { createDirectorySelectionCache } from '../utils/selection-cache';

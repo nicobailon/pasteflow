@@ -10,7 +10,7 @@ import RolePromptsModal from "./components/role-prompts-modal";
 import Sidebar, { SidebarRef } from "./components/sidebar";
 import SystemPromptsModal from "./components/system-prompts-modal";
 import WorkspaceModal from "./components/workspace-modal";
-import { SORT_OPTIONS } from "./constants";
+import { SORT_OPTIONS } from "@constants";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
 import { initializeCacheRegistry } from "./utils/cache-registry";
@@ -151,7 +151,7 @@ const App = () => {
             handleSortChange={appState.handleSortChange}
             sortDropdownOpen={appState.sortDropdownOpen}
             toggleSortDropdown={appState.toggleSortDropdown}
-            sortOptions={SORT_OPTIONS}
+            sortOptions={[...SORT_OPTIONS]}
             getSelectedFilesContent={appState.getFormattedContentFromLatest}
             calculateTotalTokens={appState.calculateTotalTokens}
             instructionsTokenCount={appState.instructionsTokenCount}
