@@ -137,7 +137,8 @@ export function usePersistentState<T>(
     };
     
     loadValue();
-  }, [key, fetchData, isValidKey, shouldLogError, addRandomDelay]); // Only depend on key and fetchData to avoid infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, isValidKey, shouldLogError, addRandomDelay]); // fetchData intentionally omitted to avoid identity-change loop
 
   // Helper to check if values are equal
   const valuesEqual = useCallback((a: T, b: T): boolean => {
