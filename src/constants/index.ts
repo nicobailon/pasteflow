@@ -29,7 +29,7 @@ export const SORT_OPTIONS = [
 ] as const;
 
 /**
- * Single-source default exclusion patterns.
- * Alias to shared excludedFiles to avoid duplication.
+ * Default exclusion patterns for file scanning.
+ * Exported as an alias to the shared excludedFiles list to avoid duplication.
  */
 export const DEFAULT_EXCLUSION_PATTERNS = excludedFiles;
