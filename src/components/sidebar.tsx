@@ -93,6 +93,10 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
 
   // All the tree management logic is now handled by the useFileTree hook
 
+  // Overlay/bulk busy indicator derived from progressive overlay computation
+  const isOverlayComputing = !!folderSelectionCache?.isComputing?.();
+  const overlayProgress = folderSelectionCache?.getProgress?.() ?? 1;
+
   // Check if all files are selected (memoized)
   const areAllFilesSelected = useMemo(() => {
     return checkAllFilesSelected(
@@ -198,7 +202,7 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
           {selectedFolder && (
             <div className="folder-header tree-item">
               <div className="folder-header-left">
-                <div className="tree-item-checkbox-container">
+                <div className="tree-item-checkbox-container" aria-busy={isOverlayComputing}>
                   <input
                     type="checkbox"
                     className="tree-item-checkbox"
@@ -211,6 +215,8 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                     }}
                     onChange={handleSelectAllToggle}
                     title={areAllFilesSelected ? "Deselect all files" : "Select all files"}
+                    disabled={isOverlayComputing}
+                    aria-busy={isOverlayComputing}
                   />
                   <span className="custom-checkbox"></span>
                 </div>
@@ -219,6 +225,16 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                 </div>
                 <div className="folder-path tree-item-name" title={selectedFolder}>
                   {selectedFolder.split(/[/\\]/).pop()}
+                  {isOverlayComputing && (
+                    <span
+                      className="selection-overlay-spinner"
+                      aria-label="Updating selection..."
+                      title={`Updating selection… ${Math.round(overlayProgress * 100)}%`}
+                      style={{ display: 'inline-block', width: 12, height: 12, marginLeft: 8 }}
+                    >
+                      <div className="spinner" style={{ width: 12, height: 12 }} />
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="folder-actions">

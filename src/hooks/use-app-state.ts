@@ -142,6 +142,7 @@ const useAppState = () => {
   const folderIndex = useMemo(() => {
     return buildFolderIndex(allFiles);
   }, [allFiles]);
+  const folderIndexSize = useMemo(() => folderIndex.size, [folderIndex]);
 
   // Integration with specialized hooks
   const fileSelection = useFileSelectionState(allFiles, selectedFolder, folderIndex);
@@ -1798,6 +1799,7 @@ const useAppState = () => {
     totalTokensForSystemPrompt,
     totalTokensForRolePrompt,
     totalTokensForInstructions,
+    folderIndexSize,
 
     instructions: instructionsState.instructions,
     selectedInstructions,

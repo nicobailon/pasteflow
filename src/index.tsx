@@ -14,10 +14,16 @@ import { SORT_OPTIONS } from "./constants";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
 import { initializeCacheRegistry } from "./utils/cache-registry";
+import { useMemoryMonitoring } from "./hooks/use-memory-monitoring";
+import { getGlobalPerformanceMonitor } from "./utils/performance-monitor";
 
 const App = () => {
   // Use our main app state hook
   const appState = useAppState();
+
+  // Dev memory monitoring (register caches and folder index size)
+  useMemoryMonitoring(appState.folderSelectionCache, appState.folderIndexSize);
+
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const sidebarRef = useRef<SidebarRef>(null);
   
@@ -25,6 +31,19 @@ const App = () => {
   useEffect(() => {
     // Cleanup function to stop monitoring on unmount
     return initializeCacheRegistry();
+  }, []);
+
+  // Dev-only: expose performance report helpers on window
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      const monitor = getGlobalPerformanceMonitor();
+      (window as any).__PF_dumpPerf = () => monitor.logReport();
+      (window as any).__PF_perfStats = () => monitor.getAllStats();
+      return () => {
+        delete (window as any).__PF_dumpPerf;
+        delete (window as any).__PF_perfStats;
+      };
+    }
   }, []);
   
   // Helper to close all dropdowns when opening modals

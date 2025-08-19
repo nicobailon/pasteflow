@@ -5,6 +5,7 @@ import { FileData, LineRange, SelectedFileReference } from '../types/file-types'
 import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/folder-selection-index';
 import { createDirectorySelectionCache } from '../utils/selection-cache';
 import { BoundedLRUCache } from '../utils/bounded-lru-cache';
+import { getGlobalPerformanceMonitor } from '../utils/performance-monitor';
 
 import { useDebouncedPersistentState } from './use-debounced-persistent-state';
 
@@ -37,13 +38,24 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const [optimisticStateVersion, setOptimisticStateVersion] = useState(0);
   const optimisticTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const pendingOperationsRef = useRef<Set<string>>(new Set());
-  
-  // Build folder selection cache for instant UI updates
+
+  // Performance monitor singleton
+  const perf = useMemo(() => getGlobalPerformanceMonitor(), []);
+  // Overlay version to trigger re-renders when progressive batches apply
+  const [folderOverlayVersion, setFolderOverlayVersion] = useState(0);
+  // Coalescing guard for rapid bulk toggles
+  const lastBulkToggleTsRef = useRef(0);
+  // Chunking configuration
+  const BULK = useMemo(() => ({ ADD_CHUNK: 1500, REMOVE_CHUNK: 2000, COALESCE_MS: 150 }), []);
+
+  // Build folder selection cache for instant UI updates (memoized by structure only)
   const baseFolderSelectionCache = useMemo(() => {
-    return createDirectorySelectionCache(allFiles, selectedFiles);
-  }, [allFiles, selectedFiles]);
+    return createDirectorySelectionCache(allFiles, selectedFiles, {
+      onBatchApplied: () => setFolderOverlayVersion(v => v + 1),
+    });
+  }, [allFiles]);
   
-  // Create a wrapper cache that includes optimistic updates
+  // Create a wrapper cache that includes optimistic updates and progressive signals
   const folderSelectionCache = useMemo(() => {
     return {
       get(path: string): 'full' | 'partial' | 'none' {
@@ -57,10 +69,23 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       },
       set: baseFolderSelectionCache.set,
       bulkUpdate: baseFolderSelectionCache.bulkUpdate,
-      clear: baseFolderSelectionCache.clear
+      clear: baseFolderSelectionCache.clear,
+      // Progressive API passthroughs (optional)
+      isComputing: baseFolderSelectionCache.isComputing?.bind(baseFolderSelectionCache),
+      getProgress: baseFolderSelectionCache.getProgress?.bind(baseFolderSelectionCache),
+      startProgressiveRecompute: baseFolderSelectionCache.startProgressiveRecompute?.bind(baseFolderSelectionCache),
+      cancel: baseFolderSelectionCache.cancel?.bind(baseFolderSelectionCache),
+      setSelectedPaths: baseFolderSelectionCache.setSelectedPaths?.bind(baseFolderSelectionCache),
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseFolderSelectionCache, optimisticStateVersion]);
+  }, [baseFolderSelectionCache, optimisticStateVersion, folderOverlayVersion]);
+
+  // Keep progressive overlay recomputation in sync with selection changes
+  useEffect(() => {
+    const paths = new Set<string>(selectedFiles.map(f => f.path));
+    baseFolderSelectionCache.setSelectedPaths?.(paths);
+    baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+  }, [selectedFiles, baseFolderSelectionCache]);
 
   // Immediate cleanup on mount if workspace is provided
   useEffect(() => {
@@ -239,63 +264,71 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     });
   }, [setSelectedFiles]);
 
-  // Toggle folder selection (select/deselect all files in folder)
+  // Toggle folder selection (select/deselect all files in folder) with chunking and coalescing
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
-    
-    // Use folder index for O(1) lookup with absolute paths
-    const filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
-    
-    // If no files in folder, bail early
-    if (filesInFolderPaths.length === 0) {
+    // Coalesce very rapid toggles to avoid bursty rebuilds
+    const now = Date.now();
+    if (now - lastBulkToggleTsRef.current < BULK.COALESCE_MS) {
       return;
     }
-    
+    lastBulkToggleTsRef.current = now;
+
+    const endMeasureToggle = perf.startMeasure('selection.apply.toggleFolder.ms');
+
+    // Use folder index for O(1) lookup with absolute paths
+    const filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
+
+    // If no files in folder, bail early
+    if (filesInFolderPaths.length === 0) {
+      endMeasureToggle();
+      return;
+    }
+
     // Filter to only selectable files with O(1) lookups
     const selectableFiles = filesInFolderPaths.filter((filePath) => {
       const file = allFilesMap.get(filePath);
       return file && !file.isBinary && !file.isSkipped;
     });
-    
+
     if (selectableFiles.length === 0) {
+      endMeasureToggle();
       return;
     }
 
     // Precompute set for fast membership checks
     const selectableFilesSet = new Set(selectableFiles);
-    
+
     // Check current selection state of folder
     const selectedFilesInFolder = selectedFiles.filter(
       (f: SelectedFileReference) => selectableFilesSet.has(f.path)
     );
-    
+
     // Determine if we should actually toggle
-    // If selecting and all files are already selected, OR
-    // If deselecting and no files are selected, then bail out
     const allFilesSelected = selectedFilesInFolder.length === selectableFiles.length;
     const noFilesSelected = selectedFilesInFolder.length === 0;
-    
+
     if ((isSelected && allFilesSelected) || (!isSelected && noFilesSelected)) {
-      // Nothing to do - state is already as requested
+      endMeasureToggle();
       return;
     }
 
     // Optimistically update the cache if requested
     if (opts?.optimistic !== false) {
       const newState = isSelected ? 'full' : 'none';
-      
+
       // Clear any existing timeout for this path
       const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
       if (existingTimeout) {
         clearTimeout(existingTimeout);
       }
-      
+
       // Mark operation as pending
       pendingOperationsRef.current.add(folderPath);
-      
+
       // Set optimistic state using the folder path
       optimisticFolderStatesRef.current.set(folderPath, newState);
       setOptimisticStateVersion(v => v + 1); // Trigger re-render
-      
+
       // Schedule cleanup with a longer timeout to ensure state has settled
       const timeout = setTimeout(() => {
         // Only clean up if no pending operations for this path
@@ -305,89 +338,244 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           optimisticTimeoutsRef.current.delete(folderPath);
         }
       }, FILE_PROCESSING.DEBOUNCE_DELAY_MS); // Using centralized debounce delay for better stability
-      
+
       optimisticTimeoutsRef.current.set(folderPath, timeout);
     }
-    
-    // Perform the actual update
+
+    // Helper: kick progressive overlay recompute
+    const kickOverlay = () => {
+      const paths = new Set<string>(selectedFiles.map(f => f.path));
+      baseFolderSelectionCache.setSelectedPaths?.(paths);
+      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+    };
+
     if (isSelected) {
-      // Add all files from this folder that aren't already selected
-      startTransition(() => {
-        setSelectedFiles((prev: SelectedFileReference[]) => {
-          // Convert to Map for faster lookups
-          const prevMap = new Map(prev.map(f => [f.path, f]));
-          
-          // Add all files from folder that aren't already selected
-          for (const filePath of selectableFiles) {
-            if (!prevMap.has(filePath)) {
-              prevMap.set(filePath, {
-                path: filePath
-                // lines undefined means entire file
-              });
+      // Add all files from this folder that aren't already selected (chunked)
+      const existingSelected = new Set<string>(selectedFiles.map(f => f.path));
+      const additions = selectableFiles.filter(p => !existingSelected.has(p));
+      const total = additions.length;
+      if (total === 0) {
+        if (opts?.optimistic !== false) {
+          pendingOperationsRef.current.delete(folderPath);
+        }
+        endMeasureToggle();
+        return;
+      }
+
+      const endMeasureChunks = perf.startMeasure('selection.apply.add.chunked.total.ms');
+      let index = 0;
+      let chunks = 0;
+
+      const runChunk = () => {
+        const start = index;
+        const end = Math.min(index + BULK.ADD_CHUNK, total);
+        const slice = additions.slice(start, end);
+
+        startTransition(() => {
+          setSelectedFiles((prev: SelectedFileReference[]) => {
+            // Deduplicate using a Set seeded with prev
+            const set = new Set<string>(prev.map(f => f.path));
+            if (slice.every(p => set.has(p))) {
+              return prev;
             }
+            const next = [...prev];
+            for (const p of slice) {
+              if (!set.has(p)) {
+                set.add(p);
+                next.push({ path: p });
+              }
+            }
+            return next;
+          });
+        });
+
+        index = end;
+        chunks++;
+
+        // Keep overlay progressing while applying chunks
+        kickOverlay();
+
+        if (index < total) {
+          // Schedule next chunk via microtask to keep UI responsive
+          Promise.resolve().then(runChunk);
+        } else {
+          // Completed
+          endMeasureChunks();
+          perf.recordMetric('selection.apply.chunks', chunks);
+          if (opts?.optimistic !== false) {
+            pendingOperationsRef.current.delete(folderPath);
           }
-          
-          // Convert back to array
-          return [...prevMap.values()];
-        });
-      });
+          endMeasureToggle();
+        }
+      };
+
+      runChunk();
     } else {
-      // Remove all files from this folder
-      startTransition(() => {
-        setSelectedFiles((prev: SelectedFileReference[]) => {
-          // Create a Set of paths to remove for faster lookups
-          const folderPathsSet = new Set(selectableFiles);
-          
-          // Keep only paths that are not in the folder
-          return prev.filter(f => !folderPathsSet.has(f.path));
-        });
-      });
-    }
-    
-    // Mark operation as complete
-    if (opts?.optimistic !== false) {
-      pendingOperationsRef.current.delete(folderPath);
-    }
-  }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex]);
+      // Remove all files from this folder (chunk building + single commit)
+      const toRemove = new Set(selectableFiles);
+      const snapshot = selectedFiles.slice(); // snapshot for deterministic rebuild
+      const total = snapshot.length;
+      let index = 0;
+      const CHUNK = BULK.REMOVE_CHUNK;
+      const kept: SelectedFileReference[] = [];
 
-  // Handle select all files
-  const selectAllFiles = useCallback((displayedFiles: FileData[]) => {
-    const selectablePaths = displayedFiles
-      .filter((file: FileData) => !file.isBinary && !file.isSkipped)
-      .map((file: FileData) => ({
-        path: file.path
-        // lines undefined means entire file
-      }));
+      const endMeasureChunks = perf.startMeasure('selection.apply.remove.chunked.total.ms');
 
-    startTransition(() => {
-      setSelectedFiles((prev: SelectedFileReference[]) => {
-        // Convert to Map for faster lookups
-        const prevMap = new Map(prev.map(f => [f.path, f]));
-        
-        // Add each new file if not already in selection
-        for (const file of selectablePaths) {
-          if (!prevMap.has(file.path)) {
-            prevMap.set(file.path, file);
+      const buildNext = () => {
+        const start = index;
+        const end = Math.min(index + CHUNK, total);
+        for (let i = start; i < end; i++) {
+          const f = snapshot[i];
+          if (!toRemove.has(f.path)) {
+            kept.push(f);
           }
         }
-        
-        // Convert back to array
-        return [...prevMap.values()];
-      });
-    });
-  }, [setSelectedFiles]);
+        index = end;
 
-  // Handle deselect all files
+        // Keep overlay progressing as we compute
+        kickOverlay();
+
+        if (index < total) {
+          setTimeout(buildNext, 0);
+        } else {
+          // Commit in a single state update for removals
+          startTransition(() => setSelectedFiles(kept));
+          endMeasureChunks();
+          if (opts?.optimistic !== false) {
+            pendingOperationsRef.current.delete(folderPath);
+          }
+          endMeasureToggle();
+        }
+      };
+
+      buildNext();
+    }
+  }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex, baseFolderSelectionCache, perf, BULK]);
+
+  // Handle select all files (chunked to maintain responsiveness)
+  const selectAllFiles = useCallback((displayedFiles: FileData[]) => {
+    const endMeasure = perf.startMeasure('selection.apply.selectAll.total.ms');
+
+    const selectablePaths = displayedFiles
+      .filter((file: FileData) => !file.isBinary && !file.isSkipped)
+      .map((file: FileData) => file.path);
+
+    // Determine additions only
+    const existingSelected = new Set<string>(selectedFiles.map(f => f.path));
+    const additions = selectablePaths.filter(p => !existingSelected.has(p));
+    const total = additions.length;
+
+    // If nothing to add, still tick overlay to ensure immediate reflection
+    if (total === 0) {
+      const paths = new Set<string>(selectedFiles.map(f => f.path));
+      baseFolderSelectionCache.setSelectedPaths?.(paths);
+      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      endMeasure();
+      return;
+    }
+
+    // Helper: keep overlay progressing as chunks apply
+    const kickOverlay = () => {
+      const paths = new Set<string>([...selectedFiles.map(f => f.path), ...additions]);
+      baseFolderSelectionCache.setSelectedPaths?.(paths);
+      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+    };
+
+    const endMeasureChunks = perf.startMeasure('selection.apply.selectAll.chunks.total.ms');
+    let index = 0;
+    let chunks = 0;
+
+    const runChunk = () => {
+      const start = index;
+      const end = Math.min(index + BULK.ADD_CHUNK, total);
+      const slice = additions.slice(start, end);
+
+      startTransition(() => {
+        setSelectedFiles((prev: SelectedFileReference[]) => {
+          // Deduplicate using a Set seeded with prev
+          const set = new Set<string>(prev.map(f => f.path));
+          if (slice.every(p => set.has(p))) {
+            return prev;
+          }
+          const next = [...prev];
+          for (const p of slice) {
+            if (!set.has(p)) {
+              set.add(p);
+              next.push({ path: p });
+            }
+          }
+          return next;
+        });
+      });
+
+      index = end;
+      chunks++;
+
+      // Keep overlay progressing while applying chunks
+      kickOverlay();
+
+      if (index < total) {
+        // Microtask scheduling to avoid blocking the UI thread
+        Promise.resolve().then(runChunk);
+      } else {
+        // Completed
+        endMeasureChunks();
+        perf.recordMetric('selection.apply.chunks', chunks);
+        endMeasure();
+      }
+    };
+
+    runChunk();
+  }, [setSelectedFiles, selectedFiles, baseFolderSelectionCache, perf, BULK]);
+
+  // Handle deselect all files (chunked build + single commit)
   const deselectAllFiles = useCallback((displayedFiles: FileData[]) => {
+    const endMeasure = perf.startMeasure('selection.apply.deselectAll.total.ms');
+
     // Convert displayed paths to a Set for faster lookups
-    const displayedPathsSet = new Set(displayedFiles.map((file: FileData) => file.path));
-    
-    startTransition(() => {
-      setSelectedFiles((prev: SelectedFileReference[]) =>
-        prev.filter((f: SelectedFileReference) => !displayedPathsSet.has(f.path))
-      );
-    });
-  }, [setSelectedFiles]);
+    const toRemove = new Set(displayedFiles.map((file: FileData) => file.path));
+
+    const snapshot = selectedFiles.slice();
+    const total = snapshot.length;
+    let index = 0;
+    const CHUNK = BULK.REMOVE_CHUNK;
+    const kept: SelectedFileReference[] = [];
+
+    // Helper: keep overlay progressing as we compute
+    const kickOverlay = () => {
+      const paths = new Set<string>(kept.map(f => f.path));
+      baseFolderSelectionCache.setSelectedPaths?.(paths);
+      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+    };
+
+    const endMeasureChunks = perf.startMeasure('selection.apply.deselectAll.chunks.total.ms');
+
+    const buildNext = () => {
+      const start = index;
+      const end = Math.min(index + CHUNK, total);
+      for (let i = start; i < end; i++) {
+        const f = snapshot[i];
+        if (!toRemove.has(f.path)) {
+          kept.push(f);
+        }
+      }
+      index = end;
+
+      // Keep overlay progressing as we compute
+      kickOverlay();
+
+      if (index < total) {
+        setTimeout(buildNext, 0);
+      } else {
+        // Commit in a single state update for removals
+        startTransition(() => setSelectedFiles(kept));
+        endMeasureChunks();
+        endMeasure();
+      }
+    };
+
+    buildNext();
+  }, [setSelectedFiles, selectedFiles, baseFolderSelectionCache, perf, BULK]);
 
   // Clear all selected files
   const clearSelectedFiles = useCallback(() => {
