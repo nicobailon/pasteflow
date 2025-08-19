@@ -1,6 +1,8 @@
 export * from './app-constants';
 export * from './workspace-drag-constants';
 
+import { excludedFiles } from '@shared/excluded-files';
+
 export const STORAGE_KEYS = {
   SELECTED_FOLDER: 'pasteflow.selected_folder',
   SELECTED_FILES: 'pasteflow.selected_files',
@@ -16,3 +18,18 @@ export const STORAGE_KEYS = {
   WORKSPACE_SORT_MODE: 'pasteflow.workspace_sort_mode',
   WORKSPACE_MANUAL_ORDER: 'pasteflow.workspace_manual_order'
 } as const;
+
+export const SORT_OPTIONS = [
+  { value: "name-asc", label: "Name (A-Z)" },
+  { value: "name-desc", label: "Name (Z-A)" },
+  { value: "tokens-asc", label: "Tokens (Lowest First)" },
+  { value: "tokens-desc", label: "Tokens (Highest First)" },
+  { value: "size-asc", label: "Size (Smallest First)" },
+  { value: "size-desc", label: "Size (Largest First)" }
+] as const;
+
+/**
+ * Single-source default exclusion patterns.
+ * Alias to shared excludedFiles to avoid duplication.
+ */
+export const DEFAULT_EXCLUSION_PATTERNS = excludedFiles;
