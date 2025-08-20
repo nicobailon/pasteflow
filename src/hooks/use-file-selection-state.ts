@@ -98,15 +98,24 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
   // Keep progressive overlay recomputation in sync with selection changes
   useEffect(() => {
-    // Debounce to avoid rapid re-computations
+    // Update cache immediately
+    const cache = baseFolderSelectionCacheRef.current;
+    if (!cache) return;
+    
+    const paths = new Set<string>(selectedFiles.map(f => f.path));
+    if (cache.setSelectedPaths) {
+      cache.setSelectedPaths(paths);
+    }
+    
+    // Debounce only the expensive recompute operation with minimal delay
     const timeoutId = setTimeout(() => {
-      const cache = baseFolderSelectionCacheRef.current;
-      if (!cache) return;
-      
-      const paths = new Set<string>(selectedFiles.map(f => f.path));
-      cache.setSelectedPaths?.(paths);
-      cache.startProgressiveRecompute?.({ selectedPaths: paths });
-    }, 50);
+      // Re-fetch cache reference to avoid stale closure
+      const currentCache = baseFolderSelectionCacheRef.current;
+      if (currentCache && currentCache.startProgressiveRecompute) {
+        const currentPaths = new Set<string>(selectedFiles.map(f => f.path));
+        currentCache.startProgressiveRecompute({ selectedPaths: currentPaths });
+      }
+    }, FILE_PROCESSING.PROGRESSIVE_RECOMPUTE_DEBOUNCE_MS); // Minimal delay for responsive UI
     
     return () => clearTimeout(timeoutId);
   }, [selectedFiles]);
@@ -354,8 +363,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       
       // Immediately update the cache as well for instant feedback
       const cache = baseFolderSelectionCacheRef.current;
-      if (cache) {
+      if (cache && cache.set) {
         cache.set(folderPath, newState);
+        // Also ensure the cache knows about the current selected paths
+        const paths = new Set<string>(selectedFiles.map(f => f.path));
+        if (cache.setSelectedPaths) {
+          cache.setSelectedPaths(paths);
+        }
         setManualCacheVersion(v => v + 1); // Trigger re-render for cache update
       }
       

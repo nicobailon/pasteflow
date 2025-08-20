@@ -26,6 +26,8 @@ export const FILE_PROCESSING = {
   DEBOUNCE_DELAY_MS: 500,
   /** Optimistic UI update cleanup delay (milliseconds) - shorter for faster feedback */
   OPTIMISTIC_UPDATE_CLEANUP_MS: 100,
+  /** Progressive recompute debounce delay (milliseconds) - minimal for responsive UI */
+  PROGRESSIVE_RECOMPUTE_DEBOUNCE_MS: 10,
 } as const;
 
 // ==================== RATE LIMITING ====================
