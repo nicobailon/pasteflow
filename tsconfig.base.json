@@ -6,7 +6,9 @@
     "paths": {
       "@constants": ["src/constants/index.ts"],
       "@constants/*": ["src/constants/*"],
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["src/shared/*"],
+      "@file-ops/*": ["src/file-ops/*"],
+      "@lib/*": ["src/lib/*"]
     },
 
     "strict": true,

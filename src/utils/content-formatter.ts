@@ -4,7 +4,8 @@ import { logger } from './logger';
 
 import { FileData, FileTreeMode, Instruction, RolePrompt, SelectedFileReference, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
 
-import { extname, generateAsciiFileTree, getAllDirectories, getRelativePath, normalizePath } from "./path-utils";
+import { extname, getAllDirectories, getRelativePath, normalizePath } from "@file-ops/path";
+import { generateAsciiFileTree } from "@file-ops/ascii-tree";
 import { validateLineSelections, extractContentForLines } from './workspace-utils';
 import { sortFilesByOrder } from './sort-utils';
 

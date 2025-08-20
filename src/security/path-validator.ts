@@ -1,4 +1,4 @@
-import { normalizePath } from '../utils/path-utils';
+import { normalizePath } from '@file-ops/path';
 
 export interface ValidationResult {
   valid: boolean;

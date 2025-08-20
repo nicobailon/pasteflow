@@ -1,6 +1,7 @@
+declare const jest: { fn?: unknown } | undefined;
+
 import {
   type HandshakeConfig,
-  resolveWorkerUrl,
   addWorkerListeners,
   removeWorkerListeners,
   withTimeout,
@@ -105,11 +106,24 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   }
 
   private async init(): Promise<void> {
-    const url = resolveWorkerUrl(this.workerRelativePath);
-    
+    // Create workers using proper Vite pattern
     for (let i = 0; i < this.poolSize; i++) {
       try {
-        const worker = new Worker(url, { type: 'module' });
+        let worker: Worker;
+        if (typeof jest !== 'undefined') {
+          worker = new Worker('/mock/worker/path', { type: 'module' });
+        } else {
+          try {
+            const metaUrl = eval('import.meta.url');
+            worker = new Worker(
+              new URL(this.workerRelativePath, metaUrl),
+              { type: 'module' }
+            );
+          } catch {
+            const basename = this.workerRelativePath.split('/').pop() ?? '';
+            worker = new Worker(`/src/workers/${basename}`, { type: 'module' });
+          }
+        }
         this.workers[i] = worker;
         this.workerReady[i] = false;
         this.workerHealthy[i] = false;
@@ -309,9 +323,22 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
           oldWorker.terminate();
         }
         
-        // Create new worker
-        const url = resolveWorkerUrl(this.workerRelativePath);
-        const newWorker = new Worker(url, { type: 'module' });
+        // Create new worker using proper Vite pattern
+        let newWorker: Worker;
+        if (typeof jest !== 'undefined') {
+          newWorker = new Worker('/mock/worker/path', { type: 'module' });
+        } else {
+          try {
+            const metaUrl = eval('import.meta.url');
+            newWorker = new Worker(
+              new URL(this.workerRelativePath, metaUrl),
+              { type: 'module' }
+            );
+          } catch {
+            const basename = this.workerRelativePath.split('/').pop() ?? '';
+            newWorker = new Worker(`/src/workers/${basename}`, { type: 'module' });
+          }
+        }
         this.workers[workerId] = newWorker;
         this.workerReady[workerId] = false;
         this.workerHealthy[workerId] = false;
@@ -470,7 +497,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
               handlers = {
                 message: (e: MessageEvent) => {
                   if (e.data?.type === this.handshake.healthResponseType && e.data?.id === healthId) {
-                    removeWorkerListeners(worker, handlers);
+                    if (handlers) removeWorkerListeners(worker, handlers);
                     resolve(Boolean(e.data.healthy));
                   }
                 }

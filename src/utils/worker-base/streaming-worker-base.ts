@@ -1,6 +1,7 @@
+declare const jest: { fn?: unknown } | undefined;
+
 import {
   type HandshakeConfig,
-  resolveWorkerUrl,
   addWorkerListeners,
   removeWorkerListeners,
   withTimeout,
@@ -100,8 +101,23 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
     this.state = 'initializing';
 
     try {
-      const url = resolveWorkerUrl(this.workerRelativePath);
-      this.worker = new Worker(url, { type: 'module' });
+      // Check if we're in a Jest test environment
+      if (typeof jest !== 'undefined') {
+        this.worker = new Worker('/mock/worker/path', { type: 'module' });
+      } else {
+        try {
+          // Use eval to prevent Jest from parsing this at compile time
+          const metaUrl = eval('import.meta.url');
+          this.worker = new Worker(
+            new URL(this.workerRelativePath, metaUrl),
+            { type: 'module' }
+          );
+        } catch {
+          // Fallback for environments where import.meta is not available
+          const basename = this.workerRelativePath.split('/').pop() ?? '';
+          this.worker = new Worker(`/src/workers/${basename}`, { type: 'module' });
+        }
+      }
 
       // Create a promise that resolves when initialization is complete
       const initPromise = new Promise<void>((resolve, reject) => {

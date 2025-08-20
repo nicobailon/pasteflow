@@ -7,7 +7,7 @@
 import type { FileData, TreeNode } from '../types/file-types';
 import { TREE_FLATTEN_CACHE } from '@constants';
 
-import { normalizePath } from './path-utils';
+import { normalizePath } from '@file-ops/path';
 import { BoundedLRUCache } from './bounded-lru-cache';
 
 interface TreeTransformDependencies {

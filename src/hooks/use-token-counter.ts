@@ -203,9 +203,9 @@ function verifyPoolHealth(): boolean {
   }
   
   // Check if pool is in a bad state
-  if (typeof globalWorkerPool.getStatus === 'function') {
-    const status = globalWorkerPool.getStatus();
-    if (status.isTerminated || (status.activeWorkers === 0 && refCount > 0)) {
+  if (typeof globalWorkerPool.getStats === 'function') {
+    const stats = globalWorkerPool.getStats();
+    if (stats.isTerminated || (stats.healthyWorkers === 0 && refCount > 0)) {
       console.error('[useTokenCounter] Pool in bad state, recreating');
       const oldPool = globalWorkerPool;
       globalWorkerPool = null;
@@ -296,9 +296,7 @@ export function useTokenCounter() {
     
     if (!globalWorkerPool) {
       globalWorkerPool = new TokenWorkerPool();
-      if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
-        globalWorkerPool.monitorWorkerMemory();
-      }
+      // monitorWorkerMemory method removed after worker-base refactor
       // Start memory monitoring when pool is created
       startMemoryMonitoring();
       // Start orphan check for edge case cleanup
@@ -362,9 +360,7 @@ export function useTokenCounter() {
     // Check if pool needs to be recreated after force cleanup
     if (!globalWorkerPool && refCount > 0) {
       globalWorkerPool = new TokenWorkerPool();
-      if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
-        globalWorkerPool.monitorWorkerMemory();
-      }
+      // monitorWorkerMemory method removed after worker-base refactor
       workerPoolRef.current = globalWorkerPool;
       // Restart monitoring for the new pool
       startMemoryMonitoring();
@@ -405,9 +401,7 @@ export function useTokenCounter() {
         
         // Create new pool before terminating old one
         globalWorkerPool = new TokenWorkerPool();
-        if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
-          globalWorkerPool.monitorWorkerMemory();
-        }
+        // monitorWorkerMemory method removed after worker-base refactor
         workerPoolRef.current = globalWorkerPool;
         
         // Terminate old pool

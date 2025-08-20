@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
-import { applyFileChanges } from '../../lib/apply-changes';
+import { applyFileChanges } from '@lib/apply-changes';
 
 describe('applyFileChanges', () => {
   // Create a temporary directory for testing

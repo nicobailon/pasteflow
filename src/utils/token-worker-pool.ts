@@ -30,7 +30,7 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
       },
       WORKER_POOL.OPERATION_TIMEOUT_MS,
       WORKER_POOL.HEALTH_CHECK_TIMEOUT_MS,
-      WORKER_POOL.HEALTH_MONITOR_INTERVAL_SEC,
+      WORKER_POOL.HEALTH_MONITOR_INTERVAL_SECONDS,
       WORKER_POOL.MAX_QUEUE_SIZE
     );
   }

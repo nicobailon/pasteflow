@@ -8,6 +8,8 @@ module.exports = {
     '^@constants$': '<rootDir>/src/constants/index.ts',
     '^@constants/(.*)$': '<rootDir>/src/constants/$1',
     '^@shared/(.*)$': '<rootDir>/src/shared/$1',
+    '^@file-ops/(.*)$': '<rootDir>/src/file-ops/$1',
+    '^@lib/(.*)$': '<rootDir>/src/lib/$1',
 
     // Handle CSS imports (with CSS modules)
     '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.ts',

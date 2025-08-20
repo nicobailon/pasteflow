@@ -136,7 +136,7 @@ export function useFileTreeProcessing({
     const pool = getTreeBuilderWorkerPool();
     
     try {
-      buildHandleRef.current = pool.startStreamingBuild(
+      buildHandleRef.current = pool.startStreaming(
         {
           files: allFiles,
           selectedFolder,
@@ -144,7 +144,7 @@ export function useFileTreeProcessing({
           chunkSize: UI.TREE.CHUNK_SIZE
         },
         {
-          onChunk: (chunk) => {
+          onChunk: (chunk: { nodes: TreeNode[]; progress: number }) => {
             // Apply sorting to nodes before committing
             const sortedNodes = sortTreeNodesRecursively(chunk.nodes, fileTreeSortOrder || 'default');
             commitTree(sortedNodes);
@@ -155,7 +155,7 @@ export function useFileTreeProcessing({
             setProgress(100);
             buildHandleRef.current = null;
           },
-          onError: (error) => {
+          onError: (error: Error) => {
             console.error('Tree build error:', error);
             // No fallback - propagate error
             setIsComplete(true);

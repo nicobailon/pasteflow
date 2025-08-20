@@ -13,6 +13,7 @@ import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
 import Dropdown, { DropdownRef } from './dropdown';
 import SearchBar from "./search-bar";
 import { createSortOptions, checkAllFilesSelected } from './sidebar-helpers';
+import './sidebar.css';
 
 export interface SidebarRef {
   closeSortDropdown: () => void;

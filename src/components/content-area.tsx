@@ -5,7 +5,7 @@ import { FEATURES, UI, TOKEN_COUNTING } from '@constants';
 import { usePreviewPack } from '../hooks/use-preview-pack';
 
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
-import { getRelativePath, dirname, normalizePath } from '../utils/path-utils';
+import { getRelativePath, dirname, normalizePath } from '@file-ops/path';
 
 import CopyButton from './copy-button';
 import Dropdown from './dropdown';

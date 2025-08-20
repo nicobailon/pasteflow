@@ -6,6 +6,7 @@ import ignore from 'ignore';
 import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants';
 import { excludedFiles, binaryExtensions } from '../shared/excluded-files';
 import { getPathValidator } from '../security/path-validator';
+import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
 import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
 import { getMainTokenService } from '../services/token-service-main';
@@ -40,56 +41,18 @@ let database: DatabaseBridge | null = null;
 // Initialize token service
 const tokenService = getMainTokenService();
 
-/** Binary/special files */
-const BINARY_EXTENSIONS = new Set<string>([
-  // Images
-  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.ico', '.webp', '.svg',
-  // Audio/Video
-  '.mp3', '.mp4', '.wav', '.ogg', '.avi', '.mov', '.mkv', '.flac',
-  // Archives
-  '.zip', '.rar', '.tar', '.gz', '.7z',
-  // Documents
-  '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx',
-  // Compiled
-  '.exe', '.dll', '.so', '.class', '.o', '.pyc',
-  // Database
-  '.db', '.sqlite', '.sqlite3',
-  // Others
-  '.bin', '.dat', '.lockb',
-  ...binaryExtensions
-]);
-
+/** Special files specific to main process */
 const SPECIAL_FILE_EXTENSIONS = new Set<string>(['.asar', '.bin', '.dll', '.exe', '.so', '.dylib']);
 
-/** Helpers */
-function isControlOrBinaryChar(codePoint: number | undefined): boolean {
-  if (typeof codePoint !== 'number') return false;
-  return (
-    (codePoint >= 0 && codePoint <= 8) ||
-    codePoint === 11 || // VT
-    codePoint === 12 || // FF
-    (codePoint >= 14 && codePoint <= 31) ||
-    codePoint === 127 // DEL
-  );
-}
+// Create a combined set of binary extensions including both file-ops and legacy extensions
+const BINARY_EXTENSIONS = new Set<string>([
+  ...BINARY_EXTENSIONS_FROM_FILE_OPS,
+  '.lockb', // Additional extension specific to main process
+  ...binaryExtensions // Legacy extensions from shared/excluded-files
+]);
 
-function isLikelyBinaryContent(content: string, filePath?: string): boolean {
-  // Skip binary content check for JavaScript files
-  if (filePath && path.extname(filePath).toLowerCase() === '.js') {
-    return false;
-  }
-  let controlCharCount = 0;
-  const threshold = ELECTRON.BINARY_DETECTION.CONTROL_CHAR_THRESHOLD;
-  for (let i = 0; i < content.length; i++) {
-    if (isControlOrBinaryChar(content.codePointAt(i))) {
-      controlCharCount++;
-      if (controlCharCount >= threshold) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
+/** Use shared binary content detection */
+const isLikelyBinaryContent = isLikelyBinaryContentFromFileOps;
 
 function isSpecialFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
@@ -147,12 +110,8 @@ function loadGitignore(rootDir: string, userExclusionPatterns: string[] = []) {
   return ig;
 }
 
-function shouldExcludeByDefault(filePath: string, rootDir: string): boolean {
-  const relativePath = path.relative(rootDir, filePath);
-  const normalized = relativePath.replace(/\\/g, '/');
-  const ig = ignore().add(excludedFiles);
-  return ig.ignores(normalized);
-}
+// Use exclusion logic from file-ops
+const shouldExcludeByDefault = shouldExcludeByDefaultFromFileOps;
 
 function processFile(
   dirent: fs.Dirent,
