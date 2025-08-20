@@ -49,6 +49,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   private queue: QueueItem<TReq, TRes>[] = [];
   private activeJobs = new Map<string, ActiveJob<TReq>>();
   private pendingByHash = new Map<string, Promise<TRes>>();
+  private pendingByHashAge = new Map<string, number>(); // Track age for cleanup
   private recoveryLocks = new Map<number, boolean>();
   private recoveryQueue = new Map<number, Promise<void>>();
   private healthMonitorInterval?: ReturnType<typeof setInterval>;
@@ -396,9 +397,11 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     });
     
     this.pendingByHash.set(hash, promise);
+    this.pendingByHashAge.set(hash, Date.now());
     
     promise.finally(() => {
       this.pendingByHash.delete(hash);
+      this.pendingByHashAge.delete(hash);
     });
     
     return promise;
@@ -531,6 +534,16 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   }
 
   public async performHealthMonitoring(): Promise<void> {
+    // Clean up stale pending promises (older than 5 minutes)
+    const staleThreshold = Date.now() - 5 * 60 * 1000;
+    for (const [hash, age] of this.pendingByHashAge.entries()) {
+      if (age < staleThreshold) {
+        this.pendingByHash.delete(hash);
+        this.pendingByHashAge.delete(hash);
+        console.debug(`[WorkerPool] Cleaned up stale pending promise: ${hash}`);
+      }
+    }
+    
     const results = await this.healthCheck();
     
     for (const result of results) {
@@ -570,6 +583,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     // Clear all maps
     this.activeJobs.clear();
     this.pendingByHash.clear();
+    this.pendingByHashAge.clear();
     this.recoveryLocks.clear();
     this.recoveryQueue.clear();
   }
