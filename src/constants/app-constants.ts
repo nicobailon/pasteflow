@@ -205,8 +205,8 @@ export const UI = {
     UPDATE_DEBOUNCE_MS: 50,
     /** Default expansion level for directories */
     DEFAULT_EXPANSION_LEVEL: 1,
-    /** Maximum element traversal depth */
-    MAX_TRAVERSAL_DEPTH: 3,
+    /** Maximum element traversal depth for intermediate chunks (increased to show all expanded folders) */
+    MAX_TRAVERSAL_DEPTH: 10,
     /** Default line height approximation (pixels) */
     DEFAULT_LINE_HEIGHT: 20,
     /** Line selection tolerance (pixels) */
