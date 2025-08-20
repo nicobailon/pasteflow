@@ -80,24 +80,31 @@ function scheduleCleanup() {
 
 // Window/process cleanup handlers for edge cases
 if (typeof window !== 'undefined') {
-  // Handle window unload
-  const handleUnload = () => {
-    if (globalWorkerPool) {
-      cleanupGlobalPool(true);
-    }
-  };
+  // HMR guard: Prevent duplicate listener registration in development
+  const windowWithFlag = window as Window & { __PF_tokenHookBound?: boolean };
   
-  window.addEventListener('beforeunload', handleUnload);
-  window.addEventListener('pagehide', handleUnload);
-  
-  // Handle errors that might leave pool in bad state
-  window.addEventListener('error', (event) => {
-    if (event.error && event.error.message && 
-        (event.error.message.includes('Worker') || event.error.message.includes('WebAssembly'))) {
-      console.error('[useTokenCounter] Critical error detected, checking pool health');
-      verifyPoolHealth();
-    }
-  });
+  if (!windowWithFlag.__PF_tokenHookBound) {
+    windowWithFlag.__PF_tokenHookBound = true;
+    
+    // Handle window unload
+    const handleUnload = () => {
+      if (globalWorkerPool) {
+        cleanupGlobalPool(true);
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+    
+    // Handle errors that might leave pool in bad state
+    window.addEventListener('error', (event) => {
+      if (event.error && event.error.message && 
+          (event.error.message.includes('Worker') || event.error.message.includes('WebAssembly'))) {
+        console.error('[useTokenCounter] Critical error detected, checking pool health');
+        verifyPoolHealth();
+      }
+    });
+  }
 }
 
 // Helper function to update activity time

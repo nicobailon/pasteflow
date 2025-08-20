@@ -217,7 +217,6 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                     onChange={handleSelectAllToggle}
                     title={areAllFilesSelected ? "Deselect all files" : "Select all files"}
                     disabled={isOverlayComputing}
-                    aria-busy={isOverlayComputing}
                   />
                   <span className="custom-checkbox"></span>
                 </div>
