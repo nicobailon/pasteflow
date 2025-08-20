@@ -57,10 +57,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const baseFolderSelectionCache = useMemo(() => {
     // Use a stable callback ref to avoid recreating the cache
     const onBatchApplied = () => {
-      // Use RAF to batch the state update with the next render cycle
-      requestAnimationFrame(() => {
-        setFolderOverlayVersion(v => v + 1);
-      });
+      // Direct state update for faster feedback
+      setFolderOverlayVersion(v => v + 1);
     };
     
     const cache = createDirectorySelectionCache(allFiles, selectedFiles, {
@@ -363,7 +361,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       
       setOptimisticStateVersion(v => v + 1); // Trigger re-render for optimistic update
 
-      // Schedule cleanup with a longer timeout to ensure state has settled
+      // Schedule cleanup with a shorter timeout for faster UI updates
       const timeout = setTimeout(() => {
         // Only clean up if no pending operations for this path
         if (!pendingOperationsRef.current.has(folderPath)) {
@@ -371,7 +369,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           setOptimisticStateVersion(v => v + 1); // Trigger re-render
           optimisticTimeoutsRef.current.delete(folderPath);
         }
-      }, FILE_PROCESSING.DEBOUNCE_DELAY_MS); // Using centralized debounce delay for better stability
+      }, FILE_PROCESSING.OPTIMISTIC_UPDATE_CLEANUP_MS); // Shorter delay for faster UI feedback
 
       optimisticTimeoutsRef.current.set(folderPath, timeout);
     }

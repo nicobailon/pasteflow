@@ -24,6 +24,8 @@ export const FILE_PROCESSING = {
   HASH_TEXT_LENGTH_LIMIT: 1000,
   /** File processing debounce delay (milliseconds) */
   DEBOUNCE_DELAY_MS: 500,
+  /** Optimistic UI update cleanup delay (milliseconds) - shorter for faster feedback */
+  OPTIMISTIC_UPDATE_CLEANUP_MS: 100,
 } as const;
 
 // ==================== RATE LIMITING ====================

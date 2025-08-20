@@ -161,7 +161,7 @@ const TreeItemCheckbox = ({
   checked, 
   indeterminate, 
   disabled, 
-  onChange 
+  onChange
 }: TreeItemCheckboxProps) => {
   const checkboxRef = useRef(null as HTMLInputElement | null);
   
