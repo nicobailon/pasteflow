@@ -9,7 +9,7 @@ This directory contains TypeScript utility scripts for building, packaging, and 
 
 Related config:
 - Compile-to-CJS for scripts: `tsconfig.scripts.json`
-- electron-builder hook in [package.json](../package.json#L60-L112): `"afterSign": "build/scripts/notarize.js"`
+- electron-builder hook in [package.json](../package.json): `"afterSign": "build/scripts/notarize.js"`
 
 ## Available Scripts
 

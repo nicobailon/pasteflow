@@ -13,8 +13,9 @@ npm run build-electron
 This will:
 
 1. Build the React app with Vite
-2. Fix any resource paths for Electron compatibility
-3. Package the application with electron-builder
+2. Compile Electron main/preload TypeScript to CommonJS (build/main)
+3. Compile packaging hooks to CommonJS (build/scripts)
+4. Package the application with electron-builder
 
 The packaged application will be available in the `release-builds` directory.
 
@@ -73,7 +74,7 @@ If you encounter blank screens or resource loading errors:
 
 1. Check if the app is properly finding the assets
 2. The issue might be related to how paths are resolved in the packaged app
-3. Our build script automatically fixes path issues in index.html
+3. The build process handles resource paths for Electron automatically
 
 ### macOS Specific Issues
 

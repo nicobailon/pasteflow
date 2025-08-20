@@ -17,29 +17,10 @@ Notes:
 ## Architecture
 
 ```
-┌─────────────────────┐
-│   Renderer (React)  │  UI + window.electron API
-└──────────┬──────────┘
-           │ IPC
-┌──────────▼──────────┐
-│   Main Process      │  src/main/main.ts
-│   (TypeScript IPC)  │
-└──────────┬──────────┘
-           │
-┌──────────▼──────────┐
-│  Database Bridge    │  DatabaseBridge (init, fallback mgmt)
-│  (Initialization)   │
-└──────────┬──────────┘
-           │
-┌──────────▼──────────┐
-│   PasteFlow DB      │  better-sqlite3, prepared statements,
-│ (SQLite + retries)  │  performance PRAGMAs, typed CRUD
-└──────────┬──────────┘
-           │
-┌──────────▼──────────┐
-│ Database Worker     │  database-worker.ts (worker_threads)
-│ (Worker threads)    │
-└─────────────────────┘
+Renderer (React) → Main (src/main/main.ts, IPC) → DatabaseBridge → one of:
+  • PasteFlowDatabase (better‑sqlite3, prepared statements, PRAGMAs)            // direct path
+  • PooledDatabase (ConnectionPool: read/write split, metrics, cache)           // optional
+  • AsyncDatabase → Database Worker (worker_threads; better‑sqlite3 underneath) // optional
 ```
 
 ## Core Components
@@ -111,7 +92,7 @@ Indexes exist for common access paths (e.g., workspace name/last_accessed, prefe
 
 ### Initialization (Main process)
 
-TypeScript in [src/main/main.ts](src/main/main.ts:323) performs the bridge initialization with in‑memory fallback if persistent storage fails:
+TypeScript in [src/main/main.ts](src/main/main.ts) performs the bridge initialization with in‑memory fallback if persistent storage fails:
 
 ```ts
 import { app } from 'electron';
@@ -134,7 +115,7 @@ app.whenReady().then(async () => {
 
 ### IPC integration (Main → Renderer)
 
-We expose TypeScript IPC envelopes under the following channels, implemented in [src/main/main.ts](src/main/main.ts:687):
+We expose TypeScript IPC envelopes under the following channels, implemented in [src/main/main.ts](src/main/main.ts):
 
 - Workspaces:
   - '/workspace/list'
@@ -174,7 +155,7 @@ await window.electron.ipcRenderer.invoke('/prefs/set', { key: 'theme', value: 'd
 ### TypeScript notes
 
 - All database files are authored in TypeScript; the Electron main build compiles to CJS in `build/main`.
-- The worker file [database-worker.ts](src/main/db/database-worker.ts:1) is loaded by worker_threads from the compiled output at runtime (packaging step ensures the JS file is co‑located).
+- The worker file [database-worker.ts](src/main/db/database-worker.ts) is loaded by worker_threads from the compiled output at runtime (packaging step ensures the JS file is co‑located).
 
 ## Key Features
 
