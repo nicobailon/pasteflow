@@ -43,6 +43,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const perf = useMemo(() => getGlobalPerformanceMonitor(), []);
   // Overlay version to trigger re-renders when progressive batches apply
   const [folderOverlayVersion, setFolderOverlayVersion] = useState(0);
+  // Manual cache update version to trigger re-renders when cache is manually updated
+  const [manualCacheVersion, setManualCacheVersion] = useState(0);
   // Coalescing guard for rapid bulk toggles
   const lastBulkToggleTsRef = useRef(0);
   // Chunking configuration
@@ -94,7 +96,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       setSelectedPaths: cache.setSelectedPaths?.bind(cache),
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseFolderSelectionCache, optimisticStateVersion, folderOverlayVersion]);
+  }, [baseFolderSelectionCache, optimisticStateVersion, folderOverlayVersion, manualCacheVersion]);
 
   // Keep progressive overlay recomputation in sync with selection changes
   useEffect(() => {
@@ -351,7 +353,15 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
       // Set optimistic state using the folder path
       optimisticFolderStatesRef.current.set(folderPath, newState);
-      setOptimisticStateVersion(v => v + 1); // Trigger re-render
+      
+      // Immediately update the cache as well for instant feedback
+      const cache = baseFolderSelectionCacheRef.current;
+      if (cache) {
+        cache.set(folderPath, newState);
+        setManualCacheVersion(v => v + 1); // Trigger re-render for cache update
+      }
+      
+      setOptimisticStateVersion(v => v + 1); // Trigger re-render for optimistic update
 
       // Schedule cleanup with a longer timeout to ensure state has settled
       const timeout = setTimeout(() => {
