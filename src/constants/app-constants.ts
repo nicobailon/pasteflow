@@ -101,6 +101,8 @@ export const WORKER_POOL = {
   HEALTH_MONITOR_INTERVAL_SECONDS: 30,
   /** Memory monitoring interval (seconds) */
   MEMORY_MONITOR_INTERVAL_SECONDS: 30,
+  /** Stale promise cleanup threshold (milliseconds) */
+  STALE_PROMISE_CLEANUP_MS: 30_000,
   /** Memory threshold for worker recycling (bytes) */
   MEMORY_THRESHOLD_BYTES: 500_000_000, // 500MB
   /** Worker initialization timeout (milliseconds) */

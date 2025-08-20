@@ -6,6 +6,7 @@ import {
   removeWorkerListeners,
   withTimeout,
 } from './worker-common';
+import { WORKER_POOL } from '@constants';
 
 interface QueueItem<TReq, TRes> {
   id: string;
@@ -534,8 +535,8 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   }
 
   public async performHealthMonitoring(): Promise<void> {
-    // Clean up stale pending promises (older than 5 minutes)
-    const staleThreshold = Date.now() - 5 * 60 * 1000;
+    // Clean up stale pending promises
+    const staleThreshold = Date.now() - WORKER_POOL.STALE_PROMISE_CLEANUP_MS;
     for (const [hash, age] of this.pendingByHashAge.entries()) {
       if (age < staleThreshold) {
         this.pendingByHash.delete(hash);
