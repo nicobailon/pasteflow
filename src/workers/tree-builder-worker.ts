@@ -303,7 +303,7 @@ function validateInput(data: TreeBuilderMessage): { valid: boolean; error?: stri
 
 // Handle initialization message
 function handleInitMessage(): void {
-  self.postMessage({ type: 'READY' });
+  self.postMessage({ type: 'INIT_COMPLETE' });
 }
 
 // Handle cancellation message
@@ -345,6 +345,9 @@ function handleBuildTreeMessage(data: TreeBuilderMessage): void {
     });
   }
 }
+
+// Send initial ready signal when worker loads
+self.postMessage({ type: 'READY' });
 
 self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
   const data = e.data;

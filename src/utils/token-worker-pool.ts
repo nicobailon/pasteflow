@@ -19,7 +19,6 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
   constructor(poolSize?: number) {
     super(
       poolSize ?? Math.min(navigator.hardwareConcurrency || WORKER_POOL.DEFAULT_WORKERS, WORKER_POOL.MAX_WORKERS),
-      '../workers/token-counter-worker.ts',
       {
         readySignalType: 'WORKER_READY',
         initRequestType: 'INIT',
@@ -32,6 +31,16 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
       WORKER_POOL.HEALTH_CHECK_TIMEOUT_MS,
       WORKER_POOL.HEALTH_MONITOR_INTERVAL_SECONDS,
       WORKER_POOL.MAX_QUEUE_SIZE
+    );
+  }
+
+  /**
+   * Create the token counter worker with Vite-compatible static import
+   */
+  protected createWorker(): Worker {
+    return new Worker(
+      new URL('../workers/token-counter-worker.ts', import.meta.url),
+      { type: 'module' }
     );
   }
 

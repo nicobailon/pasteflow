@@ -48,11 +48,16 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
   private errorHandler?: (e: ErrorEvent) => void;
 
   constructor(
-    protected workerRelativePath: string,
     protected handshake: HandshakeConfig,
     protected initTimeoutMs: number,
     protected cancelTimeoutMs: number
   ) {}
+
+  /**
+   * Create the worker instance. Subclasses must implement this to provide
+   * their specific worker with Vite-compatible static imports.
+   */
+  protected abstract createWorker(): Worker;
 
   protected abstract buildInitMessage(): { type: string };
 
@@ -105,18 +110,9 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
       if (typeof jest !== 'undefined') {
         this.worker = new Worker('/mock/worker/path', { type: 'module' });
       } else {
-        try {
-          // Use eval to prevent Jest from parsing this at compile time
-          const metaUrl = eval('import.meta.url');
-          this.worker = new Worker(
-            new URL(this.workerRelativePath, metaUrl),
-            { type: 'module' }
-          );
-        } catch {
-          // Fallback for environments where import.meta is not available
-          const basename = this.workerRelativePath.split('/').pop() ?? '';
-          this.worker = new Worker(`/src/workers/${basename}`, { type: 'module' });
-        }
+        // Delegate worker creation to the concrete subclass
+        // This allows Vite to statically analyze the worker import
+        this.worker = this.createWorker();
       }
 
       // Create a promise that resolves when initialization is complete

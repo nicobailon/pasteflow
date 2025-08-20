@@ -35,11 +35,10 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
 
   constructor() {
     super(
-      '../workers/tree-builder-worker.ts',
       {
         readySignalType: 'READY',
         initRequestType: 'INIT',
-        initResponseType: 'READY',
+        initResponseType: 'INIT_COMPLETE',
         errorType: 'TREE_ERROR'
       },
       5000, // initTimeoutMs
@@ -48,6 +47,16 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
 
     // Initialize asynchronously and track the promise
     this.initPromise = this.initialize();
+  }
+
+  /**
+   * Create the tree builder worker with Vite-compatible static import
+   */
+  protected createWorker(): Worker {
+    return new Worker(
+      new URL('../workers/tree-builder-worker.ts', import.meta.url),
+      { type: 'module' }
+    );
   }
 
   private async initialize(): Promise<void> {

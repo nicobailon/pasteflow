@@ -59,7 +59,6 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
 
   constructor(
     protected poolSize: number,
-    protected workerRelativePath: string,
     protected handshake: HandshakeConfig,
     protected operationTimeoutMs: number,
     protected healthCheckTimeoutMs: number,
@@ -68,6 +67,12 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   ) {
     this.initPromise = this.init();
   }
+
+  /**
+   * Create a worker instance. Subclasses must implement this to provide
+   * their specific worker with Vite-compatible static imports.
+   */
+  protected abstract createWorker(): Worker;
 
   protected abstract buildJobMessage(
     request: TReq,
@@ -113,16 +118,9 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         if (typeof jest !== 'undefined') {
           worker = new Worker('/mock/worker/path', { type: 'module' });
         } else {
-          try {
-            const metaUrl = eval('import.meta.url');
-            worker = new Worker(
-              new URL(this.workerRelativePath, metaUrl),
-              { type: 'module' }
-            );
-          } catch {
-            const basename = this.workerRelativePath.split('/').pop() ?? '';
-            worker = new Worker(`/src/workers/${basename}`, { type: 'module' });
-          }
+          // Delegate worker creation to the concrete subclass
+          // This allows Vite to statically analyze the worker import
+          worker = this.createWorker();
         }
         this.workers[i] = worker;
         this.workerReady[i] = false;
@@ -328,16 +326,9 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         if (typeof jest !== 'undefined') {
           newWorker = new Worker('/mock/worker/path', { type: 'module' });
         } else {
-          try {
-            const metaUrl = eval('import.meta.url');
-            newWorker = new Worker(
-              new URL(this.workerRelativePath, metaUrl),
-              { type: 'module' }
-            );
-          } catch {
-            const basename = this.workerRelativePath.split('/').pop() ?? '';
-            newWorker = new Worker(`/src/workers/${basename}`, { type: 'module' });
-          }
+          // Delegate worker creation to the concrete subclass
+          // This allows Vite to statically analyze the worker import
+          newWorker = this.createWorker();
         }
         this.workers[workerId] = newWorker;
         this.workerReady[workerId] = false;
