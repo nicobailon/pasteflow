@@ -97,6 +97,16 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
 
   // Public API methods that match the existing interface
   async countTokens(text: string, options?: { signal?: AbortSignal; priority?: number }): Promise<number> {
+    if (this.getStats().isTerminated) {
+      throw new Error('Worker pool has been terminated');
+    }
+    
+    // Large input guard
+    const size = new TextEncoder().encode(text).length;
+    if (size > 10 * 1024 * 1024) {
+      throw new Error('Text too large for processing');
+    }
+    
     const startTime = Date.now();
     
     try {
@@ -111,6 +121,10 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
   }
 
   async countTokensBatch(texts: string[], options?: { signal?: AbortSignal; priority?: number }): Promise<number[]> {
+    if (this.getStats().isTerminated) {
+      throw new Error('Worker pool has been terminated');
+    }
+    
     const startTime = Date.now();
     
     try {
@@ -126,11 +140,15 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
 
   // Compatibility methods for existing tests/UI
   getPerformanceStats() {
+    const s = this.getStats();
     return {
       ...this.performanceStats,
       averageTime: this.performanceStats.totalProcessed > 0 
         ? this.performanceStats.totalTime / this.performanceStats.totalProcessed 
-        : 0
+        : 0,
+      queueLength: s.queueLength,
+      activeJobs: s.activeJobs,
+      poolSize: s.workerCount
     };
   }
 

@@ -325,8 +325,6 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         this.workerHealthy[workerId] = true;
         
         this.onWorkerRecovered(workerId);
-        
-        // Process any queued jobs after recovery
         this.processNext();
       } finally {
         this.recoveryLocks.delete(workerId);
@@ -406,6 +404,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
       
       const worker = this.workers[workerId];
       const id = batchMessage.id;
+      
       let handlers: {
         message: (e: MessageEvent) => void;
         error: () => void;
@@ -417,12 +416,12 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
             if (e.data?.id !== id) return;
             const results = this.parseBatchJobResult(e, requests);
             if (results) {
-              removeWorkerListeners(worker, handlers);
+              removeWorkerListeners(worker, handlers!);
               resolve(results);
             }
           },
           error: () => {
-            removeWorkerListeners(worker, handlers);
+            removeWorkerListeners(worker, handlers!);
             resolve(requests.map(req => this.fallbackValue(req)));
           }
         };
@@ -431,11 +430,10 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         worker.postMessage(batchMessage);
       });
       
-      // Wrap with timeout and ensure cleanup
       try {
         return await withTimeout(innerPromise, this.operationTimeoutMs, 'Batch operation');
       } catch {
-        // On timeout, clean up listeners and return fallback values
+        // On timeout, ensure cleanup
         if (handlers) {
           removeWorkerListeners(worker, handlers);
         }
@@ -463,16 +461,19 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     const results = await Promise.all(
       this.workers.map(async (worker, i) => {
         const start = Date.now();
-        const healthId = `health-${Date.now()}-${i}`;
+        const healthId = `health-${Date.now()}-${i}-${Math.random()}`;
+        let handlers: {
+          message: (e: MessageEvent) => void;
+        } | null = null;
         
         try {
           await withTimeout(
             new Promise<boolean>((resolve) => {
-              const handlers = {
+              handlers = {
                 message: (e: MessageEvent) => {
                   if (e.data?.type === this.handshake.healthResponseType && e.data?.id === healthId) {
                     removeWorkerListeners(worker, handlers);
-                    resolve(e.data.healthy ?? true);
+                    resolve(Boolean(e.data.healthy));
                   }
                 }
               };
@@ -489,6 +490,10 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
           
           return { workerId: i, healthy: true, responseTime };
         } catch {
+          // Ensure cleanup on timeout
+          if (handlers) {
+            removeWorkerListeners(worker, handlers);
+          }
           this.workerHealthy[i] = false;
           return { workerId: i, healthy: false, responseTime: Date.now() - start };
         }

@@ -194,18 +194,8 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
 
   getStatus() {
     const snap = this.getSnapshot();
-    // Compute state based on both base class and local initialization status
-    let state: 'uninitialized' | 'initializing' | 'ready' | 'error';
-    if (this.initializationError) {
-      state = 'error';
-    } else if (!this.isInitialized) {
-      state = 'initializing';
-    } else {
-      state = snap.state;
-    }
-    
     return {
-      state,
+      state: snap.state,
       queueLength: snap.queueLength,
       hasActiveBuild: snap.hasActive
     };
