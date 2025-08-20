@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { FolderOpen } from "lucide-react";
 
 import { FileData, FileListProps, LineRange, SelectedFileWithLines } from "../types/file-types";
-import { tokenCountCache } from "../utils/token-cache";
+import { tokenCountCache } from "../utils/token-cache-adapter";
 import { estimateTokenCount } from "../utils/token-utils";
 
 import FileCard from "./file-card";

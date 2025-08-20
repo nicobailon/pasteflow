@@ -15,17 +15,19 @@ let lastErrorTime: number | null = null;
 let operationCount = 0;
 let startTime = Date.now();
 
+// Utility to safely extract error messages
+const toErrorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 // Initialize database with enhanced error handling
 let db: Database.Database;
 try {
   db = new Database(workerData.dbPath);
   console.log('Database worker: Connection established to', workerData.dbPath);
-} catch (error) {
+} catch (error: unknown) {
   console.error('Database worker: Failed to initialize database:', error);
   // Send initialization error to parent
   if (parentPort) {
     parentPort.postMessage({
-      error: `Database initialization failed: ${error.message}`,
+      error: `Database initialization failed: ${toErrorMessage(error)}`,
       type: 'init_error'
     });
   }
@@ -40,11 +42,11 @@ if (workerData.encryptionKey) {
     db.pragma('cipher_integrity_check = 1');
     db.pragma('cipher_memory_security = ON');
     console.log('Database worker: Encryption enabled');
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Database worker: Failed to enable encryption:', error);
     if (parentPort) {
       parentPort.postMessage({
-        error: `Encryption setup failed: ${error.message}`,
+        error: `Encryption setup failed: ${toErrorMessage(error)}`,
         type: 'encryption_error'
       });
     }
@@ -83,47 +85,50 @@ function cleanupStatements() {
 }
 
 // Function to handle errors consistently
-function handleOperationError(error, operation, id) {
-  consecutiveErrors++;
-  lastErrorTime = Date.now();
-  
-  console.error(`Database worker: Operation '${operation}' failed:`, error);
-  
-  // Enhanced error information
-  const errorInfo = {
-    message: error.message,
-    code: error.code,
-    operation,
-    consecutiveErrors,
-    operationCount,
-    workerUptime: Date.now() - startTime
-  };
-  
-  if (parentPort) {
-    parentPort.postMessage({ id, error: error.message, errorInfo });
-  }
-  
-  // If too many consecutive errors, suggest restart
-  if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-    console.error('Database worker: Too many consecutive errors, worker may need restart');
-    if (parentPort) {
-      parentPort.postMessage({
-        type: 'worker_degraded',
-        consecutiveErrors,
-        lastErrorTime
-      });
-    }
-  }
+function handleOperationError(error: unknown, operation: string, id: string | number) {
+ consecutiveErrors++;
+ lastErrorTime = Date.now();
+
+ console.error(`Database worker: Operation '${operation}' failed:`, error);
+
+ const message = toErrorMessage(error);
+ const code = (error as any)?.code;
+
+ // Enhanced error information
+ const errorInfo = {
+   message,
+   code,
+   operation,
+   consecutiveErrors,
+   operationCount,
+   workerUptime: Date.now() - startTime
+ };
+
+ if (parentPort) {
+   parentPort.postMessage({ id, error: message, errorInfo });
+ }
+
+ // If too many consecutive errors, suggest restart
+ if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+   console.error('Database worker: Too many consecutive errors, worker may need restart');
+   if (parentPort) {
+     parentPort.postMessage({
+       type: 'worker_degraded',
+       consecutiveErrors,
+       lastErrorTime
+     });
+   }
+ }
 }
 
 // Function to handle successful operations
-function handleOperationSuccess(result, operation, id) {
-  consecutiveErrors = 0; // Reset error counter on success
-  operationCount++;
-  
-  if (parentPort) {
-    parentPort.postMessage({ id, result });
-  }
+function handleOperationSuccess(result: unknown, operation: string, id: string | number) {
+ consecutiveErrors = 0; // Reset error counter on success
+ operationCount++;
+
+ if (parentPort) {
+   parentPort.postMessage({ id, result });
+ }
 }
 
 // Enhanced message handler with timeout and error recovery
@@ -274,12 +279,12 @@ setInterval(() => {
   try {
     // Perform simple health check
     db.prepare('SELECT 1').get();
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Database worker: Health check failed:', error);
     if (parentPort) {
       parentPort.postMessage({
         type: 'health_check_failed',
-        error: error.message
+        error: toErrorMessage(error)
       });
     }
   }

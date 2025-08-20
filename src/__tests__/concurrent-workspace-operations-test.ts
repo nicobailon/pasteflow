@@ -1,4 +1,4 @@
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 import { WorkspaceState } from '../types/file-types';
 
 // Mock the path validator to allow all paths in tests

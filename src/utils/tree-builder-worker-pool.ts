@@ -6,7 +6,7 @@
 // Declare jest global for test environment detection with precise type
 declare const jest: { fn?: unknown } | undefined;
 
-import { UI } from '../constants/app-constants';
+import { UI } from '@constants';
 import type { FileData, TreeNode } from '../types/file-types';
 
 // Worker message types for type safety

@@ -1,7 +1,7 @@
 import { render, waitFor } from '@testing-library/react';
 import ContentArea from '../../components/content-area';
 import { FileData, SelectedFileReference } from '../../types/file-types';
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 // Mock the feature flags
 jest.mock('../../constants/app-constants', () => ({

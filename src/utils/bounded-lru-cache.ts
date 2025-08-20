@@ -103,12 +103,60 @@ export class BoundedLRUCache<K, V> {
    * Delete a specific key from the cache
    */
   delete(key: K): boolean {
-    const index = this.accessOrder.indexOf(key);
-    if (index > -1) {
-      this.accessOrder.splice(index, 1);
+    const deleted = this.cache.delete(key);
+    if (deleted) {
+      const index = this.accessOrder.indexOf(key);
+      if (index > -1) {
+        this.accessOrder.splice(index, 1);
+      }
+      this.timestamps.delete(key);
     }
-    this.timestamps.delete(key);
-    return this.cache.delete(key);
+    return deleted;
+  }
+  
+  /**
+   * Delete all keys that match a predicate function
+   * Useful for invalidating related cache entries (e.g., all entries for a file)
+   */
+  deleteWhere(predicate: (key: K) => boolean): number {
+    const keysToDelete = new Set<K>();
+    
+    for (const key of this.cache.keys()) {
+      if (predicate(key)) {
+        keysToDelete.add(key);
+      }
+    }
+    
+    // Batch delete from Map and timestamps
+    let deleteCount = 0;
+    for (const key of keysToDelete) {
+      if (this.cache.delete(key)) {
+        this.timestamps.delete(key);
+        deleteCount++;
+      }
+    }
+    
+    // Rebuild accessOrder array once (O(n) instead of O(n²))
+    if (deleteCount > 0) {
+      this.accessOrder = this.accessOrder.filter(key => !keysToDelete.has(key));
+    }
+    
+    return deleteCount;
+  }
+  
+  /**
+   * Get all keys that match a predicate function
+   */
+  keysWhere(predicate: (key: K) => boolean): K[] {
+    const matchingKeys: K[] = [];
+    
+    for (const key of this.cache.keys()) {
+      if (predicate(key)) {
+        matchingKeys.push(key);
+      }
+    }
+    
+    return matchingKeys;
   }
 
   /**
@@ -142,6 +190,11 @@ export class BoundedLRUCache<K, V> {
    * Get cache statistics
    */
   getStats(): { size: number; maxSize: number; utilizationPercent: number } {
+    // Prune expired entries first for accurate stats if TTL is enabled
+    if (this.ttlMs !== undefined) {
+      this.pruneExpired();
+    }
+    
     return {
       size: this.cache.size,
       maxSize: this.maxSize,

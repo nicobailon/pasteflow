@@ -3,7 +3,7 @@
  * This avoids the import.meta.url issue entirely by mocking at the module level
  */
 
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 export class MockTokenWorkerPool {
   private isTerminated = false;

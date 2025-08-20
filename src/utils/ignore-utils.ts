@@ -1,9 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
+import fs from 'fs';
+import path from 'path';
 
 import ignore from 'ignore';
 
-import { excludedFiles } from '../../excluded-files';
+import { excludedFiles } from '@shared/excluded-files';
 
 interface IgnoreFilter {
   add: (pattern: string | string[]) => void;

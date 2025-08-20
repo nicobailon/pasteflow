@@ -8,7 +8,7 @@ import { useTheme } from '../context/theme-context';
 import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
 import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 import { useOptimizedSelection } from '../hooks/use-optimized-selection';
-import { UI } from '../constants/app-constants';
+import { UI } from '@constants';
 import { fileViewerPerformance } from '../utils/file-viewer-performance';
 import { throttle } from '../utils/throttle';
 import { estimateTokenCount } from '../utils/token-utils';

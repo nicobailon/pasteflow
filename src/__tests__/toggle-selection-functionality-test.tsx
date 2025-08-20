@@ -2,7 +2,7 @@ import * as React from 'react';
 import { fireEvent, screen, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { FileData, SelectedFileWithLines } from '../types/file-types';
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 import { setupMockLocalStorage, renderWithProviders } from './test-helpers';
 import FileCard from '../components/file-card';
 import useFileSelectionState from '../hooks/use-file-selection-state';

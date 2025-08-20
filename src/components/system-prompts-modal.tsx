@@ -11,13 +11,13 @@ import { SystemPrompt, SystemPromptsModalProps } from "../types/file-types";
 const SystemPromptsModal = ({
   isOpen,
   onClose,
-  systemPrompts,
+  systemPrompts = [],
   onAddPrompt,
   onDeletePrompt,
   onUpdatePrompt,
   // onSelectPrompt, // This prop seems unused in the component
   selectedSystemPrompts = [],
-  toggleSystemPromptSelection,
+  toggleSystemPromptSelection = () => {},
   initialEditPrompt,
 }: SystemPromptsModalProps): JSX.Element => {
   const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
@@ -82,14 +82,14 @@ const SystemPromptsModal = ({
           
           <div className="modal-body">
             <div className="sidebar system-prompts-list">
-              {systemPrompts.length === 0 ? (
+              {(!Array.isArray(systemPrompts) || systemPrompts.length === 0) ? (
                 <div className="no-prompts-message">
                   No system prompts yet. Add one to get started.
                 </div>
               ) : (
-                systemPrompts.map((prompt) => (
-                  <div 
-                    key={prompt.id} 
+                (systemPrompts || []).map((prompt) => (
+                  <div
+                    key={prompt.id}
                     className={`system-prompt-item ${isPromptSelected(prompt) ? 'selected' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -108,13 +108,13 @@ const SystemPromptsModal = ({
                     <div className="prompt-details">
                       <div className="prompt-title">{prompt.name}</div>
                       <div className="prompt-preview">
-                        {prompt.content.length > 60 
-                          ? prompt.content.slice(0, 60) + "..." 
-                          : prompt.content}
+                        {(prompt.content ?? '').length > 60
+                          ? (prompt.content ?? '').slice(0, 60) + "..."
+                          : (prompt.content ?? '')}
                       </div>
                     </div>
                     <div className="prompt-actions">
-                      <button 
+                      <button
                         className={`prompt-action-button toggle-selection-button ${isPromptSelected(prompt) ? 'selected' : ''}`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -128,7 +128,7 @@ const SystemPromptsModal = ({
                           <CirclePlus size={14} />
                         )}
                       </button>
-                      <button 
+                      <button
                         className="prompt-action-button delete-button"
                         onClick={(e) => {
                           e.stopPropagation();

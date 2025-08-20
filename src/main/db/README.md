@@ -1,211 +1,211 @@
-# PasteFlow Database Layer
+# PasteFlow Database Layer (TypeScript)
 
 ## Overview
 
-The PasteFlow database layer provides a high-performance SQLite-based storage solution with the following features:
+The PasteFlow database layer provides a high‑performance SQLite storage stack with:
 
-- **Worker thread isolation** for non-blocking database operations
-- **Connection pooling** for improved concurrent access
-- **Automatic retry logic** for transient failures
-- **TypeScript-first design** with strict type safety
-- **Shared memory buffers** for efficient data transfer
-- **Migration from localStorage** for backward compatibility
+- Worker thread isolation for non‑blocking operations
+- Optional connection pooling for concurrency scenarios
+- Automatic retry logic for transient failures (SQLITE_BUSY/LOCKED, etc.)
+- Strict TypeScript design and typed envelopes to the renderer
+- Shared memory usage patterns for efficient data transfer
+- In‑memory fallback mode when persistent storage fails
+
+Notes:
+- Legacy localStorage migration has been superseded by a safer in‑memory fallback; we no longer write to localStorage from the main process.
 
 ## Architecture
 
 ```
 ┌─────────────────────┐
-│   Renderer Process  │
-│  (React Frontend)   │
+│   Renderer (React)  │  UI + window.electron API
 └──────────┬──────────┘
            │ IPC
 ┌──────────▼──────────┐
-│    Main Process     │
-│   (main.js IPC)     │
+│   Main Process      │  src/main/main.ts
+│   (TypeScript IPC)  │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
-│  Database Bridge    │
+│  Database Bridge    │  DatabaseBridge (init, fallback mgmt)
 │  (Initialization)   │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
-│ Pooled Database     │
-│ (Connection Pool)   │
+│   PasteFlow DB      │  better-sqlite3, prepared statements,
+│ (SQLite + retries)  │  performance PRAGMAs, typed CRUD
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
-│  Async Database     │
-│  (Worker Threads)   │
-└──────────┬──────────┘
-           │
-┌──────────▼──────────┐
-│  Database Worker    │
-│  (better-sqlite3)   │
+│ Database Worker     │  database-worker.ts (worker_threads)
+│ (Worker threads)    │
 └─────────────────────┘
 ```
 
 ## Core Components
 
-### DatabaseBridge (`database-bridge.ts`)
-- Entry point for database operations
-- Handles initialization and fallback to legacy localStorage
-- Manages the transition between storage backends
+### DatabaseBridge (database-bridge.ts)
+- Entry point used by the main process
+- Handles initialization with retry and automatic fallback to in‑memory DB
+- Exposes async CRUD envelopes for workspaces, preferences, and instructions
 
-### DatabaseImplementation (`database-implementation.ts`)
-- Core database logic and SQL operations
-- Workspace management (CRUD operations)
-- Preferences and instructions storage
-- Prepared statements for performance
+### PasteFlowDatabase (database-implementation.ts)
+- Core SQL logic using better‑sqlite3 with:
+  - WAL mode, NORMAL sync, large cache, busy_timeout
+  - Prepared statements for all CRUD operations
+  - JSON-serialized state (per workspace)
+- Provides typed operations and error classification
 
-### AsyncDatabase (`async-database.ts`)
-- Worker thread wrapper for non-blocking operations
-- Message passing between main and worker threads
-- Error handling and promise resolution
+### AsyncDatabase + Worker (async-database.ts, database-worker.ts)
+- Worker thread boundary for certain operations or future async tasks
+- Message envelopes, operation timeouts, health checks, and restart logic
+- Enhanced diagnostics (e.g., slow queries, stats events) posted to parent
 
-### DatabaseWorker (`database-worker.ts`)
-- Runs in a separate worker thread
-- Direct SQLite operations via better-sqlite3
-- Handles all database queries and mutations
-
-### Connection Pooling
-- `connection-pool.ts` - Pool management logic
-- `pooled-database.ts` - Pooled database wrapper
-- `pooled-database-bridge.ts` - Bridge with connection pooling
-- `pool-config.ts` - Pool configuration settings
+### Optional Pooling
+- connection-pool.ts, pooled-database.ts, pooled-database-bridge.ts, pool-config.ts
+- Pool configuration presets for various workloads, with status diagnostics
 
 ### Utilities
-- `retry-utils.ts` - Retry logic for transient failures
-- `shared-buffer-utils.ts` - Efficient data transfer using SharedArrayBuffer
+- retry-utils.ts — executeWithRetry, retryTransaction, retryWorkerOperation
+- shared-buffer-utils.ts — patterns for efficient memory transfer (kept minimal in current design)
 
 ## Database Schema
 
-### Workspaces Table
+### workspaces
 ```sql
 CREATE TABLE workspaces (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT UNIQUE NOT NULL,
-  folderPath TEXT NOT NULL,
-  state TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  last_accessed INTEGER NOT NULL
-)
+  folder_path TEXT,
+  state TEXT,
+  created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+  last_accessed INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+);
 ```
 
-### Preferences Table
+### preferences
 ```sql
 CREATE TABLE preferences (
   key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-)
+  value TEXT,
+  created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+);
 ```
 
-### Instructions Table
+### instructions
 ```sql
 CREATE TABLE instructions (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   content TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-)
+  created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+);
 ```
+
+Indexes exist for common access paths (e.g., workspace name/last_accessed, preferences key, instruction name/updated_at).
 
 ## Usage
 
-### Initialization
+### Initialization (Main process)
 
-In the Electron main process (`main.js`):
+TypeScript in [src/main/main.ts](src/main/main.ts:323) performs the bridge initialization with in‑memory fallback if persistent storage fails:
 
-```javascript
-const { DatabaseBridge } = require('./src/main/db/database-bridge');
+```ts
+import { app } from 'electron';
+import { DatabaseBridge } from './db/database-bridge';
+
+let database: DatabaseBridge | null = null;
 
 app.whenReady().then(async () => {
-  const database = new DatabaseBridge();
-  await database.initialize();
-  
-  // Database is now ready for operations
+  try {
+    database = new DatabaseBridge();
+    await database.initialize(); // retries + safe fallback to ':memory:'
+    console.log('Database initialized successfully');
+  } catch (err) {
+    console.error('Failed to initialize database:', err);
+    database = null; // triggers UI-level in-memory envelopes
+  }
+  // create BrowserWindow...
 });
 ```
 
-### IPC Integration
+### IPC integration (Main → Renderer)
 
-The main process handles IPC calls for database operations:
+We expose TypeScript IPC envelopes under the following channels, implemented in [src/main/main.ts](src/main/main.ts:687):
 
-```javascript
-// List workspaces
-ipcMain.handle('list-workspaces', async () => {
-  return await database.listWorkspaces();
-});
+- Workspaces:
+  - '/workspace/list'
+  - '/workspace/create'
+  - '/workspace/load'
+  - '/workspace/update'
+  - '/workspace/delete'
+  - '/workspace/rename'
+  - '/workspace/touch'
+- Preferences:
+  - '/prefs/get'
+  - '/prefs/set'
+- Instructions:
+  - '/instructions/list'
+  - '/instructions/create'
+  - '/instructions/update'
+  - '/instructions/delete'
 
+All envelopes return `{ success: boolean; data?: unknown; error?: string }`.
+
+Renderer usage example:
+
+```ts
+// List workspaces (renderer)
+const listRes = await window.electron.ipcRenderer.invoke('/workspace/list');
 // Create workspace
-ipcMain.handle('create-workspace', async (event, name, folderPath, state) => {
-  return await database.createWorkspace(name, folderPath, state);
+await window.electron.ipcRenderer.invoke('/workspace/create', {
+  name: 'My Project',
+  folderPath: '/path/to/project',
+  state: {}
 });
-
-// Get/Set preferences
-ipcMain.handle('get-preference', async (event, key) => {
-  return await database.getPreference(key);
-});
+// Preferences
+const theme = await window.electron.ipcRenderer.invoke('/prefs/get', { key: 'theme' });
+await window.electron.ipcRenderer.invoke('/prefs/set', { key: 'theme', value: 'dark' });
 ```
 
-### Frontend Usage
+### TypeScript notes
 
-From the renderer process:
-
-```typescript
-// List workspaces
-const workspaces = await window.electron.listWorkspaces();
-
-// Create workspace
-const newWorkspace = await window.electron.createWorkspace(
-  'My Project',
-  '/path/to/project',
-  { /* workspace state */ }
-);
-
-// Manage preferences
-await window.electron.setPreference('theme', 'dark');
-const theme = await window.electron.getPreference('theme');
-```
+- All database files are authored in TypeScript; the Electron main build compiles to CJS in `build/main`.
+- The worker file [database-worker.ts](src/main/db/database-worker.ts:1) is loaded by worker_threads from the compiled output at runtime (packaging step ensures the JS file is co‑located).
 
 ## Key Features
 
 ### Worker Thread Isolation
-- Database operations run in a separate thread
-- Prevents blocking the main Electron process
-- Maintains UI responsiveness during heavy operations
+- Database operations run off the main thread
+- UI remains responsive during heavy operations
+- Heartbeat, stats, and health checks implemented in the worker
 
-### Connection Pooling
-- Configurable pool size (default: 5 connections)
-- Automatic connection management
-- Improved performance for concurrent operations
+### Connection Pooling (Optional)
+- Pool presets for high load vs. standard usage in [pool-config.ts](src/main/db/pool-config.ts:1)
+- Consider enabling when you introduce parallel heavy operations
 
-### Retry Logic
-- Automatic retry for SQLITE_BUSY errors
-- Configurable retry attempts and delays
-- Graceful handling of database locks
+### Retry + Robustness
+- `executeWithRetry`, `retryTransaction`, and error classification for common SQLite codes
+- Busy/locked handling with backoff
+- Operation timeouts with diagnostics in the worker
 
 ### TypeScript Integration
-- Full TypeScript support with strict typing
-- Type-safe database operations
-- Comprehensive type definitions for all data structures
+- Strict types for envelopes and results
+- JSON state serialization with predictable shape
 
 ## Performance Characteristics
 
-Based on benchmarks:
-- Database initialization: ~50-100ms
-- Simple queries: <5ms
-- Complex queries: <20ms
-- Bulk operations: Optimized with transactions
-- Worker thread overhead: Minimal (<1ms)
+- WAL mode with NORMAL sync and large cache
+- Typical single-query latency <5–20ms, dependent on I/O and index coverage
+- Bulk operations: wrap in explicit transactions for significant speedups
+- Worker overhead is minimal compared to I/O
 
 ## Testing
 
-Run the test suite:
+Run the DB test suite:
 
 ```bash
 # All database tests
@@ -221,60 +221,41 @@ npm test src/main/db/__tests__/connection-pool-test.ts
 npm test src/main/db/__tests__/benchmarks.ts
 ```
 
-## Migration from localStorage
+## Fallback Behavior
 
-The database layer seamlessly migrates from the legacy localStorage implementation:
-
-1. **Automatic detection** - Checks for existing localStorage data
-2. **Transparent migration** - Migrates data on first run
-3. **Backward compatibility** - Falls back to localStorage if needed
-4. **No data loss** - Preserves all existing workspaces and preferences
-
-### Benefits over localStorage:
-- **No size limits** - localStorage is limited to 5-10MB
-- **Better performance** - Async operations don't block UI
-- **Concurrency** - Multiple operations can run in parallel
-- **Reliability** - ACID transactions, proper error handling
-- **Scalability** - Handles large codebases efficiently
+If initialization fails after retries, [DatabaseBridge.initialize()](src/main/db/database-bridge.ts:48) falls back to an in‑memory DB (non‑persistent), allowing the app to remain functional for viewing/packing content without permanent storage.
 
 ## File Structure
 
 ```
 src/main/db/
-├── README.md                      # This file
-├── index.ts                       # Module exports
-├── database-bridge.ts             # Main entry point
-├── database-implementation.ts     # Core database logic
-├── database-worker.ts             # Worker thread implementation
-├── async-database.ts              # Worker thread wrapper
-├── connection-pool.ts             # Connection pool management
-├── pooled-database.ts             # Pooled database wrapper
-├── pooled-database-bridge.ts      # Bridge with pooling
-├── pool-config.ts                 # Pool configuration
-├── retry-utils.ts                 # Retry logic utilities
-├── shared-buffer-utils.ts         # SharedArrayBuffer utilities
-└── __tests__/                     # Test suite
-    ├── async-database-test.ts
-    ├── database-bridge.test.ts
-    ├── database-implementation.test.ts
-    ├── connection-pool-test.ts
-    └── benchmarks.ts
+├── README.md
+├── index.ts
+├── database-bridge.ts
+├── database-implementation.ts
+├── database-worker.ts
+├── async-database.ts
+├── connection-pool.ts
+├── pooled-database.ts
+├── pooled-database-bridge.ts
+├── pool-config.ts
+├── retry-utils.ts
+├── shared-buffer-utils.ts
+└── __tests__/
 ```
 
 ## Error Handling
 
-The database layer implements comprehensive error handling:
-
-- **Graceful fallback** - Falls back to localStorage on initialization failure
-- **Retry logic** - Automatic retry for transient errors
-- **Error propagation** - Errors are properly propagated to the UI
-- **Logging** - Detailed error logging for debugging
+- Graceful in‑memory fallback when persistent DB fails
+- Automatic retries for transient errors
+- Typed error propagation to renderer envelopes
+- Verbose diagnostics and stats from the worker
 
 ## Future Considerations
 
 - [ ] Automatic backups and recovery
-- [ ] Database vacuuming and optimization
-- [ ] Advanced query optimization
-- [ ] Database migration versioning
-- [ ] Export/import functionality
-- [ ] Performance monitoring and metrics
+- [ ] Vacuum/auto‑maintenance scheduling
+- [ ] Query planning improvements / additional indexes
+- [ ] Schema versioning and migrations
+- [ ] Export/import at DB layer (complementing UI "Pack")
+- [ ] Performance metrics surfaced to diagnostics UI

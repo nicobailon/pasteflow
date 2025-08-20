@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 
 import App from '../index';
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 import { setupMockLocalStorage } from './test-helpers';
 import { SystemPrompt } from '../types/file-types';
 

@@ -1,0 +1,940 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import ignore from 'ignore';
+
+import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants';
+import { excludedFiles, binaryExtensions } from '../shared/excluded-files';
+import { getPathValidator } from '../security/path-validator';
+import * as zSchemas from './ipc/schemas';
+import { DatabaseBridge } from './db/database-bridge';
+import { getMainTokenService } from '../services/token-service-main';
+
+process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
+
+/** State */
+let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
+
+// Cancellation and request tracking for file loading flow
+let fileLoadingCancelled = false;
+let currentRequestId: string | null = null;
+
+// Track current workspace paths for path-validator
+let currentWorkspacePaths: string[] = [];
+
+// In-memory fallback stores (when database not initialized)
+type WorkspaceData = {
+  folderPath?: string;
+  state?: Record<string, unknown>;
+  createdAt?: number;
+  updatedAt?: number;
+  lastAccessed?: number;
+};
+const workspaceStore = new Map<string, WorkspaceData>();
+const preferencesStore = new Map<string, unknown>();
+
+// Database instance (initialized in whenReady)
+let database: DatabaseBridge | null = null;
+
+// Initialize token service
+const tokenService = getMainTokenService();
+
+/** Binary/special files */
+const BINARY_EXTENSIONS = new Set<string>([
+  // Images
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.ico', '.webp', '.svg',
+  // Audio/Video
+  '.mp3', '.mp4', '.wav', '.ogg', '.avi', '.mov', '.mkv', '.flac',
+  // Archives
+  '.zip', '.rar', '.tar', '.gz', '.7z',
+  // Documents
+  '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx',
+  // Compiled
+  '.exe', '.dll', '.so', '.class', '.o', '.pyc',
+  // Database
+  '.db', '.sqlite', '.sqlite3',
+  // Others
+  '.bin', '.dat', '.lockb',
+  ...binaryExtensions
+]);
+
+const SPECIAL_FILE_EXTENSIONS = new Set<string>(['.asar', '.bin', '.dll', '.exe', '.so', '.dylib']);
+
+/** Helpers */
+function isControlOrBinaryChar(codePoint: number | undefined): boolean {
+  if (typeof codePoint !== 'number') return false;
+  return (
+    (codePoint >= 0 && codePoint <= 8) ||
+    codePoint === 11 || // VT
+    codePoint === 12 || // FF
+    (codePoint >= 14 && codePoint <= 31) ||
+    codePoint === 127 // DEL
+  );
+}
+
+function isLikelyBinaryContent(content: string, filePath?: string): boolean {
+  // Skip binary content check for JavaScript files
+  if (filePath && path.extname(filePath).toLowerCase() === '.js') {
+    return false;
+  }
+  let controlCharCount = 0;
+  const threshold = ELECTRON.BINARY_DETECTION.CONTROL_CHAR_THRESHOLD;
+  for (let i = 0; i < content.length; i++) {
+    if (isControlOrBinaryChar(content.codePointAt(i))) {
+      controlCharCount++;
+      if (controlCharCount >= threshold) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isSpecialFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return SPECIAL_FILE_EXTENSIONS.has(ext);
+}
+
+function isBinaryFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return BINARY_EXTENSIONS.has(ext) || isSpecialFile(filePath);
+}
+
+async function countTokens(text: string): Promise<number> {
+  try {
+    const result = await tokenService.countTokens(text);
+    return result.count;
+  } catch (error) {
+    console.error('Token counting failed:', error);
+    // Fallback to simple estimation
+    return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
+  }
+}
+
+/** Types for file scanning pipeline */
+type SerializableFile = {
+  name: string;
+  path: string;
+  tokenCount: number;
+  size: number;
+  content: string;
+  mtimeMs: number;
+  isBinary: boolean;
+  isSkipped: boolean;
+  isDirectory: boolean;
+  error: string | null;
+  fileType: string | null;
+  excludedByDefault?: boolean;
+  isContentLoaded: boolean;
+};
+
+function loadGitignore(rootDir: string, userExclusionPatterns: string[] = []) {
+  const ig = ignore();
+  const gitignorePath = path.join(rootDir, '.gitignore');
+  try {
+    if (fs.existsSync(gitignorePath)) {
+      const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
+      ig.add(gitignoreContent);
+    }
+  } catch {
+    // ignore
+  }
+  // Defaults
+  ig.add(['.git', 'node_modules', '.DS_Store']);
+  ig.add(excludedFiles);
+  if (userExclusionPatterns?.length) ig.add(userExclusionPatterns);
+  return ig;
+}
+
+function shouldExcludeByDefault(filePath: string, rootDir: string): boolean {
+  const relativePath = path.relative(rootDir, filePath);
+  const normalized = relativePath.replace(/\\/g, '/');
+  const ig = ignore().add(excludedFiles);
+  return ig.ignores(normalized);
+}
+
+function processFile(
+  dirent: fs.Dirent,
+  fullPath: string,
+  folderPath: string,
+  fileSize: number,
+  mtimeMs: number
+): SerializableFile {
+  // Size guard
+  if (fileSize > FILE_PROCESSING.MAX_FILE_SIZE_BYTES) {
+    return {
+      name: dirent.name,
+      path: fullPath,
+      tokenCount: 0,
+      size: fileSize,
+      content: '',
+      mtimeMs,
+      isBinary: false,
+      isSkipped: true,
+      error: 'File too large to process',
+      isDirectory: false,
+      isContentLoaded: false,
+      fileType: path.extname(fullPath).slice(1).toUpperCase() || 'TEXT'
+    };
+  }
+
+  // Special types to skip entirely
+  if (isSpecialFile(fullPath)) {
+    return {
+      name: dirent.name,
+      path: fullPath,
+      tokenCount: 0,
+      size: fileSize,
+      content: '',
+      mtimeMs,
+      isBinary: true,
+      isSkipped: true,
+      fileType: path.extname(fullPath).slice(1).toUpperCase(),
+      error: 'Special file type skipped',
+      isDirectory: false,
+      isContentLoaded: false
+    };
+  }
+
+  const binary = isBinaryFile(fullPath);
+
+  return {
+    name: dirent.name,
+    path: fullPath,
+    tokenCount: 0,
+    size: fileSize,
+    content: '',
+    mtimeMs,
+    isBinary: binary,
+    isSkipped: false,
+    fileType: path.extname(fullPath).slice(1).toUpperCase() || 'TEXT',
+    excludedByDefault: shouldExcludeByDefault(fullPath, folderPath),
+    isDirectory: false,
+    isContentLoaded: false,
+    error: null
+  };
+}
+
+/** BrowserWindow + CSP */
+function createWindow(): void {
+  mainWindow = new BrowserWindow({
+    width: ELECTRON.WINDOW.WIDTH,
+    height: ELECTRON.WINDOW.HEIGHT,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      // Important: at runtime compiled preload is co-located under build/main/preload.js
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  const isDev = process.env.NODE_ENV === 'development';
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const csp = isDev
+      ? "default-src 'self';" +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: http://localhost:*;" +
+        "worker-src 'self' blob:;" +
+        "connect-src 'self' http://localhost:* ws://localhost:*;" +
+        "style-src 'self' 'unsafe-inline';" +
+        "img-src 'self' data: blob:;" +
+        "font-src 'self' data:;"
+      : "default-src 'self';" +
+        "script-src 'self' 'wasm-unsafe-eval' blob:;" +
+        "worker-src 'self' blob:;" +
+        "connect-src 'self';" +
+        "style-src 'self' 'unsafe-inline';" +
+        "img-src 'self' data: blob:;" +
+        "font-src 'self' data:;";
+
+    callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } });
+  });
+
+  if (isDev) {
+    const startUrl = process.env.ELECTRON_START_URL || ELECTRON.DEV_SERVER.URL;
+    setTimeout(() => {
+      mainWindow?.webContents.session.clearCache().then(() => {
+        mainWindow?.loadURL(startUrl);
+        if (mainWindow && !mainWindow.webContents.isDevToolsOpened()) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          mainWindow.webContents.openDevTools({ mode: ELECTRON.WINDOW.DEVTOOLS_MODE as any });
+        }
+      });
+    }, ELECTRON.WINDOW.DEV_RELOAD_DELAY_MS);
+  } else {
+    const indexPath = path.resolve(__dirname, '..', '..', 'dist', 'index.html');
+    const indexUrl = `file://${indexPath}`;
+    mainWindow.loadURL(indexUrl);
+  }
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    // eslint-disable-next-line no-console
+    console.error(`Failed to load the application: ${errorDescription} (${errorCode})`);
+    // eslint-disable-next-line no-console
+    console.error(`Attempted to load URL: ${validatedURL}`);
+
+    const isDev2 = process.env.NODE_ENV === 'development';
+    if (isDev2) {
+      const retryUrl = process.env.ELECTRON_START_URL || ELECTRON.DEV_SERVER.URL;
+      mainWindow?.webContents.session.clearCache().then(() => {
+        setTimeout(() => mainWindow?.loadURL(retryUrl), 1000);
+      });
+    } else {
+      const indexPath = path.resolve(__dirname, '..', '..', 'dist', 'index.html');
+      const indexUrl = `file://${indexPath}`;
+      mainWindow?.loadURL(indexUrl);
+    }
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+/** Lifecycle */
+app.whenReady().then(async () => {
+  // Initialize database bridge (safe fallback to in-memory)
+  try {
+    database = new DatabaseBridge();
+    await database.initialize();
+    // eslint-disable-next-line no-console
+    console.log('Database initialized successfully');
+  } catch (error: unknown) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to initialize database:', error);
+    database = null;
+  }
+  createWindow();
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+app.on('before-quit', async (event) => {
+  if (isQuitting) return;
+  event.preventDefault();
+  isQuitting = true;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      const savePromise = new Promise<'completed' | 'timeout'>((resolve) => {
+        ipcMain.once('app-will-quit-save-complete', () => resolve('completed'));
+        const timeout = Number(process.env.PASTEFLOW_SAVE_TIMEOUT ?? 2000);
+        setTimeout(() => resolve('timeout'), timeout);
+      });
+      mainWindow.webContents.send('app-will-quit');
+      const result = await savePromise;
+      if (result === 'timeout') {
+        // eslint-disable-next-line no-console
+        console.warn('Auto-save timeout during shutdown - proceeding with quit');
+      }
+    } catch (error: unknown) {
+      // eslint-disable-next-line no-console
+      console.error('Error during shutdown save:', error);
+    }
+  }
+
+  // Clean up token service
+  try {
+    await tokenService.cleanup();
+  } catch (error) {
+    console.warn('Error cleaning up token service:', error);
+  }
+  
+  // Best-effort close database
+  if (database && (database as unknown as { initialized?: boolean }).initialized) {
+    try {
+      await (database as unknown as { close: () => Promise<void> }).close();
+      // eslint-disable-next-line no-console
+      console.log('Database closed successfully');
+    } catch (error: unknown) {
+      // eslint-disable-next-line no-console
+      console.error('Error closing database:', error);
+    }
+  }
+
+  app.exit(0);
+});
+
+/** Utility: broadcast to all renderers */
+function broadcastUpdate(channel: string, data?: unknown): void {
+  const windows = BrowserWindow.getAllWindows();
+  for (const win of windows) {
+    try { win.webContents.send(channel, data as never); } catch {}
+  }
+}
+
+/** IPC: Open folder selection (event-based) */
+ipcMain.on('open-folder', async (event) => {
+  try {
+    zSchemas.FolderSelectionSchema.parse({});
+  } catch (error: unknown) {
+    // eslint-disable-next-line no-console
+    console.warn('Validation error for open-folder:', (error as Error)?.message);
+  }
+
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+  if (!result.canceled && result.filePaths?.length) {
+    const selectedPath = String(result.filePaths[0]);
+    try {
+      currentWorkspacePaths = [selectedPath];
+      getPathValidator(currentWorkspacePaths); // Initialize validator
+      event.sender.send('folder-selected', selectedPath);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error sending folder-selected event:', err);
+    }
+  }
+});
+
+/** IPC: File list request (event-based streaming) */
+ipcMain.on(
+  'request-file-list',
+  async (event, folderPath: string, exclusionPatterns: string[] = [], requestId: string | null = null) => {
+    // Validate inputs
+    try {
+      zSchemas.FileListRequestSchema.parse({ folderPath, exclusionPatterns, requestId });
+    } catch (error: unknown) {
+      const message = (error as Error)?.message || 'Invalid parameters';
+      event.sender.send('file-processing-status', { status: 'error', message });
+      return;
+    }
+
+    currentRequestId = requestId;
+    try {
+      // Update workspace paths for path validator
+      currentWorkspacePaths = [folderPath];
+      getPathValidator(currentWorkspacePaths);
+
+      fileLoadingCancelled = false;
+
+      event.sender.send('file-processing-status', {
+        status: 'processing',
+        message: 'Scanning directory structure...'
+      });
+
+      const allFiles: SerializableFile[] = [];
+      const directoryQueue: Array<{ path: string; depth: number }> = [{ path: folderPath, depth: 0 }];
+      const processedDirs = new Set<string>();
+      const ignoreFilter = loadGitignore(folderPath, exclusionPatterns);
+      let processingComplete = false;
+
+      const sendBatch = (files: SerializableFile[], isComplete = false) => {
+        const serializableFiles = files.map((file) => ({
+          name: file.name || '',
+          path: file.path || '',
+          tokenCount: file.tokenCount || 0,
+          size: file.size || 0,
+          content: '',
+          mtimeMs: file.mtimeMs,
+          isBinary: Boolean(file.isBinary),
+          isSkipped: Boolean(file.isSkipped),
+          isDirectory: Boolean(file.isDirectory),
+          error: file.error || null,
+          fileType: file.fileType || null,
+          excludedByDefault: file.excludedByDefault || false,
+          isContentLoaded: false
+        }));
+
+        event.sender.send('file-list-data', {
+          files: serializableFiles,
+          isComplete,
+          processed: allFiles.length,
+          directories: processedDirs.size,
+          requestId: currentRequestId
+        });
+      };
+
+      const processNextBatch = async () => {
+        if (fileLoadingCancelled) {
+          event.sender.send('file-processing-status', {
+            status: 'idle',
+            message: 'File loading cancelled'
+          });
+          return;
+        }
+
+        let processedDirsCount = 0;
+        const MAX_DIRS_PER_BATCH = 20;
+        const currentBatchFiles: SerializableFile[] = [];
+
+        const batcher = {
+          TARGET_BATCH_SIZE: 200 * 1024,
+          MIN_FILES: 50,
+          MAX_FILES: 500,
+          calculateBatchSize(files: SerializableFile[]) {
+            if (!files.length) return this.MIN_FILES;
+            const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
+            const avgFileSize = totalSize / files.length || 1024;
+            const optimalCount = Math.floor(this.TARGET_BATCH_SIZE / avgFileSize);
+            return Math.max(this.MIN_FILES, Math.min(this.MAX_FILES, optimalCount));
+          }
+        };
+
+        let dynamicBatchSize = batcher.calculateBatchSize(currentBatchFiles);
+
+        while (directoryQueue.length > 0 && processedDirsCount < MAX_DIRS_PER_BATCH) {
+          // BFS-ish traversal
+          directoryQueue.sort((a, b) => a.depth - b.depth);
+          const next = directoryQueue.shift();
+          if (!next) break;
+          const { path: dirPath, depth } = next;
+
+          if (processedDirs.has(dirPath) || depth > 20) continue;
+
+          processedDirs.add(dirPath);
+          processedDirsCount++;
+
+          try {
+            const dirents = await fs.promises.readdir(dirPath, { withFileTypes: true });
+
+            const filePromises: Array<Promise<void>> = [];
+            for (const dirent of dirents) {
+              const fullPath = path.join(dirPath, dirent.name);
+              const relativePath = path.relative(folderPath, fullPath);
+
+              if (ignoreFilter.ignores(relativePath)) continue;
+
+              if (dirent.isDirectory()) {
+                directoryQueue.push({ path: fullPath, depth: depth + 1 });
+              } else if (dirent.isFile()) {
+                filePromises.push(
+                  fs.promises
+                    .stat(fullPath)
+                    .then((stats) => {
+                      const fi = processFile(dirent, fullPath, folderPath, stats.size, stats.mtimeMs);
+                      currentBatchFiles.push(fi);
+                      allFiles.push(fi);
+                    })
+                    .catch((error: unknown) => {
+                      // eslint-disable-next-line no-console
+                      console.error(`Error processing file ${fullPath}:`, error);
+                    })
+                );
+
+                if (filePromises.length >= 10) {
+                  await Promise.all(filePromises);
+                  filePromises.length = 0;
+                }
+              }
+            }
+
+            if (filePromises.length > 0) {
+              await Promise.all(filePromises);
+            }
+          } catch (error: unknown) {
+            // eslint-disable-next-line no-console
+            console.error(`Error reading directory ${dirPath}:`, error);
+          }
+
+          dynamicBatchSize = batcher.calculateBatchSize(currentBatchFiles);
+          if (currentBatchFiles.length >= dynamicBatchSize) {
+            sendBatch(currentBatchFiles, false);
+            currentBatchFiles.length = 0;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        }
+
+        if (currentBatchFiles.length > 0) {
+          sendBatch(currentBatchFiles, false);
+        }
+
+        event.sender.send('file-processing-status', {
+          status: 'processing',
+          message: `Found ${allFiles.length} files... (${processedDirs.size} directories)`,
+          processed: allFiles.length,
+          directories: processedDirs.size
+        });
+
+        if (directoryQueue.length === 0 && !processingComplete) {
+          finishProcessing();
+        } else if (directoryQueue.length > 0) {
+          setTimeout(processNextBatch, 0);
+        }
+      };
+
+      const finishProcessing = () => {
+        if (fileLoadingCancelled || processingComplete) return;
+        processingComplete = true;
+
+        event.sender.send('file-processing-status', {
+          status: 'complete',
+          message: `Found ${allFiles.length} files`
+        });
+
+        sendBatch([], true);
+      };
+
+      // Start
+      processNextBatch();
+    } catch (error: unknown) {
+      // eslint-disable-next-line no-console
+      console.error('Error reading directory:', error);
+      event.sender.send('file-processing-status', {
+        status: 'error',
+        message: `Error reading directory: ${(error as Error)?.message || error}`
+      });
+    }
+  }
+);
+
+/** IPC: Cancel file loading */
+ipcMain.on('cancel-file-loading', (_event, requestId: string | null = null) => {
+  try {
+    if (requestId !== null) {
+      zSchemas.CancelFileLoadingSchema.parse({ requestId });
+    }
+    fileLoadingCancelled = true;
+    currentRequestId = null;
+  } catch (error: unknown) {
+    // eslint-disable-next-line no-console
+    console.error('Invalid input for cancel-file-loading:', (error as Error)?.message);
+  }
+});
+
+/** IPC: Open local docs safely */
+ipcMain.on('open-docs', (event, docName?: string) => {
+  try {
+    zSchemas.OpenDocsSchema.parse({ docName });
+  } catch (error: unknown) {
+    // eslint-disable-next-line no-console
+    console.warn('Invalid input for open-docs:', (error as Error)?.message);
+    return;
+  }
+
+  const sanitizedDocName = path.basename(docName || '');
+  const docPath = path.join(__dirname, 'docs', sanitizedDocName);
+  const resolvedDocPath = path.resolve(docPath);
+  const docsDir = path.resolve(__dirname, 'docs');
+  if (!resolvedDocPath.startsWith(docsDir + path.sep)) {
+    // eslint-disable-next-line no-console
+    console.warn(`Attempted access outside docs directory: ${docName}`);
+    return;
+  }
+
+  fs.access(resolvedDocPath, fs.constants.F_OK, (err) => {
+    if (err) {
+      // eslint-disable-next-line no-console
+      console.error(`Documentation file not found: ${resolvedDocPath}`);
+      return;
+    }
+    shell.openPath(resolvedDocPath).then((result) => {
+      if (result) {
+        // eslint-disable-next-line no-console
+        console.error(`Error opening documentation: ${result}`);
+      }
+    });
+  });
+});
+
+/** IPC: Lazy file content load (envelope) */
+ipcMain.handle('request-file-content', async (_event, filePath: string) => {
+  try {
+    zSchemas.RequestFileContentSchema.parse({ filePath });
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || 'Invalid parameters' };
+  }
+
+  if (!currentWorkspacePaths?.length) {
+    return { success: false, error: 'No workspace selected', reason: 'NO_WORKSPACE' };
+  }
+
+  const validator = getPathValidator(currentWorkspacePaths);
+  const validation = validator.validatePath(filePath);
+  if (!validation.valid) {
+    return { success: false, error: 'Access denied', reason: validation.reason };
+  }
+
+  if (isBinaryFile(filePath) || isSpecialFile(filePath)) {
+    return { success: false, error: 'File contains binary data', isBinary: true };
+  }
+
+  try {
+    const content = await fs.promises.readFile(validation.sanitizedPath!, 'utf8');
+    if (isLikelyBinaryContent(content, filePath)) {
+      return { success: false, error: 'File contains binary data', isBinary: true };
+    }
+    const tokenCount = await countTokens(content);
+    return { success: true, data: { content, tokenCount } };
+  } catch (error: unknown) {
+    const extIsBinary = isBinaryFile(filePath) || isSpecialFile(filePath);
+    return { success: false, error: (error as Error)?.message || String(error), isBinary: extIsBinary };
+  }
+});
+
+/** Workspace management (envelope) */
+ipcMain.handle('/workspace/list', async () => {
+  try {
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const workspaces: any[] = await (database as unknown as { listWorkspaces: () => Promise<any[]> }).listWorkspaces();
+      const shaped = workspaces.map((w) => ({ ...w, id: String(w.id) }));
+      return { success: true, data: shaped };
+    }
+
+    const workspaces = Array.from(workspaceStore.entries())
+      .sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0))
+      .map(([name, data]) => ({
+        id: name,
+        name,
+        folderPath: data.folderPath || '',
+        state: data.state || {},
+        createdAt: data.createdAt || Date.now(),
+        updatedAt: data.updatedAt || Date.now(),
+        lastAccessed: data.lastAccessed || Date.now()
+      }));
+    return { success: true, data: workspaces };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/workspace/create', async (_e, params: unknown) => {
+  try {
+    const validated = zSchemas.WorkspaceCreateSchema.parse(params);
+    const { name, folderPath, state } = validated;
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const created: any = await (database as unknown as { createWorkspace: (n: string, f: string, s?: unknown) => Promise<any> }).createWorkspace(
+        name,
+        folderPath,
+        state
+      );
+      return { success: true, data: { ...created, id: String(created.id) } };
+    }
+
+    const now = Date.now();
+    workspaceStore.set(name, {
+      folderPath,
+      state,
+      createdAt: now,
+      updatedAt: now,
+      lastAccessed: now
+    });
+    return { success: true, data: null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/workspace/load', async (_e, params: unknown) => {
+  try {
+    const { id } = zSchemas.WorkspaceLoadSchema.parse(params);
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ws: any | null = await (database as unknown as { getWorkspace: (id: string) => Promise<any | null> }).getWorkspace(id);
+      if (!ws) return { success: true, data: null };
+      return { success: true, data: { ...ws, id: String(ws.id) } };
+    }
+
+    const ws = workspaceStore.get(id);
+    if (!ws) return { success: true, data: null };
+    return {
+      success: true,
+      data: {
+        id,
+        name: id,
+        folderPath: ws.folderPath || '',
+        state: ws.state || {},
+        createdAt: ws.createdAt || Date.now(),
+        updatedAt: ws.updatedAt || Date.now(),
+        lastAccessed: ws.lastAccessed || Date.now()
+      }
+    };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/workspace/update', async (_e, params: unknown) => {
+  try {
+    const { id, state } = zSchemas.WorkspaceUpdateSchema.parse(params);
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // Find then update by name (DB contract)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = database as unknown as any;
+      const ws = await db.getWorkspace(id);
+      if (!ws) return { success: false, error: 'Workspace not found' };
+      await db.updateWorkspace(ws.name, state);
+      return { success: true, data: null };
+    }
+
+    const existing = workspaceStore.get(id);
+    if (!existing) return { success: false, error: 'Workspace not found' };
+    workspaceStore.set(id, { ...existing, state: state ?? existing.state, updatedAt: Date.now() });
+    return { success: true, data: null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/workspace/touch', async (_e, params: unknown) => {
+  try {
+    const { id } = zSchemas.WorkspaceTouchSchema.parse(params);
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = database as unknown as any;
+      const ws = await db.getWorkspace(id);
+      if (!ws) return { success: false, error: 'Workspace not found' };
+      await db.touchWorkspace(ws.name);
+      return { success: true, data: null };
+    }
+
+    const existing = workspaceStore.get(id);
+    if (!existing) return { success: false, error: 'Workspace not found' };
+    workspaceStore.set(id, { ...existing, lastAccessed: Date.now() });
+    return { success: true, data: null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/workspace/delete', async (_e, params: unknown) => {
+  try {
+    const { id } = zSchemas.WorkspaceDeleteSchema.parse(params);
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (database as unknown as { deleteWorkspaceById: (id: string) => Promise<void> }).deleteWorkspaceById(id);
+      return { success: true, data: null };
+    }
+
+    workspaceStore.delete(id);
+    return { success: true, data: null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/workspace/rename', async (_e, params: unknown) => {
+  try {
+    const { id, newName } = zSchemas.WorkspaceRenameSchema.parse(params);
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (database as unknown as { renameWorkspace: (oldName: string, newName: string) => Promise<void> }).renameWorkspace(id, newName);
+      return { success: true, data: null };
+    }
+
+    const existing = workspaceStore.get(id);
+    if (!existing) return { success: false, error: 'Workspace not found' };
+    workspaceStore.set(newName, { ...existing, updatedAt: Date.now() });
+    workspaceStore.delete(id);
+    return { success: true, data: null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+/** Instructions (envelope) */
+ipcMain.handle('/instructions/list', async () => {
+  try {
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const list: any[] = await (database as unknown as { listInstructions: () => Promise<any[]> }).listInstructions();
+      return { success: true, data: list };
+    }
+    return { success: false, error: 'Database not initialized' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/instructions/create', async (_e, params: { id: string; name: string; content: string }) => {
+  try {
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = database as unknown as any;
+      await db.createInstruction(params.id, params.name, params.content);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'Database not initialized' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/instructions/update', async (_e, params: { id: string; name: string; content: string }) => {
+  try {
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = database as unknown as any;
+      await db.updateInstruction(params.id, params.name, params.content);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'Database not initialized' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/instructions/delete', async (_e, params: { id: string }) => {
+  try {
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = database as unknown as any;
+      await db.deleteInstruction(params.id);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'Database not initialized' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+/** Preferences (envelope) */
+ipcMain.handle('/prefs/get', async (_e, params: unknown) => {
+  try {
+    let key: string | undefined;
+    if (typeof params === 'string') {
+      key = params;
+    } else if (params && typeof params === 'object' && 'key' in (params as Record<string, unknown>)) {
+      key = (params as { key?: string }).key;
+    }
+    if (!key || typeof key !== 'string') {
+      return { success: true, data: null };
+    }
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const value: any = await (database as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference(key);
+      return { success: true, data: value ?? null };
+    }
+
+    const value = preferencesStore.get(key);
+    return { success: true, data: value ?? null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/prefs/set', async (_e, params: unknown) => {
+  try {
+    // Basic validation
+    if (!params || typeof params !== 'object') {
+      throw new Error('Invalid parameters: object with key and value required');
+    }
+    const { key, value } = params as { key?: string; value?: unknown };
+    if (!key || typeof key !== 'string') {
+      throw new Error('Invalid key provided');
+    }
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference(key, value);
+      broadcastUpdate('/prefs/get:update');
+      return { success: true, data: true };
+    }
+
+    preferencesStore.set(key, value);
+    broadcastUpdate('/prefs/get:update');
+    return { success: true, data: true };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});

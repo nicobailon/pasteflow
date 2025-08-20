@@ -1,5 +1,5 @@
 import { WorkspaceState, DatabaseWorkspace, Instruction } from '../../types/workspace-types';
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 // Define precise types for IPC channels and their data/response types
 type WorkspaceChannels = {

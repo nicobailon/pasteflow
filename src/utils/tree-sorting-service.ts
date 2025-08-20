@@ -1,5 +1,5 @@
 import { TreeNode } from '../types/file-types';
-import { TREE_SORTING } from '../constants/app-constants';
+import { TREE_SORTING } from '@constants';
 
 import { BoundedLRUCache } from './bounded-lru-cache';
 

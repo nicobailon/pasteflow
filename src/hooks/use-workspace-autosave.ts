@@ -61,12 +61,19 @@ const DEFAULT_PREFERENCES: AutoSavePreferences = {
  * Excludes heavy data like allFiles and token counts.
  */
 export function computeWorkspaceSignature(data: WorkspaceSignatureData): string {
+  const selectedFilesArr = Array.isArray(data.selectedFiles) ? data.selectedFiles : [];
+  const exclusionArr = Array.isArray(data.exclusionPatterns) ? data.exclusionPatterns : [];
+  const selectedInstructionsArr = Array.isArray(data.selectedInstructions) ? data.selectedInstructions : [];
+  const systemPromptIdsArr = Array.isArray(data.systemPromptIds) ? data.systemPromptIds : [];
+  const rolePromptIdsArr = Array.isArray(data.rolePromptIds) ? data.rolePromptIds : [];
+  const expandedNodesObj = (data.expandedNodes && typeof data.expandedNodes === 'object') ? data.expandedNodes : {};
+
   const normalized = {
     selectedFolder: data.selectedFolder || '',
-    selectedFiles: data.selectedFiles.map(f => ({
+    selectedFiles: selectedFilesArr.map(f => ({
       path: f.path,
       // Canonicalize line ranges: sort then join
-      lines: f.lines
+      lines: Array.isArray(f.lines)
         ? [...f.lines]
             .sort((a, b) => {
               if (a.start !== b.start) return a.start - b.start;
@@ -76,20 +83,20 @@ export function computeWorkspaceSignature(data: WorkspaceSignatureData): string 
             .join(',')
         : ''
     })).sort((a, b) => a.path.localeCompare(b.path)),
-    expandedNodes: Object.entries(data.expandedNodes)
-      .filter(([_, expanded]) => expanded)
+    expandedNodes: Object.entries(expandedNodesObj)
+      .filter(([_, expanded]) => !!expanded)
       .map(([path]) => path)
       .sort(),
-    sortOrder: data.sortOrder,
-    searchTerm: data.searchTerm,
+    sortOrder: data.sortOrder || '',
+    searchTerm: data.searchTerm || '',
     fileTreeMode: data.fileTreeMode,
-    exclusionPatterns: [...data.exclusionPatterns].sort(),
-    selectedInstructions: [...data.selectedInstructions].sort(),
-    systemPromptIds: [...data.systemPromptIds].sort(),
-    rolePromptIds: [...data.rolePromptIds].sort(),
-    userInstructions: data.userInstructions
+    exclusionPatterns: [...exclusionArr].sort(),
+    selectedInstructions: [...selectedInstructionsArr].sort(),
+    systemPromptIds: [...systemPromptIdsArr].sort(),
+    rolePromptIds: [...rolePromptIdsArr].sort(),
+    userInstructions: data.userInstructions || ''
   };
-  
+
   return JSON.stringify(normalized);
 }
 
@@ -124,14 +131,17 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     'pasteflow.prefs.workspace.autosave',
     DEFAULT_PREFERENCES
   );
-  
+
+  // Normalize possibly undefined data coming from persistence to keep the UI stable
+  const safePrefs: AutoSavePreferences = (autoSavePrefs ?? DEFAULT_PREFERENCES);
+
   // Extract individual values for easier access
-  const autoSaveEnabled = autoSavePrefs.enabled;
-  const debounceMs = autoSavePrefs.debounceMs;
+  const autoSaveEnabled = !!safePrefs.enabled;
+  const debounceMs = safePrefs.debounceMs ?? DEFAULT_PREFERENCES.debounceMs;
   
   // Wrapper to update just the enabled state
   const setAutoSaveEnabled = useCallback((enabled: boolean) => {
-    setAutoSavePrefs(prev => ({ ...prev, enabled }));
+    setAutoSavePrefs(prev => ({ ...(prev ?? DEFAULT_PREFERENCES), enabled }));
   }, [setAutoSavePrefs]);
 
   // Track last save time and signature
@@ -143,30 +153,29 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   const minIntervalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSignatureRef = useRef<string | null>(null);
 
-  // Extract prompt IDs from customPrompts
-  const systemPromptIds = customPrompts.systemPrompts
-    .filter((p: { selected?: boolean }) => p.selected)
+  // Extract prompt IDs from customPrompts (guard for undefined)
+  const systemPromptIds = (customPrompts?.systemPrompts ?? [])
+    .filter((p: { selected?: boolean }) => !!p.selected)
     .map((p: { id: string }) => p.id);
-  const rolePromptIds = customPrompts.rolePrompts
-    .filter((p: { selected?: boolean }) => p.selected)
+  const rolePromptIds = (customPrompts?.rolePrompts ?? [])
+    .filter((p: { selected?: boolean }) => !!p.selected)
     .map((p: { id: string }) => p.id);
 
-  // Build signature data
+  // Build signature data with guards (normalize possibly undefined arrays/objects)
   const signatureData: WorkspaceSignatureData = {
-    selectedFolder,
-    selectedFiles: selectedFiles.map(f => ({
-      path: f.path,
-      lines: f.lines
-    })),
-    expandedNodes,
-    sortOrder,
-    searchTerm,
-    fileTreeMode,
-    exclusionPatterns,
-    selectedInstructions,
+    selectedFolder: selectedFolder ?? null,
+    selectedFiles: Array.isArray(selectedFiles)
+      ? selectedFiles.map(f => ({ path: f.path, lines: f.lines }))
+      : [],
+    expandedNodes: expandedNodes ?? {},
+    sortOrder: sortOrder ?? '',
+    searchTerm: searchTerm ?? '',
+    fileTreeMode: (fileTreeMode ?? 'none') as FileTreeMode,
+    exclusionPatterns: Array.isArray(exclusionPatterns) ? exclusionPatterns : [],
+    selectedInstructions: Array.isArray(selectedInstructions) ? selectedInstructions : [],
     systemPromptIds,
     rolePromptIds,
-    userInstructions
+    userInstructions: userInstructions ?? ''
   };
 
   // Compute current signature
@@ -388,6 +397,6 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   return {
     isAutoSaveEnabled: autoSaveEnabled,
     setAutoSaveEnabled,
-    autoSavePreferences: autoSavePrefs
+    autoSavePreferences: safePrefs
   };
 }

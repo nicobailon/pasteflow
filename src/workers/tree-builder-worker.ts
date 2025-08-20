@@ -1,5 +1,5 @@
 import type { FileData, TreeNode } from '../types/file-types';
-import { UI } from '../constants/app-constants';
+import { UI } from '@constants';
 
 interface TreeBuilderMessage {
   type?: 'INIT' | 'BUILD_TREE' | 'CANCEL';

@@ -12,6 +12,17 @@ interface UseInstructionsStateReturn {
   deleteInstruction: (id: string) => Promise<void>;
 }
 
+// Envelope-unwrapping helper compatible with legacy raw values
+function unwrapIpc<T>(res: any): T {
+  if (res && typeof res === 'object' && 'success' in res) {
+    if ((res as any).success !== true) {
+      throw new Error((res as any).error || 'IPC request failed');
+    }
+    return (res as any).data as T;
+  }
+  return res as T;
+}
+
 export function useInstructionsState(): UseInstructionsStateReturn {
   const [instructions, setInstructions] = useState<Instruction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,9 +32,11 @@ export function useInstructionsState(): UseInstructionsStateReturn {
     setLoading(true);
     setError(null);
     try {
-      const result = await window.electron.ipcRenderer.invoke('/instructions/list', {});
-      setInstructions(result);
+      const raw = await window.electron.ipcRenderer.invoke('/instructions/list', {});
+      const list = unwrapIpc<Instruction[]>(raw);
+      setInstructions(Array.isArray(list) ? list : []);
     } catch (error_) {
+      setInstructions([]); // fail-safe to keep UI stable
       setError(error_ as Error);
       console.error('Failed to fetch instructions:', error_);
     } finally {
@@ -33,11 +46,15 @@ export function useInstructionsState(): UseInstructionsStateReturn {
 
   const createInstruction = useCallback(async (instruction: Instruction) => {
     try {
-      await window.electron.ipcRenderer.invoke('/instructions/create', {
+      const raw = await window.electron.ipcRenderer.invoke('/instructions/create', {
         id: instruction.id,
         name: instruction.name,
         content: instruction.content
       });
+      // Ensure success (accept legacy true as well)
+      if (raw && typeof raw === 'object' && 'success' in raw) {
+        if (!(raw as any).success) throw new Error((raw as any).error || 'Create failed');
+      }
       await fetchInstructions();
     } catch (error_) {
       setError(error_ as Error);
@@ -48,11 +65,14 @@ export function useInstructionsState(): UseInstructionsStateReturn {
 
   const updateInstruction = useCallback(async (instruction: Instruction) => {
     try {
-      await window.electron.ipcRenderer.invoke('/instructions/update', {
+      const raw = await window.electron.ipcRenderer.invoke('/instructions/update', {
         id: instruction.id,
         name: instruction.name,
         content: instruction.content
       });
+      if (raw && typeof raw === 'object' && 'success' in raw) {
+        if (!(raw as any).success) throw new Error((raw as any).error || 'Update failed');
+      }
       await fetchInstructions();
     } catch (error_) {
       setError(error_ as Error);
@@ -63,7 +83,10 @@ export function useInstructionsState(): UseInstructionsStateReturn {
 
   const deleteInstruction = useCallback(async (id: string) => {
     try {
-      await window.electron.ipcRenderer.invoke('/instructions/delete', { id });
+      const raw = await window.electron.ipcRenderer.invoke('/instructions/delete', { id });
+      if (raw && typeof raw === 'object' && 'success' in raw) {
+        if (!(raw as any).success) throw new Error((raw as any).error || 'Delete failed');
+      }
       await fetchInstructions();
     } catch (error_) {
       setError(error_ as Error);

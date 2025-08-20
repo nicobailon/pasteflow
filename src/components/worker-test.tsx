@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
 
-import { useTokenCounter } from '../hooks/use-token-counter';
+import { useTokenService } from '../hooks/use-token-service';
 
 export const WorkerTest = () => {
   const [testResults, setTestResults] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const { countTokens, countTokensBatch, getPerformanceStats, isReady } = useTokenCounter();
+  const { countTokens, countTokensBatch, isReady, getBackend } = useTokenService();
 
   const addResult = (result: string) => {
     setTestResults(prev => [...prev, `[${new Date().toISOString()}] ${result}`]);
@@ -60,13 +60,9 @@ export const WorkerTest = () => {
       const time5 = performance.now() - start5;
       addResult(`Concurrent processing (5 requests): ${concurrentResults.reduce((a, b) => a + b, 0)} total tokens in ${time5.toFixed(2)}ms`);
 
-      // Get performance stats
-      const stats = getPerformanceStats();
-      addResult(`\nPerformance Stats:`);
-      addResult(`  Total processed: ${stats.totalProcessed}`);
-      addResult(`  Average time: ${stats.averageTime.toFixed(2)}ms`);
-      addResult(`  Success rate: ${(stats.successRate * 100).toFixed(1)}%`);
-      addResult(`  Failures: ${stats.failureCount}`);
+      // Get backend info
+      const backend = await getBackend();
+      addResult(`\nBackend: ${backend || 'unknown'}`);
 
     } catch (error) {
       addResult(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -74,7 +70,7 @@ export const WorkerTest = () => {
       setIsRunning(false);
       addResult('Tests completed.');
     }
-  }, [isReady, countTokens, countTokensBatch, getPerformanceStats]);
+  }, [isReady, countTokens, countTokensBatch, getBackend]);
 
   return (
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>

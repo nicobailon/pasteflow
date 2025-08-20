@@ -1,38 +1,31 @@
 {
-  // Separate config for main-layer CJS build; do not extend app tsconfig to avoid noEmit settings
-
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "module": "CommonJS",
     "target": "ES2020",
-    "outDir": "build/main",
-    "rootDir": "src/main",
-    "noEmit": false,
     "moduleResolution": "Node",
-    "allowImportingTsExtensions": false,
-    "esModuleInterop": true,
+    "outDir": "build",
+    "rootDir": "src",
+    "noEmit": false,
+    "sourceMap": true,
     "skipLibCheck": true,
-    "declaration": false,
-    "sourceMap": false,
+    "esModuleInterop": true,
     "resolveJsonModule": true,
-    "isolatedModules": false,
-    "lib": ["ES2020", "DOM"],
-    "types": []
+    "types": ["node", "electron"],
+    "lib": ["ES2020"]
   },
   "include": [
-    "src/main/ipc/schemas.ts",
-    "src/main/db/async-database.ts",
-    "src/main/db/connection-pool.ts", 
-    "src/main/db/pool-config.ts",
-    "src/main/db/pooled-database.ts",
-    "src/main/db/pooled-database-bridge.ts",
-    "src/main/db/retry-utils.ts",
-    "src/main/db/shared-buffer-utils.ts",
-    "src/main/db/database-implementation.ts",
-    "src/main/db/database-bridge.ts",
-    "src/main/db/database-worker.ts"
+    "src/main/**/*.ts",
+    "src/security/**/*.ts",
+    "src/validation/**/*.ts",
+    "src/constants/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/services/token-service.ts",
+    "src/services/token-service-main.ts",
+    "src/types/**/*.d.ts"
   ],
   "exclude": [
-    "src/main/db/__tests__/**"
+    "src/**/__tests__/**",
+    "src/**/__mocks__/**"
   ]
 }
-

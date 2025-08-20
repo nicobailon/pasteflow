@@ -29,6 +29,18 @@ interface DatabaseWorkspace {
   /** Last access timestamp (Unix milliseconds) */
   lastAccessed: number;
 }
+ 
+// IPC envelope unwrap helper for main responses.
+// Accepts both new { success, data|error } envelope or legacy raw values during transition.
+function unwrapIpc<T>(res: any): T {
+  if (res && typeof res === 'object' && 'success' in res) {
+    if ((res as any).success !== true) {
+      throw new Error((res as any).error || 'IPC request failed');
+    }
+    return (res as any).data as T;
+  }
+  return res as T;
+}
 
 /**
  * React hook for managing workspace state through SQLite database operations.
@@ -104,7 +116,7 @@ export const useDatabaseWorkspaceState = () => {
       try {
         if (!window.electron) return;
         
-        const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list', {});
+        const workspaces = unwrapIpc<DatabaseWorkspace[]>(await window.electron.ipcRenderer.invoke('/workspace/list', {}));
         
         // Check if cancelled before updating state
         if (token.cancelled) {
@@ -149,7 +161,7 @@ export const useDatabaseWorkspaceState = () => {
       if (!window.electron) return null;
       
       // Try to load the workspace - it may not exist yet which is fine
-      const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', { id: name });
+      const workspace = unwrapIpc<DatabaseWorkspace | null>(await window.electron.ipcRenderer.invoke('/workspace/load', { id: name }));
       return workspace || null;
     } catch (error) {
       // Log unexpected errors
@@ -193,14 +205,17 @@ export const useDatabaseWorkspaceState = () => {
           return;
         }
         
-        await (existing ? window.electron.ipcRenderer.invoke('/workspace/update', {
-            id: existing.id,
-            state: workspace
-          }) : window.electron.ipcRenderer.invoke('/workspace/create', {
-            name,
-            folderPath: workspace.selectedFolder || '',
-            state: workspace
-          }));
+        await (existing
+          ? unwrapIpc(await window.electron.ipcRenderer.invoke('/workspace/update', {
+              id: existing.id,
+              state: workspace
+            }))
+          : unwrapIpc(await window.electron.ipcRenderer.invoke('/workspace/create', {
+              name,
+              folderPath: workspace.selectedFolder || '',
+              state: workspace
+            }))
+        );
         
         // Check if cancelled before dispatching event
         if (token.cancelled) {
@@ -244,9 +259,9 @@ export const useDatabaseWorkspaceState = () => {
         }
 
         // Load the workspace directly - no need to check existence first
-        const workspace = await window.electron.ipcRenderer.invoke('/workspace/load', {
+        const workspace = unwrapIpc<DatabaseWorkspace | null>(await window.electron.ipcRenderer.invoke('/workspace/load', {
           id: name
-        });
+        }));
         
         // Check if cancelled before continuing
         if (token.cancelled) {
@@ -259,10 +274,9 @@ export const useDatabaseWorkspaceState = () => {
         // Best-effort: don't surface console errors if touching fails immediately after creation.
         // Try with the incoming id (may be a name), then fall back to the canonical DB id.
         void window.electron.ipcRenderer
-          .invoke('/workspace/touch', { id: name })
-          .catch(() =>
+          .invoke('/workspace/touch', { id: name }).then(unwrapIpc).catch(() =>
             workspace?.id
-              ? window.electron.ipcRenderer.invoke('/workspace/touch', { id: workspace.id }).catch(() => {})
+              ? window.electron.ipcRenderer.invoke('/workspace/touch', { id: workspace.id }).then(unwrapIpc).catch(() => {})
               : undefined
           );
         
@@ -316,9 +330,9 @@ export const useDatabaseWorkspaceState = () => {
         return;
       }
       
-      await window.electron.ipcRenderer.invoke('/workspace/delete', {
+      await unwrapIpc(await window.electron.ipcRenderer.invoke('/workspace/delete', {
         id: workspace.id
-      });
+      }));
       
       window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));
     } catch (error) {
@@ -356,10 +370,10 @@ export const useDatabaseWorkspaceState = () => {
         throw new Error(`Workspace '${oldName}' not found during rename operation. Verify workspace exists before renaming.`);
       }
       
-      await window.electron.ipcRenderer.invoke('/workspace/rename', {
+      await unwrapIpc(await window.electron.ipcRenderer.invoke('/workspace/rename', {
         id: workspace.id,
         newName
-      });
+      }));
       
       window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));
     } catch (error) {
@@ -385,7 +399,7 @@ export const useDatabaseWorkspaceState = () => {
     try {
       if (!window.electron) return [];
       
-      const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list', {});
+      const workspaces = unwrapIpc<DatabaseWorkspace[]>(await window.electron.ipcRenderer.invoke('/workspace/list', {}));
       return workspaces.map((w: DatabaseWorkspace) => w.name);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -415,11 +429,11 @@ export const useDatabaseWorkspaceState = () => {
         throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
       }
 
-      await window.electron.ipcRenderer.invoke('/workspace/create', {
+      await unwrapIpc(await window.electron.ipcRenderer.invoke('/workspace/create', {
         name,
         folderPath: workspaceData.selectedFolder || '',
         state: workspaceData
-      });
+      }));
       
       window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));
     } catch (error) {
@@ -533,12 +547,12 @@ export const useDatabaseWorkspaceState = () => {
         throw new Error(ELECTRON_IPC_NOT_AVAILABLE);
       }
 
-      const workspaces = await window.electron.ipcRenderer.invoke('/workspace/list', {});
+      const workspaces = unwrapIpc<DatabaseWorkspace[]>(await window.electron.ipcRenderer.invoke('/workspace/list', {}));
       
       for (const workspace of workspaces) {
-        await window.electron.ipcRenderer.invoke('/workspace/delete', {
+        await unwrapIpc(await window.electron.ipcRenderer.invoke('/workspace/delete', {
           id: workspace.id
-        });
+        }));
       }
       
       window.dispatchEvent(new CustomEvent(WORKSPACES_CHANGED_EVENT));

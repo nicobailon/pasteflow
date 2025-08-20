@@ -5,15 +5,19 @@ module.exports = {
     customExportConditions: ['node', 'node-addons'],
   },
   moduleNameMapper: {
+    '^@constants$': '<rootDir>/src/constants/index.ts',
+    '^@constants/(.*)$': '<rootDir>/src/constants/$1',
+    '^@shared/(.*)$': '<rootDir>/src/shared/$1',
+
     // Handle CSS imports (with CSS modules)
-    '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.js',
+    '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.ts',
     // Handle image imports
-    '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/fileMock.js',
+    '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/fileMock.ts',
     // Use shared lucide-react mock
-    'lucide-react': '<rootDir>/src/__tests__/__mocks__/lucide-react.js',
+    'lucide-react': '<rootDir>/src/__tests__/__mocks__/lucide-react.ts',
     // Mock react-syntax-highlighter
-    'react-syntax-highlighter/dist/esm/styles/prism': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.js',
-    'react-syntax-highlighter': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.js',
+    'react-syntax-highlighter/dist/esm/styles/prism': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.ts',
+    'react-syntax-highlighter': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.ts',
     // Handle worker imports
     '^.*/workers/token-counter-worker\\.ts$': '<rootDir>/src/__tests__/__mocks__/token-counter-worker.ts',
     // Mock TokenWorkerPool to avoid import.meta.url issues
@@ -23,7 +27,7 @@ module.exports = {
     URL: URL,
     'process.env.NODE_ENV': 'test',
   },
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   testPathIgnorePatterns: [
     '<rootDir>/node_modules/', 
     '<rootDir>/dist/',
@@ -34,7 +38,7 @@ module.exports = {
   ],
   transform: {
     '^.+\\.(ts|tsx)$': ['ts-jest', {
-      tsconfig: 'tsconfig.json',
+      tsconfig: 'tsconfig.jest.json',
       diagnostics: {
         warnOnly: true
       }

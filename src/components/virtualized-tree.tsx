@@ -1,8 +1,8 @@
 import { VariableSizeList as List } from 'react-window';
-import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect, useMemo, memo } from 'react';
-
-import { TreeNode } from '../types/file-types';
-
+import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect, useMemo, memo, useState } from 'react';
+ 
+import { TreeNode, SelectedFileReference } from '../types/file-types';
+ 
 import TreeItem from './tree-item';
 
 interface VirtualizedTreeProps {
@@ -20,6 +20,7 @@ interface VirtualizedTreeProps {
 interface ItemData {
   nodes: TreeNode[];
   selectedFiles: { path: string; lines?: { start: number; end: number }[] }[];
+  selectedFilesLookup?: Map<string, SelectedFileReference>;
   toggleFileSelection: (path: string) => void;
   toggleFolderSelection: (path: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
   toggleExpanded: (path: string) => void;
@@ -46,6 +47,7 @@ const Row = memo(({ index, style, data }: { index: number; style: React.CSSPrope
         key={node.path}  // Add key to ensure proper component identity
         node={node}
         selectedFiles={data.selectedFiles}
+        selectedFilesLookup={data.selectedFilesLookup}
         toggleFileSelection={data.toggleFileSelection}
         toggleFolderSelection={data.toggleFolderSelection}
         toggleExpanded={data.toggleExpanded}
@@ -78,6 +80,8 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
   } = props;
   const listRef = useRef<List<ItemData>>(null);
   const scrollOffsetRef = useRef(0);
+  const lastScrollInfoRef = useRef<{ t: number; y: number } | null>(null);
+  const [overscan, setOverscan] = useState(5);
   
   useImperativeHandle(ref, () => ({
     scrollToItem: (index: number, align?: "start" | "center" | "end" | "auto") => {
@@ -109,20 +113,56 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
   
   const getItemSize = useCallback(() => ITEM_HEIGHT, []);
   
+  // Build O(1) lookup map for selection state to avoid per-node linear scans
+  const selectedFilesLookup = useMemo(
+    () => new Map<string, SelectedFileReference>(selectedFiles.map(f => [f.path, f])),
+    [selectedFiles]
+  );
+  
   const itemData: ItemData = useMemo(() => ({
     nodes: visibleTree,
     selectedFiles,
+    selectedFilesLookup,
     toggleFileSelection,
     toggleFolderSelection,
     toggleExpanded,
     onViewFile,
     loadFileContent,
     folderSelectionCache
-  }), [visibleTree, selectedFiles, toggleFileSelection, toggleFolderSelection, toggleExpanded, onViewFile, loadFileContent, folderSelectionCache]);
+  }), [visibleTree, selectedFiles, selectedFilesLookup, toggleFileSelection, toggleFolderSelection, toggleExpanded, onViewFile, loadFileContent, folderSelectionCache]);
   
   const handleScroll = useCallback(({ scrollOffset }: { scrollOffset: number }) => {
+    const now = performance.now();
+    const last = lastScrollInfoRef.current;
+    if (last) {
+      const dy = Math.abs(scrollOffset - last.y);
+      const dt = Math.max(1, now - last.t);
+      const velocity = dy / dt; // px per ms
+      // Simple heuristic: bump overscan when velocity is high
+      let next = 5;
+      if (velocity > 2.0) next = 20;       // very fast scroll
+      else if (velocity > 0.75) next = 12; // moderate scroll
+      if (next !== overscan) setOverscan(next);
+    }
+    lastScrollInfoRef.current = { t: now, y: scrollOffset };
     scrollOffsetRef.current = scrollOffset;
-  }, []);
+  }, [overscan]);
+  
+  // Hint selection overlay to prioritize currently visible directories
+  useEffect(() => {
+    if (!folderSelectionCache?.startProgressiveRecompute) return;
+    // Gather directory paths in the visible window (prioritize directories)
+    const priorityPaths = visibleTree
+      .filter(n => n.type === 'directory')
+      .map(n => n.path);
+    // Build selected path set for accurate recomputation
+    const selectedPathSet = new Set<string>(selectedFiles.map(f => f.path));
+    // Kick progressive recompute with visibility-first priority
+    folderSelectionCache.startProgressiveRecompute({
+      selectedPaths: selectedPathSet,
+      priorityPaths,
+    });
+  }, [visibleTree, selectedFiles, folderSelectionCache]);
   
   return (
     <List
@@ -132,7 +172,7 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
       itemSize={getItemSize}
       itemData={itemData}
       width="100%"
-      overscanCount={5}
+      overscanCount={overscan}
       onScroll={handleScroll}
     >
       {Row}

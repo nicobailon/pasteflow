@@ -1,5 +1,5 @@
 import { processFileContent } from '../../utils/content-formatter';
-import { countTokens } from '../../utils/token-counter';
+import { estimateTokenCount } from '../../utils/token-utils';
 import { validateWorkspaceSelections } from '../../utils/workspace-utils';
 import { FileData, SelectedFileWithLines, WorkspaceState } from '../../types/file-types';
 
@@ -25,7 +25,7 @@ describe('File Processing Workflow Integration', () => {
     isBinary: false,
     isSkipped: false,
     fileType: name.split('.').pop() || 'txt',
-    tokenCount: countTokens(content)
+    tokenCount: estimateTokenCount(content)
   });
 
   const testFiles: FileData[] = [

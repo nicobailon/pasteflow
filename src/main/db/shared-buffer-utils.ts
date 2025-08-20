@@ -13,8 +13,10 @@ export class SharedBufferManager {
    * Check if SharedArrayBuffer is available in the current context
    */
   private static isSharedArrayBufferSupported(): boolean {
-    return typeof SharedArrayBuffer !== 'undefined' &&
-           (typeof self === 'undefined' ? true : self.crossOriginIsolated === true);
+    // Use globalThis to work in Node worker_threads and browser contexts without referencing 'self'
+    const g: any = typeof globalThis !== 'undefined' ? (globalThis as any) : undefined;
+    const isIsolated = g && 'crossOriginIsolated' in g ? g.crossOriginIsolated === true : true;
+    return typeof SharedArrayBuffer !== 'undefined' && isIsolated;
   }
   
   /**

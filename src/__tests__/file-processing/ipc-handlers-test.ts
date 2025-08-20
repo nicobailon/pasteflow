@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { TOKEN_COUNTING } from '../../constants/app-constants';
+import { TOKEN_COUNTING } from '@constants';
 
 /**
  * This test suite focuses on the behavior and outcomes of file processing

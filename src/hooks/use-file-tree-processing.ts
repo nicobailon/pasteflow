@@ -13,7 +13,7 @@ import {
 } from '../utils/tree-node-transform';
 import { getTreeSortingService, clearTreeSortingCache } from '../utils/tree-sorting-service';
 import { getTreeBuilderWorkerPool } from '../utils/tree-builder-worker-pool';
-import { UI } from '../constants/app-constants';
+import { UI } from '@constants';
 
 interface UseFileTreeProcessingProps {
   allFiles: FileData[];

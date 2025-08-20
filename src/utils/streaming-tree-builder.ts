@@ -2,7 +2,7 @@
 declare const jest: { fn?: unknown } | undefined;
 
 import type { FileData, TreeNode } from '../types/file-types';
-import { UI } from '../constants/app-constants';
+import { UI } from '@constants';
 
 export interface TreeChunk {
   nodes: TreeNode[];
@@ -51,21 +51,24 @@ export class StreamingTreeBuilder {
   ): void {
     try {
       // Create worker using the same pattern as token-worker-pool
-      // Check if we're in a Jest test environment (more reliable than NODE_ENV)
-      if (typeof jest !== 'undefined') {
-        this.worker = new Worker('/mock/worker/path', { type: 'module' });
-      } else {
-        try {
-          // Use eval to prevent Jest from parsing this at compile time
-          const metaUrl = eval('import.meta.url');
-          this.worker = new Worker(
-            new URL('../workers/tree-builder-worker.ts', metaUrl),
-            { type: 'module' }
-          );
-        } catch (error) {
-          // Fallback for environments where import.meta is not available
-          console.warn('import.meta.url not available, using fallback worker path');
-          this.worker = new Worker('/src/workers/tree-builder-worker.ts', { type: 'module' });
+      // If a worker was injected (tests), reuse it; otherwise create one
+      if (!this.worker) {
+        // Check if we're in a Jest test environment (more reliable than NODE_ENV)
+        if (typeof jest !== 'undefined') {
+          this.worker = new Worker('/mock/worker/path', { type: 'module' });
+        } else {
+          try {
+            // Use eval to prevent Jest from parsing this at compile time
+            const metaUrl = eval('import.meta.url');
+            this.worker = new Worker(
+              new URL('../workers/tree-builder-worker.ts', metaUrl),
+              { type: 'module' }
+            );
+          } catch (error) {
+            // Fallback for environments where import.meta is not available
+            console.warn('import.meta.url not available, using fallback worker path');
+            this.worker = new Worker('/src/workers/tree-builder-worker.ts', { type: 'module' });
+          }
         }
       }
 
@@ -82,10 +85,11 @@ export class StreamingTreeBuilder {
           }
           
           case 'TREE_COMPLETE': {
+            // Ensure cleanup occurs before invoking completion callback
+            this.cleanup();
             if (!this.abortController.signal.aborted) {
               onComplete();
             }
-            this.cleanup();
             break;
           }
           
@@ -141,37 +145,12 @@ export class StreamingTreeBuilder {
 
   async cancel(): Promise<void> {
     if (this.cancelled) return;
-    
+
     this.cancelled = true;
     this.abortController.abort();
-    
-    // If no worker, just cleanup
-    if (!this.worker) {
-      this.cleanup();
-      return;
-    }
-    
-    // Send cancel message and wait for acknowledgement
-    const cancelRequest: WorkerRequest = {
-      type: 'CANCEL',
-      id: this.id
-    };
-    
-    this.worker.postMessage(cancelRequest);
-    
-    // Wait for CANCELLED acknowledgement with timeout
-    return new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        console.warn('Tree builder cancellation timeout, forcing cleanup');
-        this.cleanup();
-        resolve();
-      }, UI.TREE.CANCEL_TIMEOUT_MS);
-      
-      this.cancelResolver = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-    });
+
+    // Immediately cleanup to ensure handlers are removed and worker terminated
+    this.cleanup();
   }
 
   private cleanup(): void {

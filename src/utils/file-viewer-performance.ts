@@ -1,4 +1,4 @@
-import { PERFORMANCE } from '../constants/app-constants';
+import { PERFORMANCE } from '@constants';
 
 export interface PerformanceMetrics {
   renderTime: number;

@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS } from '@constants';
 import useAppState from '../hooks/use-app-state';
 import { setupMockLocalStorage, mockDateNow } from './test-helpers';
 import { MockAppState, setupWorkspaceTestEnv } from './test-helpers/workspace-mocks';

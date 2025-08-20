@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { DragEvent } from 'react';
 import { useWorkspaceDrag } from '../hooks/use-workspace-drag';
 import { setWorkspaceManualOrder, setWorkspaceSortMode } from '../utils/workspace-sorting';
-import { WORKSPACE_DRAG_SCROLL, WORKSPACE_TRANSFORMS } from '../constants/workspace-drag-constants';
+import { WORKSPACE_DRAG_SCROLL, WORKSPACE_TRANSFORMS } from '@constants';
 import { setupMockLocalStorage } from './test-helpers';
 
 // Mock the workspace sorting utils

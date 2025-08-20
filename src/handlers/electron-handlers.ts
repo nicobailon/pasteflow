@@ -764,12 +764,32 @@ export const requestFileContent = async (filePath: string): Promise<{
   isBinary?: boolean;
 }> => {
   if (!window.electron?.ipcRenderer?.invoke) {
-    return { success: false, error: "Electron IPC not available" };
+    return { success: false, error: 'Electron IPC not available' };
   }
   try {
-    const result = await window.electron.ipcRenderer.invoke("request-file-content", filePath);
-    return result as { success: boolean; content?: string; tokenCount?: number; error?: string; isBinary?: boolean };
+    const res = await window.electron.ipcRenderer.invoke('request-file-content', filePath);
+
+    // Support new { success, data } envelope or legacy { success, content, tokenCount }
+    if (res && typeof res === 'object' && 'success' in (res as any)) {
+      const r = res as any;
+      if (r.success === true) {
+        const data = r.data ?? r;
+        return {
+          success: true,
+          content: data?.content ?? '',
+          tokenCount: data?.tokenCount ?? 0
+        };
+      }
+      return {
+        success: false,
+        error: r.error || 'IPC error',
+        isBinary: r.isBinary
+      };
+    }
+
+    // Legacy pass-through
+    return res as { success: boolean; content?: string; tokenCount?: number; error?: string; isBinary?: boolean };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 };

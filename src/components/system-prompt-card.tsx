@@ -1,7 +1,7 @@
 import { Eye, MessageSquareCode, X } from "lucide-react";
 
 import { SystemPrompt } from "../types/file-types";
-import { TOKEN_COUNTING } from "../constants/app-constants";
+import { TOKEN_COUNTING } from "@constants";
 
 import CopyButton from "./copy-button";
 import "./system-prompt-card.css";
