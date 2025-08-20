@@ -24,6 +24,10 @@ export const FILE_PROCESSING = {
   HASH_TEXT_LENGTH_LIMIT: 1000,
   /** File processing debounce delay (milliseconds) */
   DEBOUNCE_DELAY_MS: 500,
+  /** Optimistic UI update cleanup delay (milliseconds) - shorter for faster feedback */
+  OPTIMISTIC_UPDATE_CLEANUP_MS: 100,
+  /** Progressive recompute debounce delay (milliseconds) - minimal for responsive UI */
+  PROGRESSIVE_RECOMPUTE_DEBOUNCE_MS: 10,
 } as const;
 
 // ==================== RATE LIMITING ====================
@@ -205,8 +209,8 @@ export const UI = {
     UPDATE_DEBOUNCE_MS: 50,
     /** Default expansion level for directories */
     DEFAULT_EXPANSION_LEVEL: 1,
-    /** Maximum element traversal depth */
-    MAX_TRAVERSAL_DEPTH: 3,
+    /** Maximum element traversal depth for intermediate chunks (increased to show all expanded folders) */
+    MAX_TRAVERSAL_DEPTH: 10,
     /** Default line height approximation (pixels) */
     DEFAULT_LINE_HEIGHT: 20,
     /** Line selection tolerance (pixels) */

@@ -1,5 +1,6 @@
 import type { FileData, TreeNode } from '../types/file-types';
 import { UI } from '@constants';
+import { normalizePath } from '@file-ops/path';
 
 interface TreeBuilderMessage {
   type?: 'INIT' | 'BUILD_TREE' | 'CANCEL';
@@ -22,20 +23,17 @@ interface TreeNodeMap {
   };
 }
 
-// Normalize path for consistent comparison
-function normalizePath(path: string): string {
-  // Normalize slashes and remove a single trailing slash for boundary-safe comparisons
-  return path.replace(/\\/g, '/').replace(/\/$/, '');
-}
 
 // Convert hierarchical map to TreeNode array
 // maxDepth limits how deep to include children (use Infinity for full depth)
+// When respectExpansion is true, include children for all expanded nodes regardless of depth
 function convertToTreeNodes(
   nodeMap: TreeNodeMap,
   level = 0,
   shouldSort = false, // Sorting is now handled by the centralized service
   maxDepth: number = Number.POSITIVE_INFINITY,
-  includeFileData = true
+  includeFileData = true,
+  respectExpansion = false
 ): TreeNode[] {
   const nodes: TreeNode[] = [];
 
@@ -53,6 +51,12 @@ function convertToTreeNodes(
       };
       nodes.push(fileNode);
     } else if (node.isDirectory) {
+      // Include children if:
+      // 1. We're respecting expansion and the node is expanded, OR
+      // 2. We're within the max depth limit
+      const shouldIncludeChildren = node.children && Object.keys(node.children).length > 0 && 
+        (respectExpansion ? node.isExpanded : (level + 1 < maxDepth));
+      
       const treeNode: TreeNode = {
         id: node.path,
         name: node.name,
@@ -60,8 +64,10 @@ function convertToTreeNodes(
         type: 'directory',
         level,
         isExpanded: node.isExpanded ?? false,
-        children: (level + 1 < maxDepth && node.children && Object.keys(node.children).length > 0)
-          ? convertToTreeNodes(node.children, level + 1, shouldSort, maxDepth, includeFileData)
+        children: shouldIncludeChildren && node.children
+          ? convertToTreeNodes(node.children, level + 1, shouldSort, 
+              respectExpansion ? Number.POSITIVE_INFINITY : maxDepth, 
+              includeFileData, respectExpansion)
           : undefined
       };
       nodes.push(treeNode);
@@ -132,7 +138,7 @@ function processFileIntoMap(
           path: dirPath,
           children: {},
           isDirectory: true,
-          isExpanded: expandedNodes[dirPath] ?? (j < 2)
+          isExpanded: expandedNodes[dirPath] ?? (j < UI.TREE.DEFAULT_EXPANSION_LEVEL)
         };
       }
       
@@ -186,7 +192,8 @@ function processBatchAndSendProgress(
   if (shouldPost) {
     // Check for cancellation before posting
     if (!isCancelled) {
-      const intermediateNodes = convertToTreeNodes(fileMap, 0, false, UI.TREE.MAX_TRAVERSAL_DEPTH, false);
+      // Use respectExpansion=true for intermediate chunks to show all expanded folders
+      const intermediateNodes = convertToTreeNodes(fileMap, 0, false, UI.TREE.MAX_TRAVERSAL_DEPTH, false, true);
       self.postMessage({
         type: 'TREE_CHUNK',
         id,
@@ -255,7 +262,8 @@ function buildTree(
   }
   
   // Send final tree (unsorted - sorting is handled centrally)
-  const finalNodes = convertToTreeNodes(fileMap, 0, false, Number.POSITIVE_INFINITY, true);
+  // Build the full tree regardless of expansion; visibility is handled by flattenTree using expandedNodes.
+  const finalNodes = convertToTreeNodes(fileMap, 0, false, Number.POSITIVE_INFINITY, true, false);
 
   self.postMessage({
     type: 'TREE_COMPLETE',
@@ -303,7 +311,7 @@ function validateInput(data: TreeBuilderMessage): { valid: boolean; error?: stri
 
 // Handle initialization message
 function handleInitMessage(): void {
-  self.postMessage({ type: 'READY' });
+  self.postMessage({ type: 'INIT_COMPLETE' });
 }
 
 // Handle cancellation message
@@ -345,6 +353,9 @@ function handleBuildTreeMessage(data: TreeBuilderMessage): void {
     });
   }
 }
+
+// Send initial ready signal when worker loads
+self.postMessage({ type: 'READY' });
 
 self.addEventListener('message', (e: MessageEvent<TreeBuilderMessage>) => {
   const data = e.data;

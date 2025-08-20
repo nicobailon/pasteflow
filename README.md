@@ -13,7 +13,7 @@ A desktop app for efficiently selecting, packaging, and copying code to share wi
   - Browse and select files/folders from your codebase
   - Line Range Selection: copy specific line ranges
 - Token Counting
-  - Optimized token estimates using tiktoken for accurate LLM context planning
+  - Unified token service: renderer worker pool with estimation fallback; main uses tiktoken; batch support for lists
 - Smart Exclusions
   - Automatically excludes binaries, build outputs, vendor artifacts, and common non-source files
 - System Prompts
@@ -93,7 +93,7 @@ Under the hood:
 - React 18 — UI framework (TypeScript)
 - Vite 5 — Dev/build tool
 - better-sqlite3 — Local database for workspace persistence
-- tiktoken — Token counting
+- Token service (renderer worker + main tiktoken) — Token counting/estimation
 - Jest + ts-jest — Test runner and TS support
 - tsx — Dev-time execution of TypeScript scripts
 

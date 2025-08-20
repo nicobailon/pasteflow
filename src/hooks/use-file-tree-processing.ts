@@ -6,10 +6,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { FileData, TreeNode } from '../types/file-types';
-import { 
-  flattenTree, 
+import {
+  flattenTree,
   filterTree,
-  clearFlattenCache 
+  clearFlattenCache,
+  buildFileMap,
+  buildTreeNodesFromMap
 } from '../utils/tree-node-transform';
 import { getTreeSortingService, clearTreeSortingCache } from '../utils/tree-sorting-service';
 import { getTreeBuilderWorkerPool } from '../utils/tree-builder-worker-pool';
@@ -70,6 +72,8 @@ export function useFileTreeProcessing({
   
   // Animation frame ID for throttling tree updates
   const rafIdRef = useRef<number>(0);
+  // Synchronous initial nodes for deterministic first render (used in tests and initial mount)
+  const initialNodesRef = useRef<TreeNode[] | null>(null);
   
   // Track file paths for structure change detection
   const filePathsRef = useRef<string[]>([]);
@@ -89,6 +93,13 @@ export function useFileTreeProcessing({
   
   // Throttled tree commit function using requestAnimationFrame
   const commitTree = useCallback((nodes: TreeNode[]) => {
+    // In tests or when RAF isn't available, commit synchronously for determinism
+    const useSync = typeof requestAnimationFrame !== 'function' || process.env.NODE_ENV === 'test';
+    if (useSync) {
+      setFileTree(nodes);
+      return;
+    }
+
     // Cancel any pending animation frame
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current);
@@ -132,11 +143,27 @@ export function useFileTreeProcessing({
     setIsComplete(false);
     setProgress(0);
     
+    // Synchronous initial render for determinism and tests
+    try {
+      const initialMap = buildFileMap(allFiles, selectedFolder, expandedNodes);
+      const deps = {
+        // Default collapsed unless explicitly present in expandedNodes
+        expandedLookup: (path: string) =>
+          Object.prototype.hasOwnProperty.call(expandedNodes, path) ? expandedNodes[path] : false,
+        sortOrder: fileTreeSortOrder || 'default'
+      };
+      const initialBuilt = buildTreeNodesFromMap(initialMap as Record<string, any>, 0, deps, Number.POSITIVE_INFINITY);
+      const initialNodes = sortTreeNodesRecursively(initialBuilt, fileTreeSortOrder || 'default');
+      commitTree(initialNodes);
+    } catch {
+      // best-effort initial tree; continue with worker streaming
+    }
+    
     // Always use the worker pool for tree building
     const pool = getTreeBuilderWorkerPool();
     
     try {
-      buildHandleRef.current = pool.startStreamingBuild(
+      buildHandleRef.current = pool.startStreaming(
         {
           files: allFiles,
           selectedFolder,
@@ -144,18 +171,21 @@ export function useFileTreeProcessing({
           chunkSize: UI.TREE.CHUNK_SIZE
         },
         {
-          onChunk: (chunk) => {
+          onChunk: (chunk: { nodes: TreeNode[]; progress: number }) => {
             // Apply sorting to nodes before committing
             const sortedNodes = sortTreeNodesRecursively(chunk.nodes, fileTreeSortOrder || 'default');
             commitTree(sortedNodes);
             setProgress(chunk.progress);
           },
-          onComplete: () => {
+          onComplete: (done: { nodes: TreeNode[]; progress: number }) => {
+            // Commit final fully-built tree from worker (authoritative)
+            const sortedFinal = sortTreeNodesRecursively(done.nodes, fileTreeSortOrder || 'default');
+            commitTree(sortedFinal);
             setIsComplete(true);
-            setProgress(100);
+            setProgress(done.progress ?? 100);
             buildHandleRef.current = null;
           },
-          onError: (error) => {
+          onError: (error: Error) => {
             console.error('Tree build error:', error);
             // No fallback - propagate error
             setIsComplete(true);
@@ -178,6 +208,7 @@ export function useFileTreeProcessing({
     // Clear caches when structure changes
     clearFlattenCache();
     clearTreeSortingCache();
+    initialNodesRef.current = null;
     
     // Small delay to debounce rapid changes
     const timeoutId = setTimeout(() => {
@@ -206,14 +237,15 @@ export function useFileTreeProcessing({
   }, [buildTree]);
 
   // Handle expansion state changes
+  // Do NOT rebuild the tree on expansion; the final tree contains all nodes.
+  // Simply clear flatten cache so the visible tree re-computes instantly without flicker.
   useEffect(() => {
     const expansionChanged = JSON.stringify(prevExpandedNodesRef.current) !== JSON.stringify(expandedNodes);
     
     if (expansionChanged) {
       prevExpandedNodesRef.current = expandedNodes;
-      // Expansion changes are handled by clearing the flatten cache
-      // The visible tree will be recomputed with the new expansion state
       clearFlattenCache();
+      // No worker call here; avoids progress overlay and preserves current fileTree
     }
   }, [expandedNodes]);
   
@@ -223,6 +255,7 @@ export function useFileTreeProcessing({
       prevSortOrderRef.current = fileTreeSortOrder;
       clearTreeSortingCache();
       clearFlattenCache();
+      initialNodesRef.current = null;
       
       // Trigger a full rebuild with new sort order
       refresh();
@@ -231,14 +264,30 @@ export function useFileTreeProcessing({
   
   // Compute visible tree (filtered and flattened)
   const visibleTree = useMemo(() => {
+    // Choose base nodes: prefer streamed state; otherwise, build a synchronous initial tree
+    const baseNodes: TreeNode[] = fileTree.length > 0 ? fileTree : (() => {
+      if (!initialNodesRef.current) {
+        const fileMap = buildFileMap(allFiles, selectedFolder, expandedNodes);
+        const deps = {
+          // Default collapsed unless explicitly present in expandedNodes
+          expandedLookup: (path: string) =>
+            Object.prototype.hasOwnProperty.call(expandedNodes, path) ? expandedNodes[path] : false,
+          sortOrder: fileTreeSortOrder || 'default'
+        };
+        const nodes = buildTreeNodesFromMap(fileMap as Record<string, any>, 0, deps, Number.POSITIVE_INFINITY);
+        initialNodesRef.current = sortTreeNodesRecursively(nodes, fileTreeSortOrder || 'default');
+      }
+      return initialNodesRef.current!;
+    })();
+
     // Apply filtering if search term exists
-    const filtered = searchTerm ? 
-      filterTree(fileTree, searchTerm, filesByPath.current) : 
-      fileTree;
+    const filtered = searchTerm
+      ? filterTree(baseNodes, searchTerm, filesByPath.current)
+      : baseNodes;
     
-    // Flatten for rendering
+    // Flatten for rendering with expansion state applied
     return flattenTree(filtered, expandedNodes, searchTerm, filesByPath.current, selectedFolder);
-  }, [fileTree, expandedNodes, searchTerm, selectedFolder]);
+  }, [fileTree, allFiles, selectedFolder, expandedNodes, searchTerm, fileTreeSortOrder]);
   
   // Clean up on unmount
   useEffect(() => {

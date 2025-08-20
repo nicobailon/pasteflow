@@ -1,4 +1,4 @@
-import { basename } from './path-utils';
+import { basename } from '@file-ops/path';
 import { enhancedFileContentCache as fileContentCache } from './enhanced-file-cache-adapter';
 
 /**

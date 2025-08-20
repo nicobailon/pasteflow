@@ -21,8 +21,8 @@ const App = () => {
   // Use our main app state hook
   const appState = useAppState();
 
-  // Dev memory monitoring (register caches and folder index size)
-  useMemoryMonitoring(appState.folderSelectionCache, appState.folderIndexSize);
+  // Dev memory monitoring (register caches once on mount)
+  useMemoryMonitoring();
 
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const sidebarRef = useRef<SidebarRef>(null);

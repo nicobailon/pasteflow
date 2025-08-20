@@ -1,5 +1,8 @@
 /// <reference lib="webworker" />
 
+import { normalizePath, getRelativePath, extname } from '@file-ops/path';
+import { generateAsciiFileTree } from '@file-ops/ascii-tree';
+
 /* Preview Generator Web Worker (progressive, update-aware)
    - Opens immediately by streaming a header chunk
    - Streams any files that already have content
@@ -159,33 +162,6 @@ function countLines(text: string | undefined): number {
 
 // ===== Path and formatting helpers =====
 
-function normalizePath(p: string | null | undefined): string {
-  if (!p) return '';
-  const normalized = String(p)
-    .replace(/\\/g, '/')  // Convert backslashes to forward slashes
-    .replace(/\/+/g, '/'); // Collapse consecutive slashes
-  // Preserve root "/" but remove other trailing slashes
-  return normalized === '/' ? '/' : normalized.replace(/\/$/, '');
-}
-
-function getRelativePath(filePath: string, baseDir: string | null | undefined): string {
-  if (!filePath) return '';
-  if (!baseDir) return String(filePath);
-  const fileN = normalizePath(filePath);
-  const baseN = normalizePath(baseDir);
-  if (fileN.startsWith(baseN + '/')) {
-    return fileN.slice(Math.max(0, baseN.length + 1));
-  }
-  if (fileN === baseN) return '';
-  return fileN;
-}
-
-function extname(filePath: string): string {
-  const b = filePath.split('/').pop() || '';
-  const i = b.lastIndexOf('.');
-  return i <= 0 ? '' : b.slice(i);
-}
-
 function getLanguageIdentifier(extension: string, filePath: string): string {
   switch (extension) {
     case 'js': return 'javascript';
@@ -273,60 +249,7 @@ function buildFileBlocks(
 
 // ===== File tree helpers (for header) =====
 
-type SimpleTreeNode = {
-  name: string;
-  isFile: boolean;
-  children: Record<string, SimpleTreeNode>;
-};
-
-function sortedChildren(node: SimpleTreeNode): SimpleTreeNode[] {
-  return Object.values(node.children).sort((a, b) => {
-    if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
-    return a.name.localeCompare(b.name);
-  });
-}
-
-function buildTree(items: { path: string; isFile?: boolean }[], root: string): SimpleTreeNode {
-  const rootName = (root.split('/').pop() || root) || '';
-  const r: SimpleTreeNode = { name: rootName, isFile: false, children: {} };
-  for (const item of items) {
-    insertPath(item, r, root);
-  }
-  return r;
-}
-
-function insertPath(item: { path: string; isFile?: boolean }, node: SimpleTreeNode, root: string) {
-  const normalized = normalizePath(item.path);
-  const rel = getRelativePath(normalized, root);
-  if (rel === '') return;
-  const parts = rel.split('/').filter(Boolean);
-  let cur = node;
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    const isLast = i === parts.length - 1;
-    const isFile = isLast ? (item.isFile ?? true) : false;
-    if (!cur.children[part]) {
-      cur.children[part] = { name: part, isFile, children: {} };
-    } else if (isLast) {
-      cur.children[part].isFile = isFile;
-    }
-    cur = cur.children[part];
-  }
-}
-
-function asciiFromTree(root: SimpleTreeNode): string {
-  const lines: string[] = [];
-  const walk = (n: SimpleTreeNode, prefix: string, isLast: boolean, isRoot: boolean) => {
-    if (!isRoot) {
-      lines.push(`${prefix}${isLast ? '└── ' : '├── '}${n.name}`);
-    }
-    const kids = sortedChildren(n);
-    const childPrefix = isRoot ? '' : prefix + (isLast ? '    ' : '│   ');
-    kids.forEach((child, idx) => walk(child, childPrefix, idx === kids.length - 1, false));
-  };
-  walk(root, '', true, true);
-  return lines.join('\n');
-}
+// Tree building is now handled by the shared generateAsciiFileTree function
 
 function generateFileTreeItems(
   allFiles: FileData[],
@@ -470,7 +393,7 @@ function emitHeaderAndPrimingChunk(opts: {
   if (fileTreeMode !== 'none' && selectedFolder) {
     const normalizedFolder = normalizePath(selectedFolder);
     const items = generateFileTreeItems([...currentAllMap.values()], sortedSelectedFiles, fileTreeMode, normalizedFolder);
-    const tree = asciiFromTree(buildTree(items, normalizedFolder));
+    const tree = generateAsciiFileTree(items, normalizedFolder);
     header += `<file_map>\n${normalizedFolder}\n${tree}\n</file_map>\n\n`;
   }
 

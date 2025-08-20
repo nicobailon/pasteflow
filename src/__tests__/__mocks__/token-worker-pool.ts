@@ -45,9 +45,10 @@ export class TokenWorkerPool {
       return Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN); // Estimation fallback
     }
     
-    // Input size validation - exact same as real implementation
+    // Input size validation using byte-length (consistent with production)
     const MAX_TEXT_SIZE = 10 * 1024 * 1024; // 10MB
-    if (text.length > MAX_TEXT_SIZE) {
+    const textSize = new TextEncoder().encode(text).length;
+    if (textSize > MAX_TEXT_SIZE) {
       throw new Error('Text too large for processing');
     }
     
@@ -99,7 +100,7 @@ export class TokenWorkerPool {
     const worker = this.workers[availableWorkerIndex];
     
     // Simulate real worker behavior with realistic timing and error handling
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
     
     const cleanup = () => {
       clearTimeout(timeoutId);

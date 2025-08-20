@@ -3,7 +3,6 @@ import { useEffect } from 'react';
 import { memoryMonitor } from '../utils/memory-monitor';
 import { enhancedFileContentCache } from '../utils/enhanced-file-cache-adapter';
 import { tokenCountCache } from '../utils/token-cache-adapter';
-import { DirectorySelectionCache } from '../utils/selection-cache';
 import { getTreeSortingService } from '../utils/tree-sorting-service';
 import { getFlattenCacheStats } from '../utils/tree-node-transform';
 
@@ -11,10 +10,8 @@ import { getFlattenCacheStats } from '../utils/tree-node-transform';
  * Hook to set up memory monitoring for all application caches.
  * Registers caches with the memory monitor and starts periodic monitoring.
  */
-export function useMemoryMonitoring(
-  directorySelectionCache?: DirectorySelectionCache | null,
-  folderIndexSize?: number
-): void {
+export function useMemoryMonitoring(): void {
+  // Run effect only once on mount to avoid re-registration loops
   useEffect(() => {
     // Register file content cache
     memoryMonitor.registerCache(
@@ -30,23 +27,8 @@ export function useMemoryMonitoring(
       () => tokenCountCache.estimateMemoryUsage()
     );
 
-    // Register directory selection cache if available
-    if (directorySelectionCache) {
-      // Since DirectorySelectionCache uses a Map internally, estimate based on entry count
-      // Assume each entry is roughly 100 bytes (path string + state string)
-      memoryMonitor.registerCache(
-        'DirectorySelectionCache',
-        () => {
-          // Estimate size based on typical directory count
-          return folderIndexSize || 0;
-        },
-        () => {
-          // Rough estimate: 100 bytes per directory entry
-          const size = folderIndexSize || 0;
-          return (size * 100) / (1024 * 1024);
-        }
-      );
-    }
+    // Note: DirectorySelectionCache registration removed to prevent re-render loops
+    // The cache is still functional but not monitored for memory usage
 
     // Register tree sorting cache
     const treeSortingService = getTreeSortingService();
@@ -88,9 +70,6 @@ export function useMemoryMonitoring(
       memoryMonitor.unregisterCache('TokenCountCache');
       memoryMonitor.unregisterCache('TreeSortingCache');
       memoryMonitor.unregisterCache('FlattenCache');
-      if (directorySelectionCache) {
-        memoryMonitor.unregisterCache('DirectorySelectionCache');
-      }
     };
-  }, [directorySelectionCache, folderIndexSize]);
+  }, []); // Run only once on mount - caches are registered globally
 }

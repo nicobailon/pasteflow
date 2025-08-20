@@ -80,24 +80,31 @@ function scheduleCleanup() {
 
 // Window/process cleanup handlers for edge cases
 if (typeof window !== 'undefined') {
-  // Handle window unload
-  const handleUnload = () => {
-    if (globalWorkerPool) {
-      cleanupGlobalPool(true);
-    }
-  };
+  // HMR guard: Prevent duplicate listener registration in development
+  const windowWithFlag = window as Window & { __PF_tokenHookBound?: boolean };
   
-  window.addEventListener('beforeunload', handleUnload);
-  window.addEventListener('pagehide', handleUnload);
-  
-  // Handle errors that might leave pool in bad state
-  window.addEventListener('error', (event) => {
-    if (event.error && event.error.message && 
-        (event.error.message.includes('Worker') || event.error.message.includes('WebAssembly'))) {
-      console.error('[useTokenCounter] Critical error detected, checking pool health');
-      verifyPoolHealth();
-    }
-  });
+  if (!windowWithFlag.__PF_tokenHookBound) {
+    windowWithFlag.__PF_tokenHookBound = true;
+    
+    // Handle window unload
+    const handleUnload = () => {
+      if (globalWorkerPool) {
+        cleanupGlobalPool(true);
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+    
+    // Handle errors that might leave pool in bad state
+    window.addEventListener('error', (event) => {
+      if (event.error && event.error.message && 
+          (event.error.message.includes('Worker') || event.error.message.includes('WebAssembly'))) {
+        console.error('[useTokenCounter] Critical error detected, checking pool health');
+        verifyPoolHealth();
+      }
+    });
+  }
 }
 
 // Helper function to update activity time
@@ -128,8 +135,8 @@ function scheduleIdleCleanup() {
 // Helper function to cleanup global pool
 function cleanupGlobalPool(forceResetRefCount = true) {
   if (globalWorkerPool) {
-    if (typeof globalWorkerPool.terminate === 'function') {
-      globalWorkerPool.terminate();
+    if (typeof globalWorkerPool.cleanup === 'function') {
+      globalWorkerPool.cleanup();
     }
     globalWorkerPool = null;
   }
@@ -203,19 +210,19 @@ function verifyPoolHealth(): boolean {
   }
   
   // Check if pool is in a bad state
-  if (typeof globalWorkerPool.getStatus === 'function') {
-    const status = globalWorkerPool.getStatus();
-    if (status.isTerminated || (status.activeWorkers === 0 && refCount > 0)) {
+  if (typeof globalWorkerPool.getStats === 'function') {
+    const stats = globalWorkerPool.getStats();
+    if (stats.isTerminated || (stats.healthyWorkers === 0 && refCount > 0)) {
       console.error('[useTokenCounter] Pool in bad state, recreating');
       const oldPool = globalWorkerPool;
       globalWorkerPool = null;
       
       try {
-        if (oldPool && typeof oldPool.terminate === 'function') {
-          oldPool.terminate();
+        if (oldPool && typeof oldPool.cleanup === 'function') {
+          oldPool.cleanup();
         }
       } catch (error) {
-        console.error('[useTokenCounter] Error terminating bad pool:', error);
+        console.error('[useTokenCounter] Error cleaning up bad pool:', error);
       }
       
       return false;
@@ -296,9 +303,7 @@ export function useTokenCounter() {
     
     if (!globalWorkerPool) {
       globalWorkerPool = new TokenWorkerPool();
-      if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
-        globalWorkerPool.monitorWorkerMemory();
-      }
+      // monitorWorkerMemory method removed after worker-base refactor
       // Start memory monitoring when pool is created
       startMemoryMonitoring();
       // Start orphan check for edge case cleanup
@@ -362,9 +367,7 @@ export function useTokenCounter() {
     // Check if pool needs to be recreated after force cleanup
     if (!globalWorkerPool && refCount > 0) {
       globalWorkerPool = new TokenWorkerPool();
-      if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
-        globalWorkerPool.monitorWorkerMemory();
-      }
+      // monitorWorkerMemory method removed after worker-base refactor
       workerPoolRef.current = globalWorkerPool;
       // Restart monitoring for the new pool
       startMemoryMonitoring();
@@ -405,14 +408,12 @@ export function useTokenCounter() {
         
         // Create new pool before terminating old one
         globalWorkerPool = new TokenWorkerPool();
-        if (globalWorkerPool && typeof globalWorkerPool.monitorWorkerMemory === 'function') {
-          globalWorkerPool.monitorWorkerMemory();
-        }
+        // monitorWorkerMemory method removed after worker-base refactor
         workerPoolRef.current = globalWorkerPool;
         
-        // Terminate old pool
-        if (oldPool && typeof oldPool.terminate === 'function') {
-          oldPool.terminate();
+        // Cleanup old pool
+        if (oldPool && typeof oldPool.cleanup === 'function') {
+          oldPool.cleanup();
         }
         
         fallbackCountRef.current = 0;

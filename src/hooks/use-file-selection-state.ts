@@ -43,49 +43,91 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const perf = useMemo(() => getGlobalPerformanceMonitor(), []);
   // Overlay version to trigger re-renders when progressive batches apply
   const [folderOverlayVersion, setFolderOverlayVersion] = useState(0);
+  // Manual cache update version to trigger re-renders when cache is manually updated
+  const [manualCacheVersion, setManualCacheVersion] = useState(0);
   // Coalescing guard for rapid bulk toggles
   const lastBulkToggleTsRef = useRef(0);
   // Chunking configuration
   const BULK = useMemo(() => ({ ADD_CHUNK: 1500, REMOVE_CHUNK: 2000, COALESCE_MS: 150 }), []);
 
-  // Build folder selection cache for instant UI updates (memoized by structure only)
+  // Store the cache in a ref to avoid recreating it unnecessarily
+  const baseFolderSelectionCacheRef = useRef<ReturnType<typeof createDirectorySelectionCache> | null>(null);
+  
+  // Build folder selection cache for instant UI updates (recreate only when allFiles changes)
   const baseFolderSelectionCache = useMemo(() => {
-    return createDirectorySelectionCache(allFiles, selectedFiles, {
-      onBatchApplied: () => setFolderOverlayVersion(v => v + 1),
+    // Use a stable callback ref to avoid recreating the cache
+    const onBatchApplied = () => {
+      // Direct state update for faster feedback
+      setFolderOverlayVersion(v => v + 1);
+    };
+    
+    const cache = createDirectorySelectionCache(allFiles, selectedFiles, {
+      onBatchApplied,
     });
+    
+    baseFolderSelectionCacheRef.current = cache;
+    return cache;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allFiles]);
   
   // Create a wrapper cache that includes optimistic updates and progressive signals
   const folderSelectionCache = useMemo(() => {
+    const cache = baseFolderSelectionCacheRef.current || baseFolderSelectionCache;
     return {
       get(path: string): 'full' | 'partial' | 'none' {
-        // Check optimistic updates first
-        const optimisticState = optimisticFolderStatesRef.current.get(path);
-        if (optimisticState !== undefined) {
-          return optimisticState;
+        // Normalize variant for robust optimistic lookups (absolute/relative mirror)
+        // Special-case root: do not check empty-string key
+        const altPath = path === '/'
+          ? null
+          : (path.startsWith('/') ? path.slice(1) : ('/' + path));
+
+        // Check optimistic updates first (both variants)
+        const optDirect = optimisticFolderStatesRef.current.get(path);
+        if (optDirect !== undefined) return optDirect;
+        if (altPath) {
+          const optAlt = optimisticFolderStatesRef.current.get(altPath);
+          if (optAlt !== undefined) return optAlt;
         }
-        // Fall back to base cache
-        return baseFolderSelectionCache.get(path);
+
+        // Fall back to base cache (which already mirrors variants internally)
+        return cache.get(path);
       },
-      set: baseFolderSelectionCache.set,
-      bulkUpdate: baseFolderSelectionCache.bulkUpdate,
-      clear: baseFolderSelectionCache.clear,
+      set: cache.set.bind(cache),
+      bulkUpdate: cache.bulkUpdate.bind(cache),
+      clear: cache.clear.bind(cache),
       // Progressive API passthroughs (optional)
-      isComputing: baseFolderSelectionCache.isComputing?.bind(baseFolderSelectionCache),
-      getProgress: baseFolderSelectionCache.getProgress?.bind(baseFolderSelectionCache),
-      startProgressiveRecompute: baseFolderSelectionCache.startProgressiveRecompute?.bind(baseFolderSelectionCache),
-      cancel: baseFolderSelectionCache.cancel?.bind(baseFolderSelectionCache),
-      setSelectedPaths: baseFolderSelectionCache.setSelectedPaths?.bind(baseFolderSelectionCache),
+      isComputing: cache.isComputing?.bind(cache),
+      getProgress: cache.getProgress?.bind(cache),
+      startProgressiveRecompute: cache.startProgressiveRecompute?.bind(cache),
+      cancel: cache.cancel?.bind(cache),
+      setSelectedPaths: cache.setSelectedPaths?.bind(cache),
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseFolderSelectionCache, optimisticStateVersion, folderOverlayVersion]);
+  }, [baseFolderSelectionCache, optimisticStateVersion, folderOverlayVersion, manualCacheVersion]);
 
   // Keep progressive overlay recomputation in sync with selection changes
   useEffect(() => {
+    // Update cache immediately
+    const cache = baseFolderSelectionCacheRef.current;
+    if (!cache) return;
+    
     const paths = new Set<string>(selectedFiles.map(f => f.path));
-    baseFolderSelectionCache.setSelectedPaths?.(paths);
-    baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
-  }, [selectedFiles, baseFolderSelectionCache]);
+    if (cache.setSelectedPaths) {
+      cache.setSelectedPaths(paths);
+    }
+    
+    // Debounce only the expensive recompute operation with minimal delay
+    const timeoutId = setTimeout(() => {
+      // Re-fetch cache reference to avoid stale closure
+      const currentCache = baseFolderSelectionCacheRef.current;
+      if (currentCache && currentCache.startProgressiveRecompute) {
+        const currentPaths = new Set<string>(selectedFiles.map(f => f.path));
+        currentCache.startProgressiveRecompute({ selectedPaths: currentPaths });
+      }
+    }, FILE_PROCESSING.PROGRESSIVE_RECOMPUTE_DEBOUNCE_MS); // Minimal delay for responsive UI
+    
+    return () => clearTimeout(timeoutId);
+  }, [selectedFiles]);
 
   // Immediate cleanup on mount if workspace is provided
   useEffect(() => {
@@ -316,6 +358,12 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (opts?.optimistic !== false) {
       const newState = isSelected ? 'full' : 'none';
 
+      // Compute canonical alt path variant to avoid leading-slash mismatch issues
+      // Special-case root: do not create an empty-string key
+      const altPath = folderPath === '/'
+        ? null
+        : (folderPath.startsWith('/') ? folderPath.slice(1) : ('/' + folderPath));
+
       // Clear any existing timeout for this path
       const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
       if (existingTimeout) {
@@ -325,28 +373,49 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       // Mark operation as pending
       pendingOperationsRef.current.add(folderPath);
 
-      // Set optimistic state using the folder path
+      // Set optimistic state using the folder path and (when present) its mirrored variant
       optimisticFolderStatesRef.current.set(folderPath, newState);
-      setOptimisticStateVersion(v => v + 1); // Trigger re-render
+      if (altPath) {
+        optimisticFolderStatesRef.current.set(altPath, newState);
+      }
+      
+      // Immediately update the base cache as well for instant feedback (base cache already mirrors variants)
+      const cache = baseFolderSelectionCacheRef.current;
+      if (cache && cache.set) {
+        cache.set(folderPath, newState);
+        // Also ensure the cache knows about the current selected paths
+        const paths = new Set<string>(selectedFiles.map(f => f.path));
+        if (cache.setSelectedPaths) {
+          cache.setSelectedPaths(paths);
+        }
+        setManualCacheVersion(v => v + 1); // Trigger re-render for cache update
+      }
+      
+      setOptimisticStateVersion(v => v + 1); // Trigger re-render for optimistic update
 
-      // Schedule cleanup with a longer timeout to ensure state has settled
+      // Schedule cleanup with a shorter timeout for faster UI updates
       const timeout = setTimeout(() => {
         // Only clean up if no pending operations for this path
         if (!pendingOperationsRef.current.has(folderPath)) {
           optimisticFolderStatesRef.current.delete(folderPath);
+          if (altPath) {
+            optimisticFolderStatesRef.current.delete(altPath);
+          }
           setOptimisticStateVersion(v => v + 1); // Trigger re-render
           optimisticTimeoutsRef.current.delete(folderPath);
         }
-      }, FILE_PROCESSING.DEBOUNCE_DELAY_MS); // Using centralized debounce delay for better stability
+      }, FILE_PROCESSING.OPTIMISTIC_UPDATE_CLEANUP_MS); // Shorter delay for faster UI feedback
 
       optimisticTimeoutsRef.current.set(folderPath, timeout);
     }
 
     // Helper: kick progressive overlay recompute
     const kickOverlay = () => {
+      const cache = baseFolderSelectionCacheRef.current;
+      if (!cache) return;
       const paths = new Set<string>(selectedFiles.map(f => f.path));
-      baseFolderSelectionCache.setSelectedPaths?.(paths);
-      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      cache.setSelectedPaths?.(paths);
+      cache.startProgressiveRecompute?.({ selectedPaths: paths });
     };
 
     if (isSelected) {
@@ -450,7 +519,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
       buildNext();
     }
-  }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex, baseFolderSelectionCache, perf, BULK]);
+  }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex, perf, BULK]);
 
   // Handle select all files (chunked to maintain responsiveness)
   const selectAllFiles = useCallback((displayedFiles: FileData[]) => {
@@ -467,18 +536,23 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
     // If nothing to add, still tick overlay to ensure immediate reflection
     if (total === 0) {
-      const paths = new Set<string>(selectedFiles.map(f => f.path));
-      baseFolderSelectionCache.setSelectedPaths?.(paths);
-      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      const cache = baseFolderSelectionCacheRef.current;
+      if (cache) {
+        const paths = new Set<string>(selectedFiles.map(f => f.path));
+        cache.setSelectedPaths?.(paths);
+        cache.startProgressiveRecompute?.({ selectedPaths: paths });
+      }
       endMeasure();
       return;
     }
 
     // Helper: keep overlay progressing as chunks apply
     const kickOverlay = () => {
+      const cache = baseFolderSelectionCacheRef.current;
+      if (!cache) return;
       const paths = new Set<string>([...selectedFiles.map(f => f.path), ...additions]);
-      baseFolderSelectionCache.setSelectedPaths?.(paths);
-      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      cache.setSelectedPaths?.(paths);
+      cache.startProgressiveRecompute?.({ selectedPaths: paths });
     };
 
     const endMeasureChunks = perf.startMeasure('selection.apply.selectAll.chunks.total.ms');
@@ -526,7 +600,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     };
 
     runChunk();
-  }, [setSelectedFiles, selectedFiles, baseFolderSelectionCache, perf, BULK]);
+  }, [setSelectedFiles, selectedFiles, perf, BULK]);
 
   // Handle deselect all files (chunked build + single commit)
   const deselectAllFiles = useCallback((displayedFiles: FileData[]) => {
@@ -543,9 +617,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
     // Helper: keep overlay progressing as we compute
     const kickOverlay = () => {
+      const cache = baseFolderSelectionCacheRef.current;
+      if (!cache) return;
       const paths = new Set<string>(kept.map(f => f.path));
-      baseFolderSelectionCache.setSelectedPaths?.(paths);
-      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      cache.setSelectedPaths?.(paths);
+      cache.startProgressiveRecompute?.({ selectedPaths: paths });
     };
 
     const endMeasureChunks = perf.startMeasure('selection.apply.deselectAll.chunks.total.ms');
@@ -575,7 +651,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     };
 
     buildNext();
-  }, [setSelectedFiles, selectedFiles, baseFolderSelectionCache, perf, BULK]);
+  }, [setSelectedFiles, selectedFiles, perf, BULK]);
 
   // Clear all selected files
   const clearSelectedFiles = useCallback(() => {

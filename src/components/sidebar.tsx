@@ -13,6 +13,7 @@ import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
 import Dropdown, { DropdownRef } from './dropdown';
 import SearchBar from "./search-bar";
 import { createSortOptions, checkAllFilesSelected } from './sidebar-helpers';
+import './sidebar.css';
 
 export interface SidebarRef {
   closeSortDropdown: () => void;
@@ -216,7 +217,6 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                     onChange={handleSelectAllToggle}
                     title={areAllFilesSelected ? "Deselect all files" : "Select all files"}
                     disabled={isOverlayComputing}
-                    aria-busy={isOverlayComputing}
                   />
                   <span className="custom-checkbox"></span>
                 </div>
@@ -272,13 +272,20 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                 <span>Building file tree...</span>
                 {treeProgress !== undefined && treeProgress < 100 && (
                   <div className="tree-progress">
-                    <div className="progress-bar-container">
+                    <div 
+                      className="progress-bar-container"
+                      role="progressbar"
+                      aria-valuenow={Math.round(treeProgress)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label="File tree building progress"
+                    >
                       <div 
                         className="progress-bar" 
                         style={{ width: `${treeProgress}%` }}
                       />
                     </div>
-                    <span className="progress-text">{Math.round(treeProgress)}%</span>
+                    <span className="progress-text" aria-hidden="true">{Math.round(treeProgress)}%</span>
                   </div>
                 )}
               </div>

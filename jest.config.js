@@ -8,6 +8,8 @@ module.exports = {
     '^@constants$': '<rootDir>/src/constants/index.ts',
     '^@constants/(.*)$': '<rootDir>/src/constants/$1',
     '^@shared/(.*)$': '<rootDir>/src/shared/$1',
+    '^@file-ops/(.*)$': '<rootDir>/src/file-ops/$1',
+    '^@lib/(.*)$': '<rootDir>/src/lib/$1',
 
     // Handle CSS imports (with CSS modules)
     '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.ts',
@@ -22,6 +24,8 @@ module.exports = {
     '^.*/workers/token-counter-worker\\.ts$': '<rootDir>/src/__tests__/__mocks__/token-counter-worker.ts',
     // Mock TokenWorkerPool to avoid import.meta.url issues
     '^.*/utils/token-worker-pool$': '<rootDir>/src/__tests__/__mocks__/token-worker-pool.ts',
+    // Mock TreeBuilderWorkerPool to avoid import.meta.url issues during tests
+    '^.*/utils/tree-builder-worker-pool$': '<rootDir>/src/__tests__/__mocks__/tree-builder-worker-pool.ts',
   },
   globals: {
     URL: URL,

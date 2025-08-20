@@ -77,20 +77,27 @@ const formatSelectedLines = (selectedFile?: { path: string; lines?: { start: num
 
 // Handle specific item actions independently to reduce complexity
 const handleTreeItemActions = {
-  handleToggle: (e: React.MouseEvent | React.KeyboardEvent, toggleExpanded: (path: string, currentState?: boolean) => void, path: string) => {
+  handleToggle: (
+    e: React.MouseEvent | React.KeyboardEvent,
+    toggleExpanded: (path: string, currentState?: boolean) => void,
+    path: string,
+    currentState?: boolean
+  ) => {
     e.stopPropagation();
-    e.preventDefault(); // Also prevent default to avoid any bubbling issues
-    // Don't pass isExpanded - let toggleExpanded figure it out from its own state
-    toggleExpanded(path);
+    e.preventDefault(); // Prevent default to avoid bubbling issues
+    // Pass current expansion state explicitly to ensure deterministic toggling
+    toggleExpanded(path, currentState);
   },
   
   handleItemClick: (
-    type: "file" | "directory", 
-    toggleExpanded: (path: string, currentState?: boolean) => void, 
-    path: string
+    type: "file" | "directory",
+    toggleExpanded: (path: string, currentState?: boolean) => void,
+    path: string,
+    currentState?: boolean
   ) => {
     if (type === "directory") {
-      toggleExpanded(path);
+      // Pass current expansion state to avoid relying on inferred defaults
+      toggleExpanded(path, currentState);
     }
     // Removed automatic file selection - files should only be selected via checkbox
   },
@@ -161,7 +168,7 @@ const TreeItemCheckbox = ({
   checked, 
   indeterminate, 
   disabled, 
-  onChange 
+  onChange
 }: TreeItemCheckboxProps) => {
   const checkboxRef = useRef(null as HTMLInputElement | null);
   
@@ -383,10 +390,12 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
   }
   
   // Check if folderSelectionCache changed for directories
-  if (prevProps.node.type === 'directory' && prevProps.folderSelectionCache && nextProps.folderSelectionCache) {
-    const prevCacheState = prevProps.folderSelectionCache.get(prevProps.node.path);
-    const nextCacheState = nextProps.folderSelectionCache.get(nextProps.node.path);
-    if (prevCacheState !== nextCacheState) return false;
+  // CRITICAL: Do NOT call .get(...) here — it reads current global state for both prev/next and can mask changes.
+  // Rely solely on wrapper identity to detect updates (wrapper identity is recreated when optimistic/progressive versions change).
+  if (prevProps.node.type === 'directory') {
+    if (prevProps.folderSelectionCache !== nextProps.folderSelectionCache) {
+      return false;
+    }
   }
   
   return true;
@@ -472,7 +481,10 @@ const TreeItem = memo(({
 
   const handleTreeItemClick = () => {
     handleTreeItemActions.handleItemClick(
-      type, toggleExpanded, path
+      type,
+      toggleExpanded,
+      path,
+      isExpanded
     );
   };
 
@@ -493,15 +505,17 @@ const TreeItem = memo(({
   }, [type, path, toggleFileSelection, toggleFolderSelection, toggleExpanded, isExpanded]);
 
   const handleToggle = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
-    // Just pass the path, not the current state to avoid stale closures
-    handleTreeItemActions.handleToggle(e, toggleExpanded, path);
-  }, [toggleExpanded, path]);
+    // Pass the current expanded state explicitly for deterministic behavior (and to satisfy tests)
+    handleTreeItemActions.handleToggle(e, toggleExpanded, path, isExpanded);
+  }, [toggleExpanded, path, isExpanded]);
 
   const handleNameClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     handleTreeItemActions.handleFileNameClick(e, type, state.isDisabled, onViewFile, path);
   };
 
   const checkboxChecked = type === "file" ? state.isSelected : state.isDirectorySelected;
+  // Ensure checked takes precedence over indeterminate to avoid visual ambiguity
+  const checkboxIndeterminate = type === "directory" ? (state.isDirectoryPartiallySelected && !checkboxChecked) : false;
   const shouldShowToggle = type === "directory";
   const shouldShowViewButton = type === "file" && !state.isDisabled && onViewFile;
 
@@ -548,7 +562,7 @@ const TreeItem = memo(({
       
       <TreeItemCheckbox
         checked={checkboxChecked}
-        indeterminate={state.isDirectoryPartiallySelected}
+        indeterminate={checkboxIndeterminate}
         disabled={state.isDisabled}
         onChange={handleCheckboxChange}
       />

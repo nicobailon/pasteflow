@@ -23,20 +23,19 @@ PasteFlow is an Electron-based developer tool designed to streamline AI coding w
 ```
 src/
 ├── components/          # React UI components (kebab-case naming)
-├── hooks/              # Custom React hooks for state management
-├── types/              # TypeScript type definitions
-├── utils/              # Utility functions and helpers
-├── handlers/           # Electron IPC and event handlers
-├── context/            # React context providers
-├── constants/          # Application constants and configurations
-├── security/           # Security validation utilities
-├── state/              # Legacy state management (being phased out)
-├── main/               # Electron main process
-│   ├── db/            # SQLite database layer
-│   ├── handlers/      # IPC handlers
-│   ├── migration/     # Data migration system
-│   └── utils/         # Main process utilities
-└── __tests__/          # Test files co-located with source
+├── hooks/               # Custom React hooks for state management
+├── types/               # TypeScript type definitions
+├── file-ops/            # Path/filters/ascii-tree utilities (renderer-safe)
+├── utils/               # Utility functions and helpers
+├── handlers/            # Electron IPC and event handlers
+├── context/             # React context providers
+├── constants/           # Application constants and configurations
+├── security/            # Security validation utilities
+├── main/                # Electron main process
+│   ├── db/              # SQLite database layer
+│   ├── ipc/             # IPC schemas/routes
+│   └── utils/           # Main process utilities
+└── __tests__/           # Test files co-located with source
 ```
 
 ### Core Architecture Patterns
@@ -51,9 +50,9 @@ The application uses a custom hook architecture instead of traditional state man
 - `usePreviewPack()` - Progressive preview pack workflow management
 
 #### 2. Electron Main/Renderer Split
-- **Main Process** (`main.js`) - File system operations, security validation, IPC handlers
+- **Main Process** (`src/main/main.ts`) - File system operations, security validation, IPC handlers
 - **Renderer Process** (`src/`) - React UI with strict security boundaries
-- **Preload Script** (`preload.js`) - Secure IPC bridge
+- **Preload Script** (`src/main/preload.ts`) - Secure IPC bridge
 
 #### 3. File Processing Pipeline
 ```
@@ -106,8 +105,8 @@ npx tsc --noEmit       # Run TypeScript compiler to check for type errors
 
 ### Build Process
 1. **Vite Build** - Compiles React/TypeScript to `dist/`
-2. **Path Fixing** - `build.js` adjusts paths for Electron's `file://` protocol
-3. **Electron Builder** - Packages for multiple platforms with code signing
+2. **Main/Preload Compile** - Compiles Electron main/preload TypeScript to CommonJS (`build/main`)
+3. **Electron Builder** - Packages for multiple platforms; packaging hooks are compiled TS in `build/scripts`
 
 ## Development Guidelines
 
@@ -287,7 +286,7 @@ const saveWorkspace = (name: string) => {
 ### Token Counting Integration
 ```typescript
 // Token counting is central to the application
-const tokenCount = countTokens(content);  // Using tiktoken
+const tokens = await tokenService.countTokens(content); // Facade (renderer/main)
 const estimate = estimateTokenCount(text); // Fallback estimation
 ```
 
@@ -343,7 +342,7 @@ When referencing code locations, always use VS Code-compatible format:
 ### Core Architecture
 - `src/hooks/use-app-state.ts` - Central application state and logic
 - `src/types/file-types.ts` - Core TypeScript definitions
-- `main.js` - Electron main process and file system operations
+- `src/main/main.ts` - Electron main process and file system operations
 
 ### State Management
 - `src/hooks/use-file-selection-state.ts` - File selection with line ranges
@@ -357,8 +356,9 @@ When referencing code locations, always use VS Code-compatible format:
 - `src/components/file-card.tsx` - Individual file representation
 
 ### Utilities
-- `src/utils/token-utils.ts` - Token counting and estimation
-- `src/utils/file-processing.ts` - File system operations
+- `src/utils/token-utils.ts` - Token estimation helpers
+- `src/file-ops/path.ts` - Path utilities (cross‑env)
+- `src/file-ops/filters.ts` - GitIgnore/binary detection
 - `src/security/path-validator.ts` - Security validation
 
 ### Background Processing
@@ -366,10 +366,9 @@ When referencing code locations, always use VS Code-compatible format:
 - `src/hooks/use-preview-generator.ts` - Worker integration hook
 
 ### Database Layer
-- `src/main/db/database.ts` - SQLite database connection and queries
+- `src/main/db/database-bridge.ts` - Initialization, fallback, typed IPC envelopes
 - `src/main/db/async-database.ts` - Worker thread database wrapper
-- `src/main/handlers/state-handlers.ts` - IPC handlers for state management
-- `src/main/migration/migration-orchestrator.ts` - localStorage to SQLite migration
+- `src/main/ipc/index.ts` - IPC channels and schemas
 
 Understanding these files will provide a solid foundation for working with the PasteFlow codebase.
 
