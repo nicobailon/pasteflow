@@ -390,10 +390,12 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
   }
   
   // Check if folderSelectionCache changed for directories
-  if (prevProps.node.type === 'directory' && prevProps.folderSelectionCache && nextProps.folderSelectionCache) {
-    const prevCacheState = prevProps.folderSelectionCache.get(prevProps.node.path);
-    const nextCacheState = nextProps.folderSelectionCache.get(nextProps.node.path);
-    if (prevCacheState !== nextCacheState) return false;
+  // CRITICAL: Do NOT call .get(...) here — it reads current global state for both prev/next and can mask changes.
+  // Rely solely on wrapper identity to detect updates (wrapper identity is recreated when optimistic/progressive versions change).
+  if (prevProps.node.type === 'directory') {
+    if (prevProps.folderSelectionCache !== nextProps.folderSelectionCache) {
+      return false;
+    }
   }
   
   return true;
@@ -512,6 +514,8 @@ const TreeItem = memo(({
   };
 
   const checkboxChecked = type === "file" ? state.isSelected : state.isDirectorySelected;
+  // Ensure checked takes precedence over indeterminate to avoid visual ambiguity
+  const checkboxIndeterminate = type === "directory" ? (state.isDirectoryPartiallySelected && !checkboxChecked) : false;
   const shouldShowToggle = type === "directory";
   const shouldShowViewButton = type === "file" && !state.isDisabled && onViewFile;
 
@@ -558,7 +562,7 @@ const TreeItem = memo(({
       
       <TreeItemCheckbox
         checked={checkboxChecked}
-        indeterminate={state.isDirectoryPartiallySelected}
+        indeterminate={checkboxIndeterminate}
         disabled={state.isDisabled}
         onChange={handleCheckboxChange}
       />

@@ -75,12 +75,21 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     const cache = baseFolderSelectionCacheRef.current || baseFolderSelectionCache;
     return {
       get(path: string): 'full' | 'partial' | 'none' {
-        // Check optimistic updates first
-        const optimisticState = optimisticFolderStatesRef.current.get(path);
-        if (optimisticState !== undefined) {
-          return optimisticState;
+        // Normalize variant for robust optimistic lookups (absolute/relative mirror)
+        // Special-case root: do not check empty-string key
+        const altPath = path === '/'
+          ? null
+          : (path.startsWith('/') ? path.slice(1) : ('/' + path));
+
+        // Check optimistic updates first (both variants)
+        const optDirect = optimisticFolderStatesRef.current.get(path);
+        if (optDirect !== undefined) return optDirect;
+        if (altPath) {
+          const optAlt = optimisticFolderStatesRef.current.get(altPath);
+          if (optAlt !== undefined) return optAlt;
         }
-        // Fall back to base cache
+
+        // Fall back to base cache (which already mirrors variants internally)
         return cache.get(path);
       },
       set: cache.set.bind(cache),
@@ -349,6 +358,12 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (opts?.optimistic !== false) {
       const newState = isSelected ? 'full' : 'none';
 
+      // Compute canonical alt path variant to avoid leading-slash mismatch issues
+      // Special-case root: do not create an empty-string key
+      const altPath = folderPath === '/'
+        ? null
+        : (folderPath.startsWith('/') ? folderPath.slice(1) : ('/' + folderPath));
+
       // Clear any existing timeout for this path
       const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
       if (existingTimeout) {
@@ -358,10 +373,13 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       // Mark operation as pending
       pendingOperationsRef.current.add(folderPath);
 
-      // Set optimistic state using the folder path
+      // Set optimistic state using the folder path and (when present) its mirrored variant
       optimisticFolderStatesRef.current.set(folderPath, newState);
+      if (altPath) {
+        optimisticFolderStatesRef.current.set(altPath, newState);
+      }
       
-      // Immediately update the cache as well for instant feedback
+      // Immediately update the base cache as well for instant feedback (base cache already mirrors variants)
       const cache = baseFolderSelectionCacheRef.current;
       if (cache && cache.set) {
         cache.set(folderPath, newState);
@@ -380,6 +398,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         // Only clean up if no pending operations for this path
         if (!pendingOperationsRef.current.has(folderPath)) {
           optimisticFolderStatesRef.current.delete(folderPath);
+          if (altPath) {
+            optimisticFolderStatesRef.current.delete(altPath);
+          }
           setOptimisticStateVersion(v => v + 1); // Trigger re-render
           optimisticTimeoutsRef.current.delete(folderPath);
         }

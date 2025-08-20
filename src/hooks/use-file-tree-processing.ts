@@ -154,8 +154,6 @@ export function useFileTreeProcessing({
       };
       const initialBuilt = buildTreeNodesFromMap(initialMap as Record<string, any>, 0, deps, Number.POSITIVE_INFINITY);
       const initialNodes = sortTreeNodesRecursively(initialBuilt, fileTreeSortOrder || 'default');
-      // Record that we've committed an initial synchronous tree to avoid chunk flicker
-      initialNodesRef.current = initialNodes;
       commitTree(initialNodes);
     } catch {
       // best-effort initial tree; continue with worker streaming
@@ -174,11 +172,6 @@ export function useFileTreeProcessing({
         },
         {
           onChunk: (chunk: { nodes: TreeNode[]; progress: number }) => {
-            // If we've already committed a synchronous initial tree, skip chunk commits to prevent transient shrinking/flicker
-            if (initialNodesRef.current && initialNodesRef.current.length > 0) {
-              setProgress(chunk.progress);
-              return;
-            }
             // Apply sorting to nodes before committing
             const sortedNodes = sortTreeNodesRecursively(chunk.nodes, fileTreeSortOrder || 'default');
             commitTree(sortedNodes);
