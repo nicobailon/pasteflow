@@ -24,6 +24,8 @@ module.exports = {
     '^.*/workers/token-counter-worker\\.ts$': '<rootDir>/src/__tests__/__mocks__/token-counter-worker.ts',
     // Mock TokenWorkerPool to avoid import.meta.url issues
     '^.*/utils/token-worker-pool$': '<rootDir>/src/__tests__/__mocks__/token-worker-pool.ts',
+    // Mock TreeBuilderWorkerPool to avoid import.meta.url issues during tests
+    '^.*/utils/tree-builder-worker-pool$': '<rootDir>/src/__tests__/__mocks__/tree-builder-worker-pool.ts',
   },
   globals: {
     URL: URL,

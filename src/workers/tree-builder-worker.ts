@@ -262,6 +262,7 @@ function buildTree(
   }
   
   // Send final tree (unsorted - sorting is handled centrally)
+  // Build the full tree regardless of expansion; visibility is handled by flattenTree using expandedNodes.
   const finalNodes = convertToTreeNodes(fileMap, 0, false, Number.POSITIVE_INFINITY, true, false);
 
   self.postMessage({
