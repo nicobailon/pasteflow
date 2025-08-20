@@ -9,18 +9,30 @@ export interface HandshakeConfig {
   healthResponseType?: string;
 }
 
+/**
+ * Resolves the worker URL based on the current environment.
+ * - Jest: Returns mock path for testing
+ * - Development: Returns Vite dev server path (/src/workers/*)
+ * - Electron Production: Returns bundled asset path (./assets/*.js)
+ * 
+ * @param workerRelativePath - Relative path to the worker file
+ * @returns Resolved URL for Worker constructor
+ */
 export function resolveWorkerUrl(workerRelativePath: string): string {
-  // Try import.meta.url first
+  // Try import.meta.url first for module resolution
   try {
     const metaUrl = eval('import.meta.url');
     const url = new URL(workerRelativePath, metaUrl).toString();
+    debugLog(`Resolved worker URL via import.meta: ${url}`);
     return url;
   } catch {
-    // Fallback to existing logic
+    // Fallback to environment-specific resolution
     
     // Jest environment - return mock path
     if (typeof jest !== 'undefined') {
-      return '/mock/worker/path';
+      const mockPath = '/mock/worker/path';
+      debugLog(`Jest environment detected, using mock: ${mockPath}`);
+      return mockPath;
     }
 
     // Extract basename for use in paths
@@ -31,12 +43,16 @@ export function resolveWorkerUrl(workerRelativePath: string): string {
       const hostname = window.location?.hostname;
       if (hostname === 'localhost' || hostname === '127.0.0.1') {
         // Development path - Vite serves from /src
-        return `/src/workers/${basename}`;
+        const devPath = `/src/workers/${basename}`;
+        debugLog(`Development environment detected, using: ${devPath}`);
+        return devPath;
       }
     }
     
     // Electron production path - workers are bundled to assets
-    return `./assets/${basename.replace('.ts', '.js')}`;
+    const prodPath = `./assets/${basename.replace('.ts', '.js')}`;
+    debugLog(`Production environment, using bundled: ${prodPath}`);
+    return prodPath;
   }
 }
 

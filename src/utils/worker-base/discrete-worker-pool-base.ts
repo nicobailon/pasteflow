@@ -54,8 +54,6 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   
   private isTerminated = false;
   private acceptingJobs = true;
-  private preparingForShutdown = false;
-  private isRecycling = false;
   private initPromise: Promise<void> | null = null;
 
   constructor(
