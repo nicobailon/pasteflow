@@ -151,18 +151,25 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
   // Hint selection overlay to prioritize currently visible directories
   useEffect(() => {
     if (!folderSelectionCache?.startProgressiveRecompute) return;
-    // Gather directory paths in the visible window (prioritize directories)
-    const priorityPaths = visibleTree
-      .filter(n => n.type === 'directory')
-      .map(n => n.path);
-    // Build selected path set for accurate recomputation
-    const selectedPathSet = new Set<string>(selectedFiles.map(f => f.path));
-    // Kick progressive recompute with visibility-first priority
-    folderSelectionCache.startProgressiveRecompute({
-      selectedPaths: selectedPathSet,
-      priorityPaths,
-    });
-  }, [visibleTree, selectedFiles, folderSelectionCache]);
+    
+    // Use a timeout to debounce rapid updates
+    const timeoutId = setTimeout(() => {
+      // Gather directory paths in the visible window (prioritize directories)
+      const priorityPaths = visibleTree
+        .filter(n => n.type === 'directory')
+        .map(n => n.path);
+      // Build selected path set for accurate recomputation
+      const selectedPathSet = new Set<string>(selectedFiles.map(f => f.path));
+      // Kick progressive recompute with visibility-first priority
+      folderSelectionCache.startProgressiveRecompute?.({
+        selectedPaths: selectedPathSet,
+        priorityPaths,
+      });
+    }, 100);
+    
+    return () => clearTimeout(timeoutId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleTree, selectedFiles]);
   
   return (
     <List

@@ -48,15 +48,31 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   // Chunking configuration
   const BULK = useMemo(() => ({ ADD_CHUNK: 1500, REMOVE_CHUNK: 2000, COALESCE_MS: 150 }), []);
 
-  // Build folder selection cache for instant UI updates (memoized by structure only)
+  // Store the cache in a ref to avoid recreating it unnecessarily
+  const baseFolderSelectionCacheRef = useRef<ReturnType<typeof createDirectorySelectionCache> | null>(null);
+  
+  // Build folder selection cache for instant UI updates (recreate only when allFiles changes)
   const baseFolderSelectionCache = useMemo(() => {
-    return createDirectorySelectionCache(allFiles, selectedFiles, {
-      onBatchApplied: () => setFolderOverlayVersion(v => v + 1),
+    // Use a stable callback ref to avoid recreating the cache
+    const onBatchApplied = () => {
+      // Use RAF to batch the state update with the next render cycle
+      requestAnimationFrame(() => {
+        setFolderOverlayVersion(v => v + 1);
+      });
+    };
+    
+    const cache = createDirectorySelectionCache(allFiles, selectedFiles, {
+      onBatchApplied,
     });
+    
+    baseFolderSelectionCacheRef.current = cache;
+    return cache;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allFiles]);
   
   // Create a wrapper cache that includes optimistic updates and progressive signals
   const folderSelectionCache = useMemo(() => {
+    const cache = baseFolderSelectionCacheRef.current || baseFolderSelectionCache;
     return {
       get(path: string): 'full' | 'partial' | 'none' {
         // Check optimistic updates first
@@ -65,27 +81,35 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           return optimisticState;
         }
         // Fall back to base cache
-        return baseFolderSelectionCache.get(path);
+        return cache.get(path);
       },
-      set: baseFolderSelectionCache.set,
-      bulkUpdate: baseFolderSelectionCache.bulkUpdate,
-      clear: baseFolderSelectionCache.clear,
+      set: cache.set.bind(cache),
+      bulkUpdate: cache.bulkUpdate.bind(cache),
+      clear: cache.clear.bind(cache),
       // Progressive API passthroughs (optional)
-      isComputing: baseFolderSelectionCache.isComputing?.bind(baseFolderSelectionCache),
-      getProgress: baseFolderSelectionCache.getProgress?.bind(baseFolderSelectionCache),
-      startProgressiveRecompute: baseFolderSelectionCache.startProgressiveRecompute?.bind(baseFolderSelectionCache),
-      cancel: baseFolderSelectionCache.cancel?.bind(baseFolderSelectionCache),
-      setSelectedPaths: baseFolderSelectionCache.setSelectedPaths?.bind(baseFolderSelectionCache),
+      isComputing: cache.isComputing?.bind(cache),
+      getProgress: cache.getProgress?.bind(cache),
+      startProgressiveRecompute: cache.startProgressiveRecompute?.bind(cache),
+      cancel: cache.cancel?.bind(cache),
+      setSelectedPaths: cache.setSelectedPaths?.bind(cache),
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseFolderSelectionCache, optimisticStateVersion, folderOverlayVersion]);
 
   // Keep progressive overlay recomputation in sync with selection changes
   useEffect(() => {
-    const paths = new Set<string>(selectedFiles.map(f => f.path));
-    baseFolderSelectionCache.setSelectedPaths?.(paths);
-    baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
-  }, [selectedFiles, baseFolderSelectionCache]);
+    // Debounce to avoid rapid re-computations
+    const timeoutId = setTimeout(() => {
+      const cache = baseFolderSelectionCacheRef.current;
+      if (!cache) return;
+      
+      const paths = new Set<string>(selectedFiles.map(f => f.path));
+      cache.setSelectedPaths?.(paths);
+      cache.startProgressiveRecompute?.({ selectedPaths: paths });
+    }, 50);
+    
+    return () => clearTimeout(timeoutId);
+  }, [selectedFiles]);
 
   // Immediate cleanup on mount if workspace is provided
   useEffect(() => {
@@ -344,9 +368,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
     // Helper: kick progressive overlay recompute
     const kickOverlay = () => {
+      const cache = baseFolderSelectionCacheRef.current;
+      if (!cache) return;
       const paths = new Set<string>(selectedFiles.map(f => f.path));
-      baseFolderSelectionCache.setSelectedPaths?.(paths);
-      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      cache.setSelectedPaths?.(paths);
+      cache.startProgressiveRecompute?.({ selectedPaths: paths });
     };
 
     if (isSelected) {
@@ -450,7 +476,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
       buildNext();
     }
-  }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex, baseFolderSelectionCache, perf, BULK]);
+  }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex, perf, BULK]);
 
   // Handle select all files (chunked to maintain responsiveness)
   const selectAllFiles = useCallback((displayedFiles: FileData[]) => {
@@ -467,18 +493,23 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
     // If nothing to add, still tick overlay to ensure immediate reflection
     if (total === 0) {
-      const paths = new Set<string>(selectedFiles.map(f => f.path));
-      baseFolderSelectionCache.setSelectedPaths?.(paths);
-      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      const cache = baseFolderSelectionCacheRef.current;
+      if (cache) {
+        const paths = new Set<string>(selectedFiles.map(f => f.path));
+        cache.setSelectedPaths?.(paths);
+        cache.startProgressiveRecompute?.({ selectedPaths: paths });
+      }
       endMeasure();
       return;
     }
 
     // Helper: keep overlay progressing as chunks apply
     const kickOverlay = () => {
+      const cache = baseFolderSelectionCacheRef.current;
+      if (!cache) return;
       const paths = new Set<string>([...selectedFiles.map(f => f.path), ...additions]);
-      baseFolderSelectionCache.setSelectedPaths?.(paths);
-      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      cache.setSelectedPaths?.(paths);
+      cache.startProgressiveRecompute?.({ selectedPaths: paths });
     };
 
     const endMeasureChunks = perf.startMeasure('selection.apply.selectAll.chunks.total.ms');
@@ -526,7 +557,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     };
 
     runChunk();
-  }, [setSelectedFiles, selectedFiles, baseFolderSelectionCache, perf, BULK]);
+  }, [setSelectedFiles, selectedFiles, perf, BULK]);
 
   // Handle deselect all files (chunked build + single commit)
   const deselectAllFiles = useCallback((displayedFiles: FileData[]) => {
@@ -543,9 +574,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
     // Helper: keep overlay progressing as we compute
     const kickOverlay = () => {
+      const cache = baseFolderSelectionCacheRef.current;
+      if (!cache) return;
       const paths = new Set<string>(kept.map(f => f.path));
-      baseFolderSelectionCache.setSelectedPaths?.(paths);
-      baseFolderSelectionCache.startProgressiveRecompute?.({ selectedPaths: paths });
+      cache.setSelectedPaths?.(paths);
+      cache.startProgressiveRecompute?.({ selectedPaths: paths });
     };
 
     const endMeasureChunks = perf.startMeasure('selection.apply.deselectAll.chunks.total.ms');
@@ -575,7 +608,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     };
 
     buildNext();
-  }, [setSelectedFiles, selectedFiles, baseFolderSelectionCache, perf, BULK]);
+  }, [setSelectedFiles, selectedFiles, perf, BULK]);
 
   // Clear all selected files
   const clearSelectedFiles = useCallback(() => {
