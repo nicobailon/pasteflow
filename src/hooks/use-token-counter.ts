@@ -128,8 +128,8 @@ function scheduleIdleCleanup() {
 // Helper function to cleanup global pool
 function cleanupGlobalPool(forceResetRefCount = true) {
   if (globalWorkerPool) {
-    if (typeof globalWorkerPool.terminate === 'function') {
-      globalWorkerPool.terminate();
+    if (typeof globalWorkerPool.cleanup === 'function') {
+      globalWorkerPool.cleanup();
     }
     globalWorkerPool = null;
   }
@@ -211,11 +211,11 @@ function verifyPoolHealth(): boolean {
       globalWorkerPool = null;
       
       try {
-        if (oldPool && typeof oldPool.terminate === 'function') {
-          oldPool.terminate();
+        if (oldPool && typeof oldPool.cleanup === 'function') {
+          oldPool.cleanup();
         }
       } catch (error) {
-        console.error('[useTokenCounter] Error terminating bad pool:', error);
+        console.error('[useTokenCounter] Error cleaning up bad pool:', error);
       }
       
       return false;
@@ -404,9 +404,9 @@ export function useTokenCounter() {
         // monitorWorkerMemory method removed after worker-base refactor
         workerPoolRef.current = globalWorkerPool;
         
-        // Terminate old pool
-        if (oldPool && typeof oldPool.terminate === 'function') {
-          oldPool.terminate();
+        // Cleanup old pool
+        if (oldPool && typeof oldPool.cleanup === 'function') {
+          oldPool.cleanup();
         }
         
         fallbackCountRef.current = 0;

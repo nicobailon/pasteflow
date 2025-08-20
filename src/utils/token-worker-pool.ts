@@ -13,7 +13,8 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
   private performanceStats = {
     totalProcessed: 0,
     totalTime: 0,
-    failureCount: 0
+    failureCount: 0,
+    fallbackCount: 0
   };
 
   constructor(poolSize?: number) {
@@ -60,10 +61,14 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
     if (event.data.type === 'TOKEN_COUNT') {
       const usedFallback = !!event.data.fallback;
       const value = usedFallback ? this.fallbackValue(req) : Number(event.data.result ?? 0);
+      if (usedFallback) {
+        this.performanceStats.fallbackCount++;
+      }
       return { value, usedFallback };
     }
 
     if (event.data.type === 'ERROR') {
+      this.performanceStats.fallbackCount++;
       return { value: this.fallbackValue(req), usedFallback: true };
     }
 
@@ -157,7 +162,11 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
         : 0,
       queueLength: s.queueLength,
       activeJobs: s.activeJobs,
-      poolSize: s.workerCount
+      poolSize: s.workerCount,
+      fallbackCount: this.performanceStats.fallbackCount,
+      fallbackRate: this.performanceStats.totalProcessed > 0
+        ? this.performanceStats.fallbackCount / this.performanceStats.totalProcessed
+        : 0
     };
   }
 

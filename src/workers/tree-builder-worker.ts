@@ -1,5 +1,6 @@
 import type { FileData, TreeNode } from '../types/file-types';
 import { UI } from '@constants';
+import { normalizePath } from '@file-ops/path';
 
 interface TreeBuilderMessage {
   type?: 'INIT' | 'BUILD_TREE' | 'CANCEL';
@@ -22,11 +23,6 @@ interface TreeNodeMap {
   };
 }
 
-// Normalize path for consistent comparison
-function normalizePath(path: string): string {
-  // Normalize slashes and remove a single trailing slash for boundary-safe comparisons
-  return path.replace(/\\/g, '/').replace(/\/$/, '');
-}
 
 // Convert hierarchical map to TreeNode array
 // maxDepth limits how deep to include children (use Infinity for full depth)
@@ -142,7 +138,7 @@ function processFileIntoMap(
           path: dirPath,
           children: {},
           isDirectory: true,
-          isExpanded: expandedNodes[dirPath] ?? (j < 2)
+          isExpanded: expandedNodes[dirPath] ?? (j < UI.TREE.DEFAULT_EXPANSION_LEVEL)
         };
       }
       

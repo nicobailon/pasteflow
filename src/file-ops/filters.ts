@@ -2,6 +2,7 @@
  * File filtering utilities (no fs operations)
  */
 import { loadGitignore } from '../utils/ignore-utils';
+import { FILE_PROCESSING } from '@constants';
 
 import { getRelativePath, extname } from './path';
 
@@ -19,8 +20,8 @@ export const BINARY_EXTENSIONS: Readonly<Set<string>> = new Set([
   '.node', '.wasm'
 ]);
 
-// Maximum file size in bytes (5MB)
-export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+// Re-export from app constants for backwards compatibility
+export const MAX_FILE_SIZE_BYTES = FILE_PROCESSING.MAX_FILE_SIZE_BYTES;
 
 /**
  * Check if a file extension indicates a binary file

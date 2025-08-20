@@ -132,7 +132,7 @@ export function getRelativePath(filePath: string | null | undefined, baseDir: st
       // Convert to forward slashes for consistency
       return relativePath.replace(/\\/g, '/');
     } catch (error) {
-      console.error("Error calculating relative path:", error);
+      console.debug("Error calculating relative path:", error);
       // Fall back to browser implementation if there's an error
     }
   }
@@ -216,7 +216,7 @@ function calculateRelativePath(normalizedPath: string, normalizedRoot: string): 
       // Convert to forward slashes for consistency
       return relativePath.replace(/\\/g, '/');
     } catch (error) {
-      console.error("Error calculating relative path:", error);
+      console.debug("Error calculating relative path:", error);
       // Fallback to string manipulation if Node's path.relative fails
       if (normalizedPath.startsWith(normalizedRoot + '/')) {
         return normalizedPath.slice(Math.max(0, normalizedRoot.length + 1));

@@ -273,13 +273,20 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
                 <span>Building file tree...</span>
                 {treeProgress !== undefined && treeProgress < 100 && (
                   <div className="tree-progress">
-                    <div className="progress-bar-container">
+                    <div 
+                      className="progress-bar-container"
+                      role="progressbar"
+                      aria-valuenow={Math.round(treeProgress)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label="File tree building progress"
+                    >
                       <div 
                         className="progress-bar" 
                         style={{ width: `${treeProgress}%` }}
                       />
                     </div>
-                    <span className="progress-text">{Math.round(treeProgress)}%</span>
+                    <span className="progress-text" aria-hidden="true">{Math.round(treeProgress)}%</span>
                   </div>
                 )}
               </div>
