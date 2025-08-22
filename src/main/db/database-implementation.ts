@@ -1,7 +1,4 @@
 import Database from 'better-sqlite3';
-import * as path from 'path';
-import * as fs from 'fs';
-import { app } from 'electron';
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
 
 // Define SQLite error type with proper constraints
@@ -359,7 +356,7 @@ export class PasteFlowDatabase {
     this.ensureInitialized();
     return await retryTransaction(async () => {
       const stateJson = JSON.stringify(state);
-      const info = this.statements.createWorkspace.run(name, folderPath, stateJson);
+      this.statements.createWorkspace.run(name, folderPath, stateJson);
       const workspace = this.statements.getWorkspace.get(name, name) as WorkspaceRow;
       return {
         ...workspace,
@@ -372,14 +369,13 @@ export class PasteFlowDatabase {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
       const id = String(nameOrId);
-      const workspace = this.statements.getWorkspace.get(id, id) as WorkspaceRow | undefined;
-      if (workspace && workspace.state) {
-        return {
-          ...workspace,
-          state: JSON.parse(workspace.state)
-        };
-      }
-      return workspace || null;
+      const row = this.statements.getWorkspace.get(id, id) as WorkspaceRow | undefined;
+      if (!row) return null;
+      const parsedState = row.state ? JSON.parse(row.state) : {};
+      return {
+        ...row,
+        state: parsedState
+      };
     }, {
       operation: 'get_workspace'
     });

@@ -1,7 +1,6 @@
 import * as path from 'path';
 import { app } from 'electron';
 import { PasteFlowDatabase, WorkspaceState, PreferenceValue } from './database-implementation';
-import { retryConnection, executeWithRetry, retryUtility } from './retry-utils';
 
 // Define precise error types for SQLite
 interface SQLiteError extends Error {
@@ -12,16 +11,12 @@ interface SQLiteError extends Error {
 
 /**
  * Async wrapper bridge for PasteFlowDatabase with initialization management.
- * Provides promise-based interface and handles database initialization with retry logic.
- * Includes fallback to in-memory database if persistent storage fails.
+ * Provides a promise-based interface and database initialization with retry logic.
+ * Fail-fast policy: no in-memory fallback is used if persistent storage initialization fails.
  */
 export class DatabaseBridge {
   private db: PasteFlowDatabase | null = null;
   public initialized = false;
-  private fallbackMode = false;
-  private inMemoryDb: PasteFlowDatabase | null = null;
-  private connectionAttempts = 0;
-  private readonly maxConnectionAttempts = 5;
 
   /**
    * Creates a new DatabaseBridge instance.
@@ -36,12 +31,12 @@ export class DatabaseBridge {
   }
 
   /**
-   * Initializes the database connection with retry logic and fallback support.
-   * Attempts to create persistent database, falls back to in-memory on failure.
-   * 
+   * Initializes the database connection with retry logic (fail-fast).
+   * Attempts to create persistent database and fails if it cannot be initialized.
+   *
    * @param maxRetries - Maximum number of initialization attempts
    * @param retryDelay - Delay between retry attempts in milliseconds
-   * @throws {Error} If all initialization attempts fail including in-memory fallback
+   * @throws {Error} If all initialization attempts fail
    * @example
    * await bridge.initialize(5, 2000); // 5 retries with 2s delay
    */

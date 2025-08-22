@@ -155,70 +155,76 @@ if (typeof (global as any).TextDecoder === 'undefined') {
   };
 }
 
-// Mock the window.electron object
-Object.defineProperty(window as any, 'electron', {
-  value: {
-    ipcRenderer: {
-      send: jest.fn(),
-      on: jest.fn(),
-      removeListener: jest.fn(),
-      invoke: jest.fn().mockImplementation((channel: string, _data?: any) => {
-        // Workspace operations
-        if (channel === '/workspace/list') return Promise.resolve([]);
-        if (channel === '/workspace/load') return Promise.resolve(null);
-        if (channel === '/workspace/create') return Promise.resolve();
-        if (channel === '/workspace/update') return Promise.resolve();
-        if (channel === '/workspace/delete') return Promise.resolve();
-        if (channel === '/workspace/touch') return Promise.resolve();
-        if (channel === '/workspace/rename') return Promise.resolve();
+// Mock the window.electron object (guard for Node test environment)
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window as any, 'electron', {
+    value: {
+      ipcRenderer: {
+        send: jest.fn(),
+        on: jest.fn(),
+        removeListener: jest.fn(),
+        invoke: jest.fn().mockImplementation((channel: string, _data?: any) => {
+          // Workspace operations
+          if (channel === '/workspace/list') return Promise.resolve([]);
+          if (channel === '/workspace/load') return Promise.resolve(null);
+          if (channel === '/workspace/create') return Promise.resolve();
+          if (channel === '/workspace/update') return Promise.resolve();
+          if (channel === '/workspace/delete') return Promise.resolve();
+          if (channel === '/workspace/touch') return Promise.resolve();
+          if (channel === '/workspace/rename') return Promise.resolve();
 
-        // Instructions operations
-        if (channel === '/instructions/list') return Promise.resolve([]);
-        if (channel === '/instructions/create') return Promise.resolve();
-        if (channel === '/instructions/update') return Promise.resolve();
-        if (channel === '/instructions/delete') return Promise.resolve();
+          // Instructions operations
+          if (channel === '/instructions/list') return Promise.resolve([]);
+          if (channel === '/instructions/create') return Promise.resolve();
+          if (channel === '/instructions/update') return Promise.resolve();
+          if (channel === '/instructions/delete') return Promise.resolve();
 
-        // File operations
-        if (channel === 'request-file-content') {
-          return Promise.resolve({
-            success: false,
-            error: 'Mock: File content not available in test environment',
-          });
-        }
+          // File operations
+          if (channel === 'request-file-content') {
+            return Promise.resolve({
+              success: false,
+              error: 'Mock: File content not available in test environment',
+            });
+          }
 
-        // Default response for unknown channels
-        // eslint-disable-next-line no-console
-        console.warn(`Mock: Unhandled IPC channel: ${channel}`);
-        return Promise.resolve(null);
-      }),
+          // Default response for unknown channels
+          // eslint-disable-next-line no-console
+          console.warn(`Mock: Unhandled IPC channel: ${channel}`);
+          return Promise.resolve(null);
+        }),
+      },
     },
-  },
-  writable: true,
-  configurable: true,
-});
+    writable: true,
+    configurable: true,
+  });
+}
 
-// Mock document.getElementById for React 18 createRoot
-(document.getElementById as any) = jest.fn().mockImplementation(() => {
-  const div = document.createElement('div');
-  (div as any).id = 'root';
-  document.body.append(div);
-  return div;
-});
+// Mock document.getElementById for React 18 createRoot (guard for Node)
+if (typeof document !== 'undefined') {
+  (document.getElementById as any) = jest.fn().mockImplementation(() => {
+    const div = document.createElement('div');
+    (div as any).id = 'root';
+    document.body.append(div);
+    return div;
+  });
+}
 
-// Mock window.matchMedia for theme support
-Object.defineProperty(window as any, 'matchMedia', {
-  writable: true,
-  value: jest.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: jest.fn(), // deprecated
-    removeListener: jest.fn(), // deprecated
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    dispatchEvent: jest.fn(),
-  })),
-});
+// Mock window.matchMedia for theme support (guard for Node)
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window as any, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(), // deprecated
+      removeListener: jest.fn(), // deprecated
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  });
+}
 
 // Mock localStorage
 const localStorageMock = {

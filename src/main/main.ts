@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { loadGitignore } from '../utils/ignore-utils';
 
@@ -9,6 +10,7 @@ import { getPathValidator } from '../security/path-validator';
 import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
 import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
+import { PasteFlowAPIServer } from './api-server';
 import { getMainTokenService } from '../services/token-service-main';
 
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
@@ -26,6 +28,8 @@ let currentWorkspacePaths: string[] = [];
 
 // Database instance (initialized in whenReady)
 let database: DatabaseBridge | null = null;
+// HTTP API server instance
+let apiServer: PasteFlowAPIServer | null = null;
 
 // Initialize token service
 const tokenService = getMainTokenService();
@@ -224,7 +228,7 @@ function createWindow(): void {
 
 /** Lifecycle */
 app.whenReady().then(async () => {
-  // Initialize database bridge (safe fallback to in-memory)
+  // Initialize database bridge (fail-fast on error)
   try {
     database = new DatabaseBridge();
     await database.initialize();
@@ -233,8 +237,36 @@ app.whenReady().then(async () => {
   } catch (error: unknown) {
     // eslint-disable-next-line no-console
     console.error('Failed to initialize database:', error);
-    database = null;
+    app.exit(1);
+    return;
   }
+
+  // Start local HTTP API server
+  try {
+    apiServer = new PasteFlowAPIServer(database!, 5839);
+    // Await actual bind to ensure we write the real bound port
+    await apiServer.startAsync();
+
+    // Write server port for CLI discovery
+    const boundPort = apiServer.getPort();
+    const configDir = path.join(os.homedir(), '.pasteflow');
+    try { fs.mkdirSync(configDir, { recursive: true, mode: 0o700 }); } catch {}
+    const portFile = path.join(configDir, 'server.port');
+    // Write with 0644 per plan so CLI tools can read it
+    try {
+      fs.writeFileSync(portFile, String(boundPort) + '\n', { mode: 0o644 });
+      // Ensure correct permissions even if file already existed
+      try { fs.chmodSync(portFile, 0o644); } catch {}
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('Failed to write server.port:', e);
+    }
+  } catch (error: unknown) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to start API server:', error);
+    // Proceed to launch UI; CLI integration will be unavailable
+  }
+
   createWindow();
 });
 
@@ -271,6 +303,20 @@ app.on('before-quit', async (event) => {
     await tokenService.cleanup();
   } catch (error) {
     console.warn('Error cleaning up token service:', error);
+  }
+
+  // Close API server
+  if (apiServer) {
+    try {
+      apiServer.close();
+      // eslint-disable-next-line no-console
+      console.log('API server closed');
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Error closing API server:', error);
+    } finally {
+      apiServer = null;
+    }
   }
   
   // Best-effort close database
@@ -667,16 +713,8 @@ ipcMain.handle('/workspace/update', async (_e, params: unknown) => {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = database as unknown as any;
-      if (typeof db.updateWorkspaceById === 'function') {
-        await db.updateWorkspaceById(id, state);
-        return { success: true, data: null };
-      } else {
-        // Fallback to old contract if new method not present
-        const ws = await db.getWorkspace(id);
-        if (!ws) return { success: false, error: 'Workspace not found' };
-        await db.updateWorkspace(ws.name, state);
-        return { success: true, data: null };
-      }
+      await db.updateWorkspaceById(id, state);
+      return { success: true, data: null };
     }
 
     return { success: false, error: 'DB_NOT_INITIALIZED' };
