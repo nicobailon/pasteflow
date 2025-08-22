@@ -51,7 +51,6 @@ type FileTreeMode = 'none' | 'selected' | 'selected_with_roots' | 'complete';
 
 interface WorkspaceState {
   selectedFolder: string | null;
-  allFiles: FileData[];
   selectedFiles: SelectedFileReference[];
   expandedNodes: Record<string, boolean>;
   sortOrder: string;
@@ -61,10 +60,8 @@ interface WorkspaceState {
   userInstructions: string;
   tokenCounts: Record<string, number>;
   folderIndex?: Map<string, string[]>;
-  customPrompts: {
-    systemPrompts: SystemPrompt[];
-    rolePrompts: RolePrompt[];
-  };
+  systemPrompts: SystemPrompt[];
+  rolePrompts: RolePrompt[];
   selectedInstructions?: Instruction[];
   savedAt?: number;
 }
@@ -529,7 +526,6 @@ export class PooledDatabaseBridge extends EventEmitter {
   private getDefaultWorkspaceState(): WorkspaceState {
     return {
       selectedFolder: null,
-      allFiles: [],
       selectedFiles: [],
       expandedNodes: {},
       sortOrder: 'name',
@@ -538,10 +534,8 @@ export class PooledDatabaseBridge extends EventEmitter {
       exclusionPatterns: [],
       userInstructions: '',
       tokenCounts: {},
-      customPrompts: {
-        systemPrompts: [],
-        rolePrompts: []
-      }
+      systemPrompts: [],
+      rolePrompts: []
     };
   }
 

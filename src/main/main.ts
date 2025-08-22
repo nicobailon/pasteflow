@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
-import ignore from 'ignore';
+import { loadGitignore } from '../utils/ignore-utils';
 
 import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants';
-import { excludedFiles, binaryExtensions } from '../shared/excluded-files';
+import { binaryExtensions } from '../shared/excluded-files';
 import { getPathValidator } from '../security/path-validator';
 import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
 import * as zSchemas from './ipc/schemas';
@@ -23,17 +23,6 @@ let currentRequestId: string | null = null;
 
 // Track current workspace paths for path-validator
 let currentWorkspacePaths: string[] = [];
-
-// In-memory fallback stores (when database not initialized)
-type WorkspaceData = {
-  folderPath?: string;
-  state?: Record<string, unknown>;
-  createdAt?: number;
-  updatedAt?: number;
-  lastAccessed?: number;
-};
-const workspaceStore = new Map<string, WorkspaceData>();
-const preferencesStore = new Map<string, unknown>();
 
 // Database instance (initialized in whenReady)
 let database: DatabaseBridge | null = null;
@@ -92,23 +81,6 @@ type SerializableFile = {
   isContentLoaded: boolean;
 };
 
-function loadGitignore(rootDir: string, userExclusionPatterns: string[] = []) {
-  const ig = ignore();
-  const gitignorePath = path.join(rootDir, '.gitignore');
-  try {
-    if (fs.existsSync(gitignorePath)) {
-      const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
-      ig.add(gitignoreContent);
-    }
-  } catch {
-    // ignore
-  }
-  // Defaults
-  ig.add(['.git', 'node_modules', '.DS_Store']);
-  ig.add(excludedFiles);
-  if (userExclusionPatterns?.length) ig.add(userExclusionPatterns);
-  return ig;
-}
 
 // Use exclusion logic from file-ops
 const shouldExcludeByDefault = shouldExcludeByDefaultFromFileOps;
@@ -623,27 +595,27 @@ ipcMain.handle('request-file-content', async (_event, filePath: string) => {
 });
 
 /** Workspace management (envelope) */
+function mapWorkspaceDbToIpc(w: any) {
+  return {
+    id: String(w.id),
+    name: w.name,
+    folderPath: w.folder_path,
+    state: w.state,
+    createdAt: w.created_at,
+    updatedAt: w.updated_at,
+    lastAccessed: w.last_accessed
+  };
+}
+
 ipcMain.handle('/workspace/list', async () => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const workspaces: any[] = await (database as unknown as { listWorkspaces: () => Promise<any[]> }).listWorkspaces();
-      const shaped = workspaces.map((w) => ({ ...w, id: String(w.id) }));
+      const shaped = workspaces.map(mapWorkspaceDbToIpc);
       return { success: true, data: shaped };
     }
-
-    const workspaces = Array.from(workspaceStore.entries())
-      .sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0))
-      .map(([name, data]) => ({
-        id: name,
-        name,
-        folderPath: data.folderPath || '',
-        state: data.state || {},
-        createdAt: data.createdAt || Date.now(),
-        updatedAt: data.updatedAt || Date.now(),
-        lastAccessed: data.lastAccessed || Date.now()
-      }));
-    return { success: true, data: workspaces };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -661,18 +633,10 @@ ipcMain.handle('/workspace/create', async (_e, params: unknown) => {
         folderPath,
         state
       );
-      return { success: true, data: { ...created, id: String(created.id) } };
+      return { success: true, data: { ...mapWorkspaceDbToIpc(created) } };
     }
 
-    const now = Date.now();
-    workspaceStore.set(name, {
-      folderPath,
-      state,
-      createdAt: now,
-      updatedAt: now,
-      lastAccessed: now
-    });
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -686,23 +650,11 @@ ipcMain.handle('/workspace/load', async (_e, params: unknown) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ws: any | null = await (database as unknown as { getWorkspace: (id: string) => Promise<any | null> }).getWorkspace(id);
       if (!ws) return { success: true, data: null };
-      return { success: true, data: { ...ws, id: String(ws.id) } };
+      const shaped = mapWorkspaceDbToIpc(ws);
+      return { success: true, data: shaped };
     }
 
-    const ws = workspaceStore.get(id);
-    if (!ws) return { success: true, data: null };
-    return {
-      success: true,
-      data: {
-        id,
-        name: id,
-        folderPath: ws.folderPath || '',
-        state: ws.state || {},
-        createdAt: ws.createdAt || Date.now(),
-        updatedAt: ws.updatedAt || Date.now(),
-        lastAccessed: ws.lastAccessed || Date.now()
-      }
-    };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -713,19 +665,21 @@ ipcMain.handle('/workspace/update', async (_e, params: unknown) => {
     const { id, state } = zSchemas.WorkspaceUpdateSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // Find then update by name (DB contract)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = database as unknown as any;
-      const ws = await db.getWorkspace(id);
-      if (!ws) return { success: false, error: 'Workspace not found' };
-      await db.updateWorkspace(ws.name, state);
-      return { success: true, data: null };
+      if (typeof db.updateWorkspaceById === 'function') {
+        await db.updateWorkspaceById(id, state);
+        return { success: true, data: null };
+      } else {
+        // Fallback to old contract if new method not present
+        const ws = await db.getWorkspace(id);
+        if (!ws) return { success: false, error: 'Workspace not found' };
+        await db.updateWorkspace(ws.name, state);
+        return { success: true, data: null };
+      }
     }
 
-    const existing = workspaceStore.get(id);
-    if (!existing) return { success: false, error: 'Workspace not found' };
-    workspaceStore.set(id, { ...existing, state: state ?? existing.state, updatedAt: Date.now() });
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -744,10 +698,7 @@ ipcMain.handle('/workspace/touch', async (_e, params: unknown) => {
       return { success: true, data: null };
     }
 
-    const existing = workspaceStore.get(id);
-    if (!existing) return { success: false, error: 'Workspace not found' };
-    workspaceStore.set(id, { ...existing, lastAccessed: Date.now() });
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -763,8 +714,7 @@ ipcMain.handle('/workspace/delete', async (_e, params: unknown) => {
       return { success: true, data: null };
     }
 
-    workspaceStore.delete(id);
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -776,29 +726,39 @@ ipcMain.handle('/workspace/rename', async (_e, params: unknown) => {
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (database as unknown as { renameWorkspace: (oldName: string, newName: string) => Promise<void> }).renameWorkspace(id, newName);
+      const db: any = database as unknown as any;
+      const ws = await db.getWorkspace(id);
+      if (!ws) return { success: false, error: 'Workspace not found' };
+      await db.renameWorkspace(ws.name, newName);
       return { success: true, data: null };
     }
 
-    const existing = workspaceStore.get(id);
-    if (!existing) return { success: false, error: 'Workspace not found' };
-    workspaceStore.set(newName, { ...existing, updatedAt: Date.now() });
-    workspaceStore.delete(id);
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
 });
 
 /** Instructions (envelope) */
+function mapInstructionDbToIpc(i: any) {
+  return {
+    id: i.id,
+    name: i.name,
+    content: i.content,
+    createdAt: i.created_at,
+    updatedAt: i.updated_at
+  };
+}
+
 ipcMain.handle('/instructions/list', async () => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const list: any[] = await (database as unknown as { listInstructions: () => Promise<any[]> }).listInstructions();
-      return { success: true, data: list };
+      const shaped = list.map(mapInstructionDbToIpc);
+      return { success: true, data: shaped };
     }
-    return { success: false, error: 'Database not initialized' };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -812,7 +772,7 @@ ipcMain.handle('/instructions/create', async (_e, params: { id: string; name: st
       await db.createInstruction(params.id, params.name, params.content);
       return { success: true, data: null };
     }
-    return { success: false, error: 'Database not initialized' };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -826,7 +786,7 @@ ipcMain.handle('/instructions/update', async (_e, params: { id: string; name: st
       await db.updateInstruction(params.id, params.name, params.content);
       return { success: true, data: null };
     }
-    return { success: false, error: 'Database not initialized' };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -840,7 +800,7 @@ ipcMain.handle('/instructions/delete', async (_e, params: { id: string }) => {
       await db.deleteInstruction(params.id);
       return { success: true, data: null };
     }
-    return { success: false, error: 'Database not initialized' };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -865,8 +825,7 @@ ipcMain.handle('/prefs/get', async (_e, params: unknown) => {
       return { success: true, data: value ?? null };
     }
 
-    const value = preferencesStore.get(key);
-    return { success: true, data: value ?? null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -890,9 +849,7 @@ ipcMain.handle('/prefs/set', async (_e, params: unknown) => {
       return { success: true, data: true };
     }
 
-    preferencesStore.set(key, value);
-    broadcastUpdate('/prefs/get:update');
-    return { success: true, data: true };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }

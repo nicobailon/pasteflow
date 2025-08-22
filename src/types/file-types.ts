@@ -280,7 +280,6 @@ export interface InstructionsModalProps {
 
 export interface WorkspaceState {
   selectedFolder: string | null;
-  allFiles: FileData[];
   selectedFiles: SelectedFileReference[];
   expandedNodes: Record<string, boolean>;
   sortOrder: string;
@@ -290,10 +289,8 @@ export interface WorkspaceState {
   userInstructions: string;
   tokenCounts: { [filePath: string]: number };
   folderIndex?: Map<string, string[]>; // Optional for backward compatibility
-  customPrompts: {
-    systemPrompts: SystemPrompt[];
-    rolePrompts: RolePrompt[];
-  };
+  systemPrompts: SystemPrompt[];
+  rolePrompts: RolePrompt[];
   // instructions are now stored in database, not in workspace
   selectedInstructions?: Instruction[]; // Optional for backward compatibility
   savedAt?: number; // Added timestamp for sorting

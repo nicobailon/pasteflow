@@ -74,6 +74,7 @@ interface PreparedStatements {
   getWorkspace: Database.Statement<[string, string]>;
   createWorkspace: Database.Statement<[string, string, string]>;
   updateWorkspace: Database.Statement<[string, string]>;
+  updateWorkspaceById: Database.Statement<[string, string]>;
   deleteWorkspace: Database.Statement<[string]>;
   deleteWorkspaceById: Database.Statement<[string, string]>;
   renameWorkspace: Database.Statement<[string, string]>;
@@ -199,6 +200,9 @@ export class PasteFlowDatabase {
     // Create tables if they don't exist with retry
     await executeWithRetry(async () => {
       this.db!.exec(`
+        DROP INDEX IF EXISTS idx_prompts_name;
+        DROP TABLE IF EXISTS custom_prompts;
+
         CREATE TABLE IF NOT EXISTS workspaces (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT UNIQUE NOT NULL,
@@ -216,13 +220,6 @@ export class PasteFlowDatabase {
           updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
         );
 
-        CREATE TABLE IF NOT EXISTS custom_prompts (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          content TEXT NOT NULL,
-          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-          updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-        );
 
         CREATE TABLE IF NOT EXISTS instructions (
           id TEXT PRIMARY KEY,
@@ -238,7 +235,6 @@ export class PasteFlowDatabase {
         CREATE INDEX IF NOT EXISTS idx_workspaces_folder_path ON workspaces(folder_path);
         CREATE INDEX IF NOT EXISTS idx_preferences_key ON preferences(key);
         CREATE INDEX IF NOT EXISTS idx_preferences_updated_at ON preferences(updated_at);
-        CREATE INDEX IF NOT EXISTS idx_prompts_name ON custom_prompts(name);
         CREATE INDEX IF NOT EXISTS idx_instructions_name ON instructions(name);
         CREATE INDEX IF NOT EXISTS idx_instructions_updated_at ON instructions(updated_at DESC);
       `);
@@ -273,9 +269,15 @@ export class PasteFlowDatabase {
         `),
         
         updateWorkspace: this.db!.prepare(`
-          UPDATE workspaces 
-          SET state = ?, updated_at = strftime('%s', 'now') * 1000 
+          UPDATE workspaces
+          SET state = ?, updated_at = strftime('%s', 'now') * 1000
           WHERE name = ?
+        `),
+
+        updateWorkspaceById: this.db!.prepare(`
+          UPDATE workspaces
+          SET state = ?, updated_at = strftime('%s', 'now') * 1000
+          WHERE id = ?
         `),
         
         deleteWorkspace: this.db!.prepare(`
@@ -391,6 +393,19 @@ export class PasteFlowDatabase {
       this.statements.updateWorkspace.run(stateJson, name);
     }, {
       operation: 'update_workspace'
+    });
+  }
+
+  async updateWorkspaceById(id: number, state: WorkspaceState): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      const stateJson = JSON.stringify(state);
+      const result = this.statements.updateWorkspaceById.run(stateJson, String(id));
+      if ((result as any).changes === 0) {
+        throw new Error(`Workspace with id '${id}' not found`);
+      }
+    }, {
+      operation: 'update_workspace_by_id'
     });
   }
 

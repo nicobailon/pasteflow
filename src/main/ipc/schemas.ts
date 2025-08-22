@@ -62,9 +62,7 @@ export const RequestFileContentSchema = z.object({
 
 export const FileContentResponseSchema = z.object({
   content: z.string(),
-  tokenCount: z.number().int(),
-  hash: z.string(),
-  compressed: z.boolean()
+  tokenCount: z.number().int()
 });
 
 export const FileSaveSchema = z.object({
@@ -121,15 +119,13 @@ export const InstructionSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(255),
   content: z.string(),
-  category: z.string().optional(),
   createdAt: z.number(),
   updatedAt: z.number()
 });
 
 export const InstructionCreateSchema = z.object({
   name: z.string().min(1).max(255),
-  content: z.string(),
-  category: z.string().optional()
+  content: z.string()
 });
 
 // Workspace selection schemas

@@ -895,7 +895,6 @@ const useAppState = () => {
       selectedFolder: selectedFolder,
       expandedNodes: expandedNodes,
       selectedFiles: uniqueSelectedFiles,
-      allFiles: allFiles,
       sortOrder: sortOrder,
       searchTerm: searchTerm,
       fileTreeMode: fileTreeMode,
@@ -910,10 +909,8 @@ const useAppState = () => {
         }
         return acc;
       })(),
-      customPrompts: {
-        systemPrompts: promptState.selectedSystemPrompts,
-        rolePrompts: promptState.selectedRolePrompts
-      },
+      systemPrompts: promptState.selectedSystemPrompts,
+      rolePrompts: promptState.selectedRolePrompts,
       // Save which instructions are selected (the instructions themselves are in database)
       selectedInstructions: selectedInstructions
     };
@@ -1137,7 +1134,10 @@ const useAppState = () => {
     applyExpandedNodes(workspaceData.expandedNodes);
     applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
     setUserInstructions(workspaceData.userInstructions || '');
-    applyPrompts(workspaceData.customPrompts);
+    applyPrompts({
+      systemPrompts: (workspaceData as any).systemPrompts || [],
+      rolePrompts: (workspaceData as any).rolePrompts || []
+    });
 
     // Reconcile selectedInstructions with current database state
     // The workspace stores full instruction objects, but we need to match them
@@ -1349,7 +1349,6 @@ const useAppState = () => {
       selectedFolder: selectedFolder,
       expandedNodes: expandedNodes,
       selectedFiles: uniqueSelectedFiles,
-      allFiles: allFiles,
       sortOrder: sortOrder,
       searchTerm: searchTerm,
       fileTreeMode: fileTreeMode,
@@ -1364,10 +1363,8 @@ const useAppState = () => {
         }
         return acc;
       })(),
-      customPrompts: {
-        systemPrompts: promptState.selectedSystemPrompts,
-        rolePrompts: promptState.selectedRolePrompts
-      },
+      systemPrompts: promptState.selectedSystemPrompts,
+      rolePrompts: promptState.selectedRolePrompts,
       selectedInstructions: selectedInstructions
     };
 
@@ -1512,7 +1509,6 @@ const useAppState = () => {
           selectedFolder: selectedFolderRef.current,
           expandedNodes: expandedNodesRef.current,
           selectedFiles: uniqueSelectedFiles,
-          allFiles: allFilesRef.current,
           sortOrder: sortOrderRef.current,
           searchTerm: searchTermRef.current,
           fileTreeMode: fileTreeModeRef.current,
@@ -1527,10 +1523,8 @@ const useAppState = () => {
             }
             return acc;
           })(),
-          customPrompts: {
-            systemPrompts: promptStateRef.current.selectedSystemPrompts,
-            rolePrompts: promptStateRef.current.selectedRolePrompts
-          },
+          systemPrompts: promptStateRef.current.selectedSystemPrompts,
+          rolePrompts: promptStateRef.current.selectedRolePrompts,
           selectedInstructions: selectedInstructionsRef.current
         };
 

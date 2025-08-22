@@ -96,17 +96,9 @@ export class DatabaseBridge {
       }
     }
     
-    // All retries failed - attempt fallback to in-memory database
-    console.error('All database initialization attempts failed, trying in-memory fallback');
-    try {
-      this.db = new PasteFlowDatabase(':memory:');
-      await this.db.initializeDatabase();
-      this.initialized = true;
-      console.warn('Database initialized in memory mode - data will not persist');
-    } catch (memoryError) {
-      console.error('Failed to initialize in-memory database:', memoryError);
-      throw lastError || new Error('Database initialization failed');
-    }
+    // All retries failed - fail fast (no in-memory fallback)
+    console.error('Database initialization failed - failing fast (no in-memory fallback)');
+    throw lastError || new Error('Database initialization failed');
   }
 
   // Workspace operations
@@ -166,6 +158,17 @@ export class DatabaseBridge {
   async updateWorkspace(name: string, state: WorkspaceState) {
     if (!this.db) throw new Error('Database not initialized');
     return this.db.updateWorkspace(name, state);
+  }
+
+  /**
+   * Updates workspace state by numeric ID.
+   * @param id Workspace id as string (converted to number internally)
+   */
+  async updateWorkspaceById(id: string, state: WorkspaceState) {
+    if (!this.db) throw new Error('Database not initialized');
+    // Database implementation expects number for ID
+    // Coerce to number here to keep IPC/API surface string-typed
+    return (this.db as any).updateWorkspaceById(Number(id), state);
   }
 
   /**
