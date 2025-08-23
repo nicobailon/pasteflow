@@ -1,3 +1,23 @@
+import type * as React from 'react';
+
+// Forward declaration of DirectorySelectionCache interface
+// The actual implementation is in utils/selection-cache.ts (renderer-only)
+export interface DirectorySelectionCache {
+  get(path: string): 'full' | 'partial' | 'none';
+  set(path: string, state: 'full' | 'partial' | 'none'): void;
+  bulkUpdate(updates: Map<string, 'full' | 'partial' | 'none'>): void;
+  clear(): void;
+  isComputing?(): boolean;
+  getProgress?(): number;
+  startProgressiveRecompute?(opts: {
+    selectedPaths: Set<string>;
+    priorityPaths?: readonly string[];
+    batchSize?: number;
+  }): { cancel: () => void };
+  cancel?(): void;
+  setSelectedPaths?(paths: Set<string>): void;
+}
+
 /**
  * Core interface representing a file or directory in the workspace.
  * 
@@ -107,7 +127,7 @@ export interface SidebarProps {
   toggleFilterModal?: () => void;
   refreshFileTree?: () => void;
   onViewFile?: (filePath: string) => void; // New prop
-  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache; // Cache for instant folder selection UI updates
+  folderSelectionCache?: DirectorySelectionCache;
   processingStatus?: {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
@@ -159,7 +179,7 @@ export interface TreeItemProps {
   expandedNodes?: Record<string, boolean>;
   onViewFile?: (filePath: string) => void; // New prop
   loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property
-  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache; // Cache for instant folder selection UI updates
+  folderSelectionCache?: DirectorySelectionCache;
 }
 
 export interface SortOption {
@@ -175,7 +195,7 @@ export interface SearchBarProps {
 export interface CopyButtonProps {
   text: string | (() => string);
   className?: string;
-  children?: JSX.Element | string;
+  children?: React.ReactNode;
 }
 
 export type FileTreeMode = "none" | "selected" | "selected-with-roots" | "complete";

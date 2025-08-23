@@ -1,28 +1,8 @@
-import { FileData, SelectedFileReference } from '../types/file-types';
+import { FileData, SelectedFileReference, DirectorySelectionCache } from '../types/file-types';
 import { BoundedLRUCache } from './bounded-lru-cache';
 import { getGlobalPerformanceMonitor } from './performance-monitor';
 
 export type SelectionState = 'full' | 'partial' | 'none';
-
-export interface DirectorySelectionCache {
-  get(path: string): SelectionState;
-  set(path: string, state: SelectionState): void;
-  bulkUpdate(updates: Map<string, SelectionState>): void;
-  clear(): void;
-
-  // Progressive/Incremental overlay computation (optional for backwards compatibility)
-  isComputing?(): boolean;
-  getProgress?(): number; // 0..1
-  startProgressiveRecompute?(
-    opts: {
-      selectedPaths: Set<string>;
-      priorityPaths?: readonly string[];
-      batchSize?: number;
-    }
-  ): { cancel: () => void };
-  cancel?(): void;
-  setSelectedPaths?(paths: Set<string>): void;
-}
 
 /**
  * Lightweight structure cache to avoid rebuilding static directory maps

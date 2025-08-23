@@ -1,7 +1,7 @@
 import { VariableSizeList as List } from 'react-window';
 import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect, useMemo, memo, useState } from 'react';
  
-import { TreeNode, SelectedFileReference } from '../types/file-types';
+import { TreeNode, SelectedFileReference, DirectorySelectionCache } from '../types/file-types';
  
 import TreeItem from './tree-item';
 
@@ -14,7 +14,7 @@ interface VirtualizedTreeProps {
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
   height: number;
-  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache;
+  folderSelectionCache?: DirectorySelectionCache;
 }
 
 interface ItemData {
@@ -26,7 +26,7 @@ interface ItemData {
   toggleExpanded: (path: string) => void;
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
-  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache;
+  folderSelectionCache?: DirectorySelectionCache;
 }
 
 const ITEM_HEIGHT = 32;

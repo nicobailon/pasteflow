@@ -802,49 +802,7 @@ export class PasteFlowAPIServer {
       }
     });
 
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-
-        // Validate and constrain output path within workspace via PathValidator
-        const outVal = validateAndResolvePath(body.data.outputPath);
-        if (!outVal.ok) {
-          if ((outVal as any).code === 'PATH_DENIED') {
-            return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
-          }
-          if ((outVal as any).code === 'NO_ACTIVE_WORKSPACE') {
-            return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-          }
-          return res.status(400).json(toApiError('VALIDATION_ERROR', (outVal as any).message || 'Invalid output path'));
-        }
-
-        // Generate content using the same aggregation path
-        const state = (ws.state || {}) as WorkspaceState;
-        const selection = (state.selectedFiles ?? []) as Array<{ path: string; lines?: Array<{ start: number; end: number }> }>;
-
-        const { content } = await aggregateSelectedContent({
-          folderPath: ws.folder_path,
-          selection,
-          sortOrder: (state as any).sortOrder ?? 'name',
-          fileTreeMode: (state as any).fileTreeMode ?? 'selected',
-          selectedFolder: (state as any).selectedFolder ?? ws.folder_path,
-          systemPrompts: (state as any).systemPrompts ?? [],
-          rolePrompts: (state as any).rolePrompts ?? [],
-          selectedInstructions: (state as any).selectedInstructions ?? [],
-          userInstructions: (state as any).userInstructions ?? '',
-          exclusionPatterns: (state as any).exclusionPatterns ?? [],
-        });
-
-        // Write export using helper
-        const { bytes } = await writeExport(outVal.absolutePath, content, body.data.overwrite === true);
-
-        return res.json(ok({ outputPath: outVal.absolutePath, bytes }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
-      }
-    });
-// Phase 4: Files - tree
+    // Phase 4: Files - tree
     this.app.get('/api/v1/files/tree', async (req, res) => {
       const q = filesTreeQuery.safeParse(req.query);
       if (!q.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid query'));

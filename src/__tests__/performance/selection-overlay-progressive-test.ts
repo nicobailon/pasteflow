@@ -1,5 +1,5 @@
-import { createDirectorySelectionCache, type DirectorySelectionCache } from '../../utils/selection-cache';
-import type { FileData, SelectedFileReference } from '../../types/file-types';
+import { createDirectorySelectionCache } from '../../utils/selection-cache';
+import type { FileData, SelectedFileReference, DirectorySelectionCache } from '../../types/file-types';
 
 // Helper: generate a large synthetic workspace
 function generateWorkspace(totalFiles: number, totalDirs: number): { allFiles: FileData[]; selectedRefs: SelectedFileReference[]; anyDirPath: string } {

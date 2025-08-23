@@ -1,8 +1,7 @@
 import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
 import { useEffect, useRef, memo, useCallback } from "react";
 
-import { TreeItemProps, TreeNode, SelectedFileReference } from "../types/file-types";
-import type { DirectorySelectionCache } from "../utils/selection-cache";
+import { TreeItemProps, TreeNode, SelectedFileReference, DirectorySelectionCache } from "../types/file-types";
 
 // Helper function to check if a node is fully selected - moved outside component
 const isNodeFullySelected = (node: TreeNode, selectedFiles: { path: string; lines?: { start: number; end: number }[] }[]): boolean => {
