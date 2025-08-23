@@ -8,7 +8,12 @@ export type ApiErrorCode =
   | 'VALIDATION_ERROR'
   | 'BINARY_FILE'
   | 'NO_ACTIVE_WORKSPACE'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  // Phase 4 additions
+  | 'PREVIEW_NOT_FOUND'
+  | 'PREVIEW_TIMEOUT'
+  | 'INDEX_NOT_READY'
+  | 'SEARCH_TOO_BROAD';
 
 export interface ApiError {
   error: {

@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { app } from 'electron';
 import { PasteFlowDatabase, WorkspaceState, PreferenceValue } from './database-implementation';
+import { DatabaseLogs, type LogEntry, type LogEntryInput, type LogListOptions } from './database-logs';
 
 // Define precise error types for SQLite
 interface SQLiteError extends Error {
@@ -17,6 +18,7 @@ interface SQLiteError extends Error {
 export class DatabaseBridge {
   private db: PasteFlowDatabase | null = null;
   public initialized = false;
+  private logs: DatabaseLogs | null = null;
 
   /**
    * Creates a new DatabaseBridge instance.
@@ -361,10 +363,34 @@ export class DatabaseBridge {
    * @example
    * await bridge.close();
    */
+  // Logs (optional)
+  private getLogs(): DatabaseLogs {
+    if (!this.db || !this.db.db) {
+      throw new Error('Database not initialized');
+    }
+    if (!this.logs) {
+      this.logs = new DatabaseLogs(this.db.db);
+    }
+    return this.logs;
+  }
+
+  async insertLog(entry: LogEntryInput): Promise<void> {
+    this.getLogs().insertLog(entry);
+  }
+
+  async listLogs(opts: LogListOptions = {}): Promise<LogEntry[]> {
+    return this.getLogs().listLogs(opts);
+  }
+
+  async pruneLogs(olderThanTs: number): Promise<number> {
+    return this.getLogs().pruneLogs(olderThanTs);
+  }
+
   async close() {
     if (this.db) {
       this.db.close();
       this.db = null;
     }
+    this.logs = null;
   }
 }
