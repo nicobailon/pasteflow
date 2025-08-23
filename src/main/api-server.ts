@@ -1,6 +1,8 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
+import fs from 'node:fs';
+import path from 'node:path';
 import { DatabaseBridge } from './db/database-bridge';
 import { WorkspaceState, PreferenceValue } from './db/database-implementation';
 import { AuthManager } from './auth-manager';
@@ -8,6 +10,9 @@ import { setAllowedWorkspacePaths, getAllowedWorkspacePaths } from './workspace-
 import { toApiError, ok } from './error-normalizer';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { validateAndResolvePath, statFile as fileServiceStatFile, readTextFile } from './file-service';
+import { getMainTokenService } from '../services/token-service-main';
+import { getPathValidator } from '../security/path-validator';
 
 const idParam = z.object({ id: z.string().min(1) });
 const createWorkspaceBody = z.object({
@@ -26,6 +31,12 @@ const instructionBody = z.object({
 });
 const keyParam = z.object({ key: z.string().min(1) });
 const prefSetBody = z.object({ value: z.unknown().optional() });
+const filePathQuery = z.object({ path: z.string().min(1) });
+const tokensCountBody = z.object({ text: z.string().min(0) });
+const foldersOpenBody = z.object({
+  folderPath: z.string().min(1),
+  name: z.string().min(1).max(255).optional(),
+});
 
 function mapWorkspaceDbToJson(w: any) {
   return {
@@ -236,7 +247,10 @@ export class PasteFlowAPIServer {
       try {
         await this.db.setPreference('workspace.active', params.data.id);
         const ws = await this.db.getWorkspace(params.data.id);
-        if (ws?.folder_path) setAllowedWorkspacePaths([ws.folder_path]);
+        if (ws?.folder_path) {
+          setAllowedWorkspacePaths([ws.folder_path]);
+          getPathValidator([ws.folder_path]);
+        }
         return res.json(ok(true));
       } catch (e) {
         return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
@@ -316,6 +330,164 @@ export class PasteFlowAPIServer {
       try {
         await this.db.setPreference(params.data.key, (body.data.value ?? null) as PreferenceValue);
         return res.json(ok(true));
+      } catch (e) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      }
+    });
+
+    // Phase 2: Files - info
+    this.app.get('/api/v1/files/info', async (req, res) => {
+      const q = filePathQuery.safeParse(req.query);
+      if (!q.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid query'));
+      const allowed = getAllowedWorkspacePaths();
+      if (!allowed || allowed.length === 0) {
+        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
+      }
+      const val = validateAndResolvePath(String(q.data.path));
+      if (!val.ok) {
+        if (val.code === 'NO_ACTIVE_WORKSPACE') {
+          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', val.message));
+        }
+        if (val.code === 'PATH_DENIED') {
+          return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
+        }
+        return res.status(400).json(toApiError('VALIDATION_ERROR', val.message));
+      }
+      const s = await fileServiceStatFile(val.absolutePath);
+      if (!s.ok) {
+        if (s.code === 'FILE_NOT_FOUND') {
+          return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
+        }
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', s.message));
+      }
+      return res.json(ok(s.data));
+    });
+
+    // Phase 2: Files - content
+    this.app.get('/api/v1/files/content', async (req, res) => {
+      const q = filePathQuery.safeParse(req.query);
+      if (!q.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid query'));
+      const allowed = getAllowedWorkspacePaths();
+      if (!allowed || allowed.length === 0) {
+        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
+      }
+      const val = validateAndResolvePath(String(q.data.path));
+      if (!val.ok) {
+        if (val.code === 'NO_ACTIVE_WORKSPACE') {
+          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', val.message));
+        }
+        if (val.code === 'PATH_DENIED') {
+          return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
+        }
+        return res.status(400).json(toApiError('VALIDATION_ERROR', val.message));
+      }
+      const s = await fileServiceStatFile(val.absolutePath);
+      if (!s.ok) {
+        if (s.code === 'FILE_NOT_FOUND') {
+          return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
+        }
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', s.message));
+      }
+      if (s.data.isDirectory) {
+        return res.status(400).json(toApiError('VALIDATION_ERROR', 'Path is a directory'));
+      }
+      if (s.data.isBinary) {
+        return res.status(409).json(toApiError('BINARY_FILE', 'File contains binary data'));
+      }
+      const r = await readTextFile(val.absolutePath);
+      if (!r.ok) {
+        if (r.code === 'FILE_NOT_FOUND') {
+          return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
+        }
+        if (r.code === 'BINARY_FILE') {
+          return res.status(409).json(toApiError('BINARY_FILE', r.message));
+        }
+        if (r.code === 'VALIDATION_ERROR') {
+          return res.status(400).json(toApiError('VALIDATION_ERROR', r.message));
+        }
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', r.message));
+      }
+      if (r.isLikelyBinary) {
+        return res.status(409).json(toApiError('BINARY_FILE', 'File contains binary data'));
+      }
+      const tokenService = getMainTokenService();
+      const { count } = await tokenService.countTokens(r.content);
+      return res.json(ok({ content: r.content, tokenCount: count, fileType: s.data.fileType || 'plaintext' }));
+    });
+
+    // Phase 2: Tokens - count
+    this.app.post('/api/v1/tokens/count', async (req, res) => {
+      const body = tokensCountBody.safeParse(req.body);
+      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+      try {
+        const tokenService = getMainTokenService();
+        const result = await tokenService.countTokens(body.data.text);
+        return res.json(ok(result));
+      } catch (e) {
+        return res.status(500).json(toApiError('INTERNAL_ERROR', (e as Error).message));
+      }
+    });
+
+    // Phase 2: Tokens - backend
+    this.app.get('/api/v1/tokens/backend', async (_req, res) => {
+      try {
+        const tokenService = getMainTokenService();
+        const backend = await tokenService.getActiveBackend();
+        return res.json(ok({ backend: backend ?? 'estimate' }));
+      } catch (e) {
+        return res.status(500).json(toApiError('INTERNAL_ERROR', (e as Error).message));
+      }
+    });
+
+    // Phase 2: Folders - current
+    this.app.get('/api/v1/folders/current', async (_req, res) => {
+      try {
+        const activeId = await this.db.getPreference('workspace.active');
+        if (!activeId) return res.json(ok(null));
+        const ws = await this.db.getWorkspace(String(activeId));
+        if (!ws) return res.json(ok(null));
+        return res.json(ok({ folderPath: ws.folder_path }));
+      } catch (e) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      }
+    });
+
+    // Phase 2: Folders - open
+    this.app.post('/api/v1/folders/open', async (req, res) => {
+      const body = foldersOpenBody.safeParse(req.body);
+      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+      try {
+        const folderPath = String(body.data.folderPath);
+        let st;
+        try {
+          st = await fs.promises.stat(folderPath);
+        } catch {
+          return res.status(400).json(toApiError('VALIDATION_ERROR', 'Folder does not exist'));
+        }
+        if (!st.isDirectory()) {
+          return res.status(400).json(toApiError('VALIDATION_ERROR', 'Path is not a directory'));
+        }
+
+        const workspaces = await this.db.listWorkspaces();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let ws = workspaces.find((w: any) => w.folder_path === folderPath);
+
+        if (!ws) {
+          const requestedName = body.data.name ?? (path.basename(folderPath) || `workspace-${randomUUID().slice(0, 8)}`);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const collision = workspaces.find((w: any) => w.name === requestedName && w.folder_path !== folderPath);
+          if (collision && body.data.name) {
+            return res.status(409).json(toApiError('VALIDATION_ERROR', `Workspace name '${requestedName}' already exists`));
+          }
+          const effectiveName = collision && !body.data.name ? `${requestedName}-${randomUUID().slice(0, 6)}` : requestedName;
+          ws = await this.db.createWorkspace(effectiveName, folderPath, {} as WorkspaceState);
+        }
+
+        await this.db.setPreference('workspace.active', String(ws.id));
+        setAllowedWorkspacePaths([ws.folder_path]);
+        getPathValidator([ws.folder_path]);
+
+        return res.json(ok({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path }));
       } catch (e) {
         return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
       }

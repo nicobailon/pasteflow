@@ -6,6 +6,8 @@ export type ApiErrorCode =
   | 'WORKSPACE_NOT_FOUND'
   | 'UNAUTHORIZED'
   | 'VALIDATION_ERROR'
+  | 'BINARY_FILE'
+  | 'NO_ACTIVE_WORKSPACE'
   | 'INTERNAL_ERROR';
 
 export interface ApiError {
