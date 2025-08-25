@@ -1,3 +1,4 @@
+process.env.TSESTREE_NO_WARN_ON_MULTIPLE_PROJECTS = "true";
 module.exports = {
   root: true,
   env: { browser: true, es2020: true, node: true },
@@ -15,6 +16,10 @@ module.exports = {
   ],
   ignorePatterns: ["dist", ".eslintrc.cjs", "*.json"],
   parser: "@typescript-eslint/parser",
+  parserOptions: {
+    tsconfigRootDir: __dirname,
+    noWarnOnMultipleProjects: true
+  },
   plugins: [
     "react-refresh", 
     "filenames", 
@@ -203,7 +208,9 @@ module.exports = {
       // TypeScript React component files
       files: ["src/components/*.tsx", "src/components/**/*.tsx"],
       parserOptions: {
-        project: "./tsconfig.json"
+        project: "./tsconfig.json",
+        tsconfigRootDir: __dirname,
+        noWarnOnMultipleProjects: true
       },
       rules: {
         "@typescript-eslint/no-use-before-define": "warn", // Handle variable used before declaration
@@ -242,7 +249,8 @@ module.exports = {
       files: ["cli/src/**/*.ts"],
       parserOptions: {
         project: "./cli/tsconfig.json",
-        tsconfigRootDir: __dirname
+        tsconfigRootDir: __dirname,
+        noWarnOnMultipleProjects: true
       }
     }
   ],
