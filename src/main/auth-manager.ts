@@ -29,7 +29,9 @@ export class AuthManager {
       // If read fails for any reason, regenerate a token
       const value = crypto.randomBytes(32).toString('hex');
       fs.writeFileSync(this.tokenPath, value + '\n', { mode: 0o600 });
-      try { fs.chmodSync(this.tokenPath, 0o600); } catch {}
+      try { fs.chmodSync(this.tokenPath, 0o600); } catch {
+        // Intentionally empty - best-effort permission fix
+      }
       return value;
     }
   }
@@ -39,12 +41,16 @@ export class AuthManager {
       if (!fs.existsSync(this.configDir)) {
         fs.mkdirSync(this.configDir, { recursive: true, mode: 0o700 });
       }
-      try { fs.chmodSync(this.configDir, 0o700); } catch {}
+      try { fs.chmodSync(this.configDir, 0o700); } catch {
+        // Intentionally empty - best-effort permission fix
+      }
       if (!fs.existsSync(this.tokenPath)) {
         const value = crypto.randomBytes(32).toString('hex');
         fs.writeFileSync(this.tokenPath, value + '\n', { mode: 0o600 });
       }
-      try { fs.chmodSync(this.tokenPath, 0o600); } catch {}
+      try { fs.chmodSync(this.tokenPath, 0o600); } catch {
+        // Intentionally empty - best-effort permission fix
+      }
     } catch {
       // Best-effort; API middleware will respond 401 if token cannot be validated
     }

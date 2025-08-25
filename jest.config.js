@@ -14,7 +14,7 @@ module.exports = {
     // Handle CSS imports (with CSS modules)
     '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.ts',
     // Handle image imports
-    '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/fileMock.ts',
+    '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/file-mock.ts',
     // Use shared lucide-react mock
     'lucide-react': '<rootDir>/src/__tests__/__mocks__/lucide-react.ts',
     // Mock react-syntax-highlighter

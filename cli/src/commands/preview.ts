@@ -197,16 +197,7 @@ export function attachPreviewCommand(root: any): void {
         try { process.once("SIGINT", () => ac.abort()); } catch {
           // Intentionally empty - non-critical operation
         }
-        for (;;) {
-          if (ac.signal.aborted) {
-            if (flags.json) {
-              printJsonOrText({ error: { code: "CANCELLED", message: "Operation cancelled by user (SIGINT)" } }, flags);
-            } else {
-               
-              console.error("CANCELLED");
-            }
-            process.exit(1);
-          }
+        while (!ac.signal.aborted) {
           const res = await client.get(`/api/v1/preview/status/${encodeURIComponent(id)}`, { signal: ac.signal });
           const data = (res.data?.data ?? res.data) as any;
           if (data.state === "SUCCEEDED" || data.state === "FAILED" || data.state === "CANCELLED") {
@@ -228,6 +219,14 @@ export function attachPreviewCommand(root: any): void {
             process.exit(1);
           }
         }
+        // Aborted by user (SIGINT)
+        if (flags.json) {
+          printJsonOrText({ error: { code: "CANCELLED", message: "Operation cancelled by user (SIGINT)" } }, flags);
+        } else {
+           
+          console.error("CANCELLED");
+        }
+        process.exit(1);
       } catch (error) {
         const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
@@ -354,10 +353,7 @@ async function followUntilTerminal(
   let iterations = 0;
   // Safety bound: even if the time check fails for any reason, avoid infinite loops
   const maxIterations = Math.max(1000, Math.ceil(waitMs / 10));
-  for (;;) {
-    if (signal?.aborted) {
-      return { state: "CANCELLED" };
-    }
+  while (!signal?.aborted && (Date.now() - start <= waitMs) && (iterations <= maxIterations)) {
     const res = await client.get(
       `/api/v1/preview/status/${encodeURIComponent(id)}`,
       signal ? { signal } : undefined
@@ -369,11 +365,12 @@ async function followUntilTerminal(
     await sleep(delay);
     delay = Math.min(Math.floor(delay * 1.5), maxDelay);
     iterations += 1;
-    if (Date.now() - start > waitMs || iterations > maxIterations) {
-      // emulate timeout result; server may still be running
-      return { state: "FAILED", error: { code: "PREVIEW_TIMEOUT", message: "Follow timeout exceeded" } };
-    }
   }
+  if (signal?.aborted) {
+    return { state: "CANCELLED" };
+  }
+  // emulate timeout result; server may still be running
+  return { state: "FAILED", error: { code: "PREVIEW_TIMEOUT", message: "Follow timeout exceeded" } };
 }
 
 function sleep(ms: number): Promise<void> {

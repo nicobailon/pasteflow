@@ -23,7 +23,8 @@ export function attachTokensCommand(root: any): void {
         }
 
          
-        console.log(`Tokens: ${data.count}${data.backend ? ` (backend: ${data.backend})` : ""}`);
+        const backendSuffix = data.backend ? ` (backend: ${data.backend})` : "";
+        console.log(`Tokens: ${data.count}${backendSuffix}`);
         process.exit(0);
       } catch (error) {
         const e = error as NodeJS.ErrnoException;

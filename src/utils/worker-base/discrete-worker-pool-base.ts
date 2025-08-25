@@ -115,14 +115,11 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     // Create workers using proper Vite pattern
     for (let i = 0; i < this.poolSize; i++) {
       try {
-        let worker: Worker;
-        if (jest === undefined) {
+        const worker: Worker = (jest === undefined)
           // Delegate worker creation to the concrete subclass
           // This allows Vite to statically analyze the worker import
-          worker = this.createWorker();
-        } else {
-          worker = new Worker('/mock/worker/path', { type: 'module' });
-        }
+          ? this.createWorker()
+          : new Worker('/mock/worker/path', { type: 'module' });
         this.workers[i] = worker;
         this.workerReady[i] = false;
         this.workerHealthy[i] = false;
@@ -323,14 +320,11 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         }
         
         // Create new worker using proper Vite pattern
-        let newWorker: Worker;
-        if (jest === undefined) {
+        const newWorker: Worker = (jest === undefined)
           // Delegate worker creation to the concrete subclass
           // This allows Vite to statically analyze the worker import
-          newWorker = this.createWorker();
-        } else {
-          newWorker = new Worker('/mock/worker/path', { type: 'module' });
-        }
+          ? this.createWorker()
+          : new Worker('/mock/worker/path', { type: 'module' });
         this.workers[workerId] = newWorker;
         this.workerReady[workerId] = false;
         this.workerHealthy[workerId] = false;

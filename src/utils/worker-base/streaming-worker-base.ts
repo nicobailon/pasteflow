@@ -107,13 +107,11 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
 
     try {
       // Check if we're in a Jest test environment
-      if (jest === undefined) {
+      this.worker = (jest === undefined)
         // Delegate worker creation to the concrete subclass
         // This allows Vite to statically analyze the worker import
-        this.worker = this.createWorker();
-      } else {
-        this.worker = new Worker('/mock/worker/path', { type: 'module' });
-      }
+        ? this.createWorker()
+        : new Worker('/mock/worker/path', { type: 'module' });
 
       // Create a promise that resolves when initialization is complete
       const initPromise = new Promise<void>((resolve, reject) => {
@@ -238,7 +236,6 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
       if (this.isCancelledAck(e, this.active.id)) {
         this.cleanupActive();
         this.processNext();
-        return;
       }
     };
 

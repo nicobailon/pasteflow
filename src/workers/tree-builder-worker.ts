@@ -1,5 +1,5 @@
-import { UI } from '@constants';
-import { normalizePath } from '@file-ops/path';
+import { UI } from '../constants';
+import { normalizePath } from '../file-ops/path';
 
 import type { FileData, TreeNode } from '../types/file-types';
 

@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
-import { normalizePath, getRelativePath, extname } from '@file-ops/path';
-import { generateAsciiFileTree } from '@file-ops/ascii-tree';
+import { normalizePath, getRelativePath, extname } from '../file-ops/path';
+import { generateAsciiFileTree } from '../file-ops/ascii-tree';
 
 /* Preview Generator Web Worker (progressive, update-aware)
    - Opens immediately by streaming a header chunk
@@ -151,10 +151,10 @@ function countLines(text: string | undefined): number {
   let lines = 1;
   // ASCII 10 = '\n'
   for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) === 10) lines++;
+    if ((text.codePointAt(i) ?? 0) === 10) lines++;
   }
   // If ends with '\n', don't count an empty trailing line
-  if (text.length > 0 && text.charCodeAt(text.length - 1) === 10) {
+  if (text.length > 0 && (text.codePointAt(text.length - 1) ?? 0) === 10) {
     lines--;
   }
   return Math.max(lines, text.length > 0 ? 1 : 0);
@@ -348,7 +348,6 @@ function sortFilesByOrder(files: FileData[], sortOrder: string): FileData[] {
       arr.sort((a, b) => cmp(ext(a.name), ext(b.name)) || cmp(a.name, b.name));
       break;
     }
-    case 'name':
     default: {
       arr.sort((a, b) => cmp(a.name, b.name));
     }
