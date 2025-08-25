@@ -3,6 +3,7 @@ import { performance } from 'node:perf_hooks';
 import * as crypto from 'node:crypto';
 
 import type BetterSqlite3 from 'better-sqlite3';
+
 import { getBetterSqlite3 } from './better-sqlite3-loader';
 
 export interface PoolConnectionOptions {

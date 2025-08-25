@@ -32,20 +32,20 @@ export function attachSelectCommand(root: any): void {
           printJsonOrText({ ok }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(ok ? "true" : "false");
         process.exit(0);
-      } catch (err: unknown) {
-        const e = err as any;
+      } catch (error: unknown) {
+        const e = error as any;
         if (e instanceof Error && (e.message === "Absolute path required" || e.message === "Path is required" || e.message?.startsWith("Invalid line"))) {
-          // eslint-disable-next-line no-console
+           
           console.error(`VALIDATION_ERROR: ${e.message}`);
           process.exit(2);
         }
-        const mapped = handleAxiosError(err, flags);
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -80,20 +80,20 @@ export function attachSelectCommand(root: any): void {
           printJsonOrText({ ok }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(ok ? "true" : "false");
         process.exit(0);
-      } catch (err: unknown) {
-        const e = err as any;
+      } catch (error: unknown) {
+        const e = error as any;
         if (e instanceof Error && (e.message === "Absolute path required" || e.message === "Path is required" || e.message?.startsWith("Invalid line"))) {
-          // eslint-disable-next-line no-console
+           
           console.error(`VALIDATION_ERROR: ${e.message}`);
           process.exit(2);
         }
-        const mapped = handleAxiosError(err, flags);
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -116,14 +116,14 @@ export function attachSelectCommand(root: any): void {
           printJsonOrText({ ok }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(ok ? "true" : "false");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -140,21 +140,21 @@ export function attachSelectCommand(root: any): void {
         const d = await discover(flags);
         const client = createClient(d, flags);
         const res = await client.get("/api/v1/files/selected");
-        const rows = (res.data?.data ?? res.data) as Array<{ path: string; lines?: Array<{ start: number; end: number }> }>;
+        const rows = (res.data?.data ?? res.data) as { path: string; lines?: { start: number; end: number }[] }[];
 
         if (flags.json) {
           printJsonOrText(rows, flags);
           process.exit(0);
         }
 
-        if (!rows.length) {
-          // eslint-disable-next-line no-console
+        if (rows.length === 0) {
+           
           console.log("No files selected");
           process.exit(0);
         }
 
-        const fmt = (lines?: Array<{ start: number; end: number }>) => {
-          if (!lines || !lines.length) return "(all)";
+        const fmt = (lines?: { start: number; end: number }[]) => {
+          if (!lines || lines.length === 0) return "(all)";
           return lines.map((r) => (r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`)).join(",");
         };
 
@@ -165,14 +165,14 @@ export function attachSelectCommand(root: any): void {
             { key: "ranges", header: "Ranges" },
           ]
         );
-        // eslint-disable-next-line no-console
+         
         console.log(table);
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);

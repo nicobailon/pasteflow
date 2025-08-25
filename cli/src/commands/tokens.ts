@@ -22,25 +22,25 @@ export function attachTokensCommand(root: any): void {
           process.exit(0);
         }
 
-        // eslint-disable-next-line no-console
+         
         console.log(`Tokens: ${data.count}${data.backend ? ` (backend: ${data.backend})` : ""}`);
         process.exit(0);
-      } catch (err) {
-        const e = err as NodeJS.ErrnoException;
+      } catch (error) {
+        const e = error as NodeJS.ErrnoException;
         // Map local @file read errors to VALIDATION_ERROR (exit code 2)
         if (e && (e.code === "ENOENT" || e.code === "EISDIR" || e.code === "EACCES")) {
           if (flags.json) {
             printJsonOrText({ error: { code: "VALIDATION_ERROR", message: e.message } }, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.error(`VALIDATION_ERROR: ${e.message}`);
           }
           process.exit(2);
         }
-        const mapped = handleAxiosError(err, flags);
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -64,14 +64,14 @@ export function attachTokensCommand(root: any): void {
           process.exit(0);
         }
 
-        // eslint-disable-next-line no-console
+         
         console.log(data.backend);
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);

@@ -132,7 +132,7 @@ const RETRY_MAX_ATTEMPTS = 3;  // Increased for better resilience
 const RETRY_DELAY_MS = 200;
 const RETRY_BACKOFF_MULTIPLIER = 1.5;  // Exponential backoff for retries
 // Memory management limits
-const MAX_TRACKED_PATHS = 10000;  // Maximum paths to track in any single Set
+const MAX_TRACKED_PATHS = 10_000;  // Maximum paths to track in any single Set
 const MAX_PENDING_TIMEOUTS = 5000;  // Maximum concurrent pending timeouts
 const MAX_RETRY_COUNTS = 1000;  // Maximum retry counts to track (much smaller than paths)
 const CLEANUP_INTERVAL_MS = 30_000;  // Interval for memory cleanup
@@ -164,44 +164,73 @@ function countLines(text: string | undefined): number {
 
 function getLanguageIdentifier(extension: string, filePath: string): string {
   switch (extension) {
-    case 'js': return 'javascript';
-    case 'ts': return 'typescript';
-    case 'tsx': return 'tsx';
-    case 'jsx': return 'jsx';
-    case 'py': return 'python';
-    case 'rb': return 'ruby';
-    case 'php': return 'php';
-    case 'java': return 'java';
-    case 'cs': return 'csharp';
-    case 'go': return 'go';
-    case 'rs': return 'rust';
-    case 'swift': return 'swift';
+    case 'js': { return 'javascript';
+    }
+    case 'ts': { return 'typescript';
+    }
+    case 'tsx': { return 'tsx';
+    }
+    case 'jsx': { return 'jsx';
+    }
+    case 'py': { return 'python';
+    }
+    case 'rb': { return 'ruby';
+    }
+    case 'php': { return 'php';
+    }
+    case 'java': { return 'java';
+    }
+    case 'cs': { return 'csharp';
+    }
+    case 'go': { return 'go';
+    }
+    case 'rs': { return 'rust';
+    }
+    case 'swift': { return 'swift';
+    }
     case 'kt':
-    case 'kts': return 'kotlin';
+    case 'kts': { return 'kotlin';
+    }
     case 'c':
-    case 'h': return 'c';
+    case 'h': { return 'c';
+    }
     case 'cpp':
     case 'cc':
     case 'cxx':
-    case 'hpp': return 'cpp';
+    case 'hpp': { return 'cpp';
+    }
     case 'sh':
-    case 'bash': return 'bash';
-    case 'ps1': return 'powershell';
+    case 'bash': { return 'bash';
+    }
+    case 'ps1': { return 'powershell';
+    }
     case 'bat':
-    case 'cmd': return 'batch';
+    case 'cmd': { return 'batch';
+    }
     case 'yaml':
-    case 'yml': return 'yaml';
-    case 'toml': return 'toml';
-    case 'ini': return 'ini';
-    case 'css': return 'css';
+    case 'yml': { return 'yaml';
+    }
+    case 'toml': { return 'toml';
+    }
+    case 'ini': { return 'ini';
+    }
+    case 'css': { return 'css';
+    }
     case 'scss':
-    case 'sass': return 'scss';
-    case 'less': return 'less';
-    case 'html': return 'html';
-    case 'json': return 'json';
-    case 'md': return 'markdown';
-    case 'svg': return 'svg';
-    case 'sql': return 'sql';
+    case 'sass': { return 'scss';
+    }
+    case 'less': { return 'less';
+    }
+    case 'html': { return 'html';
+    }
+    case 'json': { return 'json';
+    }
+    case 'md': { return 'markdown';
+    }
+    case 'svg': { return 'svg';
+    }
+    case 'sql': { return 'sql';
+    }
     default: {
       if (extension === 'dockerfile' || filePath.toLowerCase().endsWith('dockerfile')) return 'dockerfile';
       return extension || 'plaintext';
@@ -294,8 +323,9 @@ function generateFileTreeItems(
       // Include all files (even skipped/binary) in the tree to reflect complete selection
       return allFiles.map(f => ({ path: normalizePath(f.path), isFile: !f.isDirectory }));
     }
-    default:
+    default: {
       return [];
+    }
   }
 }
 
@@ -305,20 +335,23 @@ function sortFilesByOrder(files: FileData[], sortOrder: string): FileData[] {
   const cmp = (a: number | string, b: number | string) => (a === b ? 0 : (a < b ? -1 : 1));
   const arr = [...files];
   switch (key) {
-    case 'tokens':
+    case 'tokens': {
       arr.sort((a, b) => cmp(a.tokenCount ?? Math.round(a.size / CHARS_PER_TOKEN), b.tokenCount ?? Math.round(b.size / CHARS_PER_TOKEN)));
       break;
-    case 'size':
+    }
+    case 'size': {
       arr.sort((a, b) => cmp(a.size, b.size));
       break;
+    }
     case 'extension': {
       const ext = (n: string) => (n.split('.').pop() || '');
       arr.sort((a, b) => cmp(ext(a.name), ext(b.name)) || cmp(a.name, b.name));
       break;
     }
     case 'name':
-    default:
+    default: {
       arr.sort((a, b) => cmp(a.name, b.name));
+    }
   }
   if (dir === 'desc') arr.reverse();
   return arr;
@@ -762,10 +795,8 @@ function handleUpdateFiles(id: string, files: UpdateFile[], chunkSize: number) {
       currentAllMap.set(f.path, existing);
 
       // Allow retrying failed/skipped files and processing pending files
-      if (!emittedPaths.has(f.path)) {
-        // Only process if this file was originally eligible
-        if (eligiblePathsSet.has(f.path)) {
-          if (pendingPaths.has(f.path) || failedPaths.has(f.path) || skippedPaths.has(f.path)) {
+      if (!emittedPaths.has(f.path) && // Only process if this file was originally eligible
+        eligiblePathsSet.has(f.path) && (pendingPaths.has(f.path) || failedPaths.has(f.path) || skippedPaths.has(f.path))) {
             newlyReady.push(f.path);
             // Clear timeout for pending files
             const timeout = pendingTimeouts.get(f.path);
@@ -788,8 +819,6 @@ function handleUpdateFiles(id: string, files: UpdateFile[], chunkSize: number) {
               pendingTimeouts.set(f.path, newTimeout);
             }
           }
-        }
-      }
     } catch (error) {
       // Handle errors in processing individual file updates
       if (DEBUG_ENABLED) {

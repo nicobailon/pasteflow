@@ -1,6 +1,7 @@
-import { createClient, discover, handleAxiosError, parseAtFileAsync, printJsonOrText } from "../client";
 import fs from "node:fs";
 import path from "node:path";
+
+import { createClient, discover, handleAxiosError, parseAtFileAsync, printJsonOrText } from "../client";
 
 type PreviewState = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
 
@@ -16,7 +17,7 @@ export function attachPreviewCommand(root: any): void {
     .option("--prompt <textOr@file>", "Prompt text or @file with prompt content")
     .option("--follow", "Poll status until terminal; fetch content on success", false)
     .option("--wait-ms <ms>", "Max total time to wait when --follow is set (default 180000)", (v) => Number.parseInt(v, 10))
-    .option("--out <file>", "Write preview content to a local file (when --follow)", undefined)
+    .option("--out <file>", "Write preview content to a local file (when --follow)")
     .option("--overwrite", "Overwrite output file if it exists", false)
     .description("Start a preview job")
     .action(async (opts: { includeTrees?: boolean; maxFiles?: number; maxBytes?: number; prompt?: string; follow?: boolean; waitMs?: number; out?: string; overwrite?: boolean }) => {
@@ -38,12 +39,12 @@ export function attachPreviewCommand(root: any): void {
             printJsonOrText({ id: data.id }, flags);
             process.exit(0);
           }
-          // eslint-disable-next-line no-console
+           
           console.log(data.id);
           process.exit(0);
         }
 
-        const waitMs = Number.isFinite(opts.waitMs) && (opts.waitMs as number) > 0 ? Number(opts.waitMs) : 180000;
+        const waitMs = Number.isFinite(opts.waitMs) && (opts.waitMs as number) > 0 ? Number(opts.waitMs) : 180_000;
 
         // Support Ctrl+C cancellation during follow
         const ac = new AbortController();
@@ -66,7 +67,7 @@ export function attachPreviewCommand(root: any): void {
               printJsonOrText({ id: data.id, outputPath: String(opts.out), bytes, tokenCount: contentData.tokenCount, fileCount: contentData.fileCount }, flags);
               process.exit(0);
             }
-            // eslint-disable-next-line no-console
+             
             console.log(`Wrote ${bytes} bytes to ${String(opts.out)} (files: ${contentData.fileCount}, tokens: ${contentData.tokenCount})`);
             process.exit(0);
           }
@@ -75,22 +76,20 @@ export function attachPreviewCommand(root: any): void {
             process.exit(0);
           }
           if (flags.raw) {
-            // eslint-disable-next-line no-console
+             
             console.log(contentData.content);
             process.exit(0);
           }
           const lines: string[] = [];
-          lines.push(`Files: ${contentData.fileCount}`);
-          lines.push(`Tokens: ${contentData.tokenCount}`);
-          lines.push("");
-          // eslint-disable-next-line no-console
+          lines.push(`Files: ${contentData.fileCount}`, `Tokens: ${contentData.tokenCount}`, "");
+           
           console.log(lines.join("\n") + contentData.content);
           process.exit(0);
         } else if (result.state === "CANCELLED") {
           if (flags.json) {
             printJsonOrText({ id: data.id, state: "CANCELLED" }, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.error("CANCELLED");
           }
           process.exit(1);
@@ -99,19 +98,19 @@ export function attachPreviewCommand(root: any): void {
           if (flags.json) {
             printJsonOrText({ id: data.id, state: "FAILED", error: result.error || { code: "INTERNAL_ERROR", message: "Preview failed" } }, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.error(`FAILED: ${result.error?.message || "Preview failed"}`);
           }
           process.exit(1);
         }
-      } catch (err: unknown) {
-        const e = err as any;
+      } catch (error: unknown) {
+        const e = error as any;
         // Handle user cancellation via AbortController
         if (e?.code === "ERR_CANCELED") {
           if (flags.json) {
             printJsonOrText({ error: { code: "CANCELLED", message: "Operation cancelled by user (SIGINT)" } }, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.error("CANCELLED");
           }
           process.exit(1);
@@ -123,7 +122,7 @@ export function attachPreviewCommand(root: any): void {
             if (flags.json) {
               printJsonOrText({ error: { code: "VALIDATION_ERROR", message: (e as Error).message } }, flags);
             } else {
-              // eslint-disable-next-line no-console
+               
               console.error(`VALIDATION_ERROR: ${(e as Error).message}`);
             }
             process.exit(2);
@@ -133,7 +132,7 @@ export function attachPreviewCommand(root: any): void {
           if (flags.json) {
             printJsonOrText({ error: { code: "CONFLICT", message: "File exists; use --overwrite" } }, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.error("CONFLICT: File exists; use --overwrite");
           }
           process.exit(5);
@@ -144,16 +143,16 @@ export function attachPreviewCommand(root: any): void {
             if (flags.json) {
               printJsonOrText({ error: { code: "FILE_SYSTEM_ERROR", message: (e as Error).message } }, flags);
             } else {
-              // eslint-disable-next-line no-console
+               
               console.error(`FILE_SYSTEM_ERROR: ${(e as Error).message}`);
             }
             process.exit(1);
           }
         }
-        const mapped = handleAxiosError(err, flags);
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -178,7 +177,7 @@ export function attachPreviewCommand(root: any): void {
           if (flags.json) {
             printJsonOrText(data, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.log(`${data.state}${data.error ? ` — ${data.error.code}: ${data.error.message}` : ""}`);
           }
           process.exit(0);
@@ -188,7 +187,7 @@ export function attachPreviewCommand(root: any): void {
         let delay = Number.isFinite(opts.intervalMs) && (opts.intervalMs as number) > 0 ? Number(opts.intervalMs) : 250;
         const maxDelay = 3000;
         let iterations = 0;
-        const maxIterations = 10000; // safety guard to avoid infinite loops
+        const maxIterations = 10_000; // safety guard to avoid infinite loops
         const ac = new AbortController();
         try { process.once("SIGINT", () => ac.abort()); } catch {}
         while (true) {
@@ -196,7 +195,7 @@ export function attachPreviewCommand(root: any): void {
             if (flags.json) {
               printJsonOrText({ error: { code: "CANCELLED", message: "Operation cancelled by user (SIGINT)" } }, flags);
             } else {
-              // eslint-disable-next-line no-console
+               
               console.error("CANCELLED");
             }
             process.exit(1);
@@ -207,7 +206,7 @@ export function attachPreviewCommand(root: any): void {
             if (flags.json) {
               printJsonOrText(data, flags);
             } else {
-              // eslint-disable-next-line no-console
+               
               console.log(`${data.state}${data.error ? ` — ${data.error.code}: ${data.error.message}` : ""}`);
             }
             process.exit(data.state === "SUCCEEDED" ? 0 : 1);
@@ -215,17 +214,17 @@ export function attachPreviewCommand(root: any): void {
           await sleep(delay);
           delay = Math.min(Math.floor(delay * 1.5), maxDelay);
           iterations += 1;
-          if (iterations > maxIterations || Date.now() - start > 180000) {
-            // eslint-disable-next-line no-console
+          if (iterations > maxIterations || Date.now() - start > 180_000) {
+             
             console.error("Watch timeout exceeded (safety guard)");
             process.exit(1);
           }
         }
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -252,7 +251,7 @@ export function attachPreviewCommand(root: any): void {
             printJsonOrText({ id, outputPath: String(opts.out), bytes, tokenCount: data.tokenCount, fileCount: data.fileCount }, flags);
             process.exit(0);
           }
-          // eslint-disable-next-line no-console
+           
           console.log(`Wrote ${bytes} bytes to ${String(opts.out)} (files: ${data.fileCount}, tokens: ${data.tokenCount})`);
           process.exit(0);
         }
@@ -261,24 +260,22 @@ export function attachPreviewCommand(root: any): void {
           process.exit(0);
         }
         if (flags.raw) {
-          // eslint-disable-next-line no-console
+           
           console.log(data.content);
           process.exit(0);
         }
         const lines: string[] = [];
-        lines.push(`Files: ${data.fileCount}`);
-        lines.push(`Tokens: ${data.tokenCount}`);
-        lines.push("");
-        // eslint-disable-next-line no-console
+        lines.push(`Files: ${data.fileCount}`, `Tokens: ${data.tokenCount}`, "");
+         
         console.log(lines.join("\n") + data.content);
         process.exit(0);
-      } catch (err: unknown) {
-        const e = err as any;
+      } catch (error: unknown) {
+        const e = error as any;
         if (e?.code === "EEXIST") {
           if (flags.json) {
             printJsonOrText({ error: { code: "CONFLICT", message: "File exists; use --overwrite" } }, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.error("CONFLICT: File exists; use --overwrite");
           }
           process.exit(5);
@@ -289,16 +286,16 @@ export function attachPreviewCommand(root: any): void {
             if (flags.json) {
               printJsonOrText({ error: { code: "FILE_SYSTEM_ERROR", message: (e as Error).message } }, flags);
             } else {
-              // eslint-disable-next-line no-console
+               
               console.error(`FILE_SYSTEM_ERROR: ${(e as Error).message}`);
             }
             process.exit(1);
           }
         }
-        const mapped = handleAxiosError(err, flags);
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -320,15 +317,15 @@ export function attachPreviewCommand(root: any): void {
         if (flags.json) {
           printJsonOrText({ ok }, flags);
         } else {
-          // eslint-disable-next-line no-console
+           
           console.log(ok ? "true" : "false");
         }
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -389,10 +386,8 @@ async function writeLocalFile(filePath: string, data: string, overwrite?: boolea
       ex.code = "EEXIST";
       throw ex;
     }
-  } catch (e: any) {
-    if (e?.code !== "ENOENT") {
-      if (e?.code === "EEXIST") throw e;
-    }
+  } catch (error: any) {
+    if (error?.code !== "ENOENT" && error?.code === "EEXIST") throw error;
   }
   const bytes = Buffer.byteLength(data, "utf8");
   await fs.promises.writeFile(filePath, data, "utf8");

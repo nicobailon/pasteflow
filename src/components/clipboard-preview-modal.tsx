@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Copy, FileText, X } from 'lucide-react';
+
 import type { PreviewState } from '../hooks/use-preview-generator';
 import './clipboard-preview-modal.css';
 

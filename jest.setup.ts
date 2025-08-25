@@ -29,7 +29,7 @@ if (typeof global !== 'undefined' && !(global as any).import) {
 }
 
 // Mock Worker for worker pool tests
-if (typeof (global as any).Worker === 'undefined') {
+if ((global as any).Worker === undefined) {
   class MockMessageEvent<T = unknown> extends Event {
     data: T;
     constructor(type: string, init?: { data?: T }) {
@@ -79,7 +79,7 @@ if (typeof (global as any).Worker === 'undefined') {
     dispatchEvent(event: { type: string; data?: any }) {
       const listeners = this.listeners.get(event.type);
       if (listeners) {
-        listeners.forEach((listener) => listener(event));
+        for (const listener of listeners) listener(event);
       }
     }
 
@@ -92,7 +92,7 @@ if (typeof (global as any).Worker === 'undefined') {
 }
 
 // Polyfill TextEncoder/TextDecoder for Jest environment
-if (typeof (global as any).TextEncoder === 'undefined') {
+if ((global as any).TextEncoder === undefined) {
   (global as any).TextEncoder = class {
     encode(input: string) {
       const bytes: number[] = [];
@@ -100,20 +100,20 @@ if (typeof (global as any).TextEncoder === 'undefined') {
         const char = input.charCodeAt(i);
         if (char < 0x80) {
           bytes.push(char);
-        } else if (char < 0x800) {
-          bytes.push(0xc0 | (char >> 6), 0x80 | (char & 0x3f));
-        } else if (char < 0xd800 || char >= 0xe000) {
-          bytes.push(0xe0 | (char >> 12), 0x80 | ((char >> 6) & 0x3f), 0x80 | (char & 0x3f));
+        } else if (char < 0x8_00) {
+          bytes.push(0xC0 | (char >> 6), 0x80 | (char & 0x3F));
+        } else if (char < 0xD8_00 || char >= 0xE0_00) {
+          bytes.push(0xE0 | (char >> 12), 0x80 | ((char >> 6) & 0x3F), 0x80 | (char & 0x3F));
         } else {
           // Handle surrogate pairs
           i++;
           const char2 = input.charCodeAt(i);
-          const codePoint = 0x10000 + (((char & 0x3ff) << 10) | (char2 & 0x3ff));
+          const codePoint = 0x1_00_00 + (((char & 0x3_FF) << 10) | (char2 & 0x3_FF));
           bytes.push(
-            0xf0 | (codePoint >> 18),
-            0x80 | ((codePoint >> 12) & 0x3f),
-            0x80 | ((codePoint >> 6) & 0x3f),
-            0x80 | (codePoint & 0x3f),
+            0xF0 | (codePoint >> 18),
+            0x80 | ((codePoint >> 12) & 0x3F),
+            0x80 | ((codePoint >> 6) & 0x3F),
+            0x80 | (codePoint & 0x3F),
           );
         }
       }
@@ -122,7 +122,7 @@ if (typeof (global as any).TextEncoder === 'undefined') {
   };
 }
 
-if (typeof (global as any).TextDecoder === 'undefined') {
+if ((global as any).TextDecoder === undefined) {
   (global as any).TextDecoder = class {
     decode(bytes: Uint8Array) {
       let result = '';
@@ -132,20 +132,20 @@ if (typeof (global as any).TextDecoder === 'undefined') {
         if (byte < 0x80) {
           result += String.fromCharCode(byte);
           i++;
-        } else if ((byte & 0xe0) === 0xc0) {
-          result += String.fromCharCode(((byte & 0x1f) << 6) | (bytes[i + 1] & 0x3f));
+        } else if ((byte & 0xE0) === 0xC0) {
+          result += String.fromCharCode(((byte & 0x1F) << 6) | (bytes[i + 1] & 0x3F));
           i += 2;
-        } else if ((byte & 0xf0) === 0xe0) {
-          result += String.fromCharCode(((byte & 0x0f) << 12) | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f));
+        } else if ((byte & 0xF0) === 0xE0) {
+          result += String.fromCharCode(((byte & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F));
           i += 3;
         } else {
           const codePoint =
             ((byte & 0x07) << 18) |
-            ((bytes[i + 1] & 0x3f) << 12) |
-            ((bytes[i + 2] & 0x3f) << 6) |
-            (bytes[i + 3] & 0x3f);
-          const high = Math.floor((codePoint - 0x10000) / 0x400) + 0xd800;
-          const low = ((codePoint - 0x10000) % 0x400) + 0xdc00;
+            ((bytes[i + 1] & 0x3F) << 12) |
+            ((bytes[i + 2] & 0x3F) << 6) |
+            (bytes[i + 3] & 0x3F);
+          const high = Math.floor((codePoint - 0x1_00_00) / 0x4_00) + 0xD8_00;
+          const low = ((codePoint - 0x1_00_00) % 0x4_00) + 0xDC_00;
           result += String.fromCharCode(high, low);
           i += 4;
         }
@@ -188,7 +188,7 @@ if (typeof window !== 'undefined') {
           }
 
           // Default response for unknown channels
-          // eslint-disable-next-line no-console
+           
           console.warn(`Mock: Unhandled IPC channel: ${channel}`);
           return Promise.resolve(null);
         }),

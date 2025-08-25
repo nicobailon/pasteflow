@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+
 import { getRendererTokenService, cleanupRendererTokenService } from '../services/token-service-renderer';
 import { TokenService } from '../services/token-service';
 
@@ -76,8 +77,7 @@ export function useTokenService(): TokenServiceHook {
       return null;
     }
     
-    const backend = await serviceRef.current.getActiveBackend();
-    return backend;
+    return await serviceRef.current.getActiveBackend();
   }, []);
   
   return {

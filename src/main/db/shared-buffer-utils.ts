@@ -14,7 +14,7 @@ export class SharedBufferManager {
    */
   private static isSharedArrayBufferSupported(): boolean {
     // Use globalThis to work in Node worker_threads and browser contexts without referencing 'self'
-    const g: any = typeof globalThis !== 'undefined' ? (globalThis as any) : undefined;
+    const g: any = typeof globalThis === 'undefined' ? undefined : (globalThis as any);
     const isIsolated = g && 'crossOriginIsolated' in g ? g.crossOriginIsolated === true : true;
     return typeof SharedArrayBuffer !== 'undefined' && isIsolated;
   }

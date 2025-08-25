@@ -151,7 +151,7 @@ describe('PasteFlowDatabase', () => {
     });
 
 it('should throw when updating by non-existent ID', async () => {
-      await expect(db.updateWorkspaceById(999999, {
+      await expect(db.updateWorkspaceById(999_999, {
         selectedFiles: [],
         systemPrompts: [],
         rolePrompts: []

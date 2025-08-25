@@ -25,7 +25,7 @@ export class AuthManager {
   private readToken(): string {
     try {
       return fs.readFileSync(this.tokenPath, 'utf8').trim();
-    } catch (e) {
+    } catch {
       // If read fails for any reason, regenerate a token
       const value = crypto.randomBytes(32).toString('hex');
       fs.writeFileSync(this.tokenPath, value + '\n', { mode: 0o600 });

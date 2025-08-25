@@ -28,7 +28,7 @@ type MessageHandler = (event: MessageEvent) => void;
 type ErrorHandler = (event: ErrorEvent) => void;
 
 class MockWorker {
-  private listeners = new Map<string, Array<MessageHandler | ErrorHandler>>();
+  private listeners = new Map<string, (MessageHandler | ErrorHandler)[]>();
   public terminated = false;
   public messages: WorkerMessage[] = [];
   

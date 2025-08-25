@@ -21,14 +21,14 @@ export function attachPrefsCommand(root: any): void {
           process.exit(0);
         }
 
-        // eslint-disable-next-line no-console
+         
         console.log(typeof data === "string" ? data : JSON.stringify(data));
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -45,7 +45,7 @@ export function attachPrefsCommand(root: any): void {
       const flags = root.opts() as any;
       try {
         const raw = parseAtFile(opts.value);
-        const parsed = raw !== undefined ? parseJsonValue(raw) : null;
+        const parsed = raw === undefined ? null : parseJsonValue(raw);
 
         const d = await discover(flags);
         const client = createClient(d, flags);
@@ -57,14 +57,14 @@ export function attachPrefsCommand(root: any): void {
           process.exit(0);
         }
 
-        // eslint-disable-next-line no-console
+         
         console.log(ok ? "true" : "false");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);

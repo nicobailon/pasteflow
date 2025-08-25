@@ -4,7 +4,7 @@ const isDev = typeof process !== 'undefined' && process.env && process.env.NODE_
 // More restrictive and explicit type definitions for better type safety
 type Primitive = string | number | boolean | undefined | null | bigint | symbol;
 type SerializableObject = Record<string, unknown>;
-type LogValue = Primitive | Error | SerializableObject | Array<Primitive | SerializableObject>;
+type LogValue = Primitive | Error | SerializableObject | (Primitive | SerializableObject)[];
 type LogArg = LogValue;
 
 // Type-safe noop function that matches console method signatures

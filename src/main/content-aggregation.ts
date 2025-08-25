@@ -9,9 +9,9 @@ import type {
   RolePrompt,
   Instruction,
 } from '../types/file-types';
-
 import { loadGitignore } from '../utils/ignore-utils';
 import { getSelectedFilesContent } from '../utils/content-formatter';
+
 import { validateAndResolvePath, statFile, readTextFile } from './file-service';
 
 /**
@@ -68,7 +68,7 @@ async function buildAllFiles(
   const queue: string[] = [folderPath];
   const seen = new Set<string>();
 
-  while (queue.length) {
+  while (queue.length > 0) {
     const dir = queue.shift()!;
     if (seen.has(dir)) continue;
     seen.add(dir);
@@ -164,8 +164,7 @@ async function readSelectedFilesContent(
   let included = 0;
   let totalBytes = 0;
 
-  for (let i = 0; i < allFiles.length; i++) {
-    const f = allFiles[i];
+  for (const f of allFiles) {
     if (!selectedSet.has(f.path)) continue;
     if (f.isDirectory) continue;
 

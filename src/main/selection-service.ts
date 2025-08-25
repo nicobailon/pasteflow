@@ -36,8 +36,8 @@ export class SelectionServiceError extends Error {
  * - Clamp to minimum 1 (upper bound unknown here, validated later during content formatting)
  */
 function normalizeRange(r: LineRange): LineRange {
-  let s = Number.isFinite(r.start) ? Math.trunc(r.start) : NaN;
-  let e = Number.isFinite(r.end) ? Math.trunc(r.end) : NaN;
+  let s = Number.isFinite(r.start) ? Math.trunc(r.start) : Number.NaN;
+  let e = Number.isFinite(r.end) ? Math.trunc(r.end) : Number.NaN;
   if (!Number.isFinite(s) || !Number.isFinite(e)) {
     throw new SelectionServiceError('INVALID_LINE_RANGE_INPUT', 'Line range must be integers');
   }
@@ -79,7 +79,7 @@ export function normalizeRanges(ranges: LineRange[] | undefined): LineRange[] | 
   if (!ranges || ranges.length === 0) return undefined;
   const normalized = ranges.map(normalizeRange).sort((a, b) => a.start - b.start);
   const merged = mergeNormalizedRanges(normalized);
-  return merged.length ? merged : undefined;
+  return merged.length > 0 ? merged : undefined;
 }
 
 /**
@@ -130,8 +130,7 @@ export function subtractLineRanges(a: LineRange[], b: LineRange[]): LineRange[] 
     out.push(...segments);
   }
 
-  const merged = normalizeRanges(out);
-  return merged;
+  return normalizeRanges(out);
 }
 
 /**
@@ -176,7 +175,7 @@ export function applySelect(
     existing.set(item.path, { path: item.path, lines: merged });
   }
 
-  return { selectedFiles: Array.from(existing.values()) };
+  return { selectedFiles: [...existing.values()] };
 }
 
 /**
@@ -223,5 +222,5 @@ export function applyDeselect(
     }
   }
 
-  return { selectedFiles: Array.from(existing.values()) };
+  return { selectedFiles: [...existing.values()] };
 }

@@ -1,11 +1,12 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { logger } from '../utils/logger';
 import { FEATURES, UI, TOKEN_COUNTING } from '@constants';
-import { usePreviewPack } from '../hooks/use-preview-pack';
-
-import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
 import { getRelativePath, dirname, normalizePath } from '@file-ops/path';
+
+import { logger } from '../utils/logger';
+import { usePreviewPack } from '../hooks/use-preview-pack';
+import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
+
 
 import CopyButton from './copy-button';
 import Dropdown from './dropdown';
@@ -467,7 +468,7 @@ const ContentArea = ({
         const slice = updates.slice(i, i + BATCH);
         setTimeout(() => pushFileUpdates(slice), 0);
       }
-      updates.forEach(u => lastPushedRef.current.add(u.path));
+      for (const u of updates) lastPushedRef.current.add(u.path);
     }
   }, [allFiles, selectedFiles, packState?.status, pushFileUpdates]);
 
@@ -611,7 +612,7 @@ const ContentArea = ({
     const interval = window.setInterval(() => {
       trimSet(lastPushedRef.current);
       trimSet(reportedErrorsRef.current);
-    }, UI.PREVIEW?.CLEANUP_INTERVAL_MS ?? 30000);
+    }, UI.PREVIEW?.CLEANUP_INTERVAL_MS ?? 30_000);
 
     return () => window.clearInterval(interval);
   }, [packState?.status]);
@@ -628,7 +629,7 @@ const ContentArea = ({
         // Fallback to streaming preview or modal content
         return streamingPreview?.fullContent || previewContent || '';
       };
-      const isPlaceholder = (t: string) => /\[Content is loading\.\.\.\]/.test(t);
+      const isPlaceholder = (t: string) => /\[Content is loading\.{3}]/.test(t);
 
       // Backoff to avoid copying placeholders when preview just started
       let textToCopy = getText();

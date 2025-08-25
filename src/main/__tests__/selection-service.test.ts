@@ -56,7 +56,7 @@ describe('SelectionService — line range normalization and mutations', () => {
 
   test('applySelect should merge line selections and upgrade to whole file when lines omitted', () => {
     // Start empty
-    let state = { selectedFiles: [] as Array<{ path: string; lines?: Array<{ start: number; end: number }> }> };
+    let state = { selectedFiles: [] as { path: string; lines?: { start: number; end: number }[] }[] };
 
     // Select lines [2..3]
     state = applySelect(state, [{ path: '/proj/a.ts', lines: [{ start: 3, end: 2 }] }]); // reversed inputs allowed

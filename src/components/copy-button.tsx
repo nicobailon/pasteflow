@@ -14,7 +14,7 @@ interface CopyButtonProps {
  * Retries resolving text when placeholder is present, up to UI.MODAL.BACKOFF_MAX_ATTEMPTS.
  * This prevents copying "[Content is loading...]" immediately after users click Copy.
  */
-const LOADING_PLACEHOLDER_REGEX = /\[Content is loading\.\.\.\]/;
+const LOADING_PLACEHOLDER_REGEX = /\[Content is loading\.{3}]/;
 
 async function resolveTextWithBackoff(source: CopyButtonProps['text']): Promise<string> {
   for (let attempt = 0; attempt < UI.MODAL.BACKOFF_MAX_ATTEMPTS; attempt++) {

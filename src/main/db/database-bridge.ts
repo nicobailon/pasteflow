@@ -1,5 +1,7 @@
-import * as path from 'path';
+import * as path from 'node:path';
+
 import { app } from 'electron';
+
 import { PasteFlowDatabase, WorkspaceState, PreferenceValue } from './database-implementation';
 import { DatabaseLogs, type LogEntry, type LogEntryInput, type LogListOptions } from './database-logs';
 
@@ -61,8 +63,8 @@ export class DatabaseBridge {
         if (this.db.db) {
           try {
             this.db.db.prepare('SELECT 1 as test').get();
-          } catch (e) {
-            console.warn('Database health check failed:', e);
+          } catch (error) {
+            console.warn('Database health check failed:', error);
           }
         }
         

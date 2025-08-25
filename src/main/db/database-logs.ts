@@ -89,7 +89,7 @@ export class DatabaseLogs {
       ? (this.listByCatStmt.all(opts.category, limit) as unknown[])
       : (this.listAllStmt.all(limit) as unknown[]);
 
-    const rows = baseRows as Array<{
+    const rows = baseRows as {
       id: string;
       ts: number;
       category: string;
@@ -97,7 +97,7 @@ export class DatabaseLogs {
       status: string;
       durationMs?: number | null;
       details?: string | null;
-    }>;
+    }[];
 
     return rows.map((r) => ({
       id: r.id,

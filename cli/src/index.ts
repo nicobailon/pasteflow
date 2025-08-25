@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+
 import { attachStatusCommand } from "./commands/status";
 import { attachWorkspacesCommand } from "./commands/workspaces";
 import { attachFoldersCommand } from "./commands/folders";
@@ -49,8 +50,8 @@ async function main() {
   await program.parseAsync(process.argv);
 }
 
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error(err instanceof Error ? err.message : String(err));
+main().catch((error) => {
+   
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

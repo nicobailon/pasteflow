@@ -12,7 +12,7 @@ const MIN_TEXT_RETENTION_RATIO = 0.9;
 function sanitizeTextForTokenCount(text: string): string {
   // Remove problematic characters that cause tiktoken to fail
   return text
-    .replace(/<\|[^|>]+\|>/g, '') // Remove special tokens with <|...|> pattern
+    .replace(/<\|[^>|]+\|>/g, '') // Remove special tokens with <|...|> pattern
     // eslint-disable-next-line no-control-regex
     .replace(/\u0000/g, '') // Remove null characters
     .replace(/[\uFFF0-\uFFFF]/g, '') // Remove special use area

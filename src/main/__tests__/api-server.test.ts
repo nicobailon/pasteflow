@@ -32,7 +32,7 @@ class FakeDatabaseBridge {
   private prefs = new Map<string, PreferenceValue>();
 
   async listWorkspaces() {
-    return Array.from(this.workspaces.values());
+    return [...this.workspaces.values()];
   }
 
   async createWorkspace(name: string, folderPath: string, state: WorkspaceState = {}) {
@@ -57,7 +57,7 @@ class FakeDatabaseBridge {
 
   async getWorkspace(nameOrId: string | number) {
     const key = String(nameOrId);
-    const idNum = Number.isFinite(Number(key)) ? Number(key) : NaN;
+    const idNum = Number.isFinite(Number(key)) ? Number(key) : Number.NaN;
     if (!Number.isNaN(idNum)) {
       return this.workspaces.get(idNum) || null;
     }
@@ -114,7 +114,7 @@ class FakeDatabaseBridge {
   }
 
   async listInstructions() {
-    return Array.from(this.instructions.values()).sort((a, b) => b.updated_at - a.updated_at);
+    return [...this.instructions.values()].sort((a, b) => b.updated_at - a.updated_at);
   }
 
   async createInstruction(id: string, name: string, content: string) {
@@ -163,7 +163,7 @@ async function requestJson<T = any>(
   token: string,
   body?: unknown
 ): Promise<{ status: number; json: T }> {
-  const payload = body !== undefined ? JSON.stringify(body) : undefined;
+  const payload = body === undefined ? undefined : JSON.stringify(body);
   const opts: http.RequestOptions & { body?: string } = {
     hostname: '127.0.0.1',
     port,
@@ -212,7 +212,7 @@ async function waitForPort(srv: PasteFlowAPIServer, timeoutMs = 2000): Promise<n
 }
 
 describe('PasteFlowAPIServer — Day 3 endpoints and error handling', () => {
-  jest.setTimeout(20000);
+  jest.setTimeout(20_000);
 
   test('rejects unauthorized requests with 401', withTempHome(async () => {
     const db = new FakeDatabaseBridge();

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
-
 import { STORAGE_KEYS, FILE_PROCESSING } from '@constants';
+
 import { FileData, LineRange, SelectedFileReference } from '../types/file-types';
 import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/folder-selection-index';
 import { createDirectorySelectionCache } from '../utils/selection-cache';
@@ -189,7 +189,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (allFiles.length === 0) return;
     
     // Create a Set of all current file paths for O(1) lookup (leveraging precomputed map)
-    const existingFilePaths = new Set<string>([...allFilesMap.keys()]);
+    const existingFilePaths = new Set<string>(allFilesMap.keys());
     
     setSelectedFiles(prev => {
       // Filter out any selected files that no longer exist in allFiles
@@ -482,7 +482,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     } else {
       // Remove all files from this folder (chunk building + single commit)
       const toRemove = new Set(selectableFiles);
-      const snapshot = selectedFiles.slice(); // snapshot for deterministic rebuild
+      const snapshot = [...selectedFiles]; // snapshot for deterministic rebuild
       const total = snapshot.length;
       let index = 0;
       const CHUNK = BULK.REMOVE_CHUNK;
@@ -609,7 +609,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     // Convert displayed paths to a Set for faster lookups
     const toRemove = new Set(displayedFiles.map((file: FileData) => file.path));
 
-    const snapshot = selectedFiles.slice();
+    const snapshot = [...selectedFiles];
     const total = snapshot.length;
     let index = 0;
     const CHUNK = BULK.REMOVE_CHUNK;

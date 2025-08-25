@@ -25,31 +25,29 @@ export function attachStatusCommand(root: any): void {
         lines.push(`Server: ${data.status} (${d.baseURL})`);
         if (data.activeWorkspace) {
           lines.push(
-            `Active Workspace: ${data.activeWorkspace.name} [${data.activeWorkspace.id}]`,
+            `Active Workspace: ${data.activeWorkspace.name} [${data.activeWorkspace.id}]`, `Folder: ${data.activeWorkspace.folderPath}`
           );
-          lines.push(`Folder: ${data.activeWorkspace.folderPath}`);
         } else {
           lines.push("Active Workspace: none");
         }
         const allowed = data.securityContext?.allowedPaths ?? [];
-        if (allowed.length) {
+        if (allowed.length > 0) {
           lines.push("Allowed Paths:");
           for (const p of allowed) lines.push(`  - ${p}`);
         } else {
-          lines.push("Allowed Paths: (none)");
-          lines.push(
+          lines.push("Allowed Paths: (none)", 
             "Hint: run 'pasteflow folders open --folder /abs/path' or 'pasteflow workspaces load <id>'",
           );
         }
 
-        // eslint-disable-next-line no-console
+         
         console.log(lines.join("\n"));
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);

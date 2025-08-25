@@ -89,19 +89,19 @@ const UI_THROTTLE_MS = 33; // ~15fps to keep UI responsive under heavy streams
 
 function createWorker(): Worker {
   let worker: Worker;
-  if (typeof jest !== 'undefined') {
-    // Test environments will mock Worker. Script URL is ignored by the mock.
-    worker = new Worker('/mock/worker/path', { type: 'module' } as WorkerOptions);
-  } else {
+  if (jest === undefined) {
     try {
       // Use eval to avoid Jest transform issues
-      // eslint-disable-next-line no-eval
+       
       const metaUrl = eval('import.meta.url');
       worker = new Worker(new URL('../workers/preview-generator-worker.ts', metaUrl), { type: 'module' });
     } catch {
       // Fallback path (dev servers)
       worker = new Worker('/src/workers/preview-generator-worker.ts', { type: 'module' });
     }
+  } else {
+    // Test environments will mock Worker. Script URL is ignored by the mock.
+    worker = new Worker('/mock/worker/path', { type: 'module' } as WorkerOptions);
   }
   return worker;
 }
@@ -161,7 +161,7 @@ export function usePreviewGenerator() {
   }, []);
 
   const flushState = useCallback((force = false) => {
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const now = typeof performance === 'undefined' ? Date.now() : performance.now();
     if (!force && now - lastFlushTimeRef.current < UI_THROTTLE_MS) {
       return;
     }
@@ -314,8 +314,9 @@ export function usePreviewGenerator() {
         }));
         break;
       }
-      default:
+      default: {
         break;
+      }
     }
   }, [scheduleFlush]);
 

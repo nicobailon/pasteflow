@@ -1,21 +1,23 @@
-import express, { Express, Request, Response, NextFunction } from 'express';
-import type { Server } from 'http';
-import type { AddressInfo } from 'net';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+
+import express, { Express, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
+
+import { getMainTokenService } from '../services/token-service-main';
+import { getPathValidator } from '../security/path-validator';
+
 import { DatabaseBridge } from './db/database-bridge';
 import { WorkspaceState, PreferenceValue, ParsedWorkspace } from './db/database-implementation';
 import { AuthManager } from './auth-manager';
 import { setAllowedWorkspacePaths, getAllowedWorkspacePaths } from './workspace-context';
 import { toApiError, ok } from './error-normalizer';
-import { z } from 'zod';
-import { randomUUID } from 'node:crypto';
 import { validateAndResolvePath, statFile as fileServiceStatFile, readTextFile } from './file-service';
-import { getMainTokenService } from '../services/token-service-main';
-import { getPathValidator } from '../security/path-validator';
 import { applySelect, applyDeselect, SelectionServiceError } from './selection-service';
 import { aggregateSelectedContent } from './content-aggregation';
-
 import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
@@ -50,9 +52,9 @@ const exportBody = z.object({ outputPath: z.string().min(1), overwrite: z.boolea
 // Phase 4: Schemas
 const previewStartBody = z.object({
   includeTrees: z.boolean().optional(),
-  maxFiles: z.number().int().min(1).max(10000).optional(),
+  maxFiles: z.number().int().min(1).max(10_000).optional(),
   maxBytes: z.number().int().min(1).max(50 * 1024 * 1024).optional(),
-  prompt: z.string().max(100000).optional()
+  prompt: z.string().max(100_000).optional()
 });
 const previewIdParam = z.object({ id: z.string().min(1) });
 
@@ -73,7 +75,7 @@ export class PasteFlowAPIServer {
   private readonly auth = new AuthManager();
   private server: Server | null = null;
   private readonly previewProxy = new RendererPreviewProxy();
-  private readonly previewController = new PreviewController(this.previewProxy, { timeoutMs: 120000 });
+  private readonly previewController = new PreviewController(this.previewProxy, { timeoutMs: 120_000 });
 
   constructor(private readonly db: DatabaseBridge, private readonly port = 5839) {
     this.app = express();
@@ -181,8 +183,8 @@ export class PasteFlowAPIServer {
           allowedPaths.push(ws.folder_path);
         }
         return res.json(ok({ status: 'running', activeWorkspace: active, securityContext: { allowedPaths } }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -192,8 +194,8 @@ export class PasteFlowAPIServer {
         const rows = await this.db.listWorkspaces();
         const data = rows.map(mapWorkspaceDbToJson);
         return res.json(ok(data));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -207,8 +209,8 @@ export class PasteFlowAPIServer {
           (parsed.data.state ?? {}) as WorkspaceState
         );
         return res.json(ok(mapWorkspaceDbToJson(created)));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -219,8 +221,8 @@ export class PasteFlowAPIServer {
         const ws = await this.db.getWorkspace(params.data.id);
         if (!ws) return res.json(ok(null));
         return res.json(ok(mapWorkspaceDbToJson(ws)));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -231,8 +233,8 @@ export class PasteFlowAPIServer {
       try {
         await this.db.updateWorkspaceById(params.data.id, body.data.state as WorkspaceState);
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -242,8 +244,8 @@ export class PasteFlowAPIServer {
       try {
         await this.db.deleteWorkspaceById(params.data.id);
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -256,8 +258,8 @@ export class PasteFlowAPIServer {
         if (!ws) return res.status(404).json(toApiError('WORKSPACE_NOT_FOUND', 'Workspace not found'));
         await this.db.renameWorkspace(ws.name, body.data.newName);
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -272,8 +274,8 @@ export class PasteFlowAPIServer {
           getPathValidator([ws.folder_path]);
         }
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -289,8 +291,8 @@ export class PasteFlowAPIServer {
           updatedAt: i.updated_at,
         }));
         return res.json(ok(data));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -301,8 +303,8 @@ export class PasteFlowAPIServer {
       try {
         await this.db.createInstruction(id, body.data.name, body.data.content);
         return res.json(ok({ id, name: body.data.name, content: body.data.content }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -313,8 +315,8 @@ export class PasteFlowAPIServer {
       try {
         await this.db.updateInstruction(params.data.id, body.data.name, body.data.content);
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -324,8 +326,8 @@ export class PasteFlowAPIServer {
       try {
         await this.db.deleteInstruction(params.data.id);
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -336,8 +338,8 @@ export class PasteFlowAPIServer {
       try {
         const value = await this.db.getPreference(params.data.key);
         return res.json(ok(value ?? null));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -350,8 +352,8 @@ export class PasteFlowAPIServer {
       try {
         await this.db.setPreference(params.data.key, (body.data.value ?? null) as PreferenceValue);
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -452,8 +454,8 @@ export class PasteFlowAPIServer {
         const tokenService = getMainTokenService();
         const result = await tokenService.countTokens(body.data.text);
         return res.json(ok(result));
-      } catch (e) {
-        return res.status(500).json(toApiError('INTERNAL_ERROR', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('INTERNAL_ERROR', (error as Error).message));
       }
     });
 
@@ -463,8 +465,8 @@ export class PasteFlowAPIServer {
         const tokenService = getMainTokenService();
         const backend = await tokenService.getActiveBackend();
         return res.json(ok({ backend: backend ?? 'estimate' }));
-      } catch (e) {
-        return res.status(500).json(toApiError('INTERNAL_ERROR', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('INTERNAL_ERROR', (error as Error).message));
       }
     });
 
@@ -476,8 +478,8 @@ export class PasteFlowAPIServer {
         const ws = await this.db.getWorkspace(String(activeId));
         if (!ws) return res.json(ok(null));
         return res.json(ok({ folderPath: ws.folder_path }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -498,12 +500,12 @@ export class PasteFlowAPIServer {
         }
 
         const workspaces = await this.db.listWorkspaces();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         let ws = workspaces.find((w: any) => w.folder_path === folderPath);
 
         if (!ws) {
           const requestedName = body.data.name ?? (path.basename(folderPath) || `workspace-${randomUUID().slice(0, 8)}`);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           const collision = workspaces.find((w: any) => w.name === requestedName && w.folder_path !== folderPath);
           if (collision && body.data.name) {
             return res.status(409).json(toApiError('VALIDATION_ERROR', `Workspace name '${requestedName}' already exists`));
@@ -516,8 +518,8 @@ export class PasteFlowAPIServer {
         setAllowedWorkspacePaths([ws.folder_path]);
         getPathValidator([ws.folder_path]);
         return res.json(ok({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -542,7 +544,7 @@ export class PasteFlowAPIServer {
         }
 
         // Validate, sanitize, and existence-check each path
-        const sanitizedItems: Array<{ path: string; lines?: Array<{ start: number; end: number }> }> = [];
+        const sanitizedItems: { path: string; lines?: { start: number; end: number }[] }[] = [];
         for (const item of body.data.items) {
           const validated = validateAndResolvePath(item.path);
           if (!validated.ok) {
@@ -574,12 +576,12 @@ export class PasteFlowAPIServer {
 
         // Apply selection and persist only { path, lines? }
         const next = applySelect(ws.state as WorkspaceState, sanitizedItems);
-        const newState: WorkspaceState = { ...(ws.state || {}), selectedFiles: next.selectedFiles };
+        const newState: WorkspaceState = { ...ws.state, selectedFiles: next.selectedFiles };
         await this.db.updateWorkspaceById(String(ws.id), newState);
 
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -604,7 +606,7 @@ export class PasteFlowAPIServer {
         }
 
         // Validate and sanitize each path (no existence check needed for deselect)
-        const sanitizedItems: Array<{ path: string; lines?: Array<{ start: number; end: number }> }> = [];
+        const sanitizedItems: { path: string; lines?: { start: number; end: number }[] }[] = [];
         for (const item of body.data.items) {
           const validated = validateAndResolvePath(item.path);
           if (!validated.ok) {
@@ -621,18 +623,18 @@ export class PasteFlowAPIServer {
 
         try {
           const next = applyDeselect(ws.state as WorkspaceState, sanitizedItems);
-          const newState: WorkspaceState = { ...(ws.state || {}), selectedFiles: next.selectedFiles };
+          const newState: WorkspaceState = { ...ws.state, selectedFiles: next.selectedFiles };
           await this.db.updateWorkspaceById(String(ws.id), newState);
-        } catch (err: unknown) {
-          if (err instanceof SelectionServiceError) {
-            return res.status(400).json(toApiError('VALIDATION_ERROR', err.message));
+        } catch (error: unknown) {
+          if (error instanceof SelectionServiceError) {
+            return res.status(400).json(toApiError('VALIDATION_ERROR', error.message));
           }
-          throw err;
+          throw error;
         }
 
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -651,11 +653,11 @@ export class PasteFlowAPIServer {
         if (!ws) {
           return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
         }
-        const newState: WorkspaceState = { ...(ws.state || {}), selectedFiles: [] };
+        const newState: WorkspaceState = { ...ws.state, selectedFiles: [] };
         await this.db.updateWorkspaceById(String(ws.id), newState);
         return res.json(ok(true));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -674,10 +676,10 @@ export class PasteFlowAPIServer {
         if (!ws) {
           return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
         }
-        const selected = (ws.state?.selectedFiles ?? []) as Array<{ path: string; lines?: Array<{ start: number; end: number }> }>;
+        const selected = (ws.state?.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
         return res.json(ok(selected));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -701,11 +703,11 @@ export class PasteFlowAPIServer {
         const q = req.query as any;
         const maxFilesQ = Number.parseInt(String(q?.maxFiles ?? ''), 10);
         const maxBytesQ = Number.parseInt(String(q?.maxBytes ?? ''), 10);
-        const maxFiles = Number.isFinite(maxFilesQ) && maxFilesQ > 0 ? Math.min(maxFilesQ, 10000) : undefined;
+        const maxFiles = Number.isFinite(maxFilesQ) && maxFilesQ > 0 ? Math.min(maxFilesQ, 10_000) : undefined;
         const maxBytes = Number.isFinite(maxBytesQ) && maxBytesQ > 0 ? Math.min(maxBytesQ, 50 * 1024 * 1024) : undefined;
 
         const state = (ws.state || {}) as WorkspaceState;
-        const selection = (state.selectedFiles ?? []) as Array<{ path: string; lines?: Array<{ start: number; end: number }> }>;
+        const selection = (state.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
 
         const { content, fileCount } = await aggregateSelectedContent({
           folderPath: ws.folder_path,
@@ -726,8 +728,8 @@ export class PasteFlowAPIServer {
         const { count } = await tokenService.countTokens(content);
 
         return res.json(ok({ content, fileCount, tokenCount: count }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -765,7 +767,7 @@ export class PasteFlowAPIServer {
 
         // Generate content using the same aggregation path
         const state = (ws.state || {}) as WorkspaceState;
-        const selection = (state.selectedFiles ?? []) as Array<{ path: string; lines?: Array<{ start: number; end: number }> }>;
+        const selection = (state.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
 
         const { content } = await aggregateSelectedContent({
           folderPath: ws.folder_path,
@@ -784,8 +786,8 @@ export class PasteFlowAPIServer {
         const { bytes } = await writeExport(outVal.absolutePath, content, body.data.overwrite === true);
 
         return res.json(ok({ outputPath: outVal.absolutePath, bytes }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
 
@@ -811,8 +813,8 @@ export class PasteFlowAPIServer {
         // Optional: record a log entry (best-effort)
         try { await (this.db as any).insertLog?.({ category: 'preview', action: 'start', status: 'queued', details: { id } }); } catch {}
         return res.json(ok({ id }));
-      } catch (e) {
-        return res.status(500).json(toApiError('INTERNAL_ERROR', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('INTERNAL_ERROR', (error as Error).message));
       }
     });
 
@@ -853,12 +855,12 @@ export class PasteFlowAPIServer {
     this.app.get('/api/v1/logs', async (req, res) => {
       try {
         const limit = Number.parseInt(String((req.query as any).limit ?? '100'), 10);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const category = (req.query as any).category as 'api' | 'preview' | undefined;
         const entries = await (this.db as any).listLogs?.({ limit: Number.isFinite(limit) ? limit : 100, category });
         return res.json(ok(entries ?? []));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
+      } catch (error) {
+        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
       }
     });
   }

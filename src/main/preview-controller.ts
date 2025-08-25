@@ -1,5 +1,6 @@
-import { RendererPreviewProxy, PreviewStartOptions } from './preview-proxy';
 import { getMainTokenService } from '../services/token-service-main';
+
+import { RendererPreviewProxy, PreviewStartOptions } from './preview-proxy';
 
 export type PreviewState = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 
@@ -173,11 +174,11 @@ export class PreviewController {
         fileCount: payload.fileCount ?? 0,
       };
       this.jobs.set(id, j);
-    } catch (e) {
+    } catch (error) {
       j.state = 'FAILED';
       j.finishedAt = Date.now();
       j.durationMs = (j.startedAt ?? j.requestedAt) ? (j.finishedAt - (j.startedAt ?? j.requestedAt)) : undefined;
-      j.error = { code: 'INTERNAL_ERROR', message: (e as Error)?.message || 'Token counting failed' };
+      j.error = { code: 'INTERNAL_ERROR', message: (error as Error)?.message || 'Token counting failed' };
       this.jobs.set(id, j);
     } finally {
       this.clearTimer(id);

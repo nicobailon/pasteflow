@@ -1,7 +1,8 @@
-import axios, { AxiosError, AxiosInstance } from "axios";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import axios, { AxiosError, AxiosInstance } from "axios";
 
 export type ExitCode =
   | 0  // Success
@@ -30,7 +31,7 @@ export interface Discovery {
 }
 
 const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_TIMEOUT = 10000;
+const DEFAULT_TIMEOUT = 10_000;
 
 export async function discover(flags: GlobalFlags): Promise<Discovery> {
   const host = flags.host || process.env.PASTEFLOW_HOST || DEFAULT_HOST;
@@ -62,7 +63,7 @@ export function createClient(d: Discovery, flags: GlobalFlags): AxiosInstance {
 
   if (flags.debug) {
     instance.interceptors.request.use((config) => {
-      // eslint-disable-next-line no-console
+       
       console.error("[pf][http] >>", config.method?.toUpperCase(), config.baseURL + (config.url || ""), {
         headers: config.headers,
         timeout: config.timeout
@@ -71,12 +72,12 @@ export function createClient(d: Discovery, flags: GlobalFlags): AxiosInstance {
     });
     instance.interceptors.response.use(
       (res) => {
-        // eslint-disable-next-line no-console
+         
         console.error("[pf][http] <<", res.status, res.config.url);
         return res;
       },
       (err) => {
-        // eslint-disable-next-line no-console
+         
         console.error("[pf][http] !!", (err as AxiosError)?.code, (err as AxiosError)?.message);
         return Promise.reject(err);
       }
@@ -86,8 +87,8 @@ export function createClient(d: Discovery, flags: GlobalFlags): AxiosInstance {
   return instance;
 }
 
-export function formatAsTable<T extends Record<string, unknown>>(rows: T[], columns: Array<{ key: keyof T; header: string }>): string {
-  if (!rows.length) return "";
+export function formatAsTable<T extends Record<string, unknown>>(rows: T[], columns: { key: keyof T; header: string }[]): string {
+  if (rows.length === 0) return "";
   const widths = columns.map((c) => Math.max(c.header.length, ...rows.map((r) => String(r[c.key] ?? "").length)));
   const header = columns.map((c, i) => pad(String(c.header), widths[i])).join("  ");
   const sep = widths.map((w) => "-".repeat(w)).join("  ");
@@ -155,12 +156,31 @@ export function handleAxiosError(err: unknown, flags: GlobalFlags): { exitCode: 
     exitCode = mapByCode[code];
   } else {
     // Fallback by HTTP status
-    if (status === 401) exitCode = 3;
-    else if (status === 400 || status === 403) exitCode = 2;
-    else if (status === 404) exitCode = 4;
-    else if (status === 409) exitCode = 5;
-    else if (status === 0) exitCode = 6;
-    else exitCode = 1;
+    switch (status) {
+    case 401: {
+    exitCode = 3;
+    break;
+    }
+    case 400: 
+    case 403: {
+    exitCode = 2;
+    break;
+    }
+    case 404: {
+    exitCode = 4;
+    break;
+    }
+    case 409: {
+    exitCode = 5;
+    break;
+    }
+    case 0: {
+    exitCode = 6;
+    break;
+    }
+    default: { exitCode = 1;
+    }
+    }
   }
 
   if (flags.json) {
@@ -171,13 +191,13 @@ export function handleAxiosError(err: unknown, flags: GlobalFlags): { exitCode: 
 
 export function printJsonOrText(payload: unknown, flags: GlobalFlags, fallbackText?: string): void {
   if (flags.json) {
-    // eslint-disable-next-line no-console
+     
     console.log(JSON.stringify(payload, null, 2));
   } else if (typeof fallbackText === "string") {
-    // eslint-disable-next-line no-console
+     
     console.log(fallbackText);
   } else {
-    // eslint-disable-next-line no-console
+     
     console.log(payload);
   }
 }

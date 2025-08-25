@@ -58,12 +58,12 @@ describe('filters utilities', () => {
   describe('isLikelyBinaryContent', () => {
     it('should detect binary content by control characters', () => {
       // String with many control characters
-      const binaryContent = '\x00\x01\x02\x03'.repeat(20);
+      const binaryContent = '\u0000\u0001\u0002\u0003'.repeat(20);
       expect(isLikelyBinaryContent(binaryContent, 'file.dat')).toBe(true);
     });
 
     it('should not flag JavaScript files as binary', () => {
-      const jsContent = '\x00\x01\x02\x03'.repeat(20);
+      const jsContent = '\u0000\u0001\u0002\u0003'.repeat(20);
       expect(isLikelyBinaryContent(jsContent, 'file.js')).toBe(false);
       expect(isLikelyBinaryContent(jsContent, '/path/to/script.js')).toBe(false);
     });
@@ -75,7 +75,7 @@ describe('filters utilities', () => {
 
     it('should detect high-density non-ASCII characters', () => {
       // Create string with 50+ consecutive non-ASCII chars
-      const nonAscii = '\x80\x81\x82\x83\x84'.repeat(15);
+      const nonAscii = '\u0080\u0081\u0082\u0083\u0084'.repeat(15);
       expect(isLikelyBinaryContent(nonAscii, 'file.bin')).toBe(true);
     });
   });

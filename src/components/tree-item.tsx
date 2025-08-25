@@ -391,11 +391,9 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
   // Check if folderSelectionCache changed for directories
   // CRITICAL: Do NOT call .get(...) here — it reads current global state for both prev/next and can mask changes.
   // Rely solely on wrapper identity to detect updates (wrapper identity is recreated when optimistic/progressive versions change).
-  if (prevProps.node.type === 'directory') {
-    if (prevProps.folderSelectionCache !== nextProps.folderSelectionCache) {
+  if (prevProps.node.type === 'directory' && prevProps.folderSelectionCache !== nextProps.folderSelectionCache) {
       return false;
     }
-  }
   
   return true;
 };

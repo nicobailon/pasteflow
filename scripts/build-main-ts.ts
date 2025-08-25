@@ -9,8 +9,8 @@ import { execSync } from 'node:child_process';
 
     console.log('Main TS compiled to CommonJS at build/main');
     process.exit(0);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('Failed to compile main TS:', message);
     process.exit(1);
   }

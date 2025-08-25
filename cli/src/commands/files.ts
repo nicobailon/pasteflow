@@ -1,7 +1,8 @@
-import { createClient, discover, handleAxiosError, printJsonOrText } from "../client";
-import { ensureAbsolutePath } from "../util/parse";
 import fs from "node:fs";
 import path from "node:path";
+
+import { createClient, discover, handleAxiosError, printJsonOrText } from "../client";
+import { ensureAbsolutePath } from "../util/parse";
 
 export function attachFilesCommand(root: any): void {
   const cmd = root.command("files").description("File metadata and content operations");
@@ -33,27 +34,22 @@ export function attachFilesCommand(root: any): void {
         }
 
         const lines: string[] = [];
-        lines.push(`Name: ${data.name}`);
-        lines.push(`Path: ${data.path}`);
-        lines.push(`Size: ${data.size} bytes`);
-        lines.push(`Modified: ${new Date(data.mtimeMs).toISOString()}`);
-        lines.push(`Directory: ${data.isDirectory}`);
-        lines.push(`Binary: ${data.isBinary}`);
-        lines.push(`Type: ${data.fileType ?? "unknown"}`);
-        // eslint-disable-next-line no-console
+        lines.push(`Name: ${data.name}`, `Path: ${data.path}`, `Size: ${data.size} bytes`);
+        lines.push(`Modified: ${new Date(data.mtimeMs).toISOString()}`, `Directory: ${data.isDirectory}`, `Binary: ${data.isBinary}`, `Type: ${data.fileType ?? "unknown"}`);
+         
         console.log(lines.join("\n"));
         process.exit(0);
-      } catch (err: unknown) {
-        const e = err as any;
+      } catch (error: unknown) {
+        const e = error as any;
         if (e instanceof Error && (e.message === "Absolute path required" || e.message === "Path is required")) {
-          // eslint-disable-next-line no-console
+           
           console.error(`VALIDATION_ERROR: ${e.message}`);
           process.exit(2);
         }
-        const mapped = handleAxiosError(err, flags);
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -85,7 +81,7 @@ export function attachFilesCommand(root: any): void {
             printJsonOrText({ outputPath: String(opts.out), bytes, tokenCount: data.tokenCount, fileType: data.fileType }, flags);
             process.exit(0);
           }
-          // eslint-disable-next-line no-console
+           
           console.log(`Wrote ${bytes} bytes to ${String(opts.out)} (tokens: ${data.tokenCount}, type: ${data.fileType})`);
           process.exit(0);
         }
@@ -96,25 +92,23 @@ export function attachFilesCommand(root: any): void {
         }
 
         if (flags.raw) {
-          // eslint-disable-next-line no-console
+           
           console.log(data.content);
           process.exit(0);
         }
 
         const lines: string[] = [];
-        lines.push(`Tokens: ${data.tokenCount}`);
-        lines.push(`Type: ${data.fileType}`);
-        lines.push("");
-        // eslint-disable-next-line no-console
+        lines.push(`Tokens: ${data.tokenCount}`, `Type: ${data.fileType}`, "");
+         
         console.log(lines.join("\n") + data.content);
         process.exit(0);
-      } catch (err: unknown) {
-        const e = err as any;
+      } catch (error: unknown) {
+        const e = error as any;
         if (e?.code === "EEXIST") {
           if (flags.json) {
             printJsonOrText({ error: { code: "CONFLICT", message: "File exists; use --overwrite" } }, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.error("CONFLICT: File exists; use --overwrite");
           }
           process.exit(5);
@@ -126,21 +120,21 @@ export function attachFilesCommand(root: any): void {
             if (flags.json) {
               printJsonOrText({ error: { code: "FILE_SYSTEM_ERROR", message: (e as Error).message } }, flags);
             } else {
-              // eslint-disable-next-line no-console
+               
               console.error(`FILE_SYSTEM_ERROR: ${(e as Error).message}`);
             }
             process.exit(1);
           }
         }
         if (e instanceof Error && (e.message === "Absolute path required" || e.message === "Path is required")) {
-          // eslint-disable-next-line no-console
+           
           console.error(`VALIDATION_ERROR: ${e.message}`);
           process.exit(2);
         }
-        const mapped = handleAxiosError(err, flags);
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -162,10 +156,8 @@ async function writeLocalFile(filePath: string, data: string, overwrite?: boolea
       ex.code = "EEXIST";
       throw ex;
     }
-  } catch (e: any) {
-    if (e?.code !== "ENOENT") {
-      if (e?.code === "EEXIST") throw e;
-    }
+  } catch (error: any) {
+    if (error?.code !== "ENOENT" && error?.code === "EEXIST") throw error;
   }
   const bytes = Buffer.byteLength(data, "utf8");
   await fs.promises.writeFile(filePath, data, "utf8");

@@ -4,8 +4,10 @@
  */
 
 import { UI } from '@constants';
-import { StreamingWorkerBase } from './worker-base/streaming-worker-base';
+
 import type { FileData, TreeNode } from '../types/file-types';
+
+import { StreamingWorkerBase } from './worker-base/streaming-worker-base';
 
 interface TreeBuildStartRequest {
   files: FileData[];

@@ -2,6 +2,7 @@
 declare const jest: { fn?: unknown } | undefined;
 
 import { WORKER_POOL } from '@constants';
+
 import { DiscreteWorkerPoolBase } from './worker-base/discrete-worker-pool-base';
 import { estimateTokenCount } from './token-utils';
 
@@ -99,7 +100,7 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
     let hash = 0;
     for (let i = 0; i < Math.min(text.length, 1024); i++) {
       hash = (hash << 5) - hash + (text.codePointAt(i) ?? 0);
-      hash |= 0;
+      hash = Math.trunc(hash);
     }
     return `${text.length}-${hash}`;
   }

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { unstable_batchedUpdates, flushSync } from 'react-dom';
 import { normalizePath } from '@file-ops/path';
-import { logger } from '../utils/logger';
-
 import { STORAGE_KEYS, TOKEN_COUNTING } from '@constants';
+
+import { logger } from '../utils/logger';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
@@ -483,10 +483,10 @@ const useAppState = () => {
     };
 
     // Only use flushSync for single-file user interactions, not bulk operations
-    if (!isBulkOperation) {
-      flushSync(updateFn);
-    } else {
+    if (isBulkOperation) {
       updateFn();
+    } else {
+      flushSync(updateFn);
     }
 
     // Removed automatic file selection when loading content
@@ -554,10 +554,10 @@ const useAppState = () => {
 
     // Use flushSync only for single-file user interactions, not bulk operations
     // This fixes the issue where token counts don't appear until a second file is selected
-    if (!isBulkOperation) {
-      flushSync(updateFn);
-    } else {
+    if (isBulkOperation) {
       updateFn();
+    } else {
+      flushSync(updateFn);
     }
 
     // Note: We don't call updateSelectedFile here because:
@@ -646,9 +646,9 @@ const useAppState = () => {
               });
             }
           })
-          .catch(err => {
+          .catch(error => {
             if (!isMountedRef.current) return;
-            logger.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, err);
+            logger.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, error);
           });
       } else {
         // Handle error
@@ -1024,7 +1024,7 @@ const useAppState = () => {
 
     if (filesToLoad.length > 0) {
       // Batch loading to avoid main-thread saturation and keep tree-building responsive
-      const uniquePaths = Array.from(new Set(filesToLoad.map(f => f.path)));
+      const uniquePaths = [...new Set(filesToLoad.map(f => f.path))];
       const pending = [...uniquePaths];
 
       // Adaptive batch size/priority based on selection size
@@ -1693,11 +1693,11 @@ const useAppState = () => {
 
       // Deselect system prompts
       const currentPrompts = promptStateRef.current;
-      for (const sp of [...currentPrompts.selectedSystemPrompts]) {
+      for (const sp of currentPrompts.selectedSystemPrompts) {
         currentPrompts.toggleSystemPromptSelection(sp);
       }
       // Deselect role prompts
-      for (const rp of [...currentPrompts.selectedRolePrompts]) {
+      for (const rp of currentPrompts.selectedRolePrompts) {
         currentPrompts.toggleRolePromptSelection(rp);
       }
 

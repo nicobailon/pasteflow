@@ -140,7 +140,7 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
       const velocity = dy / dt; // px per ms
       // Simple heuristic: bump overscan when velocity is high
       let next = 5;
-      if (velocity > 2.0) next = 20;       // very fast scroll
+      if (velocity > 2) next = 20;       // very fast scroll
       else if (velocity > 0.75) next = 12; // moderate scroll
       if (next !== overscan) setOverscan(next);
     }

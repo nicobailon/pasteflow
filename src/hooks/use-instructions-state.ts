@@ -52,9 +52,7 @@ export function useInstructionsState(): UseInstructionsStateReturn {
         content: instruction.content
       });
       // Ensure success (accept legacy true as well)
-      if (raw && typeof raw === 'object' && 'success' in raw) {
-        if (!(raw as any).success) throw new Error((raw as any).error || 'Create failed');
-      }
+      if (raw && typeof raw === 'object' && 'success' in raw && !(raw as any).success) throw new Error((raw as any).error || 'Create failed');
       await fetchInstructions();
     } catch (error_) {
       setError(error_ as Error);
@@ -70,9 +68,7 @@ export function useInstructionsState(): UseInstructionsStateReturn {
         name: instruction.name,
         content: instruction.content
       });
-      if (raw && typeof raw === 'object' && 'success' in raw) {
-        if (!(raw as any).success) throw new Error((raw as any).error || 'Update failed');
-      }
+      if (raw && typeof raw === 'object' && 'success' in raw && !(raw as any).success) throw new Error((raw as any).error || 'Update failed');
       await fetchInstructions();
     } catch (error_) {
       setError(error_ as Error);
@@ -84,9 +80,7 @@ export function useInstructionsState(): UseInstructionsStateReturn {
   const deleteInstruction = useCallback(async (id: string) => {
     try {
       const raw = await window.electron.ipcRenderer.invoke('/instructions/delete', { id });
-      if (raw && typeof raw === 'object' && 'success' in raw) {
-        if (!(raw as any).success) throw new Error((raw as any).error || 'Delete failed');
-      }
+      if (raw && typeof raw === 'object' && 'success' in raw && !(raw as any).success) throw new Error((raw as any).error || 'Delete failed');
       await fetchInstructions();
     } catch (error_) {
       setError(error_ as Error);

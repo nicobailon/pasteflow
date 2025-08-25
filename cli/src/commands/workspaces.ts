@@ -14,22 +14,22 @@ export function attachWorkspacesCommand(root: any): void {
         const d = await discover(flags);
         const client = createClient(d, flags);
         const res = await client.get("/api/v1/workspaces");
-        const rows = (res.data?.data ?? res.data) as Array<{
+        const rows = (res.data?.data ?? res.data) as {
           id: string;
           name: string;
           folderPath: string;
           updatedAt?: string;
           createdAt?: string;
           lastAccessed?: string;
-        }>;
+        }[];
 
         if (flags.json) {
           printJsonOrText(rows, flags);
           process.exit(0);
         }
 
-        if (!rows.length) {
-          // eslint-disable-next-line no-console
+        if (rows.length === 0) {
+           
           console.log("No workspaces found");
           process.exit(0);
         }
@@ -40,14 +40,14 @@ export function attachWorkspacesCommand(root: any): void {
           { key: "folderPath", header: "Folder" },
           { key: "updatedAt", header: "Updated" }
         ]);
-        // eslint-disable-next-line no-console
+         
         console.log(table);
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -80,26 +80,24 @@ export function attachWorkspacesCommand(root: any): void {
         }
 
         if (!data) {
-          // eslint-disable-next-line no-console
+           
           console.log("null");
           process.exit(0);
         }
 
         const lines: string[] = [];
-        lines.push(`ID: ${data.id}`);
-        lines.push(`Name: ${data.name}`);
-        lines.push(`Folder: ${data.folderPath}`);
+        lines.push(`ID: ${data.id}`, `Name: ${data.name}`, `Folder: ${data.folderPath}`);
         if (data.updatedAt) lines.push(`Updated: ${data.updatedAt}`);
         if (data.createdAt) lines.push(`Created: ${data.createdAt}`);
         if (data.lastAccessed) lines.push(`Last Accessed: ${data.lastAccessed}`);
-        // eslint-disable-next-line no-console
+         
         console.log(lines.join("\n"));
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -139,14 +137,14 @@ export function attachWorkspacesCommand(root: any): void {
           process.exit(0);
         }
 
-        // eslint-disable-next-line no-console
+         
         console.log(`Created workspace '${data.name}' (${data.id}) at ${data.folderPath}`);
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -165,7 +163,7 @@ export function attachWorkspacesCommand(root: any): void {
         const stateInput = parseAtFile(opts.state);
         const state = typeof stateInput === "string" ? parseJsonValue(stateInput) : undefined;
         if (state === undefined) {
-          // eslint-disable-next-line no-console
+           
           console.error("VALIDATION_ERROR: --state must be valid JSON or @file");
           process.exit(2);
         }
@@ -179,14 +177,14 @@ export function attachWorkspacesCommand(root: any): void {
           printJsonOrText({ ok: data }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(data ? "true" : "false");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -209,14 +207,14 @@ export function attachWorkspacesCommand(root: any): void {
           printJsonOrText({ ok: data }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(data ? "true" : "false");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -240,14 +238,14 @@ export function attachWorkspacesCommand(root: any): void {
           printJsonOrText({ ok: data }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(data ? "true" : "false");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -270,14 +268,14 @@ export function attachWorkspacesCommand(root: any): void {
           printJsonOrText({ ok: data }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(data ? "true" : "false");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);

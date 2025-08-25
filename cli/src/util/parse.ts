@@ -29,7 +29,7 @@ export function parseLineRanges(spec?: string): LineRange[] | undefined {
       ranges.push({ start: n, end: n });
     }
   }
-  if (!ranges.length) return undefined;
+  if (ranges.length === 0) return undefined;
   return ranges;
 }
 

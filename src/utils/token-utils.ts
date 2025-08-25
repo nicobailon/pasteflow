@@ -1,8 +1,8 @@
-import { FileData, FileTreeMode, RolePrompt, SelectedFileReference, SystemPrompt } from "../types/file-types";
 import { TOKEN_COUNTING } from '@constants';
-
 import { generateAsciiFileTree } from "@file-ops/ascii-tree";
 import { getAllDirectories, normalizePath } from "@file-ops/path";
+
+import { FileData, FileTreeMode, RolePrompt, SelectedFileReference, SystemPrompt } from "../types/file-types";
 
 /**
  * Estimates token count for a given text.

@@ -13,21 +13,21 @@ export function attachInstructionsCommand(root: any): void {
         const d = await discover(flags);
         const client = createClient(d, flags);
         const res = await client.get("/api/v1/instructions");
-        const rows = (res.data?.data ?? res.data) as Array<{
+        const rows = (res.data?.data ?? res.data) as {
           id: string;
           name: string;
           content: string;
           updatedAt?: string;
           createdAt?: string;
-        }>;
+        }[];
 
         if (flags.json) {
           printJsonOrText(rows, flags);
           process.exit(0);
         }
 
-        if (!rows.length) {
-          // eslint-disable-next-line no-console
+        if (rows.length === 0) {
+           
           console.log("No instructions found");
           process.exit(0);
         }
@@ -37,14 +37,14 @@ export function attachInstructionsCommand(root: any): void {
           { key: "name", header: "Name" },
           { key: "updatedAt", header: "Updated" }
         ]);
-        // eslint-disable-next-line no-console
+         
         console.log(table);
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -75,14 +75,14 @@ export function attachInstructionsCommand(root: any): void {
           printJsonOrText(data, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(`Created instruction '${data.name}' (${data.id})`);
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -112,14 +112,14 @@ export function attachInstructionsCommand(root: any): void {
           printJsonOrText({ ok: data }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(data ? "true" : "false");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -142,14 +142,14 @@ export function attachInstructionsCommand(root: any): void {
           printJsonOrText({ ok: data }, flags);
           process.exit(0);
         }
-        // eslint-disable-next-line no-console
+         
         console.log(data ? "true" : "false");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);

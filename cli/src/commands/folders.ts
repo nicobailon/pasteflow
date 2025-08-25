@@ -19,14 +19,14 @@ export function attachFoldersCommand(root: any): void {
           process.exit(0);
         }
 
-        // eslint-disable-next-line no-console
+         
         console.log(data?.folderPath ?? "null");
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -60,16 +60,15 @@ export function attachFoldersCommand(root: any): void {
         }
 
         const lines: string[] = [];
-        lines.push(`Workspace: ${data.name} (${data.id})`);
-        lines.push(`Folder: ${data.folderPath}`);
-        // eslint-disable-next-line no-console
+        lines.push(`Workspace: ${data.name} (${data.id})`, `Folder: ${data.folderPath}`);
+         
         console.log(lines.join("\n"));
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);

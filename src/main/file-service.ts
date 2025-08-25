@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+
 import { FILE_PROCESSING } from '../constants';
 import { getPathValidator } from '../security/path-validator';
-import { getAllowedWorkspacePaths } from './workspace-context';
 import { isBinaryExtension, isLikelyBinaryContent } from '../file-ops/filters';
 import { getFileType } from '../utils/content-formatter';
+
+import { getAllowedWorkspacePaths } from './workspace-context';
 import type { ApiErrorCode } from './error-normalizer';
 
 export type ValidateAndResolvePathResult =
@@ -111,11 +113,11 @@ export async function statFile(absolutePath: string): Promise<StatFileResult> {
         fileType: getFileType(name),
       },
     };
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return { ok: false, code: 'FILE_NOT_FOUND', message: 'File not found' };
     }
-    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (err as Error)?.message || String(err) };
+    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (error as Error)?.message || String(error) };
   }
 }
 
@@ -148,10 +150,10 @@ export async function readTextFile(absolutePath: string): Promise<ReadTextFileRe
     const content = await fs.promises.readFile(absolutePath, 'utf8');
     const looksBinary = isLikelyBinaryContent(content, absolutePath);
     return { ok: true, content, isLikelyBinary: looksBinary };
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return { ok: false, code: 'FILE_NOT_FOUND', message: 'File not found' };
     }
-    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (err as Error)?.message || String(err) };
+    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (error as Error)?.message || String(error) };
   }
 }

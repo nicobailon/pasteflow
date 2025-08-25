@@ -1,20 +1,22 @@
-import { parentPort, workerData } from 'worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
+import * as crypto from 'node:crypto';
+
 import type BetterSqlite3 from 'better-sqlite3';
-import * as crypto from 'crypto';
+
 import { retryUtility } from './retry-utils';
 import { getBetterSqlite3 } from './better-sqlite3-loader';
 
 // Constants
-const CACHE_TTL_MS = 300000; // 5 minutes in milliseconds
-const MAX_OPERATION_TIME = 60000; // 1 minute max for any operation
-const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
+const CACHE_TTL_MS = 300_000; // 5 minutes in milliseconds
+const MAX_OPERATION_TIME = 60_000; // 1 minute max for any operation
+const HEALTH_CHECK_INTERVAL = 30_000; // 30 seconds
 const MAX_CONSECUTIVE_ERRORS = 10;
 
 // Error tracking
 let consecutiveErrors = 0;
 let lastErrorTime: number | null = null;
 let operationCount = 0;
-let startTime = Date.now();
+const startTime = Date.now();
 
 // Utility to safely extract error messages
 const toErrorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -150,28 +152,32 @@ if (parentPort) {
       const startTime = Date.now();
       
       switch (method) {
-        case 'run':
+        case 'run': {
           if (!params.sql) throw new Error('SQL query is required');
           result = db.prepare(params.sql).run(...(params.params || []));
           break;
+        }
         
-        case 'get':
+        case 'get': {
           if (!params.sql) throw new Error('SQL query is required');
           result = db.prepare(params.sql).get(...(params.params || []));
           break;
+        }
         
-        case 'all':
+        case 'all': {
           if (!params.sql) throw new Error('SQL query is required');
           result = db.prepare(params.sql).all(...(params.params || []));
           break;
+        }
         
-        case 'exec':
+        case 'exec': {
           if (!params.sql) throw new Error('SQL query is required');
           db.exec(params.sql);
           result = null;
           break;
+        }
         
-        case 'prepare':
+        case 'prepare': {
           if (!params.sql) throw new Error('SQL query is required');
           const stmt = db.prepare(params.sql);
           const stmtId = `stmt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
@@ -179,45 +185,52 @@ if (parentPort) {
           statementUsage.set(stmtId, Date.now());
           result = stmtId;
           break;
+        }
         
-        case 'stmt_run':
+        case 'stmt_run': {
           if (!params.stmtId) throw new Error('Statement ID is required');
           const runStmt = statements.get(params.stmtId);
           if (!runStmt) throw new Error(`Statement not found: ${params.stmtId}`);
           statementUsage.set(params.stmtId, Date.now());
           result = runStmt.run(...(params.params || []));
           break;
+        }
         
-        case 'stmt_get':
+        case 'stmt_get': {
           if (!params.stmtId) throw new Error('Statement ID is required');
           const getStmt = statements.get(params.stmtId);
           if (!getStmt) throw new Error(`Statement not found: ${params.stmtId}`);
           statementUsage.set(params.stmtId, Date.now());
           result = getStmt.get(...(params.params || []));
           break;
+        }
         
-        case 'stmt_all':
+        case 'stmt_all': {
           if (!params.stmtId) throw new Error('Statement ID is required');
           const allStmt = statements.get(params.stmtId);
           if (!allStmt) throw new Error(`Statement not found: ${params.stmtId}`);
           statementUsage.set(params.stmtId, Date.now());
           result = allStmt.all(...(params.params || []));
           break;
+        }
         
-        case 'stmt_finalize':
+        case 'stmt_finalize': {
           if (!params.stmtId) throw new Error('Statement ID is required');
           statements.delete(params.stmtId);
           statementUsage.delete(params.stmtId);
           result = null;
           break;
+        }
         
-        case 'health_check':
+        case 'health_check': {
           // Simple health check query
           result = db.prepare('SELECT 1 as health').get();
           break;
+        }
         
-        default:
+        default: {
           throw new Error(`Unknown method: ${method}`);
+        }
       }
       
       clearTimeout(operationTimeout);
@@ -274,7 +287,7 @@ setInterval(() => {
   } catch (error) {
     console.error('Database worker: Maintenance error:', error);
   }
-}, 60000); // Every minute
+}, 60_000); // Every minute
 
 // Health check interval
 setInterval(() => {

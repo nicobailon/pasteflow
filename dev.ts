@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
+ 
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { platform as osPlatform } from 'node:os';
 import { createRequire } from 'node:module';
@@ -116,8 +116,8 @@ function startElectron(): void {
       viteProcess.kill();
       process.exit(code ?? 0);
     });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('❌ Dev startup failed (schemas or main build step):', message);
     viteProcess.kill();
     process.exit(1);

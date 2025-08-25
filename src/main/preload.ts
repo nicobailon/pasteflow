@@ -27,12 +27,12 @@ const __appWillQuitSubscribers = new Set<() => void>();
 let __appWillQuitRegistered = false;
 
 const __appWillQuitHandler = () => {
-  for (const cb of Array.from(__appWillQuitSubscribers)) {
+  for (const cb of __appWillQuitSubscribers) {
     try {
       cb();
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error in app-will-quit subscriber:', err);
+    } catch (error) {
+       
+      console.error('Error in app-will-quit subscriber:', error);
     }
   }
 };
@@ -86,9 +86,9 @@ contextBridge.exposeInMainWorld('electron', {
       try {
         const serializedArgs = args.map(ensureSerializable);
         func(...serializedArgs);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error(`Error in IPC receive handler for ${channel}:`, err);
+      } catch (error) {
+         
+        console.error(`Error in IPC receive handler for ${channel}:`, error);
       }
     });
   },
@@ -108,9 +108,9 @@ contextBridge.exposeInMainWorld('electron', {
         try {
           const serializedArgs = args.map(ensureSerializable);
           func(...serializedArgs);
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error(`IPC handler error for ${channel}:`, err);
+        } catch (error) {
+           
+          console.error(`IPC handler error for ${channel}:`, error);
         }
       };
 

@@ -98,7 +98,7 @@ export class PathValidator {
   }
 
   getAllowedPaths(): string[] {
-    return Array.from(this.allowedBasePaths);
+    return [...this.allowedBasePaths];
   }
 }
 

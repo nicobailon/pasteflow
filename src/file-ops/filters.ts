@@ -1,8 +1,9 @@
 /**
  * File filtering utilities (no fs operations)
  */
-import { loadGitignore } from '../utils/ignore-utils';
 import { FILE_PROCESSING } from '@constants';
+
+import { loadGitignore } from '../utils/ignore-utils';
 
 import { getRelativePath, extname } from './path';
 

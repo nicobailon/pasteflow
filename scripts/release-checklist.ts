@@ -234,82 +234,82 @@ async function checkMigration(): Promise<AggregateCheck> {
 }
 
 export async function performReleaseChecklist() {
-  // eslint-disable-next-line no-console
+   
   console.log('🚀 PasteFlow Release Checklist\n');
-  // eslint-disable-next-line no-console
+   
   console.log('Running pre-release checks...\n');
 
   const checks: AggregateCheck[] = [];
 
   // Run all checks
-  // eslint-disable-next-line no-console
+   
   console.log('1️⃣  Checking code quality...');
   checks.push(await checkCodeQuality());
 
-  // eslint-disable-next-line no-console
+   
   console.log('2️⃣  Checking security...');
   checks.push(await checkSecurity());
 
-  // eslint-disable-next-line no-console
+   
   console.log('3️⃣  Checking build...');
   checks.push(await checkBuild());
 
-  // eslint-disable-next-line no-console
+   
   console.log('4️⃣  Checking documentation...');
   checks.push(await checkDocumentation());
 
-  // eslint-disable-next-line no-console
+   
   console.log('5️⃣  Checking migration system...');
   checks.push(await checkMigration());
 
   // Generate report
-  // eslint-disable-next-line no-console
+   
   console.log('\n' + '='.repeat(60));
-  // eslint-disable-next-line no-console
+   
   console.log('📋 RELEASE CHECKLIST REPORT');
-  // eslint-disable-next-line no-console
+   
   console.log('='.repeat(60) + '\n');
 
   const allPassed = checks.every((check) => check.passed);
 
-  checks.forEach((check) => {
+  for (const check of checks) {
     const icon = check.passed ? '✅' : '❌';
-    // eslint-disable-next-line no-console
+     
     console.log(`${icon} ${check.name}`);
 
     if (check.details && Array.isArray(check.details)) {
-      check.details.forEach((detail) => {
+      for (const detail of check.details) {
         const detailIcon = detail.passed ? '  ✓' : '  ✗';
-        // eslint-disable-next-line no-console
+         
         console.log(`${detailIcon} ${detail.name}: ${detail.details}`);
-      });
+      }
     }
-    // eslint-disable-next-line no-console
+     
     console.log('');
-  });
+  }
 
-  // eslint-disable-next-line no-console
+   
   console.log('='.repeat(60));
 
   if (allPassed) {
-    // eslint-disable-next-line no-console
+     
     console.log('✅ All checks passed! Ready for release.');
-    // eslint-disable-next-line no-console
+     
     console.log('\nNext steps:');
-    // eslint-disable-next-line no-console
+     
     console.log('1. Update version in package.json');
-    // eslint-disable-next-line no-console
+     
     console.log('2. Update CHANGELOG.md');
-    // eslint-disable-next-line no-console
+     
     console.log('3. Commit changes');
-    // eslint-disable-next-line no-console
+     
     console.log('4. Create git tag: git tag v<version>');
-    // eslint-disable-next-line no-console
+     
     console.log('5. Push tag: git push origin v<version>');
-    // eslint-disable-next-line no-console
+     
     console.log('6. Run: npm run release');
   } else {
-    // eslint-disable-next-line no-console
+     
     console.log('❌ Some checks failed. Please fix the issues above before releasing.');
   }
 
@@ -321,7 +321,7 @@ export async function performReleaseChecklist() {
   };
 
   await fs.writeFile('release-checklist-results.json', JSON.stringify(results, null, 2));
-  // eslint-disable-next-line no-console
+   
   console.log('\n📄 Results saved to release-checklist-results.json');
 
   return results;
@@ -381,7 +381,7 @@ Thanks to all contributors and testers who helped make this release possible!
   `.trim();
 
   await fs.writeFile('RELEASE_NOTES.md', releaseNotes);
-  // eslint-disable-next-line no-console
+   
   console.log('\n📝 Release notes generated: RELEASE_NOTES.md');
   return releaseNotes;
 }
@@ -392,14 +392,14 @@ if (require.main === module) {
 
   if (command === 'notes') {
     generateReleaseNotes().catch((error: unknown) => {
-      // eslint-disable-next-line no-console
+       
       const message = error instanceof Error ? error.message : String(error);
       console.error('Failed to generate release notes:', message);
       process.exit(1);
     });
   } else {
     performReleaseChecklist().catch((error: unknown) => {
-      // eslint-disable-next-line no-console
+       
       const message = error instanceof Error ? error.message : String(error);
       console.error('Release checklist failed:', message);
       process.exit(1);

@@ -146,7 +146,7 @@ describe('DiscreteWorkerPoolBase', () => {
           healthCheckType: 'HEALTH_CHECK',
           healthResponseType: 'HEALTH_RESPONSE'
         },
-        30000, // operationTimeoutMs
+        30_000, // operationTimeoutMs
         1000, // healthCheckTimeoutMs
         30, // healthMonitorIntervalSec
         100 // queueMaxSize
@@ -194,7 +194,7 @@ describe('DiscreteWorkerPoolBase', () => {
           initResponseType: 'INIT_COMPLETE',
           errorType: 'ERROR'
         },
-        30000,
+        30_000,
         1000,
         30,
         2 // Small queue size
@@ -265,7 +265,7 @@ describe('DiscreteWorkerPoolBase', () => {
           healthCheckType: 'HEALTH_CHECK',
           healthResponseType: 'HEALTH_RESPONSE'
         },
-        30000,
+        30_000,
         100, // Short health check timeout
         30,
         100

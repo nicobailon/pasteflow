@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import type BetterSqlite3 from 'better-sqlite3';
+
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
 
 // Runtime-safe loader to avoid ABI mismatch when not running under Electron
@@ -9,7 +10,7 @@ function loadBetterSqlite3(): BetterSqlite3Module {
   if (!process.versions?.electron) {
     throw new Error('better-sqlite3 must be loaded from Electron main process. Launch via Electron (npm start / dev:electron), not plain node.');
   }
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+   
   return require('better-sqlite3') as BetterSqlite3Module;
 }
 
@@ -24,16 +25,16 @@ interface SQLiteError extends Error {
 
 // Define precise types for workspace state
 export interface WorkspaceState {
-  selectedFiles?: Array<{
+  selectedFiles?: {
     path: string;
-    lines?: Array<{ start: number; end: number }>;
+    lines?: { start: number; end: number }[];
     content?: string;
     tokenCount?: number;
-  }>;
+  }[];
   expandedNodes?: string[];
   userInstructions?: string;
-  systemPrompts?: Array<{ id: string; name: string; content: string }>;
-  rolePrompts?: Array<{ id: string; name: string; content: string }>;
+  systemPrompts?: { id: string; name: string; content: string }[];
+  rolePrompts?: { id: string; name: string; content: string }[];
   [key: string]: unknown; // Allow extension but maintain type safety
 }
 
@@ -154,22 +155,30 @@ export class PasteFlowDatabase {
       const sqliteError = error as SQLiteError;
       if (sqliteError.code) {
         switch (sqliteError.code) {
-          case 'SQLITE_BUSY':
+          case 'SQLITE_BUSY': {
             throw new Error(`Database is locked by another process: ${sqliteError.message}`);
-          case 'SQLITE_LOCKED':
+          }
+          case 'SQLITE_LOCKED': {
             throw new Error(`Database table is locked: ${sqliteError.message}`);
-          case 'SQLITE_CORRUPT':
+          }
+          case 'SQLITE_CORRUPT': {
             throw new Error(`Database file is corrupted: ${sqliteError.message}`);
-          case 'SQLITE_CANTOPEN':
+          }
+          case 'SQLITE_CANTOPEN': {
             throw new Error(`Cannot open database file at ${this.dbPath}: ${sqliteError.message}`);
-          case 'SQLITE_READONLY':
+          }
+          case 'SQLITE_READONLY': {
             throw new Error(`Database is read-only: ${sqliteError.message}`);
-          case 'SQLITE_IOERR':
+          }
+          case 'SQLITE_IOERR': {
             throw new Error(`Database I/O error: ${sqliteError.message}`);
-          case 'SQLITE_FULL':
+          }
+          case 'SQLITE_FULL': {
             throw new Error(`Disk is full or database quota exceeded: ${sqliteError.message}`);
-          default:
+          }
+          default: {
             throw new Error(`Database initialization failed (${sqliteError.code}): ${sqliteError.message}`);
+          }
         }
       }
       
@@ -468,7 +477,7 @@ export class PasteFlowDatabase {
   async getWorkspaceNames(): Promise<string[]> {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
-      const rows = this.statements.getWorkspaceNames.all() as Array<{ name: string }>;
+      const rows = this.statements.getWorkspaceNames.all() as { name: string }[];
       return rows.map(row => row.name);
     }, {
       operation: 'get_workspace_names'
@@ -485,9 +494,9 @@ export class PasteFlowDatabase {
         throw new Error(`Workspace '${name}' not found`);
       }
       
-      const newState = updates.state !== undefined 
-        ? { ...workspace.state, ...updates.state }
-        : workspace.state;
+      const newState = updates.state === undefined 
+        ? workspace.state
+        : { ...workspace.state, ...updates.state };
       
       if (updates.folderPath) {
         this.db!.prepare(`
@@ -546,7 +555,7 @@ export class PasteFlowDatabase {
     await executeWithRetry(async () => {
       const valueJson = value === null || value === undefined 
         ? null 
-        : typeof value === 'string' ? value : JSON.stringify(value);
+        : (typeof value === 'string' ? value : JSON.stringify(value));
       this.statements.setPreference.run(key, valueJson as string);
     }, {
       operation: 'set_preference'

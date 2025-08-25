@@ -1,8 +1,9 @@
 // Declare jest global for test environment detection with precise type
 declare const jest: { fn?: unknown } | undefined;
 
-import type { FileData, TreeNode } from '../types/file-types';
 import { UI } from '@constants';
+
+import type { FileData, TreeNode } from '../types/file-types';
 
 export interface TreeChunk {
   nodes: TreeNode[];
@@ -54,9 +55,7 @@ export class StreamingTreeBuilder {
       // If a worker was injected (tests), reuse it; otherwise create one
       if (!this.worker) {
         // Check if we're in a Jest test environment (more reliable than NODE_ENV)
-        if (typeof jest !== 'undefined') {
-          this.worker = new Worker('/mock/worker/path', { type: 'module' });
-        } else {
+        if (jest === undefined) {
           try {
             // Use eval to prevent Jest from parsing this at compile time
             const metaUrl = eval('import.meta.url');
@@ -64,11 +63,13 @@ export class StreamingTreeBuilder {
               new URL('../workers/tree-builder-worker.ts', metaUrl),
               { type: 'module' }
             );
-          } catch (error) {
+          } catch {
             // Fallback for environments where import.meta is not available
             console.warn('import.meta.url not available, using fallback worker path');
             this.worker = new Worker('/src/workers/tree-builder-worker.ts', { type: 'module' });
           }
+        } else {
+          this.worker = new Worker('/mock/worker/path', { type: 'module' });
         }
       }
 

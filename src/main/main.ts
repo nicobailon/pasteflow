@@ -1,24 +1,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
-import { loadGitignore } from '../utils/ignore-utils';
 
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+
+import { loadGitignore } from '../utils/ignore-utils';
 import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants';
 import { binaryExtensions } from '../shared/excluded-files';
 import { getPathValidator } from '../security/path-validator';
 import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
+import { getMainTokenService } from '../services/token-service-main';
+
 import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
 import { PasteFlowAPIServer } from './api-server';
-import { getMainTokenService } from '../services/token-service-main';
-
 import { setAllowedWorkspacePaths } from './workspace-context';
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
 
 // ABI/runtime diagnostics (helps verify native module compatibility)
 try {
-  // eslint-disable-next-line no-console
+   
   console.log('Runtime versions', {
     electron: process.versions.electron,
     node: process.versions.node,
@@ -203,7 +204,7 @@ function createWindow(): void {
       mainWindow?.webContents.session.clearCache().then(() => {
         mainWindow?.loadURL(startUrl);
         if (mainWindow && !mainWindow.webContents.isDevToolsOpened()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           mainWindow.webContents.openDevTools({ mode: ELECTRON.WINDOW.DEVTOOLS_MODE as any });
         }
       });
@@ -215,9 +216,9 @@ function createWindow(): void {
   }
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    // eslint-disable-next-line no-console
+     
     console.error(`Failed to load the application: ${errorDescription} (${errorCode})`);
-    // eslint-disable-next-line no-console
+     
     console.error(`Attempted to load URL: ${validatedURL}`);
 
     const isDev2 = process.env.NODE_ENV === 'development';
@@ -244,7 +245,7 @@ app.whenReady().then(async () => {
   try {
     database = new DatabaseBridge();
     await database.initialize();
-    // eslint-disable-next-line no-console
+     
     console.log('Database initialized successfully');
 
     // Auto-init allowed workspace paths if an active workspace exists to avoid NO_ACTIVE_WORKSPACE errors
@@ -257,12 +258,12 @@ app.whenReady().then(async () => {
           getPathValidator([ws.folder_path]);
         }
       }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn('Workspace path auto-init failed:', e);
+    } catch (error) {
+       
+      console.warn('Workspace path auto-init failed:', error);
     }
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.error('Failed to initialize database:', error);
     app.exit(1);
     return;
@@ -284,12 +285,12 @@ app.whenReady().then(async () => {
       fs.writeFileSync(portFile, String(boundPort) + '\n', { mode: 0o644 });
       // Ensure correct permissions even if file already existed
       try { fs.chmodSync(portFile, 0o644); } catch {}
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn('Failed to write server.port:', e);
+    } catch (error) {
+       
+      console.warn('Failed to write server.port:', error);
     }
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.error('Failed to start API server:', error);
     // Proceed to launch UI; CLI integration will be unavailable
   }
@@ -316,11 +317,11 @@ app.on('before-quit', async (event) => {
       mainWindow.webContents.send('app-will-quit');
       const result = await savePromise;
       if (result === 'timeout') {
-        // eslint-disable-next-line no-console
+         
         console.warn('Auto-save timeout during shutdown - proceeding with quit');
       }
     } catch (error: unknown) {
-      // eslint-disable-next-line no-console
+       
       console.error('Error during shutdown save:', error);
     }
   }
@@ -336,10 +337,10 @@ app.on('before-quit', async (event) => {
   if (apiServer) {
     try {
       apiServer.close();
-      // eslint-disable-next-line no-console
+       
       console.log('API server closed');
     } catch (error) {
-      // eslint-disable-next-line no-console
+       
       console.error('Error closing API server:', error);
     } finally {
       apiServer = null;
@@ -350,10 +351,10 @@ app.on('before-quit', async (event) => {
   if (database && (database as unknown as { initialized?: boolean }).initialized) {
     try {
       await (database as unknown as { close: () => Promise<void> }).close();
-      // eslint-disable-next-line no-console
+       
       console.log('Database closed successfully');
     } catch (error: unknown) {
-      // eslint-disable-next-line no-console
+       
       console.error('Error closing database:', error);
     }
   }
@@ -374,7 +375,7 @@ ipcMain.on('open-folder', async (event) => {
   try {
     zSchemas.FolderSelectionSchema.parse({});
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.warn('Validation error for open-folder:', (error as Error)?.message);
   }
 
@@ -385,9 +386,9 @@ ipcMain.on('open-folder', async (event) => {
       currentWorkspacePaths = [selectedPath];
       getPathValidator(currentWorkspacePaths); // Initialize validator
       event.sender.send('folder-selected', selectedPath);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error sending folder-selected event:', err);
+    } catch (error) {
+       
+      console.error('Error sending folder-selected event:', error);
     }
   }
 });
@@ -419,7 +420,7 @@ ipcMain.on(
       });
 
       const allFiles: SerializableFile[] = [];
-      const directoryQueue: Array<{ path: string; depth: number }> = [{ path: folderPath, depth: 0 }];
+      const directoryQueue: { path: string; depth: number }[] = [{ path: folderPath, depth: 0 }];
       const processedDirs = new Set<string>();
       const ignoreFilter = loadGitignore(folderPath, exclusionPatterns);
       let processingComplete = false;
@@ -468,7 +469,7 @@ ipcMain.on(
           MIN_FILES: 50,
           MAX_FILES: 500,
           calculateBatchSize(files: SerializableFile[]) {
-            if (!files.length) return this.MIN_FILES;
+            if (files.length === 0) return this.MIN_FILES;
             const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
             const avgFileSize = totalSize / files.length || 1024;
             const optimalCount = Math.floor(this.TARGET_BATCH_SIZE / avgFileSize);
@@ -493,7 +494,7 @@ ipcMain.on(
           try {
             const dirents = await fs.promises.readdir(dirPath, { withFileTypes: true });
 
-            const filePromises: Array<Promise<void>> = [];
+            const filePromises: Promise<void>[] = [];
             for (const dirent of dirents) {
               const fullPath = path.join(dirPath, dirent.name);
               const relativePath = path.relative(folderPath, fullPath);
@@ -512,7 +513,7 @@ ipcMain.on(
                       allFiles.push(fi);
                     })
                     .catch((error: unknown) => {
-                      // eslint-disable-next-line no-console
+                       
                       console.error(`Error processing file ${fullPath}:`, error);
                     })
                 );
@@ -528,7 +529,7 @@ ipcMain.on(
               await Promise.all(filePromises);
             }
           } catch (error: unknown) {
-            // eslint-disable-next-line no-console
+             
             console.error(`Error reading directory ${dirPath}:`, error);
           }
 
@@ -573,7 +574,7 @@ ipcMain.on(
       // Start
       processNextBatch();
     } catch (error: unknown) {
-      // eslint-disable-next-line no-console
+       
       console.error('Error reading directory:', error);
       event.sender.send('file-processing-status', {
         status: 'error',
@@ -592,7 +593,7 @@ ipcMain.on('cancel-file-loading', (_event, requestId: string | null = null) => {
     fileLoadingCancelled = true;
     currentRequestId = null;
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.error('Invalid input for cancel-file-loading:', (error as Error)?.message);
   }
 });
@@ -602,7 +603,7 @@ ipcMain.on('open-docs', (event, docName?: string) => {
   try {
     zSchemas.OpenDocsSchema.parse({ docName });
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.warn('Invalid input for open-docs:', (error as Error)?.message);
     return;
   }
@@ -612,20 +613,20 @@ ipcMain.on('open-docs', (event, docName?: string) => {
   const resolvedDocPath = path.resolve(docPath);
   const docsDir = path.resolve(__dirname, 'docs');
   if (!resolvedDocPath.startsWith(docsDir + path.sep)) {
-    // eslint-disable-next-line no-console
+     
     console.warn(`Attempted access outside docs directory: ${docName}`);
     return;
   }
 
   fs.access(resolvedDocPath, fs.constants.F_OK, (err) => {
     if (err) {
-      // eslint-disable-next-line no-console
+       
       console.error(`Documentation file not found: ${resolvedDocPath}`);
       return;
     }
     shell.openPath(resolvedDocPath).then((result) => {
       if (result) {
-        // eslint-disable-next-line no-console
+         
         console.error(`Error opening documentation: ${result}`);
       }
     });
@@ -683,7 +684,7 @@ function mapWorkspaceDbToIpc(w: any) {
 ipcMain.handle('/workspace/list', async () => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const workspaces: any[] = await (database as unknown as { listWorkspaces: () => Promise<any[]> }).listWorkspaces();
       const shaped = workspaces.map(mapWorkspaceDbToIpc);
       return { success: true, data: shaped };
@@ -700,7 +701,7 @@ ipcMain.handle('/workspace/create', async (_e, params: unknown) => {
     const { name, folderPath, state } = validated;
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const created: any = await (database as unknown as { createWorkspace: (n: string, f: string, s?: unknown) => Promise<any> }).createWorkspace(
         name,
         folderPath,
@@ -720,7 +721,7 @@ ipcMain.handle('/workspace/load', async (_e, params: unknown) => {
     const { id } = zSchemas.WorkspaceLoadSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const ws: any | null = await (database as unknown as { getWorkspace: (id: string) => Promise<any | null> }).getWorkspace(id);
       if (!ws) return { success: true, data: null };
       const shaped = mapWorkspaceDbToIpc(ws);
@@ -738,7 +739,7 @@ ipcMain.handle('/workspace/update', async (_e, params: unknown) => {
     const { id, state } = zSchemas.WorkspaceUpdateSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       await db.updateWorkspaceById(id, state);
       return { success: true, data: null };
@@ -755,7 +756,7 @@ ipcMain.handle('/workspace/touch', async (_e, params: unknown) => {
     const { id } = zSchemas.WorkspaceTouchSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       const ws = await db.getWorkspace(id);
       if (!ws) return { success: false, error: 'Workspace not found' };
@@ -774,7 +775,7 @@ ipcMain.handle('/workspace/delete', async (_e, params: unknown) => {
     const { id } = zSchemas.WorkspaceDeleteSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       await (database as unknown as { deleteWorkspaceById: (id: string) => Promise<void> }).deleteWorkspaceById(id);
       return { success: true, data: null };
     }
@@ -790,7 +791,7 @@ ipcMain.handle('/workspace/rename', async (_e, params: unknown) => {
     const { id, newName } = zSchemas.WorkspaceRenameSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       const ws = await db.getWorkspace(id);
       if (!ws) return { success: false, error: 'Workspace not found' };
@@ -818,7 +819,7 @@ function mapInstructionDbToIpc(i: any) {
 ipcMain.handle('/instructions/list', async () => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const list: any[] = await (database as unknown as { listInstructions: () => Promise<any[]> }).listInstructions();
       const shaped = list.map(mapInstructionDbToIpc);
       return { success: true, data: shaped };
@@ -832,7 +833,7 @@ ipcMain.handle('/instructions/list', async () => {
 ipcMain.handle('/instructions/create', async (_e, params: { id: string; name: string; content: string }) => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       await db.createInstruction(params.id, params.name, params.content);
       return { success: true, data: null };
@@ -846,7 +847,7 @@ ipcMain.handle('/instructions/create', async (_e, params: { id: string; name: st
 ipcMain.handle('/instructions/update', async (_e, params: { id: string; name: string; content: string }) => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       await db.updateInstruction(params.id, params.name, params.content);
       return { success: true, data: null };
@@ -860,7 +861,7 @@ ipcMain.handle('/instructions/update', async (_e, params: { id: string; name: st
 ipcMain.handle('/instructions/delete', async (_e, params: { id: string }) => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       await db.deleteInstruction(params.id);
       return { success: true, data: null };
@@ -885,7 +886,7 @@ ipcMain.handle('/prefs/get', async (_e, params: unknown) => {
     }
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const value: any = await (database as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference(key);
       return { success: true, data: value ?? null };
     }
@@ -908,7 +909,7 @@ ipcMain.handle('/prefs/set', async (_e, params: unknown) => {
     }
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference(key, value);
       broadcastUpdate('/prefs/get:update');
       return { success: true, data: true };

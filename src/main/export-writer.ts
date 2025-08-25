@@ -20,11 +20,9 @@ export async function writeExport(absoluteOutputPath: string, content: string, o
     if (st.isFile() && overwrite !== true) {
       throw Object.assign(new Error('File exists; set overwrite=true to replace'), { code: 'EEXIST' });
     }
-  } catch (e: any) {
-    if (e?.code !== 'ENOENT') {
-      // If it's some other error (not "doesn't exist"), rethrow
-      if (e?.code === 'EEXIST') throw e;
-    }
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT' && // If it's some other error (not "doesn't exist"), rethrow
+      error?.code === 'EEXIST') throw error;
   }
 
   const bytes = Buffer.byteLength(content, 'utf8');

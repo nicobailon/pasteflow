@@ -67,16 +67,14 @@ const FileList = ({
   
   // Only show files that are in the selectedFiles array and not binary/skipped
   // Also deduplicate by path to prevent duplicate cards if upstream arrays accidentally contain duplicates
-  const displayableFiles = Array.from(
-    new Map(
+  const displayableFiles = [...new Map(
       files
         .filter(
           (file: FileData) =>
             selectedFilesMap.has(file.path) && !file.isBinary && !file.isSkipped
         )
         .map((f: FileData) => [f.path, f] as const)
-    ).values()
-  );
+    ).values()];
 
   // Create expanded cards - one card per line range for files with multiple line ranges
   const expandedCards: ExpandedFileCard[] = [];
@@ -103,11 +101,9 @@ const FileList = ({
     // If the file has line ranges, create a separate card for each range
     else if (selectedFileRef.lines && selectedFileRef.lines.length > 0) {
       // Deduplicate line ranges by start-end to avoid duplicate cards across refreshes
-      const uniqueRanges = Array.from(
-        new Map(
+      const uniqueRanges = [...new Map(
           selectedFileRef.lines.map((r: LineRange) => [`${r.start}-${r.end}`, r] as const)
-        ).values()
-      );
+        ).values()];
 
       for (const lineRange of uniqueRanges) {
         let rangeContent: string;

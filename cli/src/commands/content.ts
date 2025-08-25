@@ -1,6 +1,7 @@
-import { createClient, discover, handleAxiosError, printJsonOrText } from "../client";
 import fs from "node:fs";
 import path from "node:path";
+
+import { createClient, discover, handleAxiosError, printJsonOrText } from "../client";
 
 export function attachContentCommand(root: any): void {
   const cmd = root.command("content").description("Aggregate and export selected content");
@@ -37,7 +38,7 @@ export function attachContentCommand(root: any): void {
             printJsonOrText({ outputPath: String(opts.out), bytes, fileCount: data.fileCount, tokenCount: data.tokenCount }, flags);
             process.exit(0);
           }
-          // eslint-disable-next-line no-console
+           
           console.log(`Wrote ${bytes} bytes to ${String(opts.out)} (files: ${data.fileCount}, tokens: ${data.tokenCount})`);
           process.exit(0);
         }
@@ -48,25 +49,23 @@ export function attachContentCommand(root: any): void {
         }
 
         if (flags.raw) {
-          // eslint-disable-next-line no-console
+           
           console.log(data.content);
           process.exit(0);
         }
 
         const lines: string[] = [];
-        lines.push(`Files: ${data.fileCount}`);
-        lines.push(`Tokens: ${data.tokenCount}`);
-        lines.push("");
-        // eslint-disable-next-line no-console
+        lines.push(`Files: ${data.fileCount}`, `Tokens: ${data.tokenCount}`, "");
+         
         console.log(lines.join("\n") + data.content);
         process.exit(0);
-      } catch (err: unknown) {
-        const e = err as any;
+      } catch (error: unknown) {
+        const e = error as any;
         if (e?.code === "EEXIST") {
           if (flags.json) {
             printJsonOrText({ error: { code: "CONFLICT", message: "File exists; use --overwrite" } }, flags);
           } else {
-            // eslint-disable-next-line no-console
+             
             console.error("CONFLICT: File exists; use --overwrite");
           }
           process.exit(5);
@@ -78,16 +77,16 @@ export function attachContentCommand(root: any): void {
             if (flags.json) {
               printJsonOrText({ error: { code: "FILE_SYSTEM_ERROR", message: (e as Error).message } }, flags);
             } else {
-              // eslint-disable-next-line no-console
+               
               console.error(`FILE_SYSTEM_ERROR: ${(e as Error).message}`);
             }
             process.exit(1);
           }
         }
-        const mapped = handleAxiosError(err, flags);
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -116,14 +115,14 @@ export function attachContentCommand(root: any): void {
           process.exit(0);
         }
 
-        // eslint-disable-next-line no-console
+         
         console.log(`Exported ${data.bytes} bytes to ${data.outputPath}`);
         process.exit(0);
-      } catch (err) {
-        const mapped = handleAxiosError(err, flags);
+      } catch (error) {
+        const mapped = handleAxiosError(error, flags);
         if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
         else if (mapped.message) {
-          // eslint-disable-next-line no-console
+           
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -145,10 +144,8 @@ async function writeLocalFile(filePath: string, data: string, overwrite?: boolea
       ex.code = "EEXIST";
       throw ex;
     }
-  } catch (e: any) {
-    if (e?.code !== "ENOENT") {
-      if (e?.code === "EEXIST") throw e;
-    }
+  } catch (error: any) {
+    if (error?.code !== "ENOENT" && error?.code === "EEXIST") throw error;
   }
   const bytes = Buffer.byteLength(data, "utf8");
   await fs.promises.writeFile(filePath, data, "utf8");

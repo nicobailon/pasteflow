@@ -102,7 +102,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     let hash = 0;
     for (let i = 0; i < Math.min(str.length, 1024); i++) {
       hash = (hash << 5) - hash + (str.codePointAt(i) ?? 0);
-      hash |= 0;
+      hash = Math.trunc(hash);
     }
     return `${str.length}-${hash}`;
   }
@@ -116,12 +116,12 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     for (let i = 0; i < this.poolSize; i++) {
       try {
         let worker: Worker;
-        if (typeof jest !== 'undefined') {
-          worker = new Worker('/mock/worker/path', { type: 'module' });
-        } else {
+        if (jest === undefined) {
           // Delegate worker creation to the concrete subclass
           // This allows Vite to statically analyze the worker import
           worker = this.createWorker();
+        } else {
+          worker = new Worker('/mock/worker/path', { type: 'module' });
         }
         this.workers[i] = worker;
         this.workerReady[i] = false;
@@ -324,12 +324,12 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         
         // Create new worker using proper Vite pattern
         let newWorker: Worker;
-        if (typeof jest !== 'undefined') {
-          newWorker = new Worker('/mock/worker/path', { type: 'module' });
-        } else {
+        if (jest === undefined) {
           // Delegate worker creation to the concrete subclass
           // This allows Vite to statically analyze the worker import
           newWorker = this.createWorker();
+        } else {
+          newWorker = new Worker('/mock/worker/path', { type: 'module' });
         }
         this.workers[workerId] = newWorker;
         this.workerReady[workerId] = false;
@@ -389,10 +389,10 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         priority: options?.priority ?? 0
       };
       
-      if (workerId !== null) {
-        this.dispatch(item, workerId);
-      } else {
+      if (workerId === null) {
         this.enqueue(item);
+      } else {
+        this.dispatch(item, workerId);
       }
     });
     
@@ -467,7 +467,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
   }
 
   public async healthCheck(): Promise<
-    Array<{ workerId: number; healthy: boolean; responseTime: number }>
+    { workerId: number; healthy: boolean; responseTime: number }[]
   > {
     if (!this.handshake.healthCheckType || !this.handshake.healthResponseType) {
       return this.workers.map((_, i) => ({
@@ -477,7 +477,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
       }));
     }
     
-    const results = await Promise.all(
+    return await Promise.all(
       this.workers.map(async (worker, i) => {
         const start = Date.now();
         const healthId = `health-${Date.now()}-${i}-${Math.random()}`;
@@ -518,8 +518,6 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         }
       })
     );
-    
-    return results;
   }
 
   public getStats() {

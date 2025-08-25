@@ -12,11 +12,11 @@ const platform = process.platform;
 const buildType = (process.argv[2] as string | undefined) || platform;
 
 function log(msg: string): void {
-  // eslint-disable-next-line no-console
+   
   console.log(msg);
 }
 function err(msg: string): void {
-  // eslint-disable-next-line no-console
+   
   console.error(msg);
 }
 
@@ -79,7 +79,7 @@ try {
     }
     default: {
       log(`Unknown build type: ${buildType}, using current platform`);
-      command = `npm run package:${platform === 'win32' ? 'win' : platform === 'darwin' ? 'mac' : 'linux'}`;
+      command = `npm run package:${platform === 'win32' ? 'win' : (platform === 'darwin' ? 'mac' : 'linux')}`;
     }
   }
 

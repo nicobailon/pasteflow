@@ -1,7 +1,7 @@
 import { Eye, FileText, X } from "lucide-react";
+import { TOKEN_COUNTING } from "@constants";
 
 import { Instruction } from "../types/file-types";
-import { TOKEN_COUNTING } from "@constants";
 
 import CopyButton from "./copy-button";
 import "./instruction-card.css";

@@ -1,5 +1,6 @@
-import { BrowserWindow, ipcMain } from 'electron';
 import { EventEmitter } from 'node:events';
+
+import { BrowserWindow, ipcMain } from 'electron';
 
 export type PreviewStartOptions = {
   includeTrees?: boolean;

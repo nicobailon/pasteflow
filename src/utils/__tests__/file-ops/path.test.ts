@@ -20,7 +20,7 @@ describe('path utilities', () => {
     it('should handle edge cases', () => {
       expect(basename('')).toBe('');
       expect(basename(null)).toBe('');
-      expect(basename(undefined)).toBe('');
+      expect(basename()).toBe('');
       expect(basename('/')).toBe('');
       expect(basename('/path/to/dir/')).toBe('dir');
     });
@@ -36,7 +36,7 @@ describe('path utilities', () => {
     it('should handle edge cases', () => {
       expect(dirname('')).toBe('.');
       expect(dirname(null)).toBe('.');
-      expect(dirname(undefined)).toBe('.');
+      expect(dirname()).toBe('.');
       expect(dirname('/')).toBe('/');
     });
   });
@@ -66,7 +66,7 @@ describe('path utilities', () => {
       expect(extname('file')).toBe('');
       expect(extname('')).toBe('');
       expect(extname(null)).toBe('');
-      expect(extname(undefined)).toBe('');
+      expect(extname()).toBe('');
     });
   });
 
@@ -81,7 +81,7 @@ describe('path utilities', () => {
     it('should handle edge cases', () => {
       expect(normalizePath('')).toBe('');
       expect(normalizePath(null)).toBe('');
-      expect(normalizePath(undefined)).toBe('');
+      expect(normalizePath()).toBe('');
     });
   });
 
@@ -95,7 +95,7 @@ describe('path utilities', () => {
     it('should handle edge cases', () => {
       expect(getRelativePath('', '/root')).toBe('');
       expect(getRelativePath('/file.txt', null)).toBe('/file.txt');
-      expect(getRelativePath('/file.txt', undefined)).toBe('/file.txt');
+      expect(getRelativePath('/file.txt')).toBe('/file.txt');
       expect(getRelativePath('/other/file.txt', '/root')).toMatch(/file.txt/);
     });
   });

@@ -1,11 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { logger } from './logger';
 
-import { FileData, FileTreeMode, Instruction, RolePrompt, SelectedFileReference, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
+
 
 import { extname, getAllDirectories, getRelativePath, normalizePath } from "@file-ops/path";
 import { generateAsciiFileTree } from "@file-ops/ascii-tree";
+
+import { FileData, FileTreeMode, Instruction, RolePrompt, SelectedFileReference, SelectedFileWithLines, SystemPrompt, LineSelectionValidationResult } from "../types/file-types";
+
+import { logger } from './logger';
 import { validateLineSelections, extractContentForLines } from './workspace-utils';
 import { sortFilesByOrder } from './sort-utils';
 

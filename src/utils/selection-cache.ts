@@ -1,4 +1,5 @@
 import { FileData, SelectedFileReference, DirectorySelectionCache } from '../types/file-types';
+
 import { BoundedLRUCache } from './bounded-lru-cache';
 import { getGlobalPerformanceMonitor } from './performance-monitor';
 
@@ -454,9 +455,9 @@ function createDirectorySelectionCacheInterface(params: {
         // Initialize worker with static directory structure
         const dirMapArray: [string, string[]][] = [];
         for (const [dir, files] of params.directoryMap.entries()) {
-          dirMapArray.push([dir, Array.from(files)]);
+          dirMapArray.push([dir, [...files]]);
         }
-        const allDirsArray = Array.from(params.allDirectories.values());
+        const allDirsArray = [...params.allDirectories.values()];
 
         try {
           worker.postMessage({ type: 'INIT', payload: { directoryMap: dirMapArray, allDirectories: allDirsArray } });
@@ -473,7 +474,7 @@ function createDirectorySelectionCacheInterface(params: {
           if (data.type === 'BATCH' && data.payload && Array.isArray(data.payload.updates)) {
             let batchSizeApplied = 0;
             for (const [dir, code] of data.payload.updates as [string, 'f' | 'p' | 'n'][]) {
-              const state: SelectionState = code === 'f' ? 'full' : code === 'p' ? 'partial' : 'none';
+              const state: SelectionState = code === 'f' ? 'full' : (code === 'p' ? 'partial' : 'none');
               cache.set(dir, state);
               // Mirror alt path for leading slash normalization
               const altPath = dir.startsWith('/') ? dir.slice(1) : ('/' + dir);
@@ -503,8 +504,8 @@ function createDirectorySelectionCacheInterface(params: {
           worker.postMessage({
             type: 'COMPUTE',
             payload: {
-              selectedPaths: Array.from(selectedPathsRef.values()),
-              priorityPaths: Array.from(prioritySet.values()),
+              selectedPaths: [...selectedPathsRef.values()],
+              priorityPaths: [...prioritySet.values()],
               batchSize: BATCH
             }
           });

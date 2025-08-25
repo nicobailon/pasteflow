@@ -46,8 +46,8 @@ const state: WorkerState = {
 
 function countSelected(filesInDir: string[], selected: Set<string>): number {
   let count = 0;
-  for (let i = 0; i < filesInDir.length; i++) {
-    if (selected.has(filesInDir[i])) count++;
+  for (const element of filesInDir) {
+    if (selected.has(element)) count++;
   }
   return count;
 }
@@ -127,17 +127,21 @@ function handleCancel() {
 (self as unknown as Worker).onmessage = (e: MessageEvent<InMsg>) => {
   const msg = e.data;
   switch (msg.type) {
-    case 'INIT':
+    case 'INIT': {
       handleInit(msg);
       break;
-    case 'COMPUTE':
+    }
+    case 'COMPUTE': {
       handleCompute(msg);
       break;
-    case 'CANCEL':
+    }
+    case 'CANCEL': {
       handleCancel();
       break;
-    default:
+    }
+    default: {
       // no-op
       break;
+    }
   }
 };

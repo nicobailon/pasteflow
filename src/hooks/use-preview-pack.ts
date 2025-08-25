@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
-import { usePreviewGenerator } from './use-preview-generator';
-import type { StartPreviewParams } from './use-preview-generator';
+
 import type {
   FileData,
   SelectedFileReference,
@@ -10,6 +9,9 @@ import type {
   FileTreeMode,
 } from '../types/file-types';
 import { logger } from '../utils/logger';
+
+import { usePreviewGenerator } from './use-preview-generator';
+import type { StartPreviewParams } from './use-preview-generator';
 
 export type PackStatus = 'idle' | 'packing' | 'ready' | 'error' | 'cancelled';
 
@@ -87,7 +89,7 @@ class PreparedPreviewCache {
     state: PackState;
     timestamp: number;
   }> = new Map();
-  private maxEntries: number = 1;
+  private maxEntries = 1;
 
   get(signature: string): PackState | null {
     const entry = this.cache.get(signature);
@@ -180,7 +182,8 @@ export function usePreviewPack(params: UsePreviewPackParams) {
     // Handle completion, error, and cancellation states
     if (currentSignatureRef.current && previewState.id) {
       // Check if preview is complete
-      if (previewState.status === 'complete') {
+      switch (previewState.status) {
+      case 'complete': {
         logger.info('[Pack] Pack operation completed', {
           processed: previewState.processed,
           total: previewState.total,
@@ -209,7 +212,10 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           return completeState;
         });
         cacheRef.current.set(currentSignatureRef.current, completeState);
-      } else if (previewState.status === 'error') {
+      
+      break;
+      }
+      case 'error': {
         logger.error('[Pack] Pack operation failed', { error: previewState.error });
         setPackState(prev => ({
           ...prev,
@@ -218,13 +224,20 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           fullContent: previewState.fullContent, // Keep any partial content
           contentForDisplay: previewState.contentForDisplay,
         }));
-      } else if (previewState.status === 'cancelled') {
+      
+      break;
+      }
+      case 'cancelled': {
         setPackState(prev => ({
           ...prev,
           status: 'cancelled',
           fullContent: previewState.fullContent, // Keep any partial content
           contentForDisplay: previewState.contentForDisplay,
         }));
+      
+      break;
+      }
+      // No default
       }
     }
   }, [previewState]); // Only depend on previewState
@@ -346,7 +359,7 @@ export function usePreviewPack(params: UsePreviewPackParams) {
   }, [reset]);
 
   // Clear cache when workspace (selectedFolder) actually changes
-  const previousFolderRef = useRef<string | null | undefined>(undefined);
+  const previousFolderRef = useRef<string | null | undefined>();
   useEffect(() => {
     // Skip on initial mount (when previousFolderRef is undefined)
     if (previousFolderRef.current === undefined) {
