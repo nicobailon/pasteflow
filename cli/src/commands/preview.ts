@@ -1,4 +1,4 @@
-import { createClient, discover, handleAxiosError, parseAtFile, printJsonOrText } from "../client";
+import { createClient, discover, handleAxiosError, parseAtFileAsync, printJsonOrText } from "../client";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -22,7 +22,7 @@ export function attachPreviewCommand(root: any): void {
     .action(async (opts: { includeTrees?: boolean; maxFiles?: number; maxBytes?: number; prompt?: string; follow?: boolean; waitMs?: number; out?: string; overwrite?: boolean }) => {
       const flags = root.opts() as any;
       try {
-        const prompt = parseAtFile(opts.prompt);
+        const prompt = await parseAtFileAsync(opts.prompt);
         const d = await discover(flags);
         const client = createClient(d, flags);
         const res = await client.post("/api/v1/preview/start", {
@@ -44,7 +44,17 @@ export function attachPreviewCommand(root: any): void {
         }
 
         const waitMs = Number.isFinite(opts.waitMs) && (opts.waitMs as number) > 0 ? Number(opts.waitMs) : 180000;
-        const result = await followUntilTerminal(client, data.id, waitMs, flags);
+
+        // Support Ctrl+C cancellation during follow
+        const ac = new AbortController();
+        const onSigint = () => ac.abort();
+        try { process.once("SIGINT", onSigint); } catch {}
+        let result: { state: PreviewState; error?: { code: string; message: string } };
+        try {
+          result = await followUntilTerminal(client, data.id, waitMs, flags, ac.signal);
+        } finally {
+          try { process.off("SIGINT", onSigint); } catch {}
+        }
 
         if (result.state === "SUCCEEDED") {
           // Fetch content
@@ -96,6 +106,29 @@ export function attachPreviewCommand(root: any): void {
         }
       } catch (err: unknown) {
         const e = err as any;
+        // Handle user cancellation via AbortController
+        if (e?.code === "ERR_CANCELED") {
+          if (flags.json) {
+            printJsonOrText({ error: { code: "CANCELLED", message: "Operation cancelled by user (SIGINT)" } }, flags);
+          } else {
+            // eslint-disable-next-line no-console
+            console.error("CANCELLED");
+          }
+          process.exit(1);
+        }
+        // Map local @file read errors for --prompt to VALIDATION_ERROR (exit 2)
+        if (e && typeof e === "object" && "code" in (e as any)) {
+          const code = (e as any).code;
+          if (code === "ENOENT" || code === "EISDIR" || code === "EACCES") {
+            if (flags.json) {
+              printJsonOrText({ error: { code: "VALIDATION_ERROR", message: (e as Error).message } }, flags);
+            } else {
+              // eslint-disable-next-line no-console
+              console.error(`VALIDATION_ERROR: ${(e as Error).message}`);
+            }
+            process.exit(2);
+          }
+        }
         if (e?.code === "EEXIST") {
           if (flags.json) {
             printJsonOrText({ error: { code: "CONFLICT", message: "File exists; use --overwrite" } }, flags);
@@ -154,8 +187,21 @@ export function attachPreviewCommand(root: any): void {
         const start = Date.now();
         let delay = Number.isFinite(opts.intervalMs) && (opts.intervalMs as number) > 0 ? Number(opts.intervalMs) : 250;
         const maxDelay = 3000;
+        let iterations = 0;
+        const maxIterations = 10000; // safety guard to avoid infinite loops
+        const ac = new AbortController();
+        try { process.once("SIGINT", () => ac.abort()); } catch {}
         while (true) {
-          const res = await client.get(`/api/v1/preview/status/${encodeURIComponent(id)}`);
+          if (ac.signal.aborted) {
+            if (flags.json) {
+              printJsonOrText({ error: { code: "CANCELLED", message: "Operation cancelled by user (SIGINT)" } }, flags);
+            } else {
+              // eslint-disable-next-line no-console
+              console.error("CANCELLED");
+            }
+            process.exit(1);
+          }
+          const res = await client.get(`/api/v1/preview/status/${encodeURIComponent(id)}`, { signal: ac.signal });
           const data = (res.data?.data ?? res.data) as any;
           if (data.state === "SUCCEEDED" || data.state === "FAILED" || data.state === "CANCELLED") {
             if (flags.json) {
@@ -168,9 +214,10 @@ export function attachPreviewCommand(root: any): void {
           }
           await sleep(delay);
           delay = Math.min(Math.floor(delay * 1.5), maxDelay);
-          if (Date.now() - start > 180000) {
+          iterations += 1;
+          if (iterations > maxIterations || Date.now() - start > 180000) {
             // eslint-disable-next-line no-console
-            console.error("Watch timeout exceeded (180000ms)");
+            console.error("Watch timeout exceeded (safety guard)");
             process.exit(1);
           }
         }
@@ -289,19 +336,35 @@ export function attachPreviewCommand(root: any): void {
     });
 }
 
-async function followUntilTerminal(client: any, id: string, waitMs: number, flags: any): Promise<{ state: PreviewState; error?: { code: string; message: string } }> {
+async function followUntilTerminal(
+  client: any,
+  id: string,
+  waitMs: number,
+  flags: any,
+  signal?: AbortSignal
+): Promise<{ state: PreviewState; error?: { code: string; message: string } }> {
   const start = Date.now();
   let delay = 250;
   const maxDelay = 3000;
+  let iterations = 0;
+  // Safety bound: even if the time check fails for any reason, avoid infinite loops
+  const maxIterations = Math.max(1000, Math.ceil(waitMs / 10));
   while (true) {
-    const res = await client.get(`/api/v1/preview/status/${encodeURIComponent(id)}`);
-  	const data = (res.data?.data ?? res.data) as any;
+    if (signal?.aborted) {
+      return { state: "CANCELLED" };
+    }
+    const res = await client.get(
+      `/api/v1/preview/status/${encodeURIComponent(id)}`,
+      signal ? { signal } : undefined
+    );
+    const data = (res.data?.data ?? res.data) as any;
     if (data.state === "SUCCEEDED" || data.state === "FAILED" || data.state === "CANCELLED") {
       return { state: data.state, error: data.error };
     }
     await sleep(delay);
     delay = Math.min(Math.floor(delay * 1.5), maxDelay);
-    if (Date.now() - start > waitMs) {
+    iterations += 1;
+    if (Date.now() - start > waitMs || iterations > maxIterations) {
       // emulate timeout result; server may still be running
       return { state: "FAILED", error: { code: "PREVIEW_TIMEOUT", message: "Follow timeout exceeded" } };
     }

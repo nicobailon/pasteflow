@@ -104,6 +104,15 @@ export function parseAtFile(value?: string): string | undefined {
   return value;
 }
 
+export async function parseAtFileAsync(value?: string): Promise<string | undefined> {
+  if (!value) return value;
+  if (value.startsWith("@")) {
+    const filePath = value.slice(1);
+    return await fs.promises.readFile(filePath, "utf8");
+  }
+  return value;
+}
+
 export function parseJsonValue(input?: string): unknown {
   if (!input) return undefined;
   try {
