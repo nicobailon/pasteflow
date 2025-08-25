@@ -9,6 +9,7 @@ export type ApiErrorCode =
   | 'BINARY_FILE'
   | 'NO_ACTIVE_WORKSPACE'
   | 'INTERNAL_ERROR'
+  | 'FILE_SYSTEM_ERROR'
   // Phase 4 additions
   | 'PREVIEW_NOT_FOUND'
   | 'PREVIEW_TIMEOUT';

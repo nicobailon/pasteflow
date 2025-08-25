@@ -378,6 +378,9 @@ export class PasteFlowAPIServer {
         if (s.code === 'FILE_NOT_FOUND') {
           return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
         }
+        if (s.code === 'FILE_SYSTEM_ERROR') {
+          return res.status(500).json(toApiError('FILE_SYSTEM_ERROR', s.message));
+        }
         return res.status(500).json(toApiError('DB_OPERATION_FAILED', s.message));
       }
       return res.json(ok(s.data));
@@ -406,6 +409,9 @@ export class PasteFlowAPIServer {
         if (s.code === 'FILE_NOT_FOUND') {
           return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
         }
+        if (s.code === 'FILE_SYSTEM_ERROR') {
+          return res.status(500).json(toApiError('FILE_SYSTEM_ERROR', s.message));
+        }
         return res.status(500).json(toApiError('DB_OPERATION_FAILED', s.message));
       }
       if (s.data.isDirectory) {
@@ -424,6 +430,9 @@ export class PasteFlowAPIServer {
         }
         if (r.code === 'VALIDATION_ERROR') {
           return res.status(400).json(toApiError('VALIDATION_ERROR', r.message));
+        }
+        if (r.code === 'FILE_SYSTEM_ERROR') {
+          return res.status(500).json(toApiError('FILE_SYSTEM_ERROR', r.message));
         }
         return res.status(500).json(toApiError('DB_OPERATION_FAILED', r.message));
       }
@@ -551,6 +560,9 @@ export class PasteFlowAPIServer {
             if (st.code === 'FILE_NOT_FOUND') {
               return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
             }
+            if (st.code === 'FILE_SYSTEM_ERROR') {
+              return res.status(500).json(toApiError('FILE_SYSTEM_ERROR', st.message));
+            }
             return res.status(500).json(toApiError('DB_OPERATION_FAILED', st.message));
           }
           if (st.data.isDirectory) {
@@ -670,7 +682,7 @@ export class PasteFlowAPIServer {
     });
 
     // Phase 3: Content - aggregate
-    this.app.get('/api/v1/content', async (_req, res) => {
+    this.app.get('/api/v1/content', async (req, res) => {
       const allowed = getAllowedWorkspacePaths();
       if (!allowed || allowed.length === 0) {
         return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
@@ -684,6 +696,13 @@ export class PasteFlowAPIServer {
         if (!ws) {
           return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
         }
+
+        // Optional limits for content aggregation
+        const q = req.query as any;
+        const maxFilesQ = Number.parseInt(String(q?.maxFiles ?? ''), 10);
+        const maxBytesQ = Number.parseInt(String(q?.maxBytes ?? ''), 10);
+        const maxFiles = Number.isFinite(maxFilesQ) && maxFilesQ > 0 ? Math.min(maxFilesQ, 10000) : undefined;
+        const maxBytes = Number.isFinite(maxBytesQ) && maxBytesQ > 0 ? Math.min(maxBytesQ, 50 * 1024 * 1024) : undefined;
 
         const state = (ws.state || {}) as WorkspaceState;
         const selection = (state.selectedFiles ?? []) as Array<{ path: string; lines?: Array<{ start: number; end: number }> }>;
@@ -699,6 +718,8 @@ export class PasteFlowAPIServer {
           selectedInstructions: (state as any).selectedInstructions ?? [],
           userInstructions: (state as any).userInstructions ?? '',
           exclusionPatterns: (state as any).exclusionPatterns ?? [],
+          maxFiles,
+          maxBytes,
         });
 
         const tokenService = getMainTokenService();

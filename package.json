@@ -2,6 +2,10 @@
   "name": "pasteflow",
   "version": "1.0.0",
   "main": "build/main/main.js",
+  "bin": {
+    "pasteflow": "cli/dist/index.js",
+    "pf": "cli/dist/index.js"
+  },
   "scripts": {
     "start": "electron .",
     "build:main": "tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
@@ -40,7 +44,9 @@
     "test:watch": "jest --watch --maxWorkers=2",
     "test:mock-check": "npx tsx scripts/test-quality/mock-count-checker.ts",
     "test:assertion-check": "npx tsx scripts/test-quality/assertion-density-checker.ts",
-    "test:quality-full": "npm run test:mock-check && npm run test:assertion-check && npm test"
+    "test:quality-full": "npm run test:mock-check && npm run test:assertion-check && npm test",
+    "build:cli": "tsc -p cli/tsconfig.json",
+    "build:cli:watch": "tsc -p cli/tsconfig.json --watch"
   },
   "keywords": [
     "clipboard",
@@ -166,6 +172,8 @@
     "react-window": "^1.8.11",
     "tiktoken": "^1.0.20",
     "uuid": "^11.1.0",
-    "zod": "^4.0.14"
+    "zod": "^4.0.14",
+    "axios": "^1.7.2",
+    "commander": "^11.1.0"
   }
 }

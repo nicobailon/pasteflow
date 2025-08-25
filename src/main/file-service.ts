@@ -115,7 +115,7 @@ export async function statFile(absolutePath: string): Promise<StatFileResult> {
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return { ok: false, code: 'FILE_NOT_FOUND', message: 'File not found' };
     }
-    return { ok: false, code: 'DB_OPERATION_FAILED', message: (err as Error)?.message || String(err) };
+    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (err as Error)?.message || String(err) };
   }
 }
 
@@ -152,6 +152,6 @@ export async function readTextFile(absolutePath: string): Promise<ReadTextFileRe
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return { ok: false, code: 'FILE_NOT_FOUND', message: 'File not found' };
     }
-    return { ok: false, code: 'DB_OPERATION_FAILED', message: (err as Error)?.message || String(err) };
+    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (err as Error)?.message || String(err) };
   }
 }

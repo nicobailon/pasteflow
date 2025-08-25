@@ -240,3 +240,47 @@ src/main/db/
 - [ ] Schema versioning and migrations
 - [ ] Export/import at DB layer (complementing UI "Pack")
 - [ ] Performance metrics surfaced to diagnostics UI
+## Integration with HTTP API and CLI
+
+The database layer underpins the local HTTP API and the first‑party CLI. The Electron main HTTP server wires CRUD endpoints to database operations via the bridge.
+
+- API server routes: see [`registerRoutes()`](src/main/api-server.ts:162)
+  - Workspaces CRUD and ops: `/api/v1/workspaces*` (list/create/get/update/delete/rename/load)
+  - Preferences: `/api/v1/prefs/:key`
+  - Instructions: `/api/v1/instructions*`
+  - Selections + content aggregation: `/api/v1/files/*`, `/api/v1/content`, `/api/v1/content/export`
+  - Preview (async): `/api/v1/preview/start|status/:id|content/:id|cancel/:id`
+
+- Database usage in routes:
+  - Workspaces/Preferences/Instructions operations are executed through [DatabaseBridge](src/main/db/database-bridge.ts:1) ensuring retries and typed envelopes.
+  - Selection state is persisted in the `workspaces.state` JSON column and updated via the same bridge.
+
+- Path security and workspace scoping:
+  - Allowed workspace paths are applied in main/server and enforced by [PathValidator](src/security/path-validator.ts:9).
+  - HTTP endpoints validate allow‑first and map errors consistently; see error normalization in [error-normalizer.ts](src/main/error-normalizer.ts:1).
+
+- CLI mapping (for headless automation):
+  - CLI commands in [cli/src/index.ts](cli/src/index.ts:1) talk to the HTTP API; each command group lives in [cli/src/commands/](cli/src/commands/status.ts:1).
+  - Examples:
+    - Workspaces: [workspaces.ts](cli/src/commands/workspaces.ts:1) → `/api/v1/workspaces*`
+    - Preferences: [prefs.ts](cli/src/commands/prefs.ts:1) → `/api/v1/prefs/:key`
+    - Instructions: [instructions.ts](cli/src/commands/instructions.ts:1) → `/api/v1/instructions*`
+    - Selection: [select.ts](cli/src/commands/select.ts:1) → `/api/v1/files/select|deselect|clear|selected`
+    - Content: [content.ts](cli/src/commands/content.ts:1) → `/api/v1/content`, `/api/v1/content/export`
+    - Preview: [preview.ts](cli/src/commands/preview.ts:1) → `/api/v1/preview/*`
+
+### Operational Notes
+
+- Active workspace and allowed paths:
+  - When a workspace is loaded (via API or GUI), the server sets allowed paths and primes the validator; see load handler in [api-server.ts](src/main/api-server.ts:264).
+  - The `workspace.active` preference is the source of truth for the currently active workspace.
+
+- Error semantics:
+  - Filesystem issues surface as `FILE_SYSTEM_ERROR`.
+  - Workspace scoping issues surface as `NO_ACTIVE_WORKSPACE` or `PATH_DENIED`.
+  - These are normalized and consumed by the CLI with stable exit codes.
+
+- Testing the DB in the context of HTTP:
+  - Integration tests targeting HTTP routes can indirectly verify DB behavior. See server tests under [src/main/__tests__](src/main/__tests__/api-server.test.ts:1) and DB tests under [src/main/db/__tests__](src/main/db/__tests__/database-implementation.test.ts:1).
+
+For end‑to‑end automation examples (CLI), see the root [README.md](README.md).

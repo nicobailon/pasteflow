@@ -113,3 +113,99 @@ If the workflow fails to find artifacts:
 
 - The notarization hook at packaging time is implemented in TypeScript as `scripts/notarize.ts` but must run as CommonJS by electron‑builder. That’s why we compile scripts to `build/scripts` and point electron‑builder to `build/scripts/notarize.js`.
 - Always run `npm run build:scripts` prior to packaging steps (our `package*` npm scripts already do this).
+
+## CLI Build &amp; Usage
+
+The repository includes a first‑party CLI for headless workflows (automation, CI). It is built from TypeScript sources under `cli/` and exposed via package bin entries in [package.json](package.json:5).
+
+### Scripts
+- Build once:
+  ```bash
+  npm run build:cli
+  ```
+  See scripts in [package.json](package.json:48-49): `build:cli`, `build:cli:watch`.
+
+- Watch mode during development:
+  ```bash
+  npm run build:cli:watch
+  ```
+
+### Running the CLI (local repo)
+- Direct execution from the build output:
+  ```bash
+  node cli/dist/index.js --help
+  node cli/dist/index.js status
+  ```
+- Global dev link (exposes `pasteflow` and `pf` via [package.json](package.json:5-8)):
+  ```bash
+  npm link
+  pasteflow status
+  pf workspaces list
+  ```
+
+### Global flags (consistent across commands)
+- `--host`, `--port`, `--token` override discovery from `~/.pasteflow/{server.port,auth.token}`.
+- `--json` prints machine‑readable payloads (success or error envelopes).
+- `--raw` emits raw content for files/content/preview content commands.
+- `--timeout &lt;ms&gt;` HTTP timeout (default ~10s).
+- `--debug` prints HTTP request/response summaries.
+
+### Exit codes (for scripting)
+- 0: success
+- 1: general/server error (INTERNAL_ERROR, FILE_SYSTEM_ERROR)
+- 2: validation/path denied (VALIDATION_ERROR, NO_ACTIVE_WORKSPACE)
+- 3: authentication failure (UNAUTHORIZED)
+- 4: not found
+- 5: conflict/binary (CONFLICT, BINARY_FILE, local EEXIST)
+- 6: server not running/unreachable
+
+### Common usage examples
+- Status:
+  ```bash
+  pasteflow status
+  ```
+- Workspaces:
+  ```bash
+  pasteflow workspaces list
+  pasteflow workspaces create --name "WS" --folder "/abs/path"
+  pasteflow workspaces load &lt;id&gt;
+  ```
+- Files (absolute paths required client‑side):
+  ```bash
+  pasteflow files info --path "/abs/path/file.ts"
+  pasteflow files content --path "/abs/path/file.ts" --out out.txt --overwrite
+  ```
+- Selection:
+  ```bash
+  pasteflow select add --path "/abs/path/file.ts" --lines "10-20,30"
+  pasteflow select list
+  ```
+- Content aggregation:
+  ```bash
+  pasteflow content get --max-files 500 --max-bytes 2000000 --out pack.txt --overwrite
+  pasteflow content export --out "/abs/path/pack.txt" --overwrite
+  ```
+- Preview (async):
+  ```bash
+  pasteflow preview start --prompt @prompt.txt --follow --out preview.md --overwrite
+  pasteflow preview status &lt;id&gt; --watch
+  pasteflow preview content &lt;id&gt; --raw
+  pasteflow preview cancel &lt;id&gt;
+  ```
+
+### Troubleshooting
+- Server unreachable (exit 6): Start the app so the local HTTP API is running and port/token are available:
+  ```bash
+  npm run dev:electron
+  ```
+- NO_ACTIVE_WORKSPACE (exit 2): Initialize one:
+  ```bash
+  pasteflow folders open --folder "/your/repo"
+  # or
+  pasteflow workspaces load &lt;id&gt;
+  ```
+
+### Sources
+- CLI entry: [cli/src/index.ts](cli/src/index.ts:1)
+- HTTP client &amp; discovery: [cli/src/client.ts](cli/src/client.ts:1)
+- Commands: [cli/src/commands/](cli/src/commands/status.ts:1) (see sibling files for each command group)

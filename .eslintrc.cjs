@@ -236,6 +236,14 @@ module.exports = {
         'complexity': ['warn', { max: 25 }], // Hooks often need more complexity
         '@typescript-eslint/no-unused-vars': 'warn'
       }
+    },
+    {
+      // Ensure ESLint/TS parser resolves modules for the CLI project using its tsconfig
+      files: ["cli/src/**/*.ts"],
+      parserOptions: {
+        project: "./cli/tsconfig.json",
+        tsconfigRootDir: __dirname
+      }
     }
   ],
   settings: {
@@ -243,7 +251,15 @@ module.exports = {
       version: "detect",
     },
     "import/resolver": {
-      typescript: {}
+      typescript: {
+        // Point the TS resolver at all project tsconfigs so module resolution works in subprojects
+        project: [
+          "./cli/tsconfig.json",
+          "./tsconfig.json",
+          "./tsconfig.main.json",
+          "./tsconfig.scripts.json"
+        ]
+      }
     }
   },
 };

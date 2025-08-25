@@ -13,6 +13,7 @@ import { DatabaseBridge } from './db/database-bridge';
 import { PasteFlowAPIServer } from './api-server';
 import { getMainTokenService } from '../services/token-service-main';
 
+import { setAllowedWorkspacePaths } from './workspace-context';
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
 
 // ABI/runtime diagnostics (helps verify native module compatibility)
@@ -245,6 +246,21 @@ app.whenReady().then(async () => {
     await database.initialize();
     // eslint-disable-next-line no-console
     console.log('Database initialized successfully');
+
+    // Auto-init allowed workspace paths if an active workspace exists to avoid NO_ACTIVE_WORKSPACE errors
+    try {
+      const activeId = await database.getPreference('workspace.active');
+      if (activeId) {
+        const ws = await database.getWorkspace(String(activeId));
+        if (ws?.folder_path) {
+          setAllowedWorkspacePaths([ws.folder_path]);
+          getPathValidator([ws.folder_path]);
+        }
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('Workspace path auto-init failed:', e);
+    }
   } catch (error: unknown) {
     // eslint-disable-next-line no-console
     console.error('Failed to initialize database:', error);

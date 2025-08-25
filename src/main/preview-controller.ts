@@ -20,10 +20,14 @@ export interface PreviewJob {
     code: 'PREVIEW_TIMEOUT' | 'INTERNAL_ERROR';
     message: string;
   };
+  // Unsubscribe all listeners and release any per-job resources
+  cleanup?: () => void;
 }
 
 interface ControllerOptions {
   timeoutMs?: number;
+  // Retention TTL for completed/failed/cancelled jobs before GC (ms). Default: 5 minutes.
+  jobTtlMs?: number;
 }
 
 export class PreviewController {
@@ -47,11 +51,24 @@ export class PreviewController {
 
     // Subscribe to events for this correlation id
     const offStatus = this.proxy.onStatus(id, (payload) => this.handleStatus(id, payload));
-    const offContent = this.proxy.onContent(id, (payload) => this.handleContent(id, payload, () => {
-      // Unsubscribe when content is received (terminal event)
-      offStatus();
-      offContent();
-    }));
+    const offContent = this.proxy.onContent(id, (payload) =>
+      this.handleContent(id, payload, () => {
+        // Unsubscribe when content is received (terminal event)
+        offStatus();
+        offContent();
+      })
+    );
+
+    // Attach cleanup to job so we can unsubscribe on all terminal states
+    const saved = this.jobs.get(id);
+    if (saved) {
+      const cleanup = () => {
+        try { offStatus(); } catch {}
+        try { offContent(); } catch {}
+      };
+      saved.cleanup = cleanup;
+      this.jobs.set(id, saved);
+    }
 
     // Start timeout timer
     const timeoutMs = this.opts.timeoutMs ?? 120_000;
@@ -66,10 +83,11 @@ export class PreviewController {
       // Best-effort cancel request to renderer
       this.proxy.cancel(id);
       // Cleanup listeners
-      offStatus();
-      offContent();
+      try { j.cleanup?.(); } catch {}
       // Clear timer reference
       this.clearTimer(id);
+      // Schedule retention-based GC
+      this.scheduleRetention(id);
     }, timeoutMs);
     this.timeouts.set(id, timer);
 
@@ -101,6 +119,8 @@ export class PreviewController {
     this.jobs.set(id, job);
     this.proxy.cancel(id);
     this.clearTimer(id);
+    try { job.cleanup?.(); } catch {}
+    this.scheduleRetention(id);
   }
 
   // Internal handlers
@@ -119,6 +139,17 @@ export class PreviewController {
       j.error = { code: 'INTERNAL_ERROR', message: payload.message || 'Preview failed' };
       this.jobs.set(id, j);
       this.clearTimer(id);
+      try { j.cleanup?.(); } catch {}
+      this.scheduleRetention(id);
+    } else if (payload.state === 'CANCELLED') {
+      // Handle renderer-originated cancellation to avoid leaking timers/listeners
+      j.state = 'CANCELLED';
+      j.finishedAt = Date.now();
+      j.durationMs = (j.startedAt ?? j.requestedAt) ? (j.finishedAt - (j.startedAt ?? j.requestedAt)) : undefined;
+      this.jobs.set(id, j);
+      this.clearTimer(id);
+      try { j.cleanup?.(); } catch {}
+      this.scheduleRetention(id);
     }
     // Other status updates (progress, messages) are ignored here but could be tracked
   }
@@ -150,7 +181,8 @@ export class PreviewController {
       this.jobs.set(id, j);
     } finally {
       this.clearTimer(id);
-      finalize();
+      try { finalize(); } catch {}
+      this.scheduleRetention(id);
     }
   }
 
@@ -160,5 +192,21 @@ export class PreviewController {
       clearTimeout(t);
       this.timeouts.delete(id);
     }
+  }
+
+  // Retain terminal jobs for a TTL to allow clients to query status/content, then GC.
+  private scheduleRetention(id: string): void {
+    const ttl = this.opts.jobTtlMs ?? 300_000; // default 5 minutes
+    if (ttl <= 0) {
+      try { this.jobs.get(id)?.cleanup?.(); } catch {}
+      this.jobs.delete(id);
+      this.timeouts.delete(id);
+      return;
+    }
+    setTimeout(() => {
+      try { this.jobs.get(id)?.cleanup?.(); } catch {}
+      this.jobs.delete(id);
+      this.timeouts.delete(id);
+    }, ttl);
   }
 }
