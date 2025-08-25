@@ -23,8 +23,9 @@ export function attachContentCommand(root: any): void {
         const qs = new URLSearchParams();
         if (Number.isFinite(opts.maxFiles) && (opts.maxFiles as number) > 0) qs.set("maxFiles", String(opts.maxFiles));
         if (Number.isFinite(opts.maxBytes) && (opts.maxBytes as number) > 0) qs.set("maxBytes", String(opts.maxBytes));
-        const url = `/api/v1/content${qs.toString() ? `?${qs.toString()}` : ""}`;
-
+        const qsString = qs.toString();
+        const url = qsString ? `/api/v1/content?${qsString}` : "/api/v1/content";
+        
         const res = await client.get(url);
         const data = (res.data?.data ?? res.data) as {
           content: string;

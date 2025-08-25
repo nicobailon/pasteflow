@@ -49,12 +49,16 @@ export function attachPreviewCommand(root: any): void {
         // Support Ctrl+C cancellation during follow
         const ac = new AbortController();
         const onSigint = () => ac.abort();
-        try { process.once("SIGINT", onSigint); } catch {}
+        try { process.once("SIGINT", onSigint); } catch {
+          // Intentionally empty - non-critical operation
+        }
         let result: { state: PreviewState; error?: { code: string; message: string } };
         try {
           result = await followUntilTerminal(client, data.id, waitMs, flags, ac.signal);
         } finally {
-          try { process.off("SIGINT", onSigint); } catch {}
+          try { process.off("SIGINT", onSigint); } catch {
+            // Intentionally empty - non-critical operation
+          }
         }
 
         if (result.state === "SUCCEEDED") {
@@ -178,7 +182,8 @@ export function attachPreviewCommand(root: any): void {
             printJsonOrText(data, flags);
           } else {
              
-            console.log(`${data.state}${data.error ? ` — ${data.error.code}: ${data.error.message}` : ""}`);
+            const statusDetails = data.error ? ` — ${data.error.code}: ${data.error.message}` : "";
+            console.log(`${data.state}${statusDetails}`);
           }
           process.exit(0);
         }
@@ -189,8 +194,10 @@ export function attachPreviewCommand(root: any): void {
         let iterations = 0;
         const maxIterations = 10_000; // safety guard to avoid infinite loops
         const ac = new AbortController();
-        try { process.once("SIGINT", () => ac.abort()); } catch {}
-        while (true) {
+        try { process.once("SIGINT", () => ac.abort()); } catch {
+          // Intentionally empty - non-critical operation
+        }
+        for (;;) {
           if (ac.signal.aborted) {
             if (flags.json) {
               printJsonOrText({ error: { code: "CANCELLED", message: "Operation cancelled by user (SIGINT)" } }, flags);
@@ -207,7 +214,8 @@ export function attachPreviewCommand(root: any): void {
               printJsonOrText(data, flags);
             } else {
                
-              console.log(`${data.state}${data.error ? ` — ${data.error.code}: ${data.error.message}` : ""}`);
+              const statusDetails = data.error ? ` — ${data.error.code}: ${data.error.message}` : "";
+              console.log(`${data.state}${statusDetails}`);
             }
             process.exit(data.state === "SUCCEEDED" ? 0 : 1);
           }
@@ -346,7 +354,7 @@ async function followUntilTerminal(
   let iterations = 0;
   // Safety bound: even if the time check fails for any reason, avoid infinite loops
   const maxIterations = Math.max(1000, Math.ceil(waitMs / 10));
-  while (true) {
+  for (;;) {
     if (signal?.aborted) {
       return { state: "CANCELLED" };
     }

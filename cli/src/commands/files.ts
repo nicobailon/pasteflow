@@ -34,9 +34,16 @@ export function attachFilesCommand(root: any): void {
         }
 
         const lines: string[] = [];
-        lines.push(`Name: ${data.name}`, `Path: ${data.path}`, `Size: ${data.size} bytes`);
-        lines.push(`Modified: ${new Date(data.mtimeMs).toISOString()}`, `Directory: ${data.isDirectory}`, `Binary: ${data.isBinary}`, `Type: ${data.fileType ?? "unknown"}`);
-         
+        lines.push(
+          `Name: ${data.name}`,
+          `Path: ${data.path}`,
+          `Size: ${data.size} bytes`,
+          `Modified: ${new Date(data.mtimeMs).toISOString()}`,
+          `Directory: ${data.isDirectory}`,
+          `Binary: ${data.isBinary}`,
+          `Type: ${data.fileType ?? "unknown"}`
+        );
+          
         console.log(lines.join("\n"));
         process.exit(0);
       } catch (error: unknown) {
