@@ -207,12 +207,15 @@ export const getSelectedFilesContentWithoutInstructions = (
       let placeholder: string;
 
       if (fileData.isSkipped) {
-        placeholder = `[File skipped${fileData.error ? `: ${fileData.error}` : ''}]`;
+        const errSuffix = fileData.error ? `: ${fileData.error}` : "";
+        placeholder = `[File skipped${errSuffix}]`;
       } else if (fileData.isBinary) {
-        const ft = fileData.fileType ? fileData.fileType : 'BINARY';
-        placeholder = `[Binary file omitted${ft ? `: ${ft}` : ''}]`;
+        const ft = fileData.fileType ? fileData.fileType : "BINARY";
+        const ftSuffix = ft && `: ${ft}`;
+        placeholder = `[Binary file omitted${ftSuffix || ""}]`;
       } else if (fileData.error) {
-        placeholder = `[Failed to load file${fileData.error ? `: ${fileData.error}` : ''}]`;
+        const loadErrSuffix = fileData.error ? `: ${fileData.error}` : "";
+        placeholder = `[Failed to load file${loadErrSuffix}]`;
       } else {
         placeholder = `[Content is loading...]`;
       }
