@@ -11,7 +11,8 @@
     "dev:electron": "tsx dev.ts",
     "build": "vite build",
     "build-electron": "tsx build.ts",
-    "postinstall": "electron-builder install-app-deps && npm run build-native",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild:electron": "npx electron-rebuild -f -w better-sqlite3 -v 34.3.0",
     "build-native": "npm rebuild better-sqlite3 --build-from-source",
     "verify-build": "tsx scripts/verify-build.ts",
     "test-build": "tsx scripts/test-local-build.ts",
@@ -19,12 +20,12 @@
     "test-build:win": "tsx scripts/test-local-build.ts win",
     "test-build:linux": "tsx scripts/test-local-build.ts linux",
     "debug-gh-release": "git tag debug-v$(date +'%Y%m%d%H%M%S') && git push origin --tags",
-    "package": "npm run build-native && vite build && npm run build:main && npm run build:scripts && electron-builder --publish=never",
-    "package:mac": "npm run build-native && vite build && npm run build:main && npm run build:scripts && electron-builder --mac --publish=never",
-    "package:win": "npm run build-native && vite build && npm run build:main && npm run build:scripts && electron-builder --win --publish=never",
-    "package:linux": "npm run build-native && vite build && npm run build:main && npm run build:scripts && electron-builder --linux --publish=never",
-    "package:all": "npm run build-native && vite build && npm run build:main && npm run build:scripts && electron-builder -mwl --publish=never",
-    "release": "npm run build-native && vite build && npm run build:main && npm run build:scripts && electron-builder --publish=onTagOrDraft",
+    "package": "vite build && npm run build:main && npm run build:scripts && electron-builder --publish=never",
+    "package:mac": "vite build && npm run build:main && npm run build:scripts && electron-builder --mac --publish=never",
+    "package:win": "vite build && npm run build:main && npm run build:scripts && electron-builder --win --publish=never",
+    "package:linux": "vite build && npm run build:main && npm run build:scripts && electron-builder --linux --publish=never",
+    "package:all": "vite build && npm run build:main && npm run build:scripts && electron-builder -mwl --publish=never",
+    "release": "vite build && npm run build:main && npm run build:scripts && electron-builder --publish=onTagOrDraft",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "lint:strict": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:filenames": "eslint . --ext ts,tsx --rule \"filenames/match-regex: error\" --rule \"filenames/match-exported: error\" --rule \"filenames/no-index: off\"",
@@ -49,8 +50,8 @@
     "file-viewer"
   ],
   "author": {
-    "name": "kleneway",
-    "email": "kleneway@notreal.com"
+    "name": "nico.bailon",
+    "email": "nico604@pm.me"
   },
   "license": "MIT",
   "description": "A modern file viewer application for developers to easily navigate, search, and copy code from repositories.",
@@ -99,7 +100,7 @@
       "node_modules/better-sqlite3/**"
     ],
     "npmRebuild": true,
-    "buildDependenciesFromSource": true,
+    "buildDependenciesFromSource": false,
     "asar": true,
     "afterSign": "build/scripts/notarize.js",
     "publish": [
@@ -107,12 +108,12 @@
     ]
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "@electron/notarize": "^2.5.0",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^14.2.1",
     "@testing-library/user-event": "^14.5.2",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^4.17.21",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.10.5",
     "@types/react": "^18.3.20",
@@ -154,7 +155,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/react-window": "^1.8.8",
     "@xmldom/xmldom": "^0.9.6",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^11.7.0",
     "express": "^4.19.2",
     "ignore": "^7.0.3",
     "lucide-react": "^0.477.0",

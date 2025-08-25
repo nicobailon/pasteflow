@@ -15,6 +15,17 @@ import { getMainTokenService } from '../services/token-service-main';
 
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
 
+// ABI/runtime diagnostics (helps verify native module compatibility)
+try {
+  // eslint-disable-next-line no-console
+  console.log('Runtime versions', {
+    electron: process.versions.electron,
+    node: process.versions.node,
+    v8: process.versions.v8,
+    modules: process.versions.modules
+  });
+} catch {}
+
 /** State */
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;

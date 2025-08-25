@@ -4,7 +4,7 @@ import type { AddressInfo } from 'net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseBridge } from './db/database-bridge';
-import { WorkspaceState, PreferenceValue } from './db/database-implementation';
+import { WorkspaceState, PreferenceValue, ParsedWorkspace } from './db/database-implementation';
 import { AuthManager } from './auth-manager';
 import { setAllowedWorkspacePaths, getAllowedWorkspacePaths } from './workspace-context';
 import { toApiError, ok } from './error-normalizer';
@@ -17,8 +17,6 @@ import { applySelect, applyDeselect, SelectionServiceError } from './selection-s
 import { aggregateSelectedContent } from './content-aggregation';
 
 import { writeExport } from './export-writer';
-import { getFileIndexCache } from './file-index';
-import { SearchService } from './search-service';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
 const idParam = z.object({ id: z.string().min(1) });
@@ -58,36 +56,7 @@ const previewStartBody = z.object({
 });
 const previewIdParam = z.object({ id: z.string().min(1) });
 
-const filesTreeQuery = z.object({
-  mode: z.enum(['complete', 'selected', 'selected-with-roots']).optional(),
-  depth: z.number().int().min(0).max(20).optional(),
-  limit: z.number().int().min(1).max(5000).optional()
-});
-
-const filesReindexBody = z.object({
-  full: z.boolean().optional()
-});
-
-const searchBody = z.object({
-  term: z.string().min(1).max(256),
-  isRegex: z.boolean().optional(),
-  caseSensitive: z.boolean().optional(),
-  includeContent: z.boolean().optional(),
-  pathOnly: z.boolean().optional(),
-  limit: z.number().int().min(1).max(1000).optional(),
-  maxFileBytes: z.number().int().min(1).max(5 * 1024 * 1024).optional()
-});
-
-type TreeNodeResponse = {
-  path: string;
-  name: string;
-  type: 'file' | 'directory';
-  size?: number;
-  mtimeMs?: number;
-  children?: TreeNodeResponse[];
-};
-
-function mapWorkspaceDbToJson(w: any) {
+function mapWorkspaceDbToJson(w: ParsedWorkspace) {
   return {
     id: String(w.id),
     name: w.name,
@@ -301,7 +270,6 @@ export class PasteFlowAPIServer {
         if (ws?.folder_path) {
           setAllowedWorkspacePaths([ws.folder_path]);
           getPathValidator([ws.folder_path]);
-          getFileIndexCache().invalidate(String(ws.id));
         }
         return res.json(ok(true));
       } catch (e) {
@@ -538,8 +506,6 @@ export class PasteFlowAPIServer {
         await this.db.setPreference('workspace.active', String(ws.id));
         setAllowedWorkspacePaths([ws.folder_path]);
         getPathValidator([ws.folder_path]);
-          getFileIndexCache().invalidate(String(ws.id));
-
         return res.json(ok({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path }));
       } catch (e) {
         return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
@@ -802,219 +768,6 @@ export class PasteFlowAPIServer {
       }
     });
 
-    // Phase 4: Files - tree
-    this.app.get('/api/v1/files/tree', async (req, res) => {
-      const q = filesTreeQuery.safeParse(req.query);
-      if (!q.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid query'));
-
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-
-        const state = (ws.state || {}) as WorkspaceState;
-        const exclusionPatterns = (state as any).exclusionPatterns ?? [];
-        const mode = q.data.mode ?? 'complete';
-        const depth = q.data.depth ?? 3;
-        const limit = Math.max(1, Math.min(q.data.limit ?? 1000, 10000));
-
-        const indexCache = getFileIndexCache();
-        const workspaceId = String(ws.id);
-        let files = indexCache.get(workspaceId);
-        if (!files) {
-          files = await indexCache.build(workspaceId, ws.folder_path, { exclusionPatterns });
-        }
-
-        // Build a set of relative paths to include based on mode
-        const rel = (p: string) => {
-          try { return path.relative(ws.folder_path, p); } catch { return p; }
-        };
-        const selection = ((state.selectedFiles ?? []) as Array<{ path: string }>).map(s => s.path);
-        const selectedRel = new Set(selection.map(rel).filter(r => r && !r.startsWith('..')));
-        const includeFile = (fPath: string) => {
-          const relPath = rel(fPath);
-          if (!relPath || relPath.startsWith('..')) return false;
-          if (mode === 'complete') return true;
-          if (mode === 'selected') return selectedRel.has(relPath);
-          if (mode === 'selected-with-roots') return selectedRel.has(relPath);
-          return false;
-        };
-
-        type DirNode = TreeNodeResponse & { children?: TreeNodeResponse[] };
-        const rootKey = '';
-        const dirMap = new Map<string, DirNode>();
-        dirMap.set(rootKey, { path: ws.folder_path, name: path.basename(ws.folder_path) || ws.folder_path, type: 'directory', children: [] });
-
-        let totalCount = 0;
-        const ensureDir = (dirKey: string, name: string, fullPath: string): DirNode => {
-          if (!dirMap.has(dirKey)) {
-            dirMap.set(dirKey, { path: fullPath, name, type: 'directory', children: [] });
-            totalCount++;
-          }
-          return dirMap.get(dirKey)!;
-        };
-
-        const sep = path.sep;
-        for (const f of files) {
-          if (f.isDirectory) continue;
-          if (!includeFile(f.path)) continue;
-
-          const relPath = rel(f.path);
-          if (!relPath || relPath.startsWith('..')) continue;
-
-          const segments = relPath.split(sep).filter(Boolean);
-          let currentKey = rootKey;
-          let currentPath = ws.folder_path;
-          for (let i = 0; i < segments.length; i++) {
-            const seg = segments[i];
-            const nextPath = path.join(currentPath, seg);
-            const nextKey = nextPath;
-
-            const parent = dirMap.get(currentKey)!;
-            if (i < segments.length - 1) {
-              // Directory segment
-              const childDir = ensureDir(nextKey, seg, nextPath);
-              if (!parent.children!.some(c => c.path === childDir.path)) {
-                parent.children!.push(childDir);
-                totalCount++;
-              }
-              currentKey = nextKey;
-              currentPath = nextPath;
-              if (i + 1 > depth) break; // depth limit (directories beyond this depth are not expanded)
-            } else {
-              // File leaf
-              if (i > depth) break; // obey depth limit for file placement
-              const fileNode: TreeNodeResponse = {
-                path: f.path,
-                name: f.name,
-                type: 'file',
-                size: f.size,
-                mtimeMs: f.mtimeMs,
-              };
-              if (!parent.children!.some(c => c.path === fileNode.path)) {
-                parent.children!.push(fileNode);
-                totalCount++;
-              }
-            }
-
-            // Enforce global node limit
-            if (totalCount >= limit) break;
-          }
-
-          if (totalCount >= limit) break;
-        }
-
-        // For 'selected' mode, we already included necessary parent directories for structure.
-        const nodes = dirMap.get(rootKey)!.children ?? [];
-        return res.json(ok({ nodes, total: totalCount, mode, depth }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
-      }
-    });
-
-    // Phase 4: Files - reindex
-    this.app.post('/api/v1/files/reindex', async (req, res) => {
-      const body = filesReindexBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-
-        const state = (ws.state || {}) as WorkspaceState;
-        const exclusionPatterns = (state as any).exclusionPatterns ?? [];
-
-        const indexCache = getFileIndexCache();
-        const workspaceId = String(ws.id);
-        indexCache.invalidate(workspaceId);
-        const files = await indexCache.build(workspaceId, ws.folder_path, { exclusionPatterns, fullScan: body.data.full === true });
-        return res.json(ok({ rebuilt: true, fileCount: files.length }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
-      }
-    });
-
-    // Phase 4: Search
-    this.app.post('/api/v1/search', async (req, res) => {
-      const body = searchBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-
-      // Guard against excessive regex
-      if (body.data.isRegex && body.data.term.length > 256) {
-        return res.status(400).json(toApiError('SEARCH_TOO_BROAD', 'Regex too large'));
-      }
-
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-
-        const state = (ws.state || {}) as WorkspaceState;
-        const exclusionPatterns = (state as any).exclusionPatterns ?? [];
-
-        const indexCache = getFileIndexCache();
-        const workspaceId = String(ws.id);
-        let files = indexCache.get(workspaceId);
-        if (!files) {
-          files = await indexCache.build(workspaceId, ws.folder_path, { exclusionPatterns });
-        }
-
-        const searchSvc = new SearchService();
-        if (body.data.includeContent) {
-          const { matches, truncated } = await searchSvc.contentSearch(files!, {
-            term: body.data.term,
-            isRegex: body.data.isRegex,
-            caseSensitive: body.data.caseSensitive,
-            includeContent: true,
-            limit: body.data.limit,
-            maxFileBytes: body.data.maxFileBytes,
-          });
-          return res.json(ok({ matches, truncated }));
-        }
-
-        // Path-only search
-        const matches = getFileIndexCache().searchPath(workspaceId, body.data.term, {
-          isRegex: body.data.isRegex,
-          caseSensitive: body.data.caseSensitive,
-          limit: body.data.limit,
-        });
-        const truncated = (body.data.limit ?? 200) <= matches.length;
-        return res.json(ok({ matches, truncated }));
-      } catch (e) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (e as Error).message));
-      }
-    });
 
     // Phase 4: Preview
     this.app.post('/api/v1/preview/start', async (req, res) => {

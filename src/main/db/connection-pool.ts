@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import * as crypto from 'node:crypto';
 
-import BetterSqlite3 from 'better-sqlite3';
+import type BetterSqlite3 from 'better-sqlite3';
+import { getBetterSqlite3 } from './better-sqlite3-loader';
 
 export interface PoolConnectionOptions {
   encryptionKey?: string;
@@ -126,7 +127,8 @@ export class ConnectionPool extends EventEmitter {
     const connectionId = `${isWrite ? 'write' : 'read'}_${crypto.randomUUID()}`;
     
     try {
-      const db = new BetterSqlite3(this.dbPath);
+      const BetterSqlite = getBetterSqlite3();
+      const db = new BetterSqlite(this.dbPath);
       
       // Apply encryption if configured
       if (this.config.connectionOptions?.encryptionKey) {

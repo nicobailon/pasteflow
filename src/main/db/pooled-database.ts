@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import * as crypto from 'node:crypto';
 
-import BetterSqlite3 from 'better-sqlite3';
+import type BetterSqlite3 from 'better-sqlite3';
 
 import { ConnectionPool, ConnectionPoolConfig, PoolStats, SqlParameters, QueryResult } from './connection-pool';
 

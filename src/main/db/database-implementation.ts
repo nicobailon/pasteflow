@@ -1,5 +1,17 @@
-import Database from 'better-sqlite3';
+/* eslint-disable @typescript-eslint/no-var-requires */
+import type BetterSqlite3 from 'better-sqlite3';
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
+
+// Runtime-safe loader to avoid ABI mismatch when not running under Electron
+type BetterSqlite3Module = typeof BetterSqlite3;
+function loadBetterSqlite3(): BetterSqlite3Module {
+  // Ensure we are running under Electron's embedded Node (correct ABI)
+  if (!process.versions?.electron) {
+    throw new Error('better-sqlite3 must be loaded from Electron main process. Launch via Electron (npm start / dev:electron), not plain node.');
+  }
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('better-sqlite3') as BetterSqlite3Module;
+}
 
 // Define SQLite error type with proper constraints
 interface SQLiteError extends Error {
@@ -67,22 +79,22 @@ interface InstructionRow {
 }
 
 interface PreparedStatements {
-  listWorkspaces: Database.Statement<[]>;
-  getWorkspace: Database.Statement<[string, string]>;
-  createWorkspace: Database.Statement<[string, string, string]>;
-  updateWorkspace: Database.Statement<[string, string]>;
-  updateWorkspaceById: Database.Statement<[string, string]>;
-  deleteWorkspace: Database.Statement<[string]>;
-  deleteWorkspaceById: Database.Statement<[string, string]>;
-  renameWorkspace: Database.Statement<[string, string]>;
-  touchWorkspace: Database.Statement<[string]>;
-  getWorkspaceNames: Database.Statement<[]>;
-  getPreference: Database.Statement<[string]>;
-  setPreference: Database.Statement<[string, string]>;
-  listInstructions: Database.Statement<[]>;
-  createInstruction: Database.Statement<[string, string, string]>;
-  updateInstruction: Database.Statement<[string, string, string]>;
-  deleteInstruction: Database.Statement<[string]>;
+  listWorkspaces: BetterSqlite3.Statement<[]>;
+  getWorkspace: BetterSqlite3.Statement<[string, string]>;
+  createWorkspace: BetterSqlite3.Statement<[string, string, string]>;
+  updateWorkspace: BetterSqlite3.Statement<[string, string]>;
+  updateWorkspaceById: BetterSqlite3.Statement<[string, string]>;
+  deleteWorkspace: BetterSqlite3.Statement<[string]>;
+  deleteWorkspaceById: BetterSqlite3.Statement<[string, string]>;
+  renameWorkspace: BetterSqlite3.Statement<[string, string]>;
+  touchWorkspace: BetterSqlite3.Statement<[string]>;
+  getWorkspaceNames: BetterSqlite3.Statement<[]>;
+  getPreference: BetterSqlite3.Statement<[string]>;
+  setPreference: BetterSqlite3.Statement<[string, string]>;
+  listInstructions: BetterSqlite3.Statement<[]>;
+  createInstruction: BetterSqlite3.Statement<[string, string, string]>;
+  updateInstruction: BetterSqlite3.Statement<[string, string, string]>;
+  deleteInstruction: BetterSqlite3.Statement<[string]>;
 }
 
 /**
@@ -92,7 +104,7 @@ interface PreparedStatements {
  */
 export class PasteFlowDatabase {
   private dbPath: string;
-  public db: Database.Database | null = null;
+  public db: BetterSqlite3.Database | null = null;
   private isInitialized = false;
   private initializationPromise: Promise<void> | null = null;
   private statements!: PreparedStatements;
@@ -125,7 +137,8 @@ export class PasteFlowDatabase {
   private async _performInitialization(): Promise<void> {
     try {
       this.db = await retryConnection(async () => {
-        const db = new Database(this.dbPath);
+        const BetterSqlite = loadBetterSqlite3();
+        const db = new BetterSqlite(this.dbPath);
         // Test connection with a simple query
         db.prepare('SELECT 1').get();
         return db;

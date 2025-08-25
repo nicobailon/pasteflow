@@ -1,7 +1,8 @@
 import { parentPort, workerData } from 'worker_threads';
-import Database from 'better-sqlite3';
+import type BetterSqlite3 from 'better-sqlite3';
 import * as crypto from 'crypto';
 import { retryUtility } from './retry-utils';
+import { getBetterSqlite3 } from './better-sqlite3-loader';
 
 // Constants
 const CACHE_TTL_MS = 300000; // 5 minutes in milliseconds
@@ -18,9 +19,10 @@ let startTime = Date.now();
 // Utility to safely extract error messages
 const toErrorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 // Initialize database with enhanced error handling
-let db: Database.Database;
+let db: BetterSqlite3.Database;
 try {
-  db = new Database(workerData.dbPath);
+  const BetterSqlite = getBetterSqlite3();
+  db = new BetterSqlite(workerData.dbPath);
   console.log('Database worker: Connection established to', workerData.dbPath);
 } catch (error: unknown) {
   console.error('Database worker: Failed to initialize database:', error);

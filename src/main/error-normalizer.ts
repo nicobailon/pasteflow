@@ -11,9 +11,7 @@ export type ApiErrorCode =
   | 'INTERNAL_ERROR'
   // Phase 4 additions
   | 'PREVIEW_NOT_FOUND'
-  | 'PREVIEW_TIMEOUT'
-  | 'INDEX_NOT_READY'
-  | 'SEARCH_TOO_BROAD';
+  | 'PREVIEW_TIMEOUT';
 
 export interface ApiError {
   error: {

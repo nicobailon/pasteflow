@@ -2,6 +2,8 @@
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { platform as osPlatform } from 'node:os';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 
@@ -10,7 +12,6 @@ try {
   // Test loading key dependencies
   require('ignore');
   require('tiktoken');
-  require('gpt-3-encoder');
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`\n❌ Missing dependency: ${message}`);

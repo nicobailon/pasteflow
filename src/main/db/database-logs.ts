@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import type BetterSqlite3 from 'better-sqlite3';
 
 export type LogCategory = 'api' | 'preview';
 
@@ -28,12 +28,12 @@ export interface LogListOptions {
 }
 
 export class DatabaseLogs {
-  private insertStmt!: Database.Statement;
-  private listAllStmt!: Database.Statement;
-  private listByCatStmt!: Database.Statement;
-  private pruneStmt!: Database.Statement;
+  private insertStmt!: BetterSqlite3.Statement;
+  private listAllStmt!: BetterSqlite3.Statement;
+  private listByCatStmt!: BetterSqlite3.Statement;
+  private pruneStmt!: BetterSqlite3.Statement;
 
-  constructor(private readonly db: Database.Database) {
+  constructor(private readonly db: BetterSqlite3.Database) {
     this.ensureSchema();
     this.prepareStatements();
   }

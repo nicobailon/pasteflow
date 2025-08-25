@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // Define the dependencies we need to ensure are installed
-const criticalDependencies = ['ignore', 'tiktoken', 'gpt-3-encoder'] as const;
+const criticalDependencies = ['ignore', 'tiktoken'] as const;
 
 // Ensure dependencies are installed properly
 function fixDependencies(): void {
@@ -41,7 +41,6 @@ function fixDependencies(): void {
     packageJson.build.asarUnpack = [
       'node_modules/ignore/**',
       'node_modules/tiktoken/**',
-      'node_modules/gpt-3-encoder/**',
     ];
 
     // Write updated package.json
