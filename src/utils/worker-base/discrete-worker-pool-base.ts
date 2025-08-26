@@ -115,7 +115,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     // Create workers using proper Vite pattern
     for (let i = 0; i < this.poolSize; i++) {
       try {
-        const worker: Worker = (jest === undefined)
+        const worker: Worker = (typeof jest === 'undefined')
           // Delegate worker creation to the concrete subclass
           // This allows Vite to statically analyze the worker import
           ? this.createWorker()
@@ -320,7 +320,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         }
         
         // Create new worker using proper Vite pattern
-        const newWorker: Worker = (jest === undefined)
+        const newWorker: Worker = (typeof jest === 'undefined')
           // Delegate worker creation to the concrete subclass
           // This allows Vite to statically analyze the worker import
           ? this.createWorker()

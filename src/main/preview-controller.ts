@@ -64,8 +64,12 @@ export class PreviewController {
     const saved = this.jobs.get(id);
     if (saved) {
       const cleanup = () => {
-        try { offStatus(); } catch {}
-        try { offContent(); } catch {}
+        try { offStatus(); } catch {
+          // Intentionally empty - best effort cleanup
+        }
+        try { offContent(); } catch {
+          // Intentionally empty - best effort cleanup
+        }
       };
       saved.cleanup = cleanup;
       this.jobs.set(id, saved);
@@ -84,7 +88,9 @@ export class PreviewController {
       // Best-effort cancel request to renderer
       this.proxy.cancel(id);
       // Cleanup listeners
-      try { j.cleanup?.(); } catch {}
+      try { j.cleanup?.(); } catch {
+        // Intentionally empty - best effort cleanup
+      }
       // Clear timer reference
       this.clearTimer(id);
       // Schedule retention-based GC
@@ -120,7 +126,9 @@ export class PreviewController {
     this.jobs.set(id, job);
     this.proxy.cancel(id);
     this.clearTimer(id);
-    try { job.cleanup?.(); } catch {}
+    try { job.cleanup?.(); } catch {
+      // Intentionally empty - best effort cleanup
+    }
     this.scheduleRetention(id);
   }
 
@@ -140,7 +148,9 @@ export class PreviewController {
       j.error = { code: 'INTERNAL_ERROR', message: payload.message || 'Preview failed' };
       this.jobs.set(id, j);
       this.clearTimer(id);
-      try { j.cleanup?.(); } catch {}
+      try { j.cleanup?.(); } catch {
+        // Intentionally empty - best effort cleanup
+      }
       this.scheduleRetention(id);
     } else if (payload.state === 'CANCELLED') {
       // Handle renderer-originated cancellation to avoid leaking timers/listeners
@@ -149,7 +159,9 @@ export class PreviewController {
       j.durationMs = (j.startedAt ?? j.requestedAt) ? (j.finishedAt - (j.startedAt ?? j.requestedAt)) : undefined;
       this.jobs.set(id, j);
       this.clearTimer(id);
-      try { j.cleanup?.(); } catch {}
+      try { j.cleanup?.(); } catch {
+        // Intentionally empty - best effort cleanup
+      }
       this.scheduleRetention(id);
     }
     // Other status updates (progress, messages) are ignored here but could be tracked
@@ -182,7 +194,9 @@ export class PreviewController {
       this.jobs.set(id, j);
     } finally {
       this.clearTimer(id);
-      try { finalize(); } catch {}
+      try { finalize(); } catch {
+        // Intentionally empty - best effort cleanup
+      }
       this.scheduleRetention(id);
     }
   }
@@ -199,13 +213,17 @@ export class PreviewController {
   private scheduleRetention(id: string): void {
     const ttl = this.opts.jobTtlMs ?? 300_000; // default 5 minutes
     if (ttl <= 0) {
-      try { this.jobs.get(id)?.cleanup?.(); } catch {}
+      try { this.jobs.get(id)?.cleanup?.(); } catch {
+        // Intentionally empty - best effort cleanup
+      }
       this.jobs.delete(id);
       this.timeouts.delete(id);
       return;
     }
     setTimeout(() => {
-      try { this.jobs.get(id)?.cleanup?.(); } catch {}
+      try { this.jobs.get(id)?.cleanup?.(); } catch {
+        // Intentionally empty - best effort cleanup
+      }
       this.jobs.delete(id);
       this.timeouts.delete(id);
     }, ttl);

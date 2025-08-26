@@ -1,73 +1,44 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import fs from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import express, { Express, Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 
 import { getMainTokenService } from '../services/token-service-main';
-import { getPathValidator } from '../security/path-validator';
+import type { FileTreeMode, SystemPrompt, RolePrompt, Instruction } from '../types/file-types';
 
 import { DatabaseBridge } from './db/database-bridge';
-import { WorkspaceState, PreferenceValue, ParsedWorkspace } from './db/database-implementation';
+import { WorkspaceState } from './db/database-implementation';
 import { AuthManager } from './auth-manager';
 import { setAllowedWorkspacePaths, getAllowedWorkspacePaths } from './workspace-context';
 import { toApiError, ok } from './error-normalizer';
 import { validateAndResolvePath, statFile as fileServiceStatFile, readTextFile } from './file-service';
-import { applySelect, applyDeselect, SelectionServiceError } from './selection-service';
+import { applySelect, applyDeselect } from './selection-service';
 import { aggregateSelectedContent } from './content-aggregation';
 import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
-const idParam = z.object({ id: z.string().min(1) });
-const createWorkspaceBody = z.object({
-  name: z.string().min(1).max(255),
-  folderPath: z.string(),
-  state: z.record(z.string(), z.unknown()).optional(),
-});
-const updateWorkspaceBody = z.object({
-  state: z.record(z.string(), z.unknown()),
-});
-const renameBody = z.object({ newName: z.string().min(1).max(255) });
-const instructionBody = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1).max(255),
-  content: z.string(),
-});
-const keyParam = z.object({ key: z.string().min(1) });
-const prefSetBody = z.object({ value: z.unknown().optional() });
-const filePathQuery = z.object({ path: z.string().min(1) });
-const tokensCountBody = z.object({ text: z.string().min(0) });
-const foldersOpenBody = z.object({
-  folderPath: z.string().min(1),
-  name: z.string().min(1).max(255).optional(),
-});
-const lineRange = z.object({ start: z.number().int().min(1), end: z.number().int().min(1) });
-const selectionItem = z.object({ path: z.string().min(1), lines: z.array(lineRange).nonempty().optional() });
-const selectionBody = z.object({ items: z.array(selectionItem).min(1) });
-const exportBody = z.object({ outputPath: z.string().min(1), overwrite: z.boolean().optional() });
+import { 
+  APIRouteHandlers,
+  selectionBody,
+  exportBody,
+  previewStartBody,
+  previewIdParam
+} from './api-route-handlers';
 
-// Phase 4: Schemas
-const previewStartBody = z.object({
-  includeTrees: z.boolean().optional(),
-  maxFiles: z.number().int().min(1).max(10_000).optional(),
-  maxBytes: z.number().int().min(1).max(50 * 1024 * 1024).optional(),
-  prompt: z.string().max(100_000).optional()
-});
-const previewIdParam = z.object({ id: z.string().min(1) });
-
-function mapWorkspaceDbToJson(w: ParsedWorkspace) {
-  return {
-    id: String(w.id),
-    name: w.name,
-    folderPath: w.folder_path,
-    state: w.state,
-    createdAt: w.created_at,
-    updatedAt: w.updated_at,
-    lastAccessed: w.last_accessed,
-  };
+interface AggregationOptions {
+  folderPath: string;
+  selection: { path: string; lines?: { start: number; end: number }[] }[];
+  sortOrder: string;
+  fileTreeMode: FileTreeMode;
+  selectedFolder: string | null;
+  systemPrompts: SystemPrompt[];
+  rolePrompts: RolePrompt[];
+  selectedInstructions: Instruction[];
+  userInstructions: string;
+  exclusionPatterns: string[];
+  maxFiles?: number;
+  maxBytes?: number;
 }
 
 export class PasteFlowAPIServer {
@@ -76,9 +47,16 @@ export class PasteFlowAPIServer {
   private server: Server | null = null;
   private readonly previewProxy = new RendererPreviewProxy();
   private readonly previewController = new PreviewController(this.previewProxy, { timeoutMs: 120_000 });
+  private readonly routeHandlers: APIRouteHandlers;
 
   constructor(private readonly db: DatabaseBridge, private readonly port = 5839) {
     this.app = express();
+    this.routeHandlers = new APIRouteHandlers(this.db, this.previewProxy, this.previewController);
+    this.setupMiddleware();
+    this.registerRoutes();
+  }
+
+  private setupMiddleware(): void {
     // Authorization first to minimize processing on unauthorized requests
     this.app.use((req: Request, res: Response, next: NextFunction) => {
       if (this.auth.validate(req.headers.authorization)) {
@@ -86,32 +64,431 @@ export class PasteFlowAPIServer {
       }
       return res.status(401).json(toApiError('UNAUTHORIZED', 'Unauthorized'));
     });
+
     // JSON parser after auth
     this.app.use(express.json({ limit: '10mb' }));
+
     // Normalize JSON parse errors to 400 VALIDATION_ERROR
     this.app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
-      if (err && typeof err === 'object' && 'type' in (err as any) && (err as any).type === 'entity.parse.failed') {
+      if (err && typeof err === 'object' && 'type' in err && (err as { type: string }).type === 'entity.parse.failed') {
         return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid JSON'));
       }
       if (err instanceof SyntaxError) {
         return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid JSON'));
       }
-      return next(err as any);
+      return next(err as Error);
     });
-
-    this.registerRoutes();
   }
 
+  private registerRoutes(): void {
+    // Health & Status
+    this.app.get('/api/v1/health', (req, res) => this.routeHandlers.handleHealth(req, res));
+    this.app.get('/api/v1/status', (req, res) => this.routeHandlers.handleStatus(req, res));
+
+    // Workspaces
+    this.app.get('/api/v1/workspaces', (req, res) => this.routeHandlers.handleListWorkspaces(req, res));
+    this.app.post('/api/v1/workspaces', (req, res) => this.routeHandlers.handleCreateWorkspace(req, res));
+    this.app.get('/api/v1/workspaces/:id', (req, res) => this.routeHandlers.handleGetWorkspace(req, res));
+    this.app.put('/api/v1/workspaces/:id', (req, res) => this.routeHandlers.handleUpdateWorkspace(req, res));
+    this.app.delete('/api/v1/workspaces/:id', (req, res) => this.routeHandlers.handleDeleteWorkspace(req, res));
+    this.app.post('/api/v1/workspaces/:id/rename', (req, res) => this.routeHandlers.handleRenameWorkspace(req, res));
+    this.app.post('/api/v1/workspaces/:id/load', (req, res) => this.routeHandlers.handleLoadWorkspace(req, res));
+
+    // Instructions
+    this.app.get('/api/v1/instructions', (req, res) => this.routeHandlers.handleListInstructions(req, res));
+    this.app.post('/api/v1/instructions', (req, res) => this.routeHandlers.handleCreateInstruction(req, res));
+    this.app.put('/api/v1/instructions/:id', (req, res) => this.routeHandlers.handleUpdateInstruction(req, res));
+    this.app.delete('/api/v1/instructions/:id', (req, res) => this.routeHandlers.handleDeleteInstruction(req, res));
+
+    // Preferences
+    this.app.get('/api/v1/prefs/:key', (req, res) => this.routeHandlers.handleGetPreference(req, res));
+    this.app.put('/api/v1/prefs/:key', (req, res) => this.routeHandlers.handleSetPreference(req, res));
+
+    // Files
+    this.app.get('/api/v1/files/info', (req, res) => this.routeHandlers.handleFileInfo(req, res));
+    this.app.get('/api/v1/files/content', (req, res) => this.routeHandlers.handleFileContent(req, res));
+
+    // Tokens
+    this.app.post('/api/v1/tokens/count', (req, res) => this.routeHandlers.handleCountTokens(req, res));
+    this.app.get('/api/v1/tokens/backend', (req, res) => this.routeHandlers.handleGetTokenBackend(req, res));
+
+    // Folders
+    this.app.get('/api/v1/folders/current', (req, res) => this.routeHandlers.handleGetCurrentFolder(req, res));
+    this.app.post('/api/v1/folders/open', (req, res) => this.routeHandlers.handleOpenFolder(req, res));
+
+    // Selection
+    this.app.post('/api/v1/files/select', (req, res) => this.handleFileSelect(req, res));
+    this.app.post('/api/v1/files/deselect', (req, res) => this.handleFileDeselect(req, res));
+    this.app.post('/api/v1/files/clear', (req, res) => this.handleFileClear(req, res));
+    this.app.get('/api/v1/files/selected', (req, res) => this.handleFileSelected(req, res));
+
+    // Content
+    this.app.get('/api/v1/content', (req, res) => this.handleContent(req, res));
+    this.app.post('/api/v1/content/export', (req, res) => this.handleContentExport(req, res));
+
+    // Preview
+    this.app.post('/api/v1/preview/start', (req, res) => this.handlePreviewStart(req, res));
+    this.app.get('/api/v1/preview/status/:id', (req, res) => this.handlePreviewStatus(req, res));
+    this.app.get('/api/v1/preview/content/:id', (req, res) => this.handlePreviewContent(req, res));
+    this.app.post('/api/v1/preview/cancel/:id', (req, res) => this.handlePreviewCancel(req, res));
+
+    // Logs (dev-only optional)
+    this.app.get('/api/v1/logs', (req, res) => this.handleLogs(req, res));
+  }
+
+  // File selection handlers
+  private async handleFileSelect(req: Request, res: Response) {
+    const body = selectionBody.safeParse(req.body);
+    if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+
+    const validation = await this.validateActiveWorkspace(res);
+    if (!validation) return;
+
+    try {
+      const sanitizedItems = await this.validateSelectionItems(body.data.items, res);
+      if (!sanitizedItems) return;
+
+      const next = applySelect(validation.state, sanitizedItems);
+      const newState: WorkspaceState = { ...validation.state, selectedFiles: next.selectedFiles };
+      await this.db.updateWorkspaceById(String(validation.ws.id), newState);
+
+      return res.json(ok(true));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  private async handleFileDeselect(req: Request, res: Response) {
+    const body = selectionBody.safeParse(req.body);
+    if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+
+    const validation = await this.validateActiveWorkspace(res);
+    if (!validation) return;
+
+    try {
+      const sanitizedItems = body.data.items.map(item => ({
+        path: validateAndResolvePath(item.path).ok ? (validateAndResolvePath(item.path) as { ok: true; absolutePath: string }).absolutePath : item.path,
+        lines: item.lines
+      }));
+
+      const next = applyDeselect(validation.state, sanitizedItems);
+      const newState: WorkspaceState = { ...validation.state, selectedFiles: next.selectedFiles };
+      await this.db.updateWorkspaceById(String(validation.ws.id), newState);
+
+      return res.json(ok(true));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  private async handleFileClear(_req: Request, res: Response) {
+    const validation = await this.validateActiveWorkspace(res);
+    if (!validation) return;
+
+    try {
+      const newState: WorkspaceState = { ...validation.state, selectedFiles: [] };
+      await this.db.updateWorkspaceById(String(validation.ws.id), newState);
+      return res.json(ok(true));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  private async handleFileSelected(_req: Request, res: Response) {
+    const validation = await this.validateActiveWorkspace(res);
+    if (!validation) return;
+
+    try {
+      const selection = (validation.state.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
+      return res.json(ok(selection));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  // Content handlers
+  private async handleContent(req: Request, res: Response) {
+    const validation = await this.validateActiveWorkspace(res);
+    if (!validation) return;
+
+    try {
+      const options = this.parseContentOptions(req, validation);
+      const { content, fileCount } = await aggregateSelectedContent(options);
+
+      const tokenService = getMainTokenService();
+      const { count } = await tokenService.countTokens(content);
+
+      return res.json(ok({ content, fileCount, tokenCount: count }));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  private async handleContentExport(req: Request, res: Response) {
+    const body = exportBody.safeParse(req.body);
+    if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+
+    const validation = await this.validateActiveWorkspace(res);
+    if (!validation) return;
+
+    try {
+      const outVal = validateAndResolvePath(body.data.outputPath);
+      if (!outVal.ok) {
+        return this.handlePathError(outVal, res);
+      }
+
+      const options = this.parseContentOptions(req, validation);
+      const { content } = await aggregateSelectedContent(options);
+      const { bytes } = await writeExport(outVal.absolutePath, content, body.data.overwrite === true);
+
+      return res.json(ok({ outputPath: outVal.absolutePath, bytes }));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  // Preview handlers
+  private async handlePreviewStart(req: Request, res: Response) {
+    const body = previewStartBody.safeParse(req.body);
+    if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+
+    const allowed = getAllowedWorkspacePaths();
+    if (!allowed || allowed.length === 0) {
+      return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
+    }
+
+    try {
+      const id = randomUUID();
+      this.previewController.startPreview(id, {
+        includeTrees: body.data.includeTrees,
+        maxFiles: body.data.maxFiles,
+        maxBytes: body.data.maxBytes,
+        prompt: body.data.prompt,
+      });
+      
+      // Optional: record a log entry (best-effort)
+      const dbWithLogs = this.db as DatabaseBridge & { insertLog?: (log: unknown) => Promise<void> };
+      if (dbWithLogs.insertLog) {
+        try { 
+          await dbWithLogs.insertLog({ category: 'preview', action: 'start', status: 'queued', details: { id } }); 
+        } catch {
+          // Ignore logging errors
+        }
+      }
+      
+      return res.json(ok({ id }));
+    } catch (error) {
+      return res.status(500).json(toApiError('INTERNAL_ERROR', (error as Error).message));
+    }
+  }
+
+  private async handlePreviewStatus(req: Request, res: Response) {
+    const params = previewIdParam.safeParse(req.params);
+    if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
+
+    const st = this.previewController.getStatus(params.data.id);
+    if (!st) {
+      return res.status(404).json(toApiError('PREVIEW_NOT_FOUND', 'Preview job not found'));
+    }
+    
+    const status = st as { state: string; error?: { code: string } };
+    if (status.state === 'FAILED' && status.error?.code === 'PREVIEW_TIMEOUT') {
+      return res.status(504).json(toApiError('PREVIEW_TIMEOUT', 'Preview job timed out'));
+    }
+    
+    return res.json(ok(st));
+  }
+
+  private async handlePreviewContent(req: Request, res: Response) {
+    const params = previewIdParam.safeParse(req.params);
+    if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
+
+    const result = this.previewController.getResult(params.data.id);
+    if (!result) return res.status(404).json(toApiError('PREVIEW_NOT_FOUND', 'Preview job not found'));
+    return res.json(ok(result));
+  }
+
+  private async handlePreviewCancel(req: Request, res: Response) {
+    const params = previewIdParam.safeParse(req.params);
+    if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
+
+    this.previewController.cancel(params.data.id);
+    
+    // Optional: record a log entry (best-effort)
+    const dbWithLogs = this.db as DatabaseBridge & { insertLog?: (log: unknown) => Promise<void> };
+    if (dbWithLogs.insertLog) {
+      try { 
+        await dbWithLogs.insertLog({ category: 'preview', action: 'cancel', status: 'requested', details: { id: params.data.id } }); 
+      } catch {
+        // Ignore logging errors
+      }
+    }
+    
+    return res.json(ok(true));
+  }
+
+  private async handleLogs(req: Request, res: Response) {
+    try {
+      const query = req.query as { limit?: string; category?: 'api' | 'preview' };
+      const limit = Number.parseInt(query.limit ?? '100', 10);
+      const category = query.category;
+      
+      const dbWithLogs = this.db as DatabaseBridge & { listLogs?: (opts: { limit: number; category?: 'api' | 'preview' }) => Promise<unknown[]> };
+      const entries = dbWithLogs.listLogs ? await dbWithLogs.listLogs({ limit: Number.isFinite(limit) ? limit : 100, category }) : [];
+      
+      return res.json(ok(entries));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  // Helper methods
+  private async validateActiveWorkspace(res: Response) {
+    const allowed = getAllowedWorkspacePaths();
+    if (!allowed || allowed.length === 0) {
+      res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
+      return null;
+    }
+
+    try {
+      const activeId = await this.db.getPreference('workspace.active');
+      if (!activeId) {
+        res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
+        return null;
+      }
+
+      const ws = await this.db.getWorkspace(String(activeId));
+      if (!ws) {
+        res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
+        return null;
+      }
+
+      return { ws, state: (ws.state || {}) as WorkspaceState };
+    } catch (error) {
+      res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+      return null;
+    }
+  }
+
+  private async validateSelectionItems(items: { path: string; lines?: { start: number; end: number }[] }[], res: Response) {
+    const sanitizedItems: { path: string; lines?: { start: number; end: number }[] }[] = [];
+    
+    for (const item of items) {
+      const validated = validateAndResolvePath(item.path);
+      if (!validated.ok) {
+        this.handlePathError(validated, res);
+        return null;
+      }
+
+      const st = await fileServiceStatFile(validated.absolutePath);
+      if (!st.ok) {
+        if (st.code === 'FILE_NOT_FOUND') {
+          res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
+        } else if (st.code === 'FILE_SYSTEM_ERROR') {
+          res.status(500).json(toApiError('FILE_SYSTEM_ERROR', st.message));
+        } else {
+          res.status(500).json(toApiError('DB_OPERATION_FAILED', st.message));
+        }
+        return null;
+      }
+
+      if (st.data.isDirectory) {
+        res.status(400).json(toApiError('VALIDATION_ERROR', 'Path is a directory'));
+        return null;
+      }
+
+      sanitizedItems.push({ path: validated.absolutePath, lines: item.lines });
+    }
+
+    return sanitizedItems;
+  }
+
+  private handlePathError(result: { ok: false; code: string; message: string }, res: Response) {
+    if (result.code === 'PATH_DENIED') {
+      return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
+    }
+    if (result.code === 'NO_ACTIVE_WORKSPACE') {
+      return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
+    }
+    return res.status(400).json(toApiError('VALIDATION_ERROR', result.message || 'Invalid path'));
+  }
+
+  private parseContentOptions(req: Request, validation: { ws: { folder_path: string }; state: WorkspaceState }): AggregationOptions {
+    const query = req.query as { maxFiles?: string; maxBytes?: string };
+    const maxFilesQ = Number.parseInt(query.maxFiles ?? '', 10);
+    const maxBytesQ = Number.parseInt(query.maxBytes ?? '', 10);
+    const maxFiles = Number.isFinite(maxFilesQ) && maxFilesQ > 0 ? Math.min(maxFilesQ, 10_000) : undefined;
+    const maxBytes = Number.isFinite(maxBytesQ) && maxBytesQ > 0 ? Math.min(maxBytesQ, 50 * 1024 * 1024) : undefined;
+
+    const state = validation.state as WorkspaceState & {
+      sortOrder?: string;
+      fileTreeMode?: string;
+      selectedFolder?: string;
+      systemPrompts?: string[];
+      rolePrompts?: string[];
+      selectedInstructions?: string[];
+      userInstructions?: string;
+      exclusionPatterns?: string[];
+    };
+
+    const selection = (state.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
+
+    // Ensure fileTreeMode is a valid FileTreeMode value
+    const validTreeModes: FileTreeMode[] = ['none', 'selected', 'selected-with-roots', 'complete'];
+    const fileTreeMode = validTreeModes.includes(state.fileTreeMode as FileTreeMode) 
+      ? (state.fileTreeMode as FileTreeMode)
+      : 'selected' as FileTreeMode;
+
+    // Convert string arrays to prompt objects (these are likely IDs or content stored in the workspace)
+    // For now, we'll convert them to basic prompt objects
+    // In a real implementation, these would be looked up from a prompts database
+    const systemPrompts: SystemPrompt[] = (state.systemPrompts ?? []).map((promptStr, index) => ({
+      id: `system-${index}`,
+      name: `System Prompt ${index + 1}`,
+      content: String(promptStr), // The string is the actual content
+      tokenCount: undefined
+    }));
+
+    const rolePrompts: RolePrompt[] = (state.rolePrompts ?? []).map((promptStr, index) => ({
+      id: `role-${index}`,
+      name: `Role Prompt ${index + 1}`,
+      content: String(promptStr), // The string is the actual content
+      tokenCount: undefined
+    }));
+
+    const selectedInstructions: Instruction[] = (state.selectedInstructions ?? []).map((instructionStr, index) => ({
+      id: `instruction-${index}`,
+      name: `Instruction ${index + 1}`,
+      content: String(instructionStr), // The string is the actual content
+      tokenCount: undefined
+    }));
+
+    return {
+      folderPath: validation.ws.folder_path,
+      selection,
+      sortOrder: state.sortOrder ?? 'name',
+      fileTreeMode,
+      selectedFolder: state.selectedFolder ?? null,
+      systemPrompts,
+      rolePrompts,
+      selectedInstructions,
+      userInstructions: state.userInstructions ?? '',
+      exclusionPatterns: state.exclusionPatterns ?? [],
+      maxFiles,
+      maxBytes,
+    };
+  }
+
+  // Server lifecycle methods
   start(): void {
-    // Fire-and-forget start; useful for tests that poll getPort()
     void this.startAsync();
   }
 
   async startAsync(): Promise<void> {
     if (this.server) return;
     const host = '127.0.0.1';
-    // If port is 0, bind once to ephemeral; otherwise try range [port, port+20]
     const tryPorts = this.port === 0 ? [0] : Array.from({ length: 21 }, (_, i) => this.port + i);
+    
     for (const p of tryPorts) {
       try {
         await new Promise<void>((resolve, reject) => {
@@ -119,13 +496,12 @@ export class PasteFlowAPIServer {
             this.server = srv as Server;
             resolve();
           });
-          const onError = (err: any) => {
-            // Clean up listener to avoid leaks
-            // @ts-ignore - off may not exist in older node typings
-            srv.off?.('error', onError);
-            // Allow next port on address-in-use or access-denied
+          
+          const onError = (err: NodeJS.ErrnoException) => {
             if (err && (err.code === 'EADDRINUSE' || err.code === 'EACCES')) {
-              try { srv.close(); } catch {}
+              try { srv.close(); } catch {
+                // Ignore close errors
+              }
               reject(err);
             } else {
               reject(err);
@@ -133,12 +509,12 @@ export class PasteFlowAPIServer {
           };
           srv.on('error', onError);
         });
-        // Success
         return;
       } catch {
         // Try next port
       }
     }
+    
     throw new Error('Failed to bind API server to any port in range');
   }
 
@@ -159,709 +535,5 @@ export class PasteFlowAPIServer {
 
   getAuthToken(): string {
     return this.auth.getToken();
-  }
-
-  private registerRoutes(): void {
-    // Health
-    this.app.get('/api/v1/health', (_req, res) => res.json(ok({ status: 'ok' as const })));
-
-    // Status
-    this.app.get('/api/v1/status', async (_req, res) => {
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        let active: null | { id: string; name: string; folderPath: string } = null;
-        const allowedPaths = [...getAllowedWorkspacePaths()];
-        let ws: any | null = null;
-        if (activeId) {
-          ws = await this.db.getWorkspace(String(activeId));
-          if (ws) {
-            active = { id: String(ws.id), name: ws.name, folderPath: ws.folder_path };
-          }
-        }
-        // Fallback: if allowedPaths are not initialized yet but we have an active workspace, include it
-        if (allowedPaths.length === 0 && ws?.folder_path) {
-          allowedPaths.push(ws.folder_path);
-        }
-        return res.json(ok({ status: 'running', activeWorkspace: active, securityContext: { allowedPaths } }));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Workspaces
-    this.app.get('/api/v1/workspaces', async (_req, res) => {
-      try {
-        const rows = await this.db.listWorkspaces();
-        const data = rows.map(mapWorkspaceDbToJson);
-        return res.json(ok(data));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.post('/api/v1/workspaces', async (req, res) => {
-      const parsed = createWorkspaceBody.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-      try {
-        const created = await this.db.createWorkspace(
-          parsed.data.name,
-          parsed.data.folderPath,
-          (parsed.data.state ?? {}) as WorkspaceState
-        );
-        return res.json(ok(mapWorkspaceDbToJson(created)));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.get('/api/v1/workspaces/:id', async (req, res) => {
-      const params = idParam.safeParse(req.params);
-      if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
-      try {
-        const ws = await this.db.getWorkspace(params.data.id);
-        if (!ws) return res.json(ok(null));
-        return res.json(ok(mapWorkspaceDbToJson(ws)));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.put('/api/v1/workspaces/:id', async (req, res) => {
-      const params = idParam.safeParse(req.params);
-      const body = updateWorkspaceBody.safeParse(req.body);
-      if (!params.success || !body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request'));
-      try {
-        await this.db.updateWorkspaceById(params.data.id, body.data.state as WorkspaceState);
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.delete('/api/v1/workspaces/:id', async (req, res) => {
-      const params = idParam.safeParse(req.params);
-      if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
-      try {
-        await this.db.deleteWorkspaceById(params.data.id);
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.post('/api/v1/workspaces/:id/rename', async (req, res) => {
-      const params = idParam.safeParse(req.params);
-      const body = renameBody.safeParse(req.body);
-      if (!params.success || !body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request'));
-      try {
-        const ws = await this.db.getWorkspace(params.data.id);
-        if (!ws) return res.status(404).json(toApiError('WORKSPACE_NOT_FOUND', 'Workspace not found'));
-        await this.db.renameWorkspace(ws.name, body.data.newName);
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.post('/api/v1/workspaces/:id/load', async (req, res) => {
-      const params = idParam.safeParse(req.params);
-      if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
-      try {
-        await this.db.setPreference('workspace.active', params.data.id);
-        const ws = await this.db.getWorkspace(params.data.id);
-        if (ws?.folder_path) {
-          setAllowedWorkspacePaths([ws.folder_path]);
-          getPathValidator([ws.folder_path]);
-        }
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Instructions
-    this.app.get('/api/v1/instructions', async (_req, res) => {
-      try {
-        const rows = await this.db.listInstructions();
-        const data = rows.map((i: any) => ({
-          id: i.id,
-          name: i.name,
-          content: i.content,
-          createdAt: i.created_at,
-          updatedAt: i.updated_at,
-        }));
-        return res.json(ok(data));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.post('/api/v1/instructions', async (req, res) => {
-      const body = instructionBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-      const id = body.data.id ?? randomUUID();
-      try {
-        await this.db.createInstruction(id, body.data.name, body.data.content);
-        return res.json(ok({ id, name: body.data.name, content: body.data.content }));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.put('/api/v1/instructions/:id', async (req, res) => {
-      const params = idParam.safeParse(req.params);
-      const body = z.object({ name: z.string().min(1).max(255), content: z.string() }).safeParse(req.body);
-      if (!params.success || !body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request'));
-      try {
-        await this.db.updateInstruction(params.data.id, body.data.name, body.data.content);
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.delete('/api/v1/instructions/:id', async (req, res) => {
-      const params = idParam.safeParse(req.params);
-      if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
-      try {
-        await this.db.deleteInstruction(params.data.id);
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Preferences
-    this.app.get('/api/v1/prefs/:key', async (req, res) => {
-      const params = keyParam.safeParse(req.params);
-      if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid key'));
-      try {
-        const value = await this.db.getPreference(params.data.key);
-        return res.json(ok(value ?? null));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    this.app.put('/api/v1/prefs/:key', async (req, res) => {
-      const params = keyParam.safeParse(req.params);
-      const body = prefSetBody.safeParse(req.body);
-      if (!params.success || !body.success) {
-        return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request'));
-      }
-      try {
-        await this.db.setPreference(params.data.key, (body.data.value ?? null) as PreferenceValue);
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Phase 2: Files - info
-    this.app.get('/api/v1/files/info', async (req, res) => {
-      const q = filePathQuery.safeParse(req.query);
-      if (!q.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid query'));
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-      const val = validateAndResolvePath(String(q.data.path));
-      if (!val.ok) {
-        if (val.code === 'NO_ACTIVE_WORKSPACE') {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', val.message));
-        }
-        if (val.code === 'PATH_DENIED') {
-          return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
-        }
-        return res.status(400).json(toApiError('VALIDATION_ERROR', val.message));
-      }
-      const s = await fileServiceStatFile(val.absolutePath);
-      if (!s.ok) {
-        if (s.code === 'FILE_NOT_FOUND') {
-          return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
-        }
-        if (s.code === 'FILE_SYSTEM_ERROR') {
-          return res.status(500).json(toApiError('FILE_SYSTEM_ERROR', s.message));
-        }
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', s.message));
-      }
-      return res.json(ok(s.data));
-    });
-
-    // Phase 2: Files - content
-    this.app.get('/api/v1/files/content', async (req, res) => {
-      const q = filePathQuery.safeParse(req.query);
-      if (!q.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid query'));
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-      const val = validateAndResolvePath(String(q.data.path));
-      if (!val.ok) {
-        if (val.code === 'NO_ACTIVE_WORKSPACE') {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', val.message));
-        }
-        if (val.code === 'PATH_DENIED') {
-          return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
-        }
-        return res.status(400).json(toApiError('VALIDATION_ERROR', val.message));
-      }
-      const s = await fileServiceStatFile(val.absolutePath);
-      if (!s.ok) {
-        if (s.code === 'FILE_NOT_FOUND') {
-          return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
-        }
-        if (s.code === 'FILE_SYSTEM_ERROR') {
-          return res.status(500).json(toApiError('FILE_SYSTEM_ERROR', s.message));
-        }
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', s.message));
-      }
-      if (s.data.isDirectory) {
-        return res.status(400).json(toApiError('VALIDATION_ERROR', 'Path is a directory'));
-      }
-      if (s.data.isBinary) {
-        return res.status(409).json(toApiError('BINARY_FILE', 'File contains binary data'));
-      }
-      const r = await readTextFile(val.absolutePath);
-      if (!r.ok) {
-        if (r.code === 'FILE_NOT_FOUND') {
-          return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
-        }
-        if (r.code === 'BINARY_FILE') {
-          return res.status(409).json(toApiError('BINARY_FILE', r.message));
-        }
-        if (r.code === 'VALIDATION_ERROR') {
-          return res.status(400).json(toApiError('VALIDATION_ERROR', r.message));
-        }
-        if (r.code === 'FILE_SYSTEM_ERROR') {
-          return res.status(500).json(toApiError('FILE_SYSTEM_ERROR', r.message));
-        }
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', r.message));
-      }
-      if (r.isLikelyBinary) {
-        return res.status(409).json(toApiError('BINARY_FILE', 'File contains binary data'));
-      }
-      const tokenService = getMainTokenService();
-      const { count } = await tokenService.countTokens(r.content);
-      return res.json(ok({ content: r.content, tokenCount: count, fileType: s.data.fileType || 'plaintext' }));
-    });
-
-    // Phase 2: Tokens - count
-    this.app.post('/api/v1/tokens/count', async (req, res) => {
-      const body = tokensCountBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-      try {
-        const tokenService = getMainTokenService();
-        const result = await tokenService.countTokens(body.data.text);
-        return res.json(ok(result));
-      } catch (error) {
-        return res.status(500).json(toApiError('INTERNAL_ERROR', (error as Error).message));
-      }
-    });
-
-    // Phase 2: Tokens - backend
-    this.app.get('/api/v1/tokens/backend', async (_req, res) => {
-      try {
-        const tokenService = getMainTokenService();
-        const backend = await tokenService.getActiveBackend();
-        return res.json(ok({ backend: backend ?? 'estimate' }));
-      } catch (error) {
-        return res.status(500).json(toApiError('INTERNAL_ERROR', (error as Error).message));
-      }
-    });
-
-    // Phase 2: Folders - current
-    this.app.get('/api/v1/folders/current', async (_req, res) => {
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) return res.json(ok(null));
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) return res.json(ok(null));
-        return res.json(ok({ folderPath: ws.folder_path }));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Phase 2: Folders - open
-    this.app.post('/api/v1/folders/open', async (req, res) => {
-      const body = foldersOpenBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-      try {
-        const folderPath = String(body.data.folderPath);
-        let st;
-        try {
-          st = await fs.promises.stat(folderPath);
-        } catch {
-          return res.status(400).json(toApiError('VALIDATION_ERROR', 'Folder does not exist'));
-        }
-        if (!st.isDirectory()) {
-          return res.status(400).json(toApiError('VALIDATION_ERROR', 'Path is not a directory'));
-        }
-
-        const workspaces = await this.db.listWorkspaces();
-         
-        let ws = workspaces.find((w: any) => w.folder_path === folderPath);
-
-        if (!ws) {
-          const requestedName = body.data.name ?? (path.basename(folderPath) || `workspace-${randomUUID().slice(0, 8)}`);
-           
-          const collision = workspaces.find((w: any) => w.name === requestedName && w.folder_path !== folderPath);
-          if (collision && body.data.name) {
-            return res.status(409).json(toApiError('VALIDATION_ERROR', `Workspace name '${requestedName}' already exists`));
-          }
-          const effectiveName = collision && !body.data.name ? `${requestedName}-${randomUUID().slice(0, 6)}` : requestedName;
-          ws = await this.db.createWorkspace(effectiveName, folderPath, {} as WorkspaceState);
-        }
-
-        await this.db.setPreference('workspace.active', String(ws.id));
-        setAllowedWorkspacePaths([ws.folder_path]);
-        getPathValidator([ws.folder_path]);
-        return res.json(ok({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path }));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Phase 3: Files - select
-    this.app.post('/api/v1/files/select', async (req, res) => {
-      const body = selectionBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-
-        // Validate, sanitize, and existence-check each path
-        const sanitizedItems: { path: string; lines?: { start: number; end: number }[] }[] = [];
-        for (const item of body.data.items) {
-          const validated = validateAndResolvePath(item.path);
-          if (!validated.ok) {
-            if ((validated as any).code === 'PATH_DENIED') {
-              return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
-            }
-            if ((validated as any).code === 'NO_ACTIVE_WORKSPACE') {
-              return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-            }
-            return res.status(400).json(toApiError('VALIDATION_ERROR', (validated as any).message || 'Invalid path'));
-          }
-
-          const st = await fileServiceStatFile(validated.absolutePath);
-          if (!st.ok) {
-            if (st.code === 'FILE_NOT_FOUND') {
-              return res.status(404).json(toApiError('FILE_NOT_FOUND', 'File not found'));
-            }
-            if (st.code === 'FILE_SYSTEM_ERROR') {
-              return res.status(500).json(toApiError('FILE_SYSTEM_ERROR', st.message));
-            }
-            return res.status(500).json(toApiError('DB_OPERATION_FAILED', st.message));
-          }
-          if (st.data.isDirectory) {
-            return res.status(400).json(toApiError('VALIDATION_ERROR', 'Path is a directory'));
-          }
-
-          sanitizedItems.push({ path: validated.absolutePath, lines: item.lines });
-        }
-
-        // Apply selection and persist only { path, lines? }
-        const next = applySelect(ws.state as WorkspaceState, sanitizedItems);
-        const newState: WorkspaceState = { ...ws.state, selectedFiles: next.selectedFiles };
-        await this.db.updateWorkspaceById(String(ws.id), newState);
-
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Phase 3: Files - deselect
-    this.app.post('/api/v1/files/deselect', async (req, res) => {
-      const body = selectionBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-
-        // Validate and sanitize each path (no existence check needed for deselect)
-        const sanitizedItems: { path: string; lines?: { start: number; end: number }[] }[] = [];
-        for (const item of body.data.items) {
-          const validated = validateAndResolvePath(item.path);
-          if (!validated.ok) {
-            if ((validated as any).code === 'PATH_DENIED') {
-              return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
-            }
-            if ((validated as any).code === 'NO_ACTIVE_WORKSPACE') {
-              return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-            }
-            return res.status(400).json(toApiError('VALIDATION_ERROR', (validated as any).message || 'Invalid path'));
-          }
-          sanitizedItems.push({ path: validated.absolutePath, lines: item.lines });
-        }
-
-        try {
-          const next = applyDeselect(ws.state as WorkspaceState, sanitizedItems);
-          const newState: WorkspaceState = { ...ws.state, selectedFiles: next.selectedFiles };
-          await this.db.updateWorkspaceById(String(ws.id), newState);
-        } catch (error: unknown) {
-          if (error instanceof SelectionServiceError) {
-            return res.status(400).json(toApiError('VALIDATION_ERROR', error.message));
-          }
-          throw error;
-        }
-
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Phase 3: Files - clear
-    this.app.post('/api/v1/files/clear', async (_req, res) => {
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const newState: WorkspaceState = { ...ws.state, selectedFiles: [] };
-        await this.db.updateWorkspaceById(String(ws.id), newState);
-        return res.json(ok(true));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Phase 3: Files - selected
-    this.app.get('/api/v1/files/selected', async (_req, res) => {
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const selected = (ws.state?.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
-        return res.json(ok(selected));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Phase 3: Content - aggregate
-    this.app.get('/api/v1/content', async (req, res) => {
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-
-        // Optional limits for content aggregation
-        const q = req.query as any;
-        const maxFilesQ = Number.parseInt(String(q?.maxFiles ?? ''), 10);
-        const maxBytesQ = Number.parseInt(String(q?.maxBytes ?? ''), 10);
-        const maxFiles = Number.isFinite(maxFilesQ) && maxFilesQ > 0 ? Math.min(maxFilesQ, 10_000) : undefined;
-        const maxBytes = Number.isFinite(maxBytesQ) && maxBytesQ > 0 ? Math.min(maxBytesQ, 50 * 1024 * 1024) : undefined;
-
-        const state = (ws.state || {}) as WorkspaceState;
-        const selection = (state.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
-
-        const { content, fileCount } = await aggregateSelectedContent({
-          folderPath: ws.folder_path,
-          selection,
-          sortOrder: (state as any).sortOrder ?? 'name',
-          fileTreeMode: (state as any).fileTreeMode ?? 'selected',
-          selectedFolder: (state as any).selectedFolder ?? ws.folder_path,
-          systemPrompts: (state as any).systemPrompts ?? [],
-          rolePrompts: (state as any).rolePrompts ?? [],
-          selectedInstructions: (state as any).selectedInstructions ?? [],
-          userInstructions: (state as any).userInstructions ?? '',
-          exclusionPatterns: (state as any).exclusionPatterns ?? [],
-          maxFiles,
-          maxBytes,
-        });
-
-        const tokenService = getMainTokenService();
-        const { count } = await tokenService.countTokens(content);
-
-        return res.json(ok({ content, fileCount, tokenCount: count }));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-    // Phase 3: Content - export
-    this.app.post('/api/v1/content/export', async (req, res) => {
-      const body = exportBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-
-      try {
-        const activeId = await this.db.getPreference('workspace.active');
-        if (!activeId) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-        const ws = await this.db.getWorkspace(String(activeId));
-        if (!ws) {
-          return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-        }
-
-        // Validate and constrain output path within workspace via PathValidator
-        const outVal = validateAndResolvePath(body.data.outputPath);
-        if (!outVal.ok) {
-          if ((outVal as any).code === 'PATH_DENIED') {
-            return res.status(403).json(toApiError('PATH_DENIED', 'Access denied'));
-          }
-          if ((outVal as any).code === 'NO_ACTIVE_WORKSPACE') {
-            return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-          }
-          return res.status(400).json(toApiError('VALIDATION_ERROR', (outVal as any).message || 'Invalid output path'));
-        }
-
-        // Generate content using the same aggregation path
-        const state = (ws.state || {}) as WorkspaceState;
-        const selection = (state.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
-
-        const { content } = await aggregateSelectedContent({
-          folderPath: ws.folder_path,
-          selection,
-          sortOrder: (state as any).sortOrder ?? 'name',
-          fileTreeMode: (state as any).fileTreeMode ?? 'selected',
-          selectedFolder: (state as any).selectedFolder ?? ws.folder_path,
-          systemPrompts: (state as any).systemPrompts ?? [],
-          rolePrompts: (state as any).rolePrompts ?? [],
-          selectedInstructions: (state as any).selectedInstructions ?? [],
-          userInstructions: (state as any).userInstructions ?? '',
-          exclusionPatterns: (state as any).exclusionPatterns ?? [],
-        });
-
-        // Write export using helper
-        const { bytes } = await writeExport(outVal.absolutePath, content, body.data.overwrite === true);
-
-        return res.json(ok({ outputPath: outVal.absolutePath, bytes }));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
-
-
-    // Phase 4: Preview
-    this.app.post('/api/v1/preview/start', async (req, res) => {
-      const body = previewStartBody.safeParse(req.body);
-      if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
-
-      const allowed = getAllowedWorkspacePaths();
-      if (!allowed || allowed.length === 0) {
-        return res.status(400).json(toApiError('NO_ACTIVE_WORKSPACE', 'No active workspace'));
-      }
-
-      try {
-        const id = randomUUID();
-        this.previewController.startPreview(id, {
-          includeTrees: body.data.includeTrees,
-          maxFiles: body.data.maxFiles,
-          maxBytes: body.data.maxBytes,
-          prompt: body.data.prompt,
-        });
-        // Optional: record a log entry (best-effort)
-        try { await (this.db as any).insertLog?.({ category: 'preview', action: 'start', status: 'queued', details: { id } }); } catch {}
-        return res.json(ok({ id }));
-      } catch (error) {
-        return res.status(500).json(toApiError('INTERNAL_ERROR', (error as Error).message));
-      }
-    });
-
-    this.app.get('/api/v1/preview/status/:id', async (req, res) => {
-      const params = previewIdParam.safeParse(req.params);
-      if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
-
-      const st = this.previewController.getStatus(params.data.id);
-      if (!st) {
-        return res.status(404).json(toApiError('PREVIEW_NOT_FOUND', 'Preview job not found'));
-      }
-      if ((st as any).state === 'FAILED' && (st as any).error?.code === 'PREVIEW_TIMEOUT') {
-        return res.status(504).json(toApiError('PREVIEW_TIMEOUT', 'Preview job timed out'));
-      }
-      return res.json(ok(st));
-    });
-
-    this.app.get('/api/v1/preview/content/:id', async (req, res) => {
-      const params = previewIdParam.safeParse(req.params);
-      if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
-
-      const result = this.previewController.getResult(params.data.id);
-      if (!result) return res.status(404).json(toApiError('PREVIEW_NOT_FOUND', 'Preview job not found'));
-      return res.json(ok(result));
-    });
-
-    this.app.post('/api/v1/preview/cancel/:id', async (req, res) => {
-      const params = previewIdParam.safeParse(req.params);
-      if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
-
-      this.previewController.cancel(params.data.id);
-      // Optional: record a log entry (best-effort)
-      try { await (this.db as any).insertLog?.({ category: 'preview', action: 'cancel', status: 'requested', details: { id: params.data.id } }); } catch {}
-      return res.json(ok(true));
-    });
-
-    // Phase 4: Logs (dev-only optional)
-    this.app.get('/api/v1/logs', async (req, res) => {
-      try {
-        const limit = Number.parseInt(String((req.query as any).limit ?? '100'), 10);
-         
-        const category = (req.query as any).category as 'api' | 'preview' | undefined;
-        const entries = await (this.db as any).listLogs?.({ limit: Number.isFinite(limit) ? limit : 100, category });
-        return res.json(ok(entries ?? []));
-      } catch (error) {
-        return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
-      }
-    });
   }
 }

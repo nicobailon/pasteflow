@@ -1,104 +1,23 @@
 import { useEffect, useRef, useCallback } from 'react';
 
 import { debounce } from '../utils/debounce';
-import type { 
-  SelectedFileReference, 
-  FileTreeMode,
-  SystemPrompt,
-  RolePrompt
-} from '../types/file-types';
-
 import { usePersistentState } from './use-persistent-state';
 
-interface AutoSavePreferences {
-  enabled: boolean;
-  debounceMs: number;
-  minIntervalMs: number;
-}
+import {
+  type AutoSavePreferences,
+  type AutoSaveOptions,
+  DEFAULT_PREFERENCES,
+  buildSignatureData,
+  canAutoSave,
+  logAutoSaveError,
+  createAppWillQuitHandler,
+  createBeforeUnloadHandler,
+  createVisibilityChangeHandler,
+  computeWorkspaceSignature
+} from './use-workspace-autosave-helpers';
 
-interface WorkspaceSignatureData {
-  selectedFolder: string | null;
-  selectedFiles: { path: string; lines?: { start: number; end: number }[] }[];
-  expandedNodes: Record<string, boolean>;
-  sortOrder: string;
-  searchTerm: string;
-  fileTreeMode: FileTreeMode;
-  exclusionPatterns: string[];
-  selectedInstructions: string[];
-  systemPromptIds: string[];
-  rolePromptIds: string[];
-  userInstructions: string;
-}
-
-interface AutoSaveOptions {
-  currentWorkspace: string | null;
-  selectedFolder: string | null;
-  selectedFiles: SelectedFileReference[];
-  expandedNodes: Record<string, boolean>;
-  sortOrder: string;
-  searchTerm: string;
-  fileTreeMode: FileTreeMode;
-  exclusionPatterns: string[];
-  selectedInstructions: string[];
-  customPrompts: {
-    systemPrompts: (SystemPrompt & { selected?: boolean })[];
-    rolePrompts: (RolePrompt & { selected?: boolean })[];
-  };
-  userInstructions: string;
-  isApplyingWorkspaceData: boolean;
-  isProcessing: boolean;
-  onAutoSave: () => Promise<void>;
-}
-
-const DEFAULT_PREFERENCES: AutoSavePreferences = {
-  enabled: true, // Auto-save ON by default
-  debounceMs: 100, // Very short debounce to batch rapid keystrokes
-  minIntervalMs: 0 // No minimum interval between saves
-};
-
-/**
- * Computes a stable signature from workspace state for change detection.
- * Excludes heavy data like allFiles and token counts.
- */
-export function computeWorkspaceSignature(data: WorkspaceSignatureData): string {
-  const selectedFilesArr = Array.isArray(data.selectedFiles) ? data.selectedFiles : [];
-  const exclusionArr = Array.isArray(data.exclusionPatterns) ? data.exclusionPatterns : [];
-  const selectedInstructionsArr = Array.isArray(data.selectedInstructions) ? data.selectedInstructions : [];
-  const systemPromptIdsArr = Array.isArray(data.systemPromptIds) ? data.systemPromptIds : [];
-  const rolePromptIdsArr = Array.isArray(data.rolePromptIds) ? data.rolePromptIds : [];
-  const expandedNodesObj = (data.expandedNodes && typeof data.expandedNodes === 'object') ? data.expandedNodes : {};
-
-  const normalized = {
-    selectedFolder: data.selectedFolder || '',
-    selectedFiles: selectedFilesArr.map(f => ({
-      path: f.path,
-      // Canonicalize line ranges: sort then join
-      lines: Array.isArray(f.lines)
-        ? [...f.lines]
-            .sort((a, b) => {
-              if (a.start !== b.start) return a.start - b.start;
-              return a.end - b.end;
-            })
-            .map(l => `${l.start}-${l.end}`)
-            .join(',')
-        : ''
-    })).sort((a, b) => a.path.localeCompare(b.path)),
-    expandedNodes: Object.entries(expandedNodesObj)
-      .filter(([_, expanded]) => !!expanded)
-      .map(([path]) => path)
-      .sort(),
-    sortOrder: data.sortOrder || '',
-    searchTerm: data.searchTerm || '',
-    fileTreeMode: data.fileTreeMode,
-    exclusionPatterns: [...exclusionArr].sort(),
-    selectedInstructions: [...selectedInstructionsArr].sort(),
-    systemPromptIds: [...systemPromptIdsArr].sort(),
-    rolePromptIds: [...rolePromptIdsArr].sort(),
-    userInstructions: data.userInstructions || ''
-  };
-
-  return JSON.stringify(normalized);
-}
+// Re-export for backward compatibility
+export { computeWorkspaceSignature } from './use-workspace-autosave-helpers';
 
 /**
  * Hook for auto-saving workspace changes with debouncing and guards.
@@ -111,16 +30,6 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
 } {
   const {
     currentWorkspace,
-    selectedFolder,
-    selectedFiles,
-    expandedNodes,
-    sortOrder,
-    searchTerm,
-    fileTreeMode,
-    exclusionPatterns,
-    selectedInstructions,
-    customPrompts,
-    userInstructions,
     isApplyingWorkspaceData,
     isProcessing,
     onAutoSave
@@ -153,30 +62,8 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   const minIntervalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSignatureRef = useRef<string | null>(null);
 
-  // Extract prompt IDs from customPrompts (guard for undefined)
-  const systemPromptIds = (customPrompts?.systemPrompts ?? [])
-    .filter((p: { selected?: boolean }) => !!p.selected)
-    .map((p: { id: string }) => p.id);
-  const rolePromptIds = (customPrompts?.rolePrompts ?? [])
-    .filter((p: { selected?: boolean }) => !!p.selected)
-    .map((p: { id: string }) => p.id);
-
-  // Build signature data with guards (normalize possibly undefined arrays/objects)
-  const signatureData: WorkspaceSignatureData = {
-    selectedFolder: selectedFolder ?? null,
-    selectedFiles: Array.isArray(selectedFiles)
-      ? selectedFiles.map(f => ({ path: f.path, lines: f.lines }))
-      : [],
-    expandedNodes: expandedNodes ?? {},
-    sortOrder: sortOrder ?? '',
-    searchTerm: searchTerm ?? '',
-    fileTreeMode: (fileTreeMode ?? 'none') as FileTreeMode,
-    exclusionPatterns: Array.isArray(exclusionPatterns) ? exclusionPatterns : [],
-    selectedInstructions: Array.isArray(selectedInstructions) ? selectedInstructions : [],
-    systemPromptIds,
-    rolePromptIds,
-    userInstructions: userInstructions ?? ''
-  };
+  // Build signature data using helper
+  const signatureData = buildSignatureData(options);
 
   // Compute current signature
   const currentSignature = computeWorkspaceSignature(signatureData);
@@ -215,36 +102,20 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   }, [currentWorkspace, isApplyingWorkspaceData, currentSignature]);
 
   // Helper to check if auto-save should proceed
-  const canAutoSave = useCallback(() => {
-    return autoSaveEnabled && 
-           currentWorkspace && 
-           !isApplyingWorkspaceData && 
-           !isProcessing && 
-           !saveInProgressRef.current;
+  const canAutoSaveNow = useCallback(() => {
+    return canAutoSave(
+      autoSaveEnabled,
+      currentWorkspace,
+      isApplyingWorkspaceData,
+      isProcessing,
+      saveInProgressRef.current
+    );
   }, [autoSaveEnabled, currentWorkspace, isApplyingWorkspaceData, isProcessing]);
-
-  // Helper to log auto-save errors
-  const logAutoSaveError = useCallback((error: unknown) => {
-    if (error instanceof Error) {
-      const errorMessage = error.message || '';
-      if (errorMessage.includes('EACCES') || errorMessage.includes('permission')) {
-        console.error('[AutoSave] Permission error during save:', errorMessage);
-      } else if (errorMessage.includes('ENOSPC')) {
-        console.error('[AutoSave] Disk space error during save:', errorMessage);
-      } else if (errorMessage.includes('rate limit') || errorMessage.includes('too many requests')) {
-        console.error('[AutoSave] Rate limit error during save:', errorMessage);
-      } else {
-        console.error('[AutoSave] Auto-save failed:', errorMessage);
-      }
-    } else {
-      console.error('[AutoSave] Unexpected auto-save error:', error);
-    }
-  }, []);
 
   // Auto-save function with guards
   const performAutoSave = useCallback(async () => {
     // Guard conditions
-    if (!canAutoSave()) return;
+    if (!canAutoSaveNow()) return;
 
     // Check if signature has changed
     if (currentSignature === lastSignatureRef.current) {
@@ -267,10 +138,9 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
       saveInProgressRef.current = false;
     }
   }, [
-    canAutoSave,
+    canAutoSaveNow,
     currentSignature,
-    onAutoSave,
-    logAutoSaveError
+    onAutoSave
   ]);
 
   // Create debounced save function
@@ -297,72 +167,28 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
 
   // Add handlers for app close and visibility changes (stable, single registration)
   useEffect(() => {
-    // Stable handler reads latest values from refs to avoid re-registering on every render
-    const handleAppWillQuitStable = () => {
-      const needSave =
-        !!autoSaveEnabledRef.current &&
-        !!currentWorkspaceRef.current &&
-        !isApplyingWorkspaceDataRef.current &&
-        !isProcessingRef.current &&
-        !saveInProgressRef.current &&
-        currentSignatureRef.current !== lastSignatureRef.current;
-
-      if (needSave) {
-        saveInProgressRef.current = true;
-        Promise.resolve(onAutoSaveRef.current?.())
-          .then(() => {
-            lastSignatureRef.current = currentSignatureRef.current;
-            if (window.electron?.ipcRenderer) {
-              window.electron.ipcRenderer.send('app-will-quit-save-complete', {});
-            }
-          })
-          .catch(() => {
-            if (window.electron?.ipcRenderer) {
-              window.electron.ipcRenderer.send('app-will-quit-save-complete', { error: true });
-            }
-          });
-      } else {
-        if (window.electron?.ipcRenderer) {
-          window.electron.ipcRenderer.send('app-will-quit-save-complete', { skipped: true });
-        }
-      }
+    // Create refs object for handlers
+    const refs = {
+      autoSaveEnabledRef,
+      currentWorkspaceRef,
+      isApplyingWorkspaceDataRef,
+      isProcessingRef,
+      saveInProgressRef,
+      currentSignatureRef,
+      lastSignatureRef,
+      onAutoSaveRef
     };
 
+    // Create event handlers using helpers
+    const handleAppWillQuitStable = createAppWillQuitHandler(refs);
+    const handleBeforeUnload = createBeforeUnloadHandler(refs);
+    const handleVisibilityChange = createVisibilityChangeHandler(refs);
+
+    // Register event listeners
     if (window.electron?.ipcRenderer) {
       window.electron.ipcRenderer.on('app-will-quit', handleAppWillQuitStable);
     }
-
-    // Fallback and focus-loss saves using stable refs
-    const handleBeforeUnload = () => {
-      const needSave =
-        !!autoSaveEnabledRef.current &&
-        !!currentWorkspaceRef.current &&
-        !isApplyingWorkspaceDataRef.current &&
-        !isProcessingRef.current &&
-        !saveInProgressRef.current &&
-        currentSignatureRef.current !== lastSignatureRef.current;
-
-      if (needSave) {
-        void onAutoSaveRef.current?.();
-      }
-    };
     window.addEventListener('beforeunload', handleBeforeUnload);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        const needSave =
-          !!autoSaveEnabledRef.current &&
-          !!currentWorkspaceRef.current &&
-          !isApplyingWorkspaceDataRef.current &&
-          !isProcessingRef.current &&
-          !saveInProgressRef.current &&
-          currentSignatureRef.current !== lastSignatureRef.current;
-
-        if (needSave) {
-          void onAutoSaveRef.current?.();
-        }
-      }
-    };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {

@@ -55,7 +55,7 @@ export class StreamingTreeBuilder {
       // If a worker was injected (tests), reuse it; otherwise create one
       if (!this.worker) {
         // Check if we're in a Jest test environment (more reliable than NODE_ENV)
-        if (jest === undefined) {
+        if (typeof jest === 'undefined') {
           try {
             // Use eval to prevent Jest from parsing this at compile time
             const metaUrl = eval('import.meta.url');

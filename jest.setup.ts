@@ -20,8 +20,8 @@ import '@testing-library/jest-dom';
 })();
 
 // Mock import.meta for ES module compatibility
-if (typeof global !== 'undefined' && !(global as any).import) {
-  (global as any).import = {
+if (typeof global !== 'undefined' && !(global as unknown as { import?: unknown }).import) {
+  (global as unknown as { import: { meta: { url: string } } }).import = {
     meta: {
       url: 'file:///mock/path/to/file.js',
     },
@@ -29,7 +29,7 @@ if (typeof global !== 'undefined' && !(global as any).import) {
 }
 
 // Mock Worker for worker pool tests
-if ((global as any).Worker === undefined) {
+if ((global as unknown as { Worker?: typeof Worker }).Worker === undefined) {
   class MockMessageEvent<T = unknown> extends Event {
     data: T;
     constructor(type: string, init?: { data?: T }) {
@@ -42,7 +42,7 @@ if ((global as any).Worker === undefined) {
   class MockWorker {
     url: string | URL;
     options?: WorkerOptions;
-    listeners: Map<string, Function[]>;
+    listeners: Map<string, ((event: Event | MessageEvent) => void)[]>;
 
     constructor(url: string | URL, options?: WorkerOptions) {
       this.url = url;
@@ -59,14 +59,14 @@ if ((global as any).Worker === undefined) {
       // Mock implementation
     }
 
-    addEventListener(type: string, listener: any) {
+    addEventListener(type: string, listener: (event: Event | MessageEvent) => void) {
       if (!this.listeners.has(type)) {
         this.listeners.set(type, []);
       }
       this.listeners.get(type)!.push(listener);
     }
 
-    removeEventListener(type: string, listener: any) {
+    removeEventListener(type: string, listener: (event: Event | MessageEvent) => void) {
       const listeners = this.listeners.get(type);
       if (listeners) {
         const index = listeners.indexOf(listener);
@@ -76,7 +76,7 @@ if ((global as any).Worker === undefined) {
       }
     }
 
-    dispatchEvent(event: { type: string; data?: any }) {
+    dispatchEvent(event: Event | MessageEvent) {
       const listeners = this.listeners.get(event.type);
       if (listeners) {
         for (const listener of listeners) listener(event);
@@ -88,16 +88,16 @@ if ((global as any).Worker === undefined) {
     }
   }
 
-  (global as any).Worker = MockWorker as any;
+  (global as unknown as { Worker: typeof Worker }).Worker = MockWorker as unknown as typeof Worker;
 }
 
 // Polyfill TextEncoder/TextDecoder for Jest environment
-if ((global as any).TextEncoder === undefined) {
-  (global as any).TextEncoder = class {
+if ((global as unknown as { TextEncoder?: typeof TextEncoder }).TextEncoder === undefined) {
+  (global as unknown as { TextEncoder: typeof TextEncoder }).TextEncoder = class {
     encode(input: string) {
       const bytes: number[] = [];
       for (let i = 0; i < input.length; i++) {
-        const char = input.charCodeAt(i);
+        const char = input.codePointAt(i) ?? 0;
         if (char < 0x80) {
           bytes.push(char);
         } else if (char < 0x8_00) {
@@ -107,7 +107,7 @@ if ((global as any).TextEncoder === undefined) {
         } else {
           // Handle surrogate pairs
           i++;
-          const char2 = input.charCodeAt(i);
+          const char2 = input.codePointAt(i) ?? 0;
           const codePoint = 0x1_00_00 + (((char & 0x3_FF) << 10) | (char2 & 0x3_FF));
           bytes.push(
             0xF0 | (codePoint >> 18),
@@ -122,21 +122,21 @@ if ((global as any).TextEncoder === undefined) {
   };
 }
 
-if ((global as any).TextDecoder === undefined) {
-  (global as any).TextDecoder = class {
+if ((global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder === undefined) {
+  (global as unknown as { TextDecoder: typeof TextDecoder }).TextDecoder = class {
     decode(bytes: Uint8Array) {
       let result = '';
       let i = 0;
       while (i < bytes.length) {
         const byte = bytes[i];
         if (byte < 0x80) {
-          result += String.fromCharCode(byte);
+          result += String.fromCodePoint(byte);
           i++;
         } else if ((byte & 0xE0) === 0xC0) {
-          result += String.fromCharCode(((byte & 0x1F) << 6) | (bytes[i + 1] & 0x3F));
+          result += String.fromCodePoint(((byte & 0x1F) << 6) | (bytes[i + 1] & 0x3F));
           i += 2;
         } else if ((byte & 0xF0) === 0xE0) {
-          result += String.fromCharCode(((byte & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F));
+          result += String.fromCodePoint(((byte & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F));
           i += 3;
         } else {
           const codePoint =
@@ -146,7 +146,7 @@ if ((global as any).TextDecoder === undefined) {
             (bytes[i + 3] & 0x3F);
           const high = Math.floor((codePoint - 0x1_00_00) / 0x4_00) + 0xD8_00;
           const low = ((codePoint - 0x1_00_00) % 0x4_00) + 0xDC_00;
-          result += String.fromCharCode(high, low);
+          result += String.fromCodePoint(high, low);
           i += 4;
         }
       }

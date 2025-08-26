@@ -276,7 +276,9 @@ export const useDatabaseWorkspaceState = () => {
         void window.electron.ipcRenderer
           .invoke('/workspace/touch', { id: name }).then(unwrapIpc).catch(() =>
             workspace?.id
-              ? window.electron.ipcRenderer.invoke('/workspace/touch', { id: workspace.id }).then(unwrapIpc).catch(() => {})
+              ? window.electron.ipcRenderer.invoke('/workspace/touch', { id: workspace.id }).then(unwrapIpc).catch(() => {
+                  // Intentionally empty - best effort workspace touch
+                })
               : undefined
           );
         

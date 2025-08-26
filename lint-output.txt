@@ -1,0 +1,503 @@
+
+> pasteflow@1.0.0 lint
+> eslint . --ext ts,tsx --report-unused-disable-directives
+
+Multiple projects found, consider using a single `tsconfig` with `references` to speed up, or use `noWarnOnMultipleProjects` to suppress this warning
+
+/Users/nicobailon/Documents/development/pasteflow/build.ts
+  13:37  warning  Do not use "__dirname"                                         unicorn/prefer-module
+  35:5   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/content-helpers.ts
+    4:1  warning  There should be at least one empty line between import groups  import/order
+   95:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  110:7  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/content.ts
+   1:1   warning  There should be at least one empty line between import groups                     import/order
+   9:3   warning  'writeLocalFile' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  41:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                     unicorn/no-process-exit
+  45:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead                     unicorn/no-process-exit
+  55:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead                     unicorn/no-process-exit
+  78:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                     unicorn/no-process-exit
+  83:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead                     unicorn/no-process-exit
+  91:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead                     unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/files.ts
+   33:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+   48:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+   54:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+   62:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+   72:79  warning  Refactor this function to reduce its Cognitive Complexity from 33 to the 30 allowed  sonarjs/cognitive-complexity
+   89:13  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+   93:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+   98:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+  104:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+  111:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+  121:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+  133:13  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+  139:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+  147:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/folders.ts
+  19:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  24:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  32:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  59:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  66:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  74:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/instructions.ts
+   26:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   32:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   42:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   50:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   76:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   80:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   88:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  113:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  117:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  125:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  143:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  147:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  155:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/prefs.ts
+  21:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  26:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  34:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  57:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  62:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  70:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/preview-handlers.ts
+  2:1   warning  There should be at least one empty line between import groups                    import/order
+  3:1   warning  There should be at least one empty line between import groups                    import/order
+  3:25  warning  'AxiosResponse' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/preview.ts
+    1:1  warning  There should be at least one empty line between import groups  import/order
+    2:1  warning  There should be at least one empty line between import groups  import/order
+   79:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   89:3  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  109:7  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  112:7  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  149:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  163:3  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  191:7  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  200:7  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  210:3  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  257:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  260:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  324:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  327:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/select.ts
+   33:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   37:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   43:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   51:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   81:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   85:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   91:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   99:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  117:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  121:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  129:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  147:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  153:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  170:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  178:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/status.ts
+  21:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  45:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  53:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/tokens.ts
+  22:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  28:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  39:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  47:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  65:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  70:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  78:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/cli/src/commands/workspaces.ts
+   28:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   34:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   45:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   53:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   60:23  warning  Define a constant instead of duplicating this literal 5 times  sonarjs/no-duplicate-string
+   79:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   85:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   95:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  103:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  137:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  142:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  150:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  168:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  178:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  182:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  190:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  208:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  212:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  220:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  239:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  243:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  251:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  269:11  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  273:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  281:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/dev.ts
+    5:8  warning  'fs' is defined but never used. Allowed unused vars must match /^_/u    @typescript-eslint/no-unused-vars
+    6:8  warning  'path' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+   19:3  warning  Only use `process.exit()` in CLI apps. Throw an error instead           unicorn/no-process-exit
+  119:7  warning  Only use `process.exit()` in CLI apps. Throw an error instead           unicorn/no-process-exit
+  125:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead           unicorn/no-process-exit
+  158:3  warning  Only use `process.exit()` in CLI apps. Throw an error instead           unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/jest.setup.ts
+  1:1  warning  Filename 'jest.setup.ts' does not match the naming convention  filenames/match-regex
+
+/Users/nicobailon/Documents/development/pasteflow/scripts/build-main-ts.ts
+  10:3  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  14:3  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/scripts/notarize.ts
+  15:1  warning  Do not use "module"                                                               unicorn/prefer-module
+  28:9  warning  'appId' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/Users/nicobailon/Documents/development/pasteflow/scripts/release-checklist.ts
+  397:5  error    This `if` statement can be replaced by a ternary expression    unicorn/prefer-ternary
+  410:5  warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/scripts/test-local-build.ts
+   30:34  warning  Do not use "__dirname"                                         unicorn/prefer-module
+   52:3   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   93:3   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+   98:32  warning  Do not use "__dirname"                                         unicorn/prefer-module
+  101:3   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  111:3   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  116:3   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/scripts/verify-build.ts
+  22:31  warning  Do not use "__dirname"                                         unicorn/prefer-module
+  30:7   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  49:7   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  53:34  warning  Do not use "__dirname"                                         unicorn/prefer-module
+  55:7   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  61:31  warning  Do not use "__dirname"                                         unicorn/prefer-module
+  70:9   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+  97:5   warning  Only use `process.exit()` in CLI apps. Throw an error instead  unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/clipboard-preview-modal.tsx
+  152:5  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/content-area.tsx
+    3:46   warning  Unable to resolve path to module '@constants'                                        import/no-unresolved
+    4:57   warning  Unable to resolve path to module '@file-ops/path'                                    import/no-unresolved
+  477:16   warning  Refactor this function to reduce its Cognitive Complexity from 67 to the 30 allowed  sonarjs/cognitive-complexity
+  590:149  warning  This branch's code block is the same as the block for the branch on line 587         sonarjs/no-duplicated-branches
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/copy-button.tsx
+  3:20  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/doc-card.tsx
+  2:32  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/file-view-modal.tsx
+  6:20  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/instruction-card.tsx
+  2:32  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/role-prompt-card.tsx
+  2:32  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/sidebar.tsx
+  3:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/system-prompt-card.tsx
+  2:32  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/tree-item.tsx
+  394:3  error  Replace this if-then-else flow by a single return statement  sonarjs/prefer-single-boolean-return
+
+/Users/nicobailon/Documents/development/pasteflow/src/components/virtualized-file-viewer.tsx
+  5:20  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/constants/index.ts
+  36:59  warning  Unable to resolve path to module '@shared/excluded-files'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/context/file-system-context.tsx
+  3:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/file-ops/filters.ts
+  4:33  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-app-state.ts
+    3:31  warning  Unable to resolve path to module '@file-ops/path'                                    import/no-unresolved
+    4:46  warning  Unable to resolve path to module '@constants'                                        import/no-unresolved
+  507:5   warning  'priority' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  585:79  warning  Refactor this function to reduce its Cognitive Complexity from 39 to the 30 allowed  sonarjs/cognitive-complexity
+  800:76  warning  'options' is defined but never used. Allowed unused args must match /^_/u            @typescript-eslint/no-unused-vars
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-doc-state.ts
+  2:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-file-selection-state.ts
+    2:47   warning  Unable to resolve path to module '@constants'                                        import/no-unresolved
+  310:126  warning  Refactor this function to reduce its Cognitive Complexity from 81 to the 30 allowed  sonarjs/cognitive-complexity
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-file-tree-processing.ts
+  7:20  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-persistent-state.ts
+   77:17  warning  Refactor this function to reduce its Cognitive Complexity from 33 to the 30 allowed                                                                                                                                                                                              sonarjs/cognitive-complexity
+  144:6   warning  React Hook useEffect has a missing dependency: 'initialValue'. Either include it or remove the dependency array. If 'setPersistedValue' needs the current value of 'initialValue', you can also switch to useReducer instead of useState and read 'initialValue' in the reducer  react-hooks/exhaustive-deps
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-preview-generator.ts
+   14:32  warning  Unable to resolve path to module '@constants'                                        import/no-unresolved
+  198:37  warning  Arrow function has a complexity of 36. Maximum allowed is 25                         complexity
+  198:55  warning  Refactor this function to reduce its Cognitive Complexity from 55 to the 30 allowed  sonarjs/cognitive-complexity
+  440:90  error    Fix this expression; length of "f.content" is always greater or equal to zero        sonarjs/no-collection-size-mischeck
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-preview-pack.ts
+  389:16  warning  The ref value 'cacheRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'cacheRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-prompt-state.ts
+  2:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-workspace-autosave.ts
+  3:1  warning  There should be at least one empty line between import groups  import/order
+  4:1  warning  There should be no empty line within import group              import/order
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-workspace-drag.ts
+  2:61  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/hooks/use-workspace-state.ts
+  2:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/index.tsx
+  2:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/__tests__/api-server-phase3.test.ts
+    3:1   warning  Filename 'api-server-phase3.test.ts' does not match the naming convention  filenames/match-regex
+  237:43  warning  Define a constant instead of duplicating this literal 5 times              sonarjs/no-duplicate-string
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/__tests__/api-server.test.ts
+  3:1  warning  Filename 'api-server.test.ts' does not match the naming convention  filenames/match-regex
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/__tests__/content-aggregation.test.ts
+  3:1  warning  Filename 'content-aggregation.test.ts' does not match the naming convention  filenames/match-regex
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/__tests__/selection-service.test.ts
+   3:1   warning  Filename 'selection-service.test.ts' does not match the naming convention  filenames/match-regex
+  62:41  warning  Define a constant instead of duplicating this literal 7 times              sonarjs/no-duplicate-string
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/api-route-handlers.ts
+    2:1   warning  There should be at least one empty line between import groups                                 import/order
+    3:1   warning  `node:crypto` import should occur before type import of `express`                             import/order
+    4:1   warning  `node:path` import should occur before type import of `express`                               import/order
+    5:1   warning  `node:fs` import should occur before type import of `express`                                 import/order
+    9:1   warning  There should be at least one empty line between import groups                                 import/order
+   10:1   warning  There should be at least one empty line between import groups                                 import/order
+   10:1   warning  `../security/path-validator` import should occur before import of `./db/database-bridge`      import/order
+   13:10  warning  'applySelect' is defined but never used. Allowed unused vars must match /^_/u                 @typescript-eslint/no-unused-vars
+   13:23  warning  'applyDeselect' is defined but never used. Allowed unused vars must match /^_/u               @typescript-eslint/no-unused-vars
+   14:10  warning  'aggregateSelectedContent' is defined but never used. Allowed unused vars must match /^_/u    @typescript-eslint/no-unused-vars
+   15:1   warning  There should be at least one empty line between import groups                                 import/order
+   15:10  warning  'writeExport' is defined but never used. Allowed unused vars must match /^_/u                 @typescript-eslint/no-unused-vars
+   16:1   warning  There should be at least one empty line between import groups                                 import/order
+   16:1   warning  `../services/token-service-main` import should occur before import of `./db/database-bridge`  import/order
+  105:29  warning  Do not pass function `mapWorkspaceDbToJson` directly to `.map(…)`                             unicorn/no-array-callback-reference
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/api-server.ts
+   13:10  warning  'setAllowedWorkspacePaths' is defined but never used. Allowed unused vars must match /^_/u                             @typescript-eslint/no-unused-vars
+   15:67  warning  'readTextFile' is defined but never used. Allowed unused vars must match /^_/u                                         @typescript-eslint/no-unused-vars
+   69:18  warning  Caution: `express` also has a named export `json`. Check if you meant to write `import {json} from 'express'` instead  import/no-named-as-default-member
+  257:69  warning  Define a constant instead of duplicating this literal 5 times                                                          sonarjs/no-duplicate-string
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/content-aggregation.ts
+  22:16  warning  Refactor this function to reduce its Cognitive Complexity from 48 to the 30 allowed  sonarjs/cognitive-complexity
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/db/__tests__/database-bridge.test.ts
+  1:1  warning  Filename 'database-bridge.test.ts' does not match the naming convention  filenames/match-regex
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/db/__tests__/database-implementation.test.ts
+    1:1   warning  Filename 'database-implementation.test.ts' does not match the naming convention  filenames/match-regex
+   47:42  warning  Move arrow function 'mkState' to the outer scope                                 unicorn/consistent-function-scoping
+  209:32  warning  Define a constant instead of duplicating this literal 5 times                    sonarjs/no-duplicate-string
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/db/__tests__/schema-cleanup.test.ts
+  1:1  warning  Filename 'schema-cleanup.test.ts' does not match the naming convention  filenames/match-regex
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/db/better-sqlite3-loader.ts
+   2:13  warning  'BetterSqlite3' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  11:15  warning  Do not use "require"                                                             unicorn/prefer-module
+  24:26  warning  Do not use "require"                                                             unicorn/prefer-module
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/db/database-bridge.ts
+  113:35  warning  Define a constant instead of duplicating this literal 19 times  sonarjs/no-duplicate-string
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/db/database-implementation.ts
+  14:10  warning  Do not use "require"  unicorn/prefer-module
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/db/database-worker.ts
+    6:10  warning  'retryUtility' is defined but never used. Allowed unused vars must match /^_/u       @typescript-eslint/no-unused-vars
+   38:3   warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+  140:53  warning  Refactor this function to reduce its Cognitive Complexity from 48 to the 30 allowed  sonarjs/cognitive-complexity
+  156:44  warning  Define a constant instead of duplicating this literal 5 times                        sonarjs/no-duplicate-string
+  252:3   warning  Only use `process.exit()` in CLI apps. Throw an error instead                        unicorn/no-process-exit
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/db/pooled-database-bridge.ts
+  11:11  warning  'FileData' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/main.ts
+  178:26   warning  Do not use "__dirname"                                                               unicorn/prefer-module
+  215:36   warning  Do not use "__dirname"                                                               unicorn/prefer-module
+  233:38   warning  Do not use "__dirname"                                                               unicorn/prefer-module
+  245:17   error    Prefer top-level await over using a promise chain                                    unicorn/prefer-top-level-await
+  407:104  warning  Refactor this function to reduce its Cognitive Complexity from 63 to the 30 allowed  sonarjs/cognitive-complexity
+  413:25   warning  Define a constant instead of duplicating this literal 6 times                        sonarjs/no-duplicate-string
+  441:17   error    Use `.size > 0` when checking size is not zero                                       unicorn/explicit-length-check
+  481:63   error    Use `.size > 0` when checking size is not zero                                       unicorn/explicit-length-check
+  620:29   warning  Do not use "__dirname"                                                               unicorn/prefer-module
+  622:32   warning  Do not use "__dirname"                                                               unicorn/prefer-module
+  697:37   warning  Do not pass function `mapWorkspaceDbToIpc` directly to `.map(…)`                     unicorn/no-array-callback-reference
+  832:31   warning  Do not pass function `mapInstructionDbToIpc` directly to `.map(…)`                   unicorn/no-array-callback-reference
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/preload.ts
+   11:44  warning  Do not pass function `ensureSerializable` directly to `.map(…)`  unicorn/no-array-callback-reference
+   87:41  warning  Do not pass function `ensureSerializable` directly to `.map(…)`  unicorn/no-array-callback-reference
+   98:39  warning  Do not pass function `ensureSerializable` directly to `.map(…)`  unicorn/no-array-callback-reference
+  109:43  warning  Do not pass function `ensureSerializable` directly to `.map(…)`  unicorn/no-array-callback-reference
+
+/Users/nicobailon/Documents/development/pasteflow/src/main/selection-service.ts
+  80:33  warning  Do not pass function `normalizeRange` directly to `.map(…)`  unicorn/no-array-callback-reference
+
+/Users/nicobailon/Documents/development/pasteflow/src/security/path-validator.ts
+  1:31  warning  Unable to resolve path to module '@file-ops/path'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/services/cache-service.ts
+  1:23  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/services/token-service-main.ts
+   1:32  warning  Unable to resolve path to module '@constants'                import/no-unresolved
+  41:16  warning  Unexpected control character(s) in regular expression: \x00  no-control-regex
+
+/Users/nicobailon/Documents/development/pasteflow/src/services/token-service.ts
+  1:32  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/__tests__/file-ops/ascii-tree.test.ts
+  1:1   warning  Filename 'ascii-tree.test.ts' does not match the naming convention  filenames/match-regex
+  1:39  warning  Unable to resolve path to module '@file-ops/ascii-tree'             import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/__tests__/file-ops/filters.test.ts
+  1:1  warning  Filename 'filters.test.ts' does not match the naming convention  filenames/match-regex
+  7:8  warning  Unable to resolve path to module '@file-ops/filters'             import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/__tests__/file-ops/path.test.ts
+   1:1  warning  Filename 'path.test.ts' does not match the naming convention  filenames/match-regex
+  10:8  warning  Unable to resolve path to module '@file-ops/path'             import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/__tests__/worker-base/discrete-base.test.ts
+  1:1  warning  Filename 'discrete-base.test.ts' does not match the naming convention  filenames/match-regex
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/__tests__/worker-base/streaming-base.test.ts
+  1:1  warning  Filename 'streaming-base.test.ts' does not match the naming convention  filenames/match-regex
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/__tests__/worker-base/worker-common.test.ts
+  1:1  warning  Filename 'worker-common.test.ts' does not match the naming convention  filenames/match-regex
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/content-formatter.ts
+    6:76  warning  Unable to resolve path to module '@file-ops/path'                                    import/no-unresolved
+    7:39  warning  Unable to resolve path to module '@file-ops/ascii-tree'                              import/no-unresolved
+  167:11  warning  Refactor this function to reduce its Cognitive Complexity from 38 to the 30 allowed  sonarjs/cognitive-complexity
+  213:20  error    Prefer using a logical operator over a ternary                                       unicorn/prefer-logical-operator-over-ternary
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/dev-metrics.ts
+  64:11  warning  Use destructured variables over properties  unicorn/consistent-destructuring
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/enhanced-file-cache.ts
+  10:23  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/file-utils.ts
+  1:26  warning  Unable to resolve path to module '@file-ops/path'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/file-viewer-performance.ts
+  1:29  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/ignore-utils.ts
+  5:31  warning  Unable to resolve path to module '@shared/excluded-files'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/memory-monitor.ts
+  1:24  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/selection-cache-helpers.ts
+    2:10  warning  'getGlobalPerformanceMonitor' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  226:27  error    Unexpected negated condition                                                                   unicorn/no-negated-condition
+  268:27  error    Compare with `undefined` directly instead of using `typeof`                                    unicorn/no-typeof-undefined
+  344:10  error    Do not nest ternary expressions                                                                unicorn/no-nested-ternary
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/selection-cache-interface.ts
+  1:1  warning  There should be at least one empty line between import groups                   import/order
+  2:1  warning  There should be at least one empty line between import groups                   import/order
+  2:1  warning  `../types/file-types` import should occur before import of `./selection-cache`  import/order
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/streaming-tree-builder.ts
+   4:1  warning  There should be no empty line within import group                                    import/order
+  48:3  warning  Refactor this function to reduce its Cognitive Complexity from 35 to the 30 allowed  sonarjs/cognitive-complexity
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/token-utils.ts
+  3:1  warning  There should be no empty line within import group  import/order
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/token-worker-pool.ts
+    2:15  warning  'jest' is defined but never used. Allowed unused vars must match /^_/u      @typescript-eslint/no-unused-vars
+    4:29  warning  Unable to resolve path to module '@constants'                               import/no-unresolved
+  108:31  warning  'workerId' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/tree-builder-worker-pool.ts
+  6:20  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/tree-node-transform.ts
+  7:36  warning  Unable to resolve path to module '@constants'      import/no-unresolved
+  8:31  warning  Unable to resolve path to module '@file-ops/path'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/tree-sorting-service.ts
+  1:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/worker-base/discrete-worker-pool-base.ts
+  110:31  warning  'workerId' is defined but never used. Allowed unused args must match /^_/u                                          @typescript-eslint/no-unused-vars
+  564:21  warning  'job' is assigned a value but never used. Allowed unused elements of array destructuring patterns must match /^_/u  @typescript-eslint/no-unused-vars
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/workspace-performance-comparison.ts
+  1:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/utils/workspace-sorting.ts
+  1:30  warning  Unable to resolve path to module '@constants'  import/no-unresolved
+
+/Users/nicobailon/Documents/development/pasteflow/src/workers/preview-generator-helpers.ts
+   57:37  error  Invalid group length in numeric value  unicorn/numeric-separators-style
+  155:12  error  Remove unused catch binding `error`    unicorn/prefer-optional-catch-binding
+
+/Users/nicobailon/Documents/development/pasteflow/src/workers/preview-generator-worker.ts
+    4:1   warning  There should be at least one empty line between import groups                               import/order
+    7:3   warning  'FileEmitResult' is defined but never used. Allowed unused vars must match /^_/u            @typescript-eslint/no-unused-vars
+    9:3   warning  'markFileAsEmitted' is defined but never used. Allowed unused vars must match /^_/u         @typescript-eslint/no-unused-vars
+   15:3   warning  'RETRY_MAX_ATTEMPTS' is defined but never used. Allowed unused vars must match /^_/u        @typescript-eslint/no-unused-vars
+   16:3   warning  'RETRY_DELAY_MS' is defined but never used. Allowed unused vars must match /^_/u            @typescript-eslint/no-unused-vars
+   17:3   warning  'RETRY_BACKOFF_MULTIPLIER' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  347:56  warning  Move arrow function 'cmp' to the outer scope                                                unicorn/consistent-function-scoping
+
+/Users/nicobailon/Documents/development/pasteflow/src/workers/selection-overlay-worker.ts
+  127:29  warning  Prefer `addEventListener` over `onmessage`. Note that there is difference between `SharedWorker#onmessage` and `SharedWorker#addEventListener('message')`  unicorn/prefer-add-event-listener
+
+/Users/nicobailon/Documents/development/pasteflow/src/workers/tree-builder-worker.ts
+  2:1  warning  There should be no empty line within import group  import/order
+
+✖ 302 problems (13 errors, 289 warnings)
+  5 errors and 25 warnings potentially fixable with the `--fix` option.
+

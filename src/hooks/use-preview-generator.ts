@@ -89,7 +89,7 @@ const UI_THROTTLE_MS = 33; // ~15fps to keep UI responsive under heavy streams
 
 function createWorker(): Worker {
   let worker: Worker;
-  if (jest === undefined) {
+  if (typeof jest === 'undefined') {
     try {
       // Use eval to avoid Jest transform issues
        
@@ -437,15 +437,15 @@ export function usePreviewGenerator() {
 
     // Filter out invalid entries defensively
     const sanitized = files
-      .filter(f => !!f && typeof f.path === 'string' && typeof f.content === 'string' && f.content.length >= 0)
+      .filter(f => !!f && typeof f.path === 'string' && typeof f.content === 'string')
       .map(f => ({ path: f.path, content: f.content, tokenCount: f.tokenCount }));
 
-    if (sanitized.length === 0) return;
-
-    try {
-      worker.postMessage({ type: 'UPDATE_FILES', id, files: sanitized });
-    } catch {
-      // ignore posting errors
+    if (sanitized.length > 0) {
+      try {
+        worker.postMessage({ type: 'UPDATE_FILES', id, files: sanitized });
+      } catch {
+        // ignore posting errors
+      }
     }
   }, []);
 

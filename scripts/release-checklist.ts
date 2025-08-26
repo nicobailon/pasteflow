@@ -2,6 +2,7 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const execAsync = promisify(exec);
 
@@ -233,7 +234,7 @@ async function checkMigration(): Promise<AggregateCheck> {
   };
 }
 
-export async function performReleaseChecklist() {
+async function performReleaseChecklist() {
    
   console.log('🚀 PasteFlow Release Checklist\n');
    
@@ -327,7 +328,7 @@ export async function performReleaseChecklist() {
   return results;
 }
 
-export async function generateReleaseNotes() {
+async function generateReleaseNotes() {
   const packageJson = JSON.parse(await fs.readFile('package.json', 'utf8'));
   const version = packageJson.version as string;
 
@@ -387,25 +388,29 @@ Thanks to all contributors and testers who helped make this release possible!
 }
 
 // Main execution
-if (require.main === module) {
+// ESM main execution
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const command = process.argv[2];
 
-  if (command === 'notes') {
-    generateReleaseNotes().catch((error: unknown) => {
-       
-      const message = error instanceof Error ? error.message : String(error);
+  try {
+    // eslint-disable-next-line unicorn/prefer-ternary
+    if (command === 'notes') {
+      await generateReleaseNotes();
+    } else {
+      await performReleaseChecklist();
+    }
+  } catch (error: unknown) {
+     
+    const message = error instanceof Error ? error.message : String(error);
+    if (command === 'notes') {
       console.error('Failed to generate release notes:', message);
-      process.exit(1);
-    });
-  } else {
-    performReleaseChecklist().catch((error: unknown) => {
-       
-      const message = error instanceof Error ? error.message : String(error);
+    } else {
       console.error('Release checklist failed:', message);
-      process.exit(1);
-    });
+    }
+    process.exit(1);
   }
 }
 
-// CommonJS exports for parity with original script usage
-module.exports = { performReleaseChecklist, generateReleaseNotes };
+// ESM exports
+export { performReleaseChecklist, generateReleaseNotes };

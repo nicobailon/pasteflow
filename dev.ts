@@ -111,7 +111,9 @@ function startElectron(): void {
       if (mainWatch) {
         try {
           mainWatch.kill();
-        } catch {}
+        } catch {
+          // Intentionally empty - process may already be dead
+        }
       }
       viteProcess.kill();
       process.exit(code ?? 0);
@@ -130,7 +132,9 @@ process.on('SIGINT', () => {
   if (mainWatch) {
     try {
       mainWatch.kill();
-    } catch {}
+    } catch {
+      // Intentionally empty - process may already be dead
+    }
   }
   viteProcess.kill();
   process.exit(130);
@@ -141,7 +145,9 @@ process.on('SIGTERM', () => {
   if (mainWatch) {
     try {
       mainWatch.kill();
-    } catch {}
+    } catch {
+      // Intentionally empty - process may already be dead
+    }
   }
   viteProcess.kill();
   process.exit(143);

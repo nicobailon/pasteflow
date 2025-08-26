@@ -210,7 +210,7 @@ export const getSelectedFilesContentWithoutInstructions = (
         const errSuffix = fileData.error ? `: ${fileData.error}` : "";
         placeholder = `[File skipped${errSuffix}]`;
       } else if (fileData.isBinary) {
-        const ft = fileData.fileType ? fileData.fileType : "BINARY";
+        const ft = fileData.fileType || "BINARY";
         const ftSuffix = ft && `: ${ft}`;
         placeholder = `[Binary file omitted${ftSuffix || ""}]`;
       } else if (fileData.error) {

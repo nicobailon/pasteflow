@@ -2,6 +2,21 @@
 
 import { normalizePath, getRelativePath, extname } from '../file-ops/path';
 import { generateAsciiFileTree } from '../file-ops/ascii-tree';
+import {
+  EmitContext,
+  FileEmitResult,
+  handleFileEmitFailure,
+  markFileAsEmitted,
+  canEmitFile,
+  processFileForEmission,
+  scheduleFileRetry,
+  processBatchForEmission,
+  processFileUpdate,
+  RETRY_MAX_ATTEMPTS,
+  RETRY_DELAY_MS,
+  RETRY_BACKOFF_MULTIPLIER,
+  PENDING_FILE_TIMEOUT as PENDING_FILE_TIMEOUT_IMPORT
+} from './preview-generator-helpers';
 
 /* Preview Generator Web Worker (progressive, update-aware)
    - Opens immediately by streaming a header chunk
@@ -126,11 +141,8 @@ const CHARS_PER_TOKEN = 4;
 // Default chunk size (files per batch)
 const DEFAULT_CHUNK_SIZE = 8;
 let currentChunkSize = DEFAULT_CHUNK_SIZE;
-// Timeout for pending files (30 seconds)
-const PENDING_FILE_TIMEOUT = 30_000;
-const RETRY_MAX_ATTEMPTS = 3;  // Increased for better resilience
-const RETRY_DELAY_MS = 200;
-const RETRY_BACKOFF_MULTIPLIER = 1.5;  // Exponential backoff for retries
+// Use imported constants from helpers
+const PENDING_FILE_TIMEOUT = PENDING_FILE_TIMEOUT_IMPORT;
 // Memory management limits
 const MAX_TRACKED_PATHS = 10_000;  // Maximum paths to track in any single Set
 const MAX_PENDING_TIMEOUTS = 5000;  // Maximum concurrent pending timeouts
@@ -446,102 +458,71 @@ function emitHeaderAndPrimingChunk(opts: {
 
 function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: string | null, packOnly?: boolean) {
   if (!currentId || isCancelled) return;
+  
+  const context: EmitContext = {
+    currentId,
+    isCancelled,
+    emittedPaths,
+    pendingPaths,
+    failedPaths,
+    skippedPaths,
+    pendingTimeouts,
+    retryCounts,
+    tokenTotal,
+    totalEligibleFiles
+  };
+  
   for (let i = 0; i < paths.length; i += chunkSize) {
     if (isCancelled) return;
     const slice = paths.slice(i, Math.min(i + chunkSize, paths.length));
 
-    // Combine slice into a single CHUNK to reduce postMessage overhead
-    let combinedDisplay = '';
-    let combinedFull = '';
-    let combinedFullTokenDelta = 0;
-    let processedAfter = emittedPaths.size;
-
+    const batchResult = processBatchForEmission(
+      slice,
+      context,
+      currentAllMap,
+      currentSelectedMap,
+      userSelectedFolder,
+      buildFileBlocks,
+      enforceMemoryLimits
+    );
+    
+    // Update global tokenTotal from context
+    tokenTotal = context.tokenTotal;
+    
+    // Handle files that couldn't be processed
     for (const p of slice) {
-      if (isCancelled) return;
-      
-      // Skip if already emitted (handles duplicates in the paths array)
-      if (emittedPaths.has(p)) continue;
-      
-      const fd = currentAllMap.get(p);
-      if (!fd || !fd.isContentLoaded || fd.content === undefined) {
-        // File can't be emitted - mark as failed if it's still pending
-        if (pendingPaths.has(p)) {
-          pendingPaths.delete(p);
-          failedPaths.add(p);
-          // Clear any timeout
-          const timeout = pendingTimeouts.get(p);
-          if (timeout) {
-            clearTimeout(timeout);
-            pendingTimeouts.delete(p);
-          }
-        }
-        continue;
-      }
-
-      try {
-        const selRef = currentSelectedMap.get(p);
-        const { displayBlock, fullBlock, tokenDelta } = buildFileBlocks(fd, selRef, userSelectedFolder);
-
-        tokenTotal += tokenDelta;
-        combinedFullTokenDelta += tokenDelta;
-        combinedDisplay += displayBlock;
-        combinedFull += fullBlock;
-
-        emittedPaths.add(p);
-        pendingPaths.delete(p);
-        failedPaths.delete(p);  // Remove from failed if it was previously marked as failed
-        skippedPaths.delete(p);  // Remove from skipped if it was previously marked as skipped
-        // Clear any timeout for this successfully emitted file
-        const timeout = pendingTimeouts.get(p);
-        if (timeout) {
-          clearTimeout(timeout);
-          pendingTimeouts.delete(p);
-        }
-        // Clear retry count for successfully emitted file
-        retryCounts.delete(p);
+      if (!context.emittedPaths.has(p)) {
+        const fd = currentAllMap.get(p);
+        if (!canEmitFile(p, fd, context)) continue;
         
-        // Enforce memory limits during active processing (every 100 files)
-        if (emittedPaths.size % 100 === 0) {
-          enforceMemoryLimits();
-        }
-        
-        processedAfter = emittedPaths.size;
-      } catch (error) {
-        // Retry transient build failures a few times before marking as failed
-        if (!emittedPaths.has(p)) {
-          // Check if this is a likely transient error
-          const isTransient = isTransientError(error);
-          if (isTransient) {
-            scheduleRetry(p, userSelectedFolder, !!packOnly);
-          } else {
-            // Non-transient error, mark as failed immediately
-            pendingPaths.delete(p);
-            failedPaths.add(p);
-            skippedPaths.delete(p);
-            const timeout = pendingTimeouts.get(p);
-            if (timeout) {
-              clearTimeout(timeout);
-              pendingTimeouts.delete(p);
-            }
-            // Ensure no stale retry count
-            retryCounts.delete(p);
+        // Try to process individually with error handling
+        try {
+          const selRef = currentSelectedMap.get(p);
+          const result = processFileForEmission(p, fd!, selRef, userSelectedFolder, buildFileBlocks);
+          if (!result) {
+            throw new Error('Failed to build file blocks');
           }
-        }
-        if (DEBUG_ENABLED) {
-          console.log('[Worker] Build blocks failed:', p, error);
+        } catch (error) {
+          handleFileEmitFailure(
+            p,
+            error,
+            context,
+            isTransientError,
+            (path) => scheduleRetry(path, userSelectedFolder, !!packOnly)
+          );
         }
       }
     }
 
-    if (combinedDisplay.length > 0 || combinedFull.length > 0) {
+    if (batchResult.combinedDisplay.length > 0 || batchResult.combinedFull.length > 0) {
       workerCtx.postMessage({
         type: 'CHUNK',
         id: currentId!,
-        displayChunk: packOnly ? '' : combinedDisplay,
-        fullChunk: combinedFull,
-        processed: processedAfter,
+        displayChunk: packOnly ? '' : batchResult.combinedDisplay,
+        fullChunk: batchResult.combinedFull,
+        processed: batchResult.processedAfter,
         total: totalEligibleFiles,
-        tokenDelta: combinedFullTokenDelta
+        tokenDelta: batchResult.combinedFullTokenDelta
       });
 
       emitProgress();
@@ -553,38 +534,28 @@ function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: 
   checkAndCompleteIfDone();
 }
 
-// Retry helpers for transient build failures
+// Retry helper wrapper
 function scheduleRetry(path: string, userSelectedFolder: string | null, packOnly: boolean) {
-  if (isCancelled) return;
-  const attempts = retryCounts.get(path) ?? 0;
-  if (attempts >= RETRY_MAX_ATTEMPTS) {
-    // Give up; mark as failed for completion accounting
-    pendingPaths.delete(path);
-    failedPaths.add(path);
-    skippedPaths.delete(path);
-    const timeout = pendingTimeouts.get(path);
-    if (timeout) {
-      clearTimeout(timeout);
-      pendingTimeouts.delete(path);
-    }
-    // Clean up retry count for permanently failed file
-    retryCounts.delete(path);
-    if (DEBUG_ENABLED) {
-      console.log('[Worker] Max retries reached for path:', path);
-    }
-    emitProgress();
-    checkAndCompleteIfDone();
-    return;
-  }
-  retryCounts.set(path, attempts + 1);
-  // Use exponential backoff for retries
-  const delay = Math.round(RETRY_DELAY_MS * Math.pow(RETRY_BACKOFF_MULTIPLIER, attempts));
-  self.setTimeout(() => {
-    if (DEBUG_ENABLED) {
-      console.log('[Worker] Retrying path (attempt', attempts + 1, '):', path);
-    }
-    tryEmitSingle(path, userSelectedFolder, packOnly);
-  }, delay);
+  const context: EmitContext = {
+    currentId,
+    isCancelled,
+    emittedPaths,
+    pendingPaths,
+    failedPaths,
+    skippedPaths,
+    pendingTimeouts,
+    retryCounts,
+    tokenTotal,
+    totalEligibleFiles
+  };
+  
+  scheduleFileRetry(
+    path,
+    context,
+    () => tryEmitSingle(path, userSelectedFolder, packOnly),
+    emitProgress,
+    checkAndCompleteIfDone
+  );
 }
 
 function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly: boolean) {
@@ -776,63 +747,33 @@ async function streamPreview(payload: StartPayload) {
 function handleUpdateFiles(id: string, files: UpdateFile[], chunkSize: number) {
   if (!currentId || currentId !== id || isCancelled) return;
 
+  const context: EmitContext = {
+    currentId,
+    isCancelled,
+    emittedPaths,
+    pendingPaths,
+    failedPaths,
+    skippedPaths,
+    pendingTimeouts,
+    retryCounts,
+    tokenTotal,
+    totalEligibleFiles
+  };
+
   const newlyReady: string[] = [];
+  
   for (const f of files) {
-    try {
-      const existing = currentAllMap.get(f.path) || {
-        name: f.path.split('/').pop() || f.path,
-        path: f.path,
-        isDirectory: false,
-        size: f.content?.length ?? 0,
-        isBinary: false,
-        isSkipped: false
-      } as FileData;
-
-      existing.content = f.content;
-      existing.isContentLoaded = true;
-      if (typeof f.tokenCount === 'number') existing.tokenCount = f.tokenCount;
-      currentAllMap.set(f.path, existing);
-
-      // Allow retrying failed/skipped files and processing pending files
-      if (!emittedPaths.has(f.path) && // Only process if this file was originally eligible
-        eligiblePathsSet.has(f.path) && (pendingPaths.has(f.path) || failedPaths.has(f.path) || skippedPaths.has(f.path))) {
-            newlyReady.push(f.path);
-            // Clear timeout for pending files
-            const timeout = pendingTimeouts.get(f.path);
-            if (timeout) {
-              clearTimeout(timeout);
-              pendingTimeouts.delete(f.path);
-            }
-            // If it was failed or skipped, move back to pending for retry
-            if (failedPaths.has(f.path)) {
-              failedPaths.delete(f.path);
-              pendingPaths.add(f.path);
-              // Set a new timeout for the retry
-              const newTimeout = self.setTimeout(() => handlePendingTimeout(f.path), PENDING_FILE_TIMEOUT);
-              pendingTimeouts.set(f.path, newTimeout);
-            } else if (skippedPaths.has(f.path)) {
-              skippedPaths.delete(f.path);
-              pendingPaths.add(f.path);
-              // Set a new timeout for the retry
-              const newTimeout = self.setTimeout(() => handlePendingTimeout(f.path), PENDING_FILE_TIMEOUT);
-              pendingTimeouts.set(f.path, newTimeout);
-            }
-          }
-    } catch (error) {
-      // Handle errors in processing individual file updates
-      if (DEBUG_ENABLED) {
-        console.log('[Worker] Error processing file update:', f.path, error);
-      }
-      // Mark as failed if it's not a transient error
-      if (!isTransientError(error) && eligiblePathsSet.has(f.path)) {
-        pendingPaths.delete(f.path);
-        failedPaths.add(f.path);
-        const timeout = pendingTimeouts.get(f.path);
-        if (timeout) {
-          clearTimeout(timeout);
-          pendingTimeouts.delete(f.path);
-        }
-      }
+    const isReady = processFileUpdate(
+      f,
+      currentAllMap,
+      eligiblePathsSet,
+      context,
+      handlePendingTimeout,
+      isTransientError
+    );
+    
+    if (isReady) {
+      newlyReady.push(f.path);
     }
   }
 

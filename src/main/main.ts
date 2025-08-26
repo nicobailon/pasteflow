@@ -26,7 +26,9 @@ try {
     v8: process.versions.v8,
     modules: process.versions.modules
   });
-} catch {}
+} catch {
+  // Intentionally empty - diagnostic logging
+}
 
 /** State */
 let mainWindow: BrowserWindow | null = null;
@@ -240,6 +242,7 @@ function createWindow(): void {
 }
 
 /** Lifecycle */
+// eslint-disable-next-line unicorn/prefer-top-level-await
 app.whenReady().then(async () => {
   // Initialize database bridge (fail-fast on error)
   try {
@@ -278,13 +281,17 @@ app.whenReady().then(async () => {
     // Write server port for CLI discovery
     const boundPort = apiServer.getPort();
     const configDir = path.join(os.homedir(), '.pasteflow');
-    try { fs.mkdirSync(configDir, { recursive: true, mode: 0o700 }); } catch {}
+    try { fs.mkdirSync(configDir, { recursive: true, mode: 0o700 }); } catch {
+      // Intentionally empty - directory may already exist
+    }
     const portFile = path.join(configDir, 'server.port');
     // Write with 0644 per plan so CLI tools can read it
     try {
       fs.writeFileSync(portFile, String(boundPort) + '\n', { mode: 0o644 });
       // Ensure correct permissions even if file already existed
-      try { fs.chmodSync(portFile, 0o644); } catch {}
+      try { fs.chmodSync(portFile, 0o644); } catch {
+        // Intentionally empty - best effort chmod
+      }
     } catch (error) {
        
       console.warn('Failed to write server.port:', error);
@@ -366,7 +373,9 @@ app.on('before-quit', async (event) => {
 function broadcastUpdate(channel: string, data?: unknown): void {
   const windows = BrowserWindow.getAllWindows();
   for (const win of windows) {
-    try { win.webContents.send(channel, data as never); } catch {}
+    try { win.webContents.send(channel, data as never); } catch {
+      // Intentionally empty - window may be destroyed
+    }
   }
 }
 
@@ -430,7 +439,7 @@ ipcMain.on(
           name: file.name || '',
           path: file.path || '',
           tokenCount: file.tokenCount || 0,
-          size: file.size || 0,
+          size: file.size ?? 0,
           content: '',
           mtimeMs: file.mtimeMs,
           isBinary: Boolean(file.isBinary),
@@ -470,7 +479,7 @@ ipcMain.on(
           MAX_FILES: 500,
           calculateBatchSize(files: SerializableFile[]) {
             if (files.length === 0) return this.MIN_FILES;
-            const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
+            const totalSize = files.reduce((sum, f) => sum + (f.size ?? 0), 0);
             const avgFileSize = totalSize / files.length || 1024;
             const optimalCount = Math.floor(this.TARGET_BATCH_SIZE / avgFileSize);
             return Math.max(this.MIN_FILES, Math.min(this.MAX_FILES, optimalCount));

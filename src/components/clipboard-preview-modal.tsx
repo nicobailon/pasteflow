@@ -151,6 +151,8 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
   return (
     <div
       className="clipboard-preview-overlay"
+      role="button"
+      tabIndex={0}
       onClick={handleClose}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {

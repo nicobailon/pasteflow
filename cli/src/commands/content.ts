@@ -1,7 +1,13 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import { createClient, discover, handleAxiosError, printJsonOrText } from "../client";
+import {
+  ContentData,
+  CommandFlags,
+  handleOutputFile,
+  handleContentDisplay,
+  handleFileSystemError,
+  buildContentQueryString,
+  writeLocalFile
+} from "./content-helpers";
 
 export function attachContentCommand(root: any): void {
   const cmd = root.command("content").description("Aggregate and export selected content");
@@ -15,79 +21,35 @@ export function attachContentCommand(root: any): void {
     .option("--max-bytes <n>", "Max total bytes to include", (v) => Number.parseInt(v, 10))
     .description("Get aggregated content for the current selection")
     .action(async (opts: { out?: string; overwrite?: boolean; maxFiles?: number; maxBytes?: number }) => {
-      const flags = root.opts() as any;
+      const flags = root.opts() as CommandFlags;
       try {
         const d = await discover(flags);
         const client = createClient(d, flags);
 
-        const qs = new URLSearchParams();
-        if (Number.isFinite(opts.maxFiles) && (opts.maxFiles as number) > 0) qs.set("maxFiles", String(opts.maxFiles));
-        if (Number.isFinite(opts.maxBytes) && (opts.maxBytes as number) > 0) qs.set("maxBytes", String(opts.maxBytes));
-        const qsString = qs.toString();
-        const url = qsString ? `/api/v1/content?${qsString}` : "/api/v1/content";
-        
+        const url = buildContentQueryString(opts);
         const res = await client.get(url);
-        const data = (res.data?.data ?? res.data) as {
-          content: string;
-          fileCount: number;
-          tokenCount: number;
-        };
+        const data = (res.data?.data ?? res.data) as ContentData;
 
         if (opts.out) {
-          const { bytes } = await writeLocalFile(String(opts.out), data.content, Boolean(opts.overwrite));
-          if (flags.json) {
-            printJsonOrText({ outputPath: String(opts.out), bytes, fileCount: data.fileCount, tokenCount: data.tokenCount }, flags);
-            process.exit(0);
-          }
-           
-          console.log(`Wrote ${bytes} bytes to ${String(opts.out)} (files: ${data.fileCount}, tokens: ${data.tokenCount})`);
+          await handleOutputFile(
+            String(opts.out),
+            data.content,
+            Boolean(opts.overwrite),
+            data,
+            flags
+          );
           process.exit(0);
         }
 
-        if (flags.json) {
-          printJsonOrText(data, flags);
-          process.exit(0);
-        }
-
-        if (flags.raw) {
-           
-          console.log(data.content);
-          process.exit(0);
-        }
-
-        const lines: string[] = [];
-        lines.push(`Files: ${data.fileCount}`, `Tokens: ${data.tokenCount}`, "");
-         
-        console.log(lines.join("\n") + data.content);
+        handleContentDisplay(data, flags);
         process.exit(0);
       } catch (error: unknown) {
-        const e = error as any;
-        if (e?.code === "EEXIST") {
-          if (flags.json) {
-            printJsonOrText({ error: { code: "CONFLICT", message: "File exists; use --overwrite" } }, flags);
-          } else {
-             
-            console.error("CONFLICT: File exists; use --overwrite");
-          }
-          process.exit(5);
-        }
-        // Map local filesystem write errors to FILE_SYSTEM_ERROR (exit 1)
-        if (e && typeof e === "object" && "code" in (e as any)) {
-          const code = (e as any).code;
-          if (code === "EACCES" || code === "EISDIR" || code === "ENOTDIR" || code === "EPERM" || code === "EBUSY") {
-            if (flags.json) {
-              printJsonOrText({ error: { code: "FILE_SYSTEM_ERROR", message: (e as Error).message } }, flags);
-            } else {
-               
-              console.error(`FILE_SYSTEM_ERROR: ${(e as Error).message}`);
-            }
-            process.exit(1);
-          }
-        }
+        handleFileSystemError(error, flags);
+        
         const mapped = handleAxiosError(error, flags);
-        if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
-        else if (mapped.message) {
-           
+        if (flags.json && mapped.json) {
+          printJsonOrText(mapped.json, flags);
+        } else if (mapped.message) {
           console.error(mapped.message);
         }
         process.exit(mapped.exitCode);
@@ -101,7 +63,7 @@ export function attachContentCommand(root: any): void {
     .option("--overwrite", "Overwrite if the file exists on server", false)
     .description("Export aggregated content to a file via the server")
     .action(async (opts: { out: string; overwrite?: boolean }) => {
-      const flags = root.opts() as any;
+      const flags = root.opts() as CommandFlags;
       try {
         const d = await discover(flags);
         const client = createClient(d, flags);
@@ -129,26 +91,4 @@ export function attachContentCommand(root: any): void {
         process.exit(mapped.exitCode);
       }
     });
-}
-
-async function writeLocalFile(filePath: string, data: string, overwrite?: boolean): Promise<{ bytes: number }> {
-  const dir = path.dirname(filePath);
-  try {
-    await fs.promises.mkdir(dir, { recursive: true });
-  } catch {
-    // ignore
-  }
-  try {
-    const st = await fs.promises.stat(filePath);
-    if (st.isFile() && overwrite !== true) {
-      const ex: any = new Error("File exists; use --overwrite");
-      ex.code = "EEXIST";
-      throw ex;
-    }
-  } catch (error: any) {
-    if (error?.code !== "ENOENT" && error?.code === "EEXIST") throw error;
-  }
-  const bytes = Buffer.byteLength(data, "utf8");
-  await fs.promises.writeFile(filePath, data, "utf8");
-  return { bytes };
 }
