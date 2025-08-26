@@ -11,6 +11,7 @@
 declare const jest: { fn?: unknown } | undefined;
 
 import { useCallback, useEffect, useRef, useState, startTransition as reactStartTransition } from 'react';
+
 import { TOKEN_COUNTING } from '@constants';
 
 // Type-safe wrapper for startTransition with fallback

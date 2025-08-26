@@ -1,5 +1,7 @@
 import { AxiosInstance } from "axios";
+
 import { createClient, discover, GlobalFlags } from "../client";
+
 import {
   PreviewOptions,
   PreviewState,

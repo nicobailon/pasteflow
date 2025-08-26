@@ -1,4 +1,5 @@
 import { createClient, discover, handleAxiosError, printJsonOrText } from "../client";
+
 import {
   ContentData,
   CommandFlags,
@@ -6,7 +7,7 @@ import {
   handleContentDisplay,
   handleFileSystemError,
   buildContentQueryString,
-  writeLocalFile
+  
 } from "./content-helpers";
 
 export function attachContentCommand(root: any): void {

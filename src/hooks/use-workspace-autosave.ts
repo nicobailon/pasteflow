@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
 
 import { debounce } from '../utils/debounce';
-import { usePersistentState } from './use-persistent-state';
 
+import { usePersistentState } from './use-persistent-state';
 import {
   type AutoSavePreferences,
   type AutoSaveOptions,

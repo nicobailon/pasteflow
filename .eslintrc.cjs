@@ -44,7 +44,8 @@ module.exports = {
     }],
     "@typescript-eslint/array-type": ["error", { "default": "array" }], // Force array types to be properly typed
     "@typescript-eslint/no-inferrable-types": "warn", // Warn about unnecessary type annotations
-    "filenames/match-regex": ["warn", "^[a-z0-9-]+(.d)?$", true],
+    // Allow kebab-case and dotted suffixes like *.test.ts, jest.setup.ts
+    "filenames/match-regex": ["warn", "^[a-z0-9-]+(\\.[a-z0-9-]+)*(.d)?$", true],
     "filenames/match-exported": ["warn", "kebab"],
     "filenames/no-index": "off",
     "react-hooks/rules-of-hooks": "warn", // Downgrade to warning for now
@@ -170,6 +171,14 @@ module.exports = {
       }
     },
     {
+      // Dev and TS scripts are CLI-like; allow process.exit and CommonJS patterns
+      files: ["dev.ts", "build.ts", "scripts/**/*.ts"],
+      rules: {
+        "unicorn/no-process-exit": "off",
+        "unicorn/prefer-module": "off"
+      }
+    },
+    {
       // Scripts folder
       files: ["scripts/*.js"],
       rules: {
@@ -267,13 +276,15 @@ module.exports = {
     },
     "import/resolver": {
       typescript: {
-        // Point the TS resolver at all project tsconfigs so module resolution works in subprojects
+        // Use the shared base tsconfig for path alias resolution across the repo
         project: [
-          "./cli/tsconfig.json",
+          "./tsconfig.base.json",
           "./tsconfig.json",
           "./tsconfig.main.json",
-          "./tsconfig.scripts.json"
-        ]
+          "./tsconfig.scripts.json",
+          "./cli/tsconfig.json"
+        ],
+        alwaysTryTypes: true
       }
     }
   },

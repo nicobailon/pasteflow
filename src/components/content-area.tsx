@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+
 import { FEATURES, UI, TOKEN_COUNTING } from '@constants';
 import { getRelativePath, dirname, normalizePath } from '@file-ops/path';
 

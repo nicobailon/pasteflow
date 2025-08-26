@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+
 import { SORT_OPTIONS } from "@constants";
 
 import AppHeader from "./components/app-header";

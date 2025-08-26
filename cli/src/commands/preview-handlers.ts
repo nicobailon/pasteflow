@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { AxiosInstance, AxiosResponse } from "axios";
+
+import { AxiosInstance } from "axios";
+
 import { parseAtFileAsync, printJsonOrText, handleAxiosError, GlobalFlags } from "../client";
 
 export type PreviewState = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";

@@ -1,5 +1,6 @@
-import { SelectionState } from './selection-cache';
 import { DirectorySelectionCache } from '../types/file-types';
+
+import { SelectionState } from './selection-cache';
 import { getGlobalPerformanceMonitor } from './performance-monitor';
 import {
   type WorkerBatchPayload,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { unstable_batchedUpdates, flushSync } from 'react-dom';
+
 import { normalizePath } from '@file-ops/path';
 import { STORAGE_KEYS, TOKEN_COUNTING } from '@constants';
 

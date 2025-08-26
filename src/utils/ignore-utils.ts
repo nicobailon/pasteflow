@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import ignore from 'ignore';
+
 import { excludedFiles } from '@shared/excluded-files';
 
 interface IgnoreFilter {

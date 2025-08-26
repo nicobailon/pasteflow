@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, Filter, Folder, FolderOpen, RefreshCw, X } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+
 import { STORAGE_KEYS } from '@constants';
 
 import useFileTree from "../hooks/use-file-tree";
