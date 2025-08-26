@@ -252,6 +252,13 @@ module.exports = {
         tsconfigRootDir: __dirname,
         noWarnOnMultipleProjects: true
       }
+    },
+    {
+      // CLI commands intentionally use process.exit for exit codes
+      files: ["cli/src/**/*.ts"],
+      rules: {
+        "unicorn/no-process-exit": "off"
+      }
     }
   ],
   settings: {
