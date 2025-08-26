@@ -115,6 +115,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     // Create workers using proper Vite pattern
     for (let i = 0; i < this.poolSize; i++) {
       try {
+        // eslint-disable-next-line unicorn/no-typeof-undefined
         const worker: Worker = (typeof jest === 'undefined')
           // Delegate worker creation to the concrete subclass
           // This allows Vite to statically analyze the worker import
@@ -320,6 +321,7 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
         }
         
         // Create new worker using proper Vite pattern
+        // eslint-disable-next-line unicorn/no-typeof-undefined
         const newWorker: Worker = (typeof jest === 'undefined')
           // Delegate worker creation to the concrete subclass
           // This allows Vite to statically analyze the worker import

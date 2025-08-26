@@ -89,6 +89,7 @@ const UI_THROTTLE_MS = 33; // ~15fps to keep UI responsive under heavy streams
 
 function createWorker(): Worker {
   let worker: Worker;
+  // eslint-disable-next-line unicorn/no-typeof-undefined
   if (typeof jest === 'undefined') {
     try {
       // Use eval to avoid Jest transform issues

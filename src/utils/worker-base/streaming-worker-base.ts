@@ -107,6 +107,7 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
 
     try {
       // Check if we're in a Jest test environment
+      // eslint-disable-next-line unicorn/no-typeof-undefined
       this.worker = (typeof jest === 'undefined')
         // Delegate worker creation to the concrete subclass
         // This allows Vite to statically analyze the worker import
