@@ -368,6 +368,8 @@ const ContentArea = ({
   const onClearAll = clearAllSelections || (() => {});
 
 
+  const features = (window as any).__PF_FEATURES ?? FEATURES;
+
   const { 
     pack, 
     cancelPack, 
@@ -442,7 +444,7 @@ const ContentArea = ({
 
   // Push newly loaded file contents to the worker so it can stream them
   useEffect(() => {
-    if (!FEATURES?.PREVIEW_WORKER_ENABLED) return;
+    if (!features?.PREVIEW_WORKER_ENABLED) return;
 
     // Feed the worker during packing or when ready (for updates)
     const shouldFeedWorker = packState?.status === 'packing' || packState?.status === 'ready';
@@ -475,7 +477,7 @@ const ContentArea = ({
   // Background progressive file loader for streaming preview
   // Loads not-yet-loaded selected files in small batches without blocking UI.
   useEffect(() => {
-    if (!FEATURES?.PREVIEW_WORKER_ENABLED) return;
+    if (!features?.PREVIEW_WORKER_ENABLED) return;
     
     // Load files during packing
     const shouldLoadFiles = packState?.status === 'packing';
@@ -643,7 +645,8 @@ const ContentArea = ({
         }
       }
 
-      await navigator.clipboard.writeText(textToCopy);
+      const nav: any = navigator as any;
+      await nav.clipboard?.writeText(textToCopy);
     } catch (error) {
       logger.error('Failed to copy to clipboard:', error);
       // Modern browsers should support clipboard API, but show alert if it fails
@@ -767,16 +770,33 @@ const ContentArea = ({
               
               if (!hasPreviewableContent) return null;
               
-              // Idle state - show Pack button
+              // Idle state - show Pack button (or legacy Preview when feature disabled)
               if (packState.status === 'idle') {
+                if (features?.PREVIEW_PACK_ENABLED) {
+                  return (
+                    <button
+                      className="preview-button"
+                      onClick={() => pack()}
+                      disabled={!hasPreviewableContent}
+                    >
+                      <Eye size={16} />
+                      <span>Pack</span>
+                    </button>
+                  );
+                }
+                // Legacy path: show Preview directly without packing
                 return (
                   <button
                     className="preview-button"
-                    onClick={() => pack()}
+                    onClick={() => {
+                      const display = previewContent || _getSelectedFilesContent();
+                      const tokens = memoTokenCount;
+                      openClipboardPreviewModal(display, tokens);
+                    }}
                     disabled={!hasPreviewableContent}
                   >
                     <Eye size={16} />
-                    <span>Pack</span>
+                    <span>Preview</span>
                   </button>
                 );
               }
@@ -909,8 +929,8 @@ const ContentArea = ({
         content={previewContent}
         tokenCount={previewTokenCount}
         onCopy={handleCopyFromPreview}
-        previewState={(FEATURES?.PREVIEW_WORKER_ENABLED && packState.status === 'packing') ? streamingPreview : undefined}
-        onCancel={FEATURES?.PREVIEW_WORKER_ENABLED ? cancelPack : undefined}
+        previewState={(features?.PREVIEW_WORKER_ENABLED && packState.status === 'packing') ? streamingPreview : undefined}
+        onCancel={features?.PREVIEW_WORKER_ENABLED ? cancelPack : undefined}
       />
     </div>
   );

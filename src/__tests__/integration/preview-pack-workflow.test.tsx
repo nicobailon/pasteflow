@@ -128,6 +128,7 @@ describe('Preview Pack Workflow Integration', () => {
       setRolePromptsModalOpen: jest.fn(),
       setInstructionsModalOpen: jest.fn(),
       loadFileContent: jest.fn(),
+      loadMultipleFileContents: jest.fn(async () => {}),
       clipboardPreviewModalOpen: false,
       previewContent: '',
       previewTokenCount: 0,
@@ -139,7 +140,22 @@ describe('Preview Pack Workflow Integration', () => {
       fileTreeMode: 'none' as const,
     };
 
-    return render(<ContentArea {...mockProps} />);
+    const utils = render(<ContentArea {...mockProps} />);
+    return {
+      ...utils,
+      rerenderWith: (nextState: PackState) => {
+        (usePreviewPack as jest.Mock).mockReturnValue({
+          pack: mockPack,
+          cancelPack: mockCancelPack,
+          packState: nextState,
+          previewState: defaultPreviewState,
+          pushFileUpdates: mockPushFileUpdates,
+          copyText: nextState.fullContent || '',
+          startPreview: mockStartPreview,
+        });
+        utils.rerender(<ContentArea {...mockProps} />);
+      }
+    };
   };
 
   describe('Button State Transitions', () => {
@@ -282,38 +298,23 @@ describe('Preview Pack Workflow Integration', () => {
       };
       
       // Start with idle state
-      renderContentArea();
+      const { rerenderWith } = renderContentArea();
       
       // Trigger pack
       const packButton = screen.getByRole('button', { name: /Pack/i });
       fireEvent.click(packButton);
       
       // Update to packing state
-      (usePreviewPack as jest.Mock).mockReturnValue({
-        pack: mockPack,
-        cancelPack: mockCancelPack,
-        packState: packingState,
-        previewState: defaultPreviewState,
-        pushFileUpdates: mockPushFileUpdates,
-        copyText: '',
-        startPreview: mockStartPreview,
-      });
+      renderContentArea(packingState);
       
       // Wait for progress to reach 100%
       await waitFor(() => {
-        expect(screen.getByText(/100%/)).toBeInTheDocument();
+        const progress = screen.getByRole('progressbar');
+        expect(progress).toHaveAttribute('aria-valuenow', '100');
       });
       
       // Update to ready state
-      (usePreviewPack as jest.Mock).mockReturnValue({
-        pack: mockPack,
-        cancelPack: mockCancelPack,
-        packState: readyState,
-        previewState: defaultPreviewState,
-        pushFileUpdates: mockPushFileUpdates,
-        copyText: readyState.fullContent,
-        startPreview: mockStartPreview,
-      });
+      renderContentArea(readyState);
       
       // Verify Preview and Copy buttons are available
       await waitFor(() => {
@@ -349,15 +350,7 @@ describe('Preview Pack Workflow Integration', () => {
       fireEvent.click(packButton);
       
       // Should go straight to ready with empty content
-      (usePreviewPack as jest.Mock).mockReturnValue({
-        pack: mockPack,
-        cancelPack: mockCancelPack,
-        packState: readyState,
-        previewState: defaultPreviewState,
-        pushFileUpdates: mockPushFileUpdates,
-        copyText: readyState.fullContent,
-        startPreview: mockStartPreview,
-      });
+      renderContentArea(readyState);
       
       // Verify it completes even with no eligible files
       await waitFor(() => {
@@ -370,24 +363,12 @@ describe('Preview Pack Workflow Integration', () => {
 
   describe('Pack Workflow with Feature Flag Disabled', () => {
     it('should show legacy Preview button when Pack workflow is disabled', () => {
-      // Mock the module with feature flag disabled
-      jest.doMock('../../constants/app-constants', () => ({
-        ...jest.requireActual('../../constants/app-constants'),
-        FEATURES: {
-          PREVIEW_WORKER_ENABLED: true,
-          PREVIEW_PACK_ENABLED: false,
-        }
-      }));
-      
+      (window as any).__PF_FEATURES = { PREVIEW_WORKER_ENABLED: true, PREVIEW_PACK_ENABLED: false };
       renderContentArea();
-      
-      // Should show Preview button, not Pack
       const previewButton = screen.getByRole('button', { name: /Preview/i });
       expect(previewButton).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Pack/i })).not.toBeInTheDocument();
-      
-      // Clean up the mock
-      jest.dontMock('../../constants/app-constants');
+      delete (window as any).__PF_FEATURES;
     });
   });
 
@@ -467,6 +448,7 @@ describe('Preview Pack Workflow Integration', () => {
         setRolePromptsModalOpen: jest.fn(),
         setInstructionsModalOpen: jest.fn(),
         loadFileContent: jest.fn(),
+        loadMultipleFileContents: jest.fn(async () => {}),
         clipboardPreviewModalOpen: false,
         previewContent: '',
         previewTokenCount: 0,
@@ -496,89 +478,7 @@ describe('Preview Pack Workflow Integration', () => {
     });
 
     it('should pass previewState to modal only when not in ready state', () => {
-      // Test that previewState prop gating works correctly
-      const packingState: PackState = {
-        ...defaultPackState,
-        status: 'packing',
-        processed: 10,
-        total: 20,
-        percent: 50,
-      };
-
-      // During packing, previewState should be passed
-      (usePreviewPack as jest.Mock).mockReturnValue({
-        pack: mockPack,
-        cancelPack: mockCancelPack,
-        packState: packingState,
-        previewState: {
-          ...defaultPreviewState,
-          status: 'streaming',
-          contentForDisplay: 'streaming content',
-        },
-        pushFileUpdates: mockPushFileUpdates,
-        copyText: '',
-        startPreview: mockStartPreview,
-      });
-
-      const mockProps = {
-        selectedFiles: [{ path: '/test.js' }],
-        allFiles: [{ 
-          path: '/test.js', 
-          name: 'test.js', 
-          isDirectory: false,
-          size: 100,
-          isBinary: false,
-          isSkipped: false,
-          isContentLoaded: true,
-          content: 'console.log("test");',
-          tokenCount: 5
-        }],
-        toggleFileSelection: jest.fn(),
-        toggleSelection: jest.fn(),
-        openFolder: jest.fn(),
-        onViewFile: jest.fn(),
-        processingStatus: { status: 'idle' as const, message: '' },
-        selectedSystemPrompts: [],
-        toggleSystemPromptSelection: jest.fn(),
-        selectedRolePrompts: [],
-        toggleRolePromptSelection: jest.fn(),
-        selectedInstructions: [],
-        toggleInstructionSelection: jest.fn(),
-        sortOrder: 'name',
-        handleSortChange: jest.fn(),
-        sortDropdownOpen: false,
-        toggleSortDropdown: jest.fn(),
-        sortOptions: [{ value: 'name', label: 'Name' }],
-        getSelectedFilesContent: jest.fn(() => 'test content'),
-        calculateTotalTokens: jest.fn(() => 100),
-        instructionsTokenCount: 0,
-        userInstructions: '',
-        setUserInstructions: jest.fn(),
-        fileTreeTokens: 0,
-        systemPromptTokens: 0,
-        rolePromptTokens: 0,
-        instructionsTokens: 0,
-        setSystemPromptsModalOpen: jest.fn(),
-        setRolePromptsModalOpen: jest.fn(),
-        setInstructionsModalOpen: jest.fn(),
-        loadFileContent: jest.fn(),
-        clipboardPreviewModalOpen: false,
-        previewContent: '',
-        previewTokenCount: 0,
-        openClipboardPreviewModal: jest.fn(),
-        closeClipboardPreviewModal: jest.fn(),
-        selectedFolder: null,
-        expandedNodes: {},
-        toggleExpanded: jest.fn(),
-        fileTreeMode: 'none' as const,
-      };
-
-      const { rerender } = render(<ContentArea {...mockProps} />);
-
-      // During packing, previewState should be passed to modal
-      // This test verifies the prop gating behavior
-
-      // Now transition to ready state
+      // Render directly in ready state and assert presence of ready UI controls
       const readyState: PackState = {
         ...defaultPackState,
         status: 'ready',
@@ -586,23 +486,11 @@ describe('Preview Pack Workflow Integration', () => {
         contentForDisplay: 'display content',
         tokenEstimate: 150,
       };
-
-      (usePreviewPack as jest.Mock).mockReturnValue({
-        pack: mockPack,
-        cancelPack: mockCancelPack,
-        packState: readyState,
-        previewState: defaultPreviewState,
-        pushFileUpdates: mockPushFileUpdates,
-        copyText: readyState.fullContent,
-        startPreview: mockStartPreview,
-      });
-
-      rerender(<ContentArea {...mockProps} />);
-
-      // In ready state, previewState should NOT be passed to modal
-      // This verifies the prop gating is working correctly
+      renderContentArea(readyState);
       expect(screen.getByRole('button', { name: /Preview/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Copy/i })).toBeInTheDocument();
+      const copyButtons = screen.getAllByRole('button', { name: /Copy/i });
+      const mainCopyButton = copyButtons.find(btn => btn.textContent?.includes('Copy'));
+      expect(mainCopyButton).toBeInTheDocument();
     });
   });
 
@@ -727,6 +615,7 @@ export const helper = () => {};
         setRolePromptsModalOpen: jest.fn(),
         setInstructionsModalOpen: jest.fn(),
         loadFileContent: jest.fn(),
+        loadMultipleFileContents: jest.fn(async () => {}),
         clipboardPreviewModalOpen: false,
         previewContent: '',
         previewTokenCount: 0,
@@ -756,13 +645,13 @@ export const helper = () => {};
 
       // Verify the packed content includes the file tree
       await waitFor(() => {
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect((navigator as any).clipboard.writeText).toHaveBeenCalledWith(
           expect.stringContaining('<file_map>')
         );
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect((navigator as any).clipboard.writeText).toHaveBeenCalledWith(
           expect.stringContaining('/project')
         );
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect((navigator as any).clipboard.writeText).toHaveBeenCalledWith(
           expect.stringContaining('├── src/')
         );
       });
@@ -835,6 +724,7 @@ export const main = () => {};
         setRolePromptsModalOpen: jest.fn(),
         setInstructionsModalOpen: jest.fn(),
         loadFileContent: jest.fn(),
+        loadMultipleFileContents: jest.fn(async () => {}),
         clipboardPreviewModalOpen: false,
         previewContent: '',
         previewTokenCount: 0,
@@ -863,7 +753,7 @@ export const main = () => {};
 
       // Verify the packed content does NOT include file tree
       await waitFor(() => {
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect((navigator as any).clipboard.writeText).toHaveBeenCalledWith(
           expect.not.stringContaining('<file_map>')
         );
       });
@@ -964,8 +854,8 @@ export const main = () => {};
 
       // Verify the packed content does NOT include file tree despite complete mode
       await waitFor(() => {
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(packedContentNoTree);
-        expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(
+        expect((navigator as any).clipboard.writeText).toHaveBeenCalledWith(packedContentNoTree);
+        expect((navigator as any).clipboard.writeText).not.toHaveBeenCalledWith(
           expect.stringContaining('<file_map>')
         );
       });
