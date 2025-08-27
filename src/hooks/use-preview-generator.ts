@@ -27,6 +27,12 @@ import type {
   FileTreeMode,
 } from '../types/file-types';
 import { trackTokenAccuracy, trackPreviewStart, trackPreviewCancel } from '../utils/dev-metrics';
+import {
+  appendToBuffers,
+  buildLightweightFilesForStart,
+  computePercent,
+  sanitizeErrorMessage,
+} from './use-preview-generator-helpers';
 
 export type PreviewStatus = 'idle' | 'loading' | 'streaming' | 'complete' | 'error' | 'cancelled';
 
@@ -210,27 +216,31 @@ export function usePreviewGenerator() {
         break;
       }
       case 'CHUNK': {
-        if (msg.type !== 'CHUNK' || currentIdRef.current !== msg.id) return;
+        if (currentIdRef.current !== msg.id) return;
 
         // Prefer new fields; fall back to legacy 'chunk' for back-compat
         const displayPart = msg.displayChunk ?? msg.chunk ?? '';
         const fullPart = msg.fullChunk ?? msg.chunk ?? '';
 
-        // Append to buffers
-        fullBufferRef.current += fullPart;
-        const combined = displayBufferRef.current + displayPart;
-        displayBufferRef.current = combined.length > DISPLAY_TRUNCATION_LIMIT
-          ? combined.slice(0, DISPLAY_TRUNCATION_LIMIT)
-          : combined;
+        // Append to buffers via helper (enforces truncation)
+        const { display, full } = appendToBuffers(
+          displayBufferRef.current,
+          fullBufferRef.current,
+          displayPart,
+          fullPart,
+          DISPLAY_TRUNCATION_LIMIT
+        );
+        displayBufferRef.current = display;
+        fullBufferRef.current = full;
 
         processedRef.current = msg.processed;
         totalRef.current = msg.total;
-        percentRef.current = Math.min(100, Math.round((processedRef.current / Math.max(1, totalRef.current)) * 100));
+        percentRef.current = computePercent(processedRef.current, totalRef.current);
 
         const fallbackLen = typeof fullPart === 'string' ? fullPart.length : 0;
-        tokenEstimateRef.current += (typeof msg.tokenDelta === 'number'
+        tokenEstimateRef.current += typeof msg.tokenDelta === 'number'
           ? msg.tokenDelta
-          : Math.ceil(fallbackLen / TOKEN_COUNTING.CHARS_PER_TOKEN));
+          : Math.ceil(fallbackLen / TOKEN_COUNTING.CHARS_PER_TOKEN);
 
         // Move to streaming on first data
         setPreviewState((prev) => (prev.status === 'loading' ? { ...prev, status: 'streaming' } : prev));
@@ -239,7 +249,7 @@ export function usePreviewGenerator() {
         break;
       }
       case 'PROGRESS': {
-        if (msg.type !== 'PROGRESS' || currentIdRef.current !== msg.id) return;
+        if (currentIdRef.current !== msg.id) return;
         processedRef.current = msg.processed;
         totalRef.current = msg.total;
         percentRef.current = msg.percent;
@@ -250,17 +260,21 @@ export function usePreviewGenerator() {
         break;
       }
       case 'COMPLETE': {
-        if (msg.type !== 'COMPLETE' || currentIdRef.current !== msg.id) return;
+        if (currentIdRef.current !== msg.id) return;
 
         const finalDisplay = msg.finalDisplayChunk ?? msg.finalChunk ?? '';
         const finalFull = msg.finalFullChunk ?? msg.finalChunk ?? '';
 
         // Append final chunks/footer from worker
-        fullBufferRef.current += finalFull;
-        const combined = displayBufferRef.current + finalDisplay;
-        displayBufferRef.current = combined.length > DISPLAY_TRUNCATION_LIMIT
-          ? combined.slice(0, DISPLAY_TRUNCATION_LIMIT)
-          : combined;
+        const { display, full } = appendToBuffers(
+          displayBufferRef.current,
+          fullBufferRef.current,
+          finalDisplay,
+          finalFull,
+          DISPLAY_TRUNCATION_LIMIT
+        );
+        displayBufferRef.current = display;
+        fullBufferRef.current = full;
 
         const estimatedBeforeFinal = tokenEstimateRef.current;
         if (typeof msg.tokenTotal === 'number') {
@@ -294,7 +308,6 @@ export function usePreviewGenerator() {
         break;
       }
       case 'CANCELLED': {
-        if (msg.type !== 'CANCELLED') return;
         if (currentIdRef.current && msg.id && currentIdRef.current !== msg.id) return;
         
         // Track cancellation (dev-only)
@@ -312,7 +325,7 @@ export function usePreviewGenerator() {
         setPreviewState((prev) => ({
           ...prev,
           status: 'error',
-          error: msg.error || 'Unknown error',
+          error: sanitizeErrorMessage(msg.error || 'Unknown error'),
         }));
         break;
       }
@@ -367,32 +380,12 @@ export function usePreviewGenerator() {
       // ignore
     }
 
-    // IMPORTANT: Avoid structured-cloning large arrays and file contents into the worker.
-    // Only send the selected files as a lightweight projection (omit large `content` strings).
-    const allFilesMap = new Map(params.allFiles.map((f) => [f.path, f]));
-    const selectedFilesData = params.selectedFiles
-      .map((sf) => allFilesMap.get(sf.path))
-      .filter((f): f is FileData => !!f);
-
-    // When full tree mode is requested, send all workspace files (lightweight)
-    // Otherwise, only send selected files to minimize structured cloning overhead
-    const needsFullTree = 
-      params.fileTreeMode === 'complete' || params.fileTreeMode === 'selected-with-roots';
-    
-    const sourceForLightweight = needsFullTree ? params.allFiles : selectedFilesData;
-
-    const lightweightAllFiles = sourceForLightweight.map((f) => ({
-      name: f.name,
-      path: f.path,
-      isDirectory: f.isDirectory,
-      size: f.size,
-      isBinary: f.isBinary,
-      isSkipped: f.isSkipped,
-      error: f.error,
-      fileType: f.fileType,
-      isContentLoaded: f.isContentLoaded,
-      tokenCount: f.tokenCount,
-    }));
+    // Build the lightweight file descriptors for the worker
+    const lightweightAllFiles = buildLightweightFilesForStart(
+      params.allFiles,
+      params.selectedFiles,
+      params.fileTreeMode
+    );
 
     // Fire-and-forget streaming start
     worker.postMessage({

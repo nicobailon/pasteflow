@@ -29,6 +29,10 @@ import { useTokenService } from './use-token-service';
 import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
+import {
+  buildWorkspaceState,
+  reconcileSelectedInstructions,
+} from './use-app-state-helpers';
 
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
@@ -889,32 +893,20 @@ const useAppState = () => {
 
   // Wrap saveWorkspace in useCallback to avoid recreating it on every render
   const saveWorkspace = useCallback(async (name: string) => {
-    // Deduplicate selected files before saving
-    const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
-
-    const workspace: WorkspaceState = {
-      selectedFolder: selectedFolder,
-      expandedNodes: expandedNodes,
-      selectedFiles: uniqueSelectedFiles,
-      sortOrder: sortOrder,
-      searchTerm: searchTerm,
-      fileTreeMode: fileTreeMode,
-      exclusionPatterns: exclusionPatterns,
-      userInstructions: userInstructions,
-      tokenCounts: (() => {
-        const acc: { [filePath: string]: number } = {};
-        const allFilesMap = new Map(allFiles.map(f => [f.path, f]));
-        for (const selectedFile of fileSelection.selectedFiles) {
-          const fileData = allFilesMap.get(selectedFile.path);
-          acc[selectedFile.path] = fileData?.tokenCount || 0;
-        }
-        return acc;
-      })(),
+    const workspace = buildWorkspaceState({
+      selectedFolder,
+      expandedNodes,
+      allFiles,
+      selectedFiles: fileSelection.selectedFiles,
+      sortOrder,
+      searchTerm,
+      fileTreeMode,
+      exclusionPatterns,
+      userInstructions,
       systemPrompts: promptState.selectedSystemPrompts,
       rolePrompts: promptState.selectedRolePrompts,
-      // Save which instructions are selected (the instructions themselves are in database)
-      selectedInstructions: selectedInstructions
-    };
+      selectedInstructions,
+    });
 
     await persistWorkspace(name, workspace);
 
@@ -1143,22 +1135,12 @@ const useAppState = () => {
     // Reconcile selectedInstructions with current database state
     // The workspace stores full instruction objects, but we need to match them
     // with the current instructions from the database by ID
-    if (workspaceData.selectedInstructions && workspaceData.selectedInstructions.length > 0) {
-      const currentInstructions = instructionsState.instructions;
-      const reconciledInstructions = workspaceData.selectedInstructions
-        .map(savedInstruction => {
-          // Try to find the instruction in the current database by ID
-          const currentInstruction = currentInstructions.find(inst => inst.id === savedInstruction.id);
-          // Use the current version if found, otherwise use the saved version
-          // (in case the instruction was deleted from DB but still in workspace)
-          return currentInstruction || savedInstruction;
-        })
-        .filter(inst => inst !== null); // Remove any null entries
-
-      setSelectedInstructions(reconciledInstructions);
-    } else {
-      setSelectedInstructions([]);
-    }
+    setSelectedInstructions(
+      reconcileSelectedInstructions(
+        workspaceData.selectedInstructions,
+        instructionsState.instructions
+      )
+    );
 
     // Reset the flag after applying
     isApplyingWorkspaceDataRef.current = false;
@@ -1504,32 +1486,20 @@ const useAppState = () => {
     if (event.detail?.name && event.detail?.workspace) {
       // Save current workspace before switching (if there is one)
       if (currentWorkspaceRef.current && currentWorkspaceRef.current !== event.detail.name) {
-        // Build the current workspace state to save
-        const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
-        const workspace: WorkspaceState = {
+        const workspace = buildWorkspaceState({
           selectedFolder: selectedFolderRef.current,
           expandedNodes: expandedNodesRef.current,
-          selectedFiles: uniqueSelectedFiles,
+          allFiles: allFilesRef.current,
+          selectedFiles: fileSelection.selectedFiles,
           sortOrder: sortOrderRef.current,
           searchTerm: searchTermRef.current,
           fileTreeMode: fileTreeModeRef.current,
           exclusionPatterns: exclusionPatternsRef.current,
           userInstructions: userInstructionsRef.current,
-          tokenCounts: (() => {
-            const acc: { [filePath: string]: number } = {};
-            const allFilesMap = new Map(allFilesRef.current.map(f => [f.path, f]));
-            for (const selectedFile of fileSelection.selectedFiles) {
-              const fileData = allFilesMap.get(selectedFile.path);
-              acc[selectedFile.path] = fileData?.tokenCount || 0;
-            }
-            return acc;
-          })(),
           systemPrompts: promptStateRef.current.selectedSystemPrompts,
           rolePrompts: promptStateRef.current.selectedRolePrompts,
-          selectedInstructions: selectedInstructionsRef.current
-        };
-
-        // Wait for the save to complete before switching
+          selectedInstructions: selectedInstructionsRef.current,
+        });
         await persistWorkspace(currentWorkspaceRef.current, workspace);
       }
 

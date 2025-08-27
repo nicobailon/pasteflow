@@ -22,8 +22,7 @@ module.exports = {
     'react-syntax-highlighter': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.ts',
     // Handle worker imports
     '^.*/workers/token-counter-worker\\.ts$': '<rootDir>/src/__tests__/__mocks__/token-counter-worker.ts',
-    // Mock TokenWorkerPool to avoid import.meta.url issues
-    '^.*/utils/token-worker-pool$': '<rootDir>/src/__tests__/__mocks__/token-worker-pool.ts',
+    // NOTE: Do not mock token-worker-pool; tests exercise real pool behavior
     // Mock TreeBuilderWorkerPool to avoid import.meta.url issues during tests
     '^.*/utils/tree-builder-worker-pool$': '<rootDir>/src/__tests__/__mocks__/tree-builder-worker-pool.ts',
   },
@@ -38,6 +37,7 @@ module.exports = {
     '<rootDir>/src/__tests__/setup/',
     '<rootDir>/src/__tests__/test-utils/',
     '<rootDir>/src/__tests__/test-helpers/',
+    '<rootDir>/src/__tests__/helpers/',
     '<rootDir>/src/__tests__/__mocks__/'
   ],
   transform: {

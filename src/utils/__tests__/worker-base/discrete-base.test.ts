@@ -78,6 +78,11 @@ class MockWorker {
 class TestWorkerPool extends DiscreteWorkerPoolBase<{ text: string }, number> {
   public mockWorkers: MockWorker[] = [];
   
+  // Provide a minimal implementation; in Jest this calls the mocked Worker
+  protected createWorker(): Worker {
+    return new Worker('/mock/worker/path', { type: 'module' });
+  }
+  
   protected buildJobMessage(request: { text: string }, id: string) {
     return { type: 'COUNT_TOKENS', id, payload: { text: request.text } };
   }
@@ -137,7 +142,6 @@ describe('DiscreteWorkerPoolBase', () => {
     it('should return same promise for identical hash', async () => {
       const pool = new TestWorkerPool(
         2, // poolSize
-        '../workers/test-worker.ts',
         {
           readySignalType: 'WORKER_READY',
           initRequestType: 'INIT',
@@ -187,7 +191,6 @@ describe('DiscreteWorkerPoolBase', () => {
     it('should drop lowest priority when queue full', async () => {
       const pool = new TestWorkerPool(
         1, // Only 1 worker
-        '../workers/test-worker.ts',
         {
           readySignalType: 'WORKER_READY',
           initRequestType: 'INIT',
@@ -223,7 +226,6 @@ describe('DiscreteWorkerPoolBase', () => {
     it('should resolve with fallback on timeout', async () => {
       const pool = new TestWorkerPool(
         1,
-        '../workers/test-worker.ts',
         {
           readySignalType: 'WORKER_READY',
           initRequestType: 'INIT',
@@ -256,7 +258,6 @@ describe('DiscreteWorkerPoolBase', () => {
     it('should prevent duplicate recoveries', async () => {
       const pool = new TestWorkerPool(
         2,
-        '../workers/test-worker.ts',
         {
           readySignalType: 'WORKER_READY',
           initRequestType: 'INIT',

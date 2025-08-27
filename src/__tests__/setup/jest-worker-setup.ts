@@ -102,6 +102,13 @@ export function setupWorkerEnvironment(): void {
       responseDelay: globalWorkerConfig.responseDelay
     });
 
+    // Send WORKER_READY signal immediately as real workers do
+    setTimeout(() => {
+      worker.simulateMessage({
+        type: 'WORKER_READY'
+      });
+    }, 0);
+    
     // Simulate initialization based on config
     if (globalWorkerConfig.autoRespond) {
       setTimeout(() => {

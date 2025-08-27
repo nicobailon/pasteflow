@@ -7,16 +7,21 @@ import '@testing-library/jest-dom';
 */
 // Robust CustomEvent poly that extends Event to ensure dispatchEvent accepts it
 (() => {
- if (typeof window !== 'undefined') {
-   class CustomEventPoly<T = unknown> extends Event {
-     detail: T;
-     constructor(type: string, params?: CustomEventInit<T>) {
-       super(type, params);
-       this.detail = (params?.detail as T);
-     }
-   }
-   (window as unknown as { CustomEvent: unknown }).CustomEvent = CustomEventPoly as unknown as typeof CustomEvent;
- }
+  if (typeof window !== 'undefined') {
+    // Ensure we extend the same Event constructor that window.dispatchEvent expects
+    const BaseEvent: typeof Event = (window as unknown as { Event: typeof Event }).Event || Event;
+    class CustomEventPoly<T = unknown> extends BaseEvent {
+      detail: T;
+      constructor(type: string, params?: CustomEventInit<T>) {
+        super(type, params);
+        this.detail = (params?.detail as T);
+      }
+    }
+    const CustomEventImpl = CustomEventPoly as unknown as typeof CustomEvent;
+    (window as unknown as { CustomEvent: unknown }).CustomEvent = CustomEventImpl;
+    // Ensure global references resolve to the same constructor used by window.dispatchEvent
+    (global as unknown as { CustomEvent: unknown }).CustomEvent = CustomEventImpl;
+  }
 })();
 
 // Mock import.meta for ES module compatibility
@@ -29,8 +34,13 @@ if (typeof global !== 'undefined' && !(global as unknown as { import?: unknown }
 }
 
 // Mock Worker for worker pool tests
-if ((global as unknown as { Worker?: typeof Worker }).Worker === undefined) {
-  class MockMessageEvent<T = unknown> extends Event {
+// DISABLED: Causes Jest to hang with Worker pool tests
+// Worker tests should use their own mocking strategy
+if (false && (global as unknown as { Worker?: typeof Worker }).Worker === undefined) {
+  const BaseEvent: typeof Event = typeof window !== 'undefined'
+    ? ((window as unknown as { Event: typeof Event }).Event || Event)
+    : Event;
+  class MockMessageEvent<T = unknown> extends BaseEvent {
     data: T;
     constructor(type: string, init?: { data?: T }) {
       super(type);
@@ -49,14 +59,22 @@ if ((global as unknown as { Worker?: typeof Worker }).Worker === undefined) {
       this.options = options;
       this.listeners = new Map();
 
-      // Simulate worker initialization
+      // Simulate worker initialization - send WORKER_READY as expected by TokenWorkerPool
       setTimeout(() => {
-        this.dispatchEvent(new MockMessageEvent('message', { data: { type: 'READY' } }));
+        this.dispatchEvent(new MockMessageEvent('message', { data: { type: 'WORKER_READY' } }));
       }, 0);
     }
 
-    postMessage(_data: unknown) {
-      // Mock implementation
+    postMessage(data: unknown) {
+      // Mock implementation - respond to INIT messages
+      const message = data as { type: string; id?: string };
+      if (message.type === 'INIT') {
+        setTimeout(() => {
+          this.dispatchEvent(new MockMessageEvent('message', { 
+            data: { type: 'INIT_COMPLETE', id: message.id, success: true } 
+          }));
+        }, 0);
+      }
     }
 
     addEventListener(type: string, listener: (event: Event | MessageEvent) => void) {
@@ -91,10 +109,25 @@ if ((global as unknown as { Worker?: typeof Worker }).Worker === undefined) {
   (global as unknown as { Worker: typeof Worker }).Worker = MockWorker as unknown as typeof Worker;
 }
 
+// Keep window.Worker and global.Worker in sync so tests that override one affect the other
+if (typeof window !== 'undefined') {
+  try {
+    Object.defineProperty(window as any, 'Worker', {
+      configurable: true,
+      get() { return (global as any).Worker; },
+      set(v) { (global as any).Worker = v; }
+    });
+  } catch {
+    // If defineProperty fails (unlikely), fall back to direct assignment
+    (window as any).Worker = (global as any).Worker;
+  }
+}
+
 // Polyfill TextEncoder/TextDecoder for Jest environment
 if ((global as unknown as { TextEncoder?: typeof TextEncoder }).TextEncoder === undefined) {
-  (global as unknown as { TextEncoder: typeof TextEncoder }).TextEncoder = class {
-    encode(input: string) {
+  class PolyTextEncoder implements TextEncoder {
+    readonly encoding: string = 'utf-8';
+    encode(input: string = ''): Uint8Array {
       const bytes: number[] = [];
       for (let i = 0; i < input.length; i++) {
         const char = input.codePointAt(i) ?? 0;
@@ -119,12 +152,29 @@ if ((global as unknown as { TextEncoder?: typeof TextEncoder }).TextEncoder === 
       }
       return new Uint8Array(bytes);
     }
-  };
+    // Minimal encodeInto to satisfy types
+    encodeInto(source: string, destination: Uint8Array): { read: number; written: number } {
+      const encoded = this.encode(source);
+      const written = Math.min(destination.length, encoded.length);
+      destination.set(encoded.subarray(0, written));
+      return { read: source.length, written };
+    }
+  }
+  (global as unknown as { TextEncoder: typeof TextEncoder }).TextEncoder = PolyTextEncoder as unknown as typeof TextEncoder;
 }
 
 if ((global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder === undefined) {
-  (global as unknown as { TextDecoder: typeof TextDecoder }).TextDecoder = class {
-    decode(bytes: Uint8Array) {
+  class PolyTextDecoder implements TextDecoder {
+    readonly encoding: string;
+    readonly fatal: boolean;
+    readonly ignoreBOM: boolean;
+    constructor(label: string = 'utf-8', options?: TextDecoderOptions) {
+      this.encoding = label.toLowerCase();
+      this.fatal = Boolean(options?.fatal);
+      this.ignoreBOM = Boolean(options?.ignoreBOM);
+    }
+    decode(bytes?: Uint8Array): string {
+      if (!bytes) return '';
       let result = '';
       let i = 0;
       while (i < bytes.length) {
@@ -152,7 +202,8 @@ if ((global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder === 
       }
       return result;
     }
-  };
+  }
+  (global as unknown as { TextDecoder: typeof TextDecoder }).TextDecoder = PolyTextDecoder as unknown as typeof TextDecoder;
 }
 
 // Mock the window.electron object (guard for Node test environment)
@@ -241,13 +292,14 @@ const localStorageMock = {
 jest.mock('./src/main.tsx', () => ({}), { virtual: true });
 
 // Import and configure worker environment
-import { setupWorkerEnvironment, configureWorkerMocks } from './src/__tests__/setup/jest-worker-setup';
+// TEMPORARILY DISABLED: Causing Jest to hang
+// import { setupWorkerEnvironment, configureWorkerMocks } from './src/__tests__/setup/jest-worker-setup';
 
 // Setup with faster defaults for testing
-setupWorkerEnvironment();
-configureWorkerMocks({
-  autoRespond: true,
-  responseDelay: 1, // Reduce from 10ms to 1ms
-  initDelay: 1, // Reduce from 5ms to 1ms
-  failureRate: 0,
-});
+// setupWorkerEnvironment();
+// configureWorkerMocks({
+//   autoRespond: true,
+//   responseDelay: 1, // Reduce from 10ms to 1ms
+//   initDelay: 1, // Reduce from 5ms to 1ms
+//   failureRate: 0,
+// });
