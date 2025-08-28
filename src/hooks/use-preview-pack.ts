@@ -40,6 +40,13 @@ export interface UsePreviewPackParams {
   fileTreeMode: FileTreeMode;
 }
 
+export interface PackOverrides {
+  overrideUserInstructions?: string;
+  overrideFileTreeMode?: FileTreeMode;
+  maxFiles?: number;
+  maxBytes?: number;
+}
+
 /**
  * Computes a stable signature from the input parameters for cache keying and change detection.
  * This signature is used to determine when inputs have changed and a new pack is needed.
@@ -133,6 +140,7 @@ export function usePreviewPack(params: UsePreviewPackParams) {
   
   const cacheRef = useRef<PreparedPreviewCache>(new PreparedPreviewCache());
   const currentSignatureRef = useRef<string>('');
+  const lastPackUsedOverridesRef = useRef<boolean>(false);
   const [packState, setPackState] = useState<PackState>({
     status: 'idle',
     processed: 0,
@@ -211,7 +219,10 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           }
           return completeState;
         });
-        cacheRef.current.set(currentSignatureRef.current, completeState);
+        // Only cache when not using per-call overrides and the signature matches the UI signature
+        if (!lastPackUsedOverridesRef.current && currentSignatureRef.current === signature) {
+          cacheRef.current.set(currentSignatureRef.current, completeState);
+        }
       
       break;
       }
@@ -284,19 +295,24 @@ export function usePreviewPack(params: UsePreviewPackParams) {
   }, [signature, packState.status, packState.fullContent, cancel]);
 
   // Pack function - starts background processing without opening modal
-  const pack = useCallback(() => {
+  const pack = useCallback((overrides?: PackOverrides) => {
     logger.debug('[Pack] Starting pack operation', { signature });
     
-    // Check cache first
-    const cached = cacheRef.current.get(signature);
-    if (cached && cached.status === 'ready') {
-      logger.debug('[Pack] Using cached result', { signature });
-      currentSignatureRef.current = signature;  // Set BEFORE updating state
-      setPackState({
-        ...cached,
-        hasSignatureChanged: false,  // Clear the flag since we're now up-to-date
-      });
-      return;
+    // Track whether this invocation used overrides (affects caching behavior)
+    lastPackUsedOverridesRef.current = !!overrides;
+
+    // Check cache first unless overrides are used
+    if (!lastPackUsedOverridesRef.current) {
+      const cached = cacheRef.current.get(signature);
+      if (cached && cached.status === 'ready') {
+        logger.debug('[Pack] Using cached result', { signature });
+        currentSignatureRef.current = signature;  // Set BEFORE updating state
+        setPackState({
+          ...cached,
+          hasSignatureChanged: false,  // Clear the flag since we're now up-to-date
+        });
+        return;
+      }
     }
     
     // Update state to packing
@@ -311,22 +327,53 @@ export function usePreviewPack(params: UsePreviewPackParams) {
       hasSignatureChanged: false,  // Clear the flag when starting new pack
     });
 
+    // Build effective parameters with safe, per-call overrides
+    const effectiveUserInstructions = overrides?.overrideUserInstructions ?? params.userInstructions;
+    const effectiveFileTreeMode = overrides?.overrideFileTreeMode ?? params.fileTreeMode;
+
+    // Apply caps to selection if requested
+    let effectiveSelectedFiles = params.selectedFiles;
+    if (overrides?.maxFiles || overrides?.maxBytes) {
+      const map = new Map(params.allFiles.map(f => [f.path, f] as const));
+      const maxFiles = overrides.maxFiles ?? Number.POSITIVE_INFINITY;
+      const maxBytes = overrides.maxBytes ?? Number.POSITIVE_INFINITY;
+      let totalBytes = 0;
+      const trimmed: typeof effectiveSelectedFiles = [];
+      for (const sel of params.selectedFiles) {
+        if (trimmed.length >= maxFiles) break;
+        const fd = map.get(sel.path);
+        if (!fd || fd.isDirectory) continue;
+        const size = fd.size ?? 0;
+        if (totalBytes + size > maxBytes) break;
+        trimmed.push(sel);
+        totalBytes += size;
+      }
+      effectiveSelectedFiles = trimmed;
+    }
+
     logger.info('[Pack] Starting preview generation', { 
-      fileCount: params.selectedFiles.length,
-      signature 
+      fileCount: effectiveSelectedFiles.length,
+      signature,
+      overrides: overrides ? {
+        hasOverrides: true,
+        fileTreeMode: overrides.overrideFileTreeMode,
+        maxFiles: overrides.maxFiles,
+        maxBytes: overrides.maxBytes,
+        userInstructionsOverridden: typeof overrides.overrideUserInstructions === 'string',
+      } : undefined
     });
 
     // Start the preview generation in the worker
     const startParams: StartPreviewParams = {
       allFiles: params.allFiles,
-      selectedFiles: params.selectedFiles,
+      selectedFiles: effectiveSelectedFiles,
       sortOrder: params.sortOrder,
-      fileTreeMode: params.fileTreeMode,
+      fileTreeMode: effectiveFileTreeMode,
       selectedFolder: params.selectedFolder,
       selectedSystemPrompts: params.selectedSystemPrompts,
       selectedRolePrompts: params.selectedRolePrompts,
       selectedInstructions: params.selectedInstructions,
-      userInstructions: params.userInstructions,
+      userInstructions: effectiveUserInstructions,
       packOnly: true,  // Always use pack-only mode to minimize UI updates
     };
 

@@ -444,6 +444,71 @@ const ContentArea = ({
   const lastPushedRef = useRef<Set<string>>(new Set());
   const reportedErrorsRef = useRef<Set<string>>(new Set());
 
+  // --- Minimal CLI bridge integration (Plan A) ---
+  // Listen for CLI pack start/cancel events and invoke existing pipeline
+  useEffect(() => {
+    const onCliPackRequest = (e: Event) => {
+      try {
+        const detail = (e as CustomEvent).detail as { id?: string; options?: { includeTrees?: boolean; maxFiles?: number; maxBytes?: number; prompt?: string } } | undefined;
+        const opts = detail?.options || {};
+        const overrides: { overrideUserInstructions?: string; overrideFileTreeMode?: FileTreeMode; maxFiles?: number; maxBytes?: number } = {};
+        if (typeof opts.prompt === 'string') overrides.overrideUserInstructions = opts.prompt;
+        if (typeof opts.includeTrees === 'boolean' && opts.includeTrees === true) {
+          overrides.overrideFileTreeMode = 'selected-with-roots';
+        }
+        if (typeof opts.maxFiles === 'number') overrides.maxFiles = Math.max(0, Math.floor(opts.maxFiles));
+        if (typeof opts.maxBytes === 'number') overrides.maxBytes = Math.max(0, Math.floor(opts.maxBytes));
+        pack(overrides);
+      } catch { /* ignore */ }
+    };
+    const onCliPackCancel = (_e: Event) => {
+      try { cancelPack(); } catch { /* ignore */ }
+    };
+    window.addEventListener('pf-cli-pack-request', onCliPackRequest as EventListener);
+    window.addEventListener('pf-cli-pack-cancel', onCliPackCancel as EventListener);
+    return () => {
+      window.removeEventListener('pf-cli-pack-request', onCliPackRequest as EventListener);
+      window.removeEventListener('pf-cli-pack-cancel', onCliPackCancel as EventListener);
+    };
+  }, [pack, cancelPack]);
+
+  // Emit pf-pack-state events for bridge to translate into ipc status/content
+  useEffect(() => {
+    const st = packState;
+    if (!st) return;
+    const detail = {
+      status: st.status,
+      processed: st.processed,
+      total: st.total,
+      percent: st.percent,
+      tokenEstimate: st.tokenEstimate,
+      fullContent: st.fullContent,
+      contentForDisplay: st.contentForDisplay,
+    };
+    window.dispatchEvent(new CustomEvent('pf-pack-state', { detail }));
+  }, [packState]);
+
+  // Emit minimal lifecycle events for bridge to forward to main
+  const lastEmittedStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const status = packState?.status;
+    if (!status) return;
+
+    // Avoid repeated emissions for the same terminal state
+    if (status === lastEmittedStatusRef.current && (status === 'ready' || status === 'error' || status === 'cancelled')) {
+      return;
+    }
+
+    if (status === 'ready') {
+      window.dispatchEvent(new CustomEvent('pf-pack-ready', { detail: { fullContent: packState.fullContent || '', total: packState.total } }));
+    } else if (status === 'error') {
+      window.dispatchEvent(new CustomEvent('pf-pack-error', { detail: { message: packState.error || 'Unknown error' } }));
+    } else if (status === 'cancelled') {
+      window.dispatchEvent(new Event('pf-pack-cancelled'));
+    }
+    lastEmittedStatusRef.current = status;
+  }, [packState?.status, packState?.fullContent, packState?.total, packState?.error]);
+
   // Memoize header file stats to avoid recomputing during streaming UI updates
   const headerFileStats = useMemo(() => {
     // Count all content items
