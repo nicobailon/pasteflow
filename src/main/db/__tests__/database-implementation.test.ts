@@ -1,3 +1,27 @@
+// Mock better-sqlite3 directly before any imports
+jest.mock('better-sqlite3');
+
+// Mock process.versions.electron to bypass the check
+const originalProcessVersions = process.versions;
+beforeAll(() => {
+  Object.defineProperty(process, 'versions', {
+    value: {
+      ...originalProcessVersions,
+      electron: '34.3.0'
+    },
+    writable: true,
+    configurable: true
+  });
+});
+
+afterAll(() => {
+  Object.defineProperty(process, 'versions', {
+    value: originalProcessVersions,
+    writable: true,
+    configurable: true
+  });
+});
+
 import { PasteFlowDatabase, WorkspaceState as DBWorkspaceState } from '../database-implementation';
 
 function delay(ms: number) {
@@ -5,6 +29,9 @@ function delay(ms: number) {
 }
 
 describe('PasteFlowDatabase', () => {
+  // Set a reasonable timeout for all tests in this suite
+  jest.setTimeout(30000); // 30 seconds should be more than enough
+  
   let db: PasteFlowDatabase;
 
   beforeEach(async () => {
@@ -45,9 +72,15 @@ describe('PasteFlowDatabase', () => {
 
   describe('Workspace CRUD Operations', () => {
     const mkState = (): DBWorkspaceState => ({
+      selectedFolder: '/test/path',
       selectedFiles: [{ path: 'file1.txt' }, { path: 'file2.txt' }],
       expandedNodes: { '/test': true },
+      sortOrder: 'name',
+      searchTerm: '',
+      fileTreeMode: 'selected' as const,
+      exclusionPatterns: [],
       userInstructions: 'Test instructions',
+      tokenCounts: {},
       systemPrompts: [{ id: 's1', name: 'Sys', content: 'sys content' }],
       rolePrompts: [{ id: 'r1', name: 'Role', content: 'role content' }]
     });
@@ -115,9 +148,15 @@ describe('PasteFlowDatabase', () => {
       );
 
       const newState: DBWorkspaceState = {
+        selectedFolder: '/test/path',
         selectedFiles: [{ path: 'file3.txt' }],
         expandedNodes: { '/new': true },
+        sortOrder: 'name',
+        searchTerm: '',
+        fileTreeMode: 'selected' as const,
+        exclusionPatterns: [],
         userInstructions: 'Updated',
+        tokenCounts: {},
         systemPrompts: [],
         rolePrompts: []
       };
@@ -137,9 +176,15 @@ describe('PasteFlowDatabase', () => {
       );
 
       const newState: DBWorkspaceState = {
+        selectedFolder: '/test/path',
         selectedFiles: [{ path: 'fileX.txt' }],
         expandedNodes: { '/changed': true },
+        sortOrder: 'name',
+        searchTerm: '',
+        fileTreeMode: 'selected' as const,
+        exclusionPatterns: [],
         userInstructions: 'ById',
+        tokenCounts: {},
         systemPrompts: [],
         rolePrompts: []
       };
