@@ -5,8 +5,9 @@ import * as fs from 'node:fs/promises';
 import { app } from 'electron';
 
 import { PooledDatabase, PooledDatabaseConfig } from './pooled-database';
-import { QueryResult } from './connection-pool';
-import type { FileData, SelectedFileReference, SystemPrompt, RolePrompt, Instruction, WorkspaceState, FileTreeMode } from '../../shared-types';
+import type { FileData, SelectedFileReference, SystemPrompt, RolePrompt, Instruction, WorkspaceState } from '../../shared-types';
+import type { WorkspaceRecord, PreferenceRecord } from './types';
+import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
 
 
 // Error messages
@@ -21,21 +22,7 @@ export interface DatabaseBridgeConfig extends PooledDatabaseConfig {
   maintenanceInterval?: number;
 }
 
-// Precise types for workspace operations
-export interface WorkspaceRecord extends QueryResult {
-  id: string;
-  name: string;
-  folder_path: string;
-  state: string;
-  created_at: number;
-  updated_at: number;
-  last_accessed: number;
-}
-
-export interface PreferenceRecord extends QueryResult {
-  key: string;
-  value: string;
-}
+// DTO types imported from ./types
 
 // Extended workspace state with database metadata
 export interface WorkspaceStateWithMetadata extends WorkspaceState {
@@ -268,8 +255,8 @@ export class PooledDatabaseBridge extends EventEmitter {
     `);
     
     return rows.map(row => ({
-      ...this.parseWorkspaceState(row.state),
-      id: row.id,
+      ...toDomainWorkspaceState(row),
+      id: String(row.id),
       name: row.name,
       folderPath: row.folder_path,
       createdAt: row.created_at,
@@ -284,7 +271,7 @@ export class PooledDatabaseBridge extends EventEmitter {
     const result = await this.db.run(`
       INSERT INTO workspaces (name, folder_path, state) 
       VALUES (?, ?, ?)
-    `, [name, folderPath, JSON.stringify(state)]);
+    `, [name, folderPath, fromDomainWorkspaceState(state as WorkspaceState)]);
     
     return this.getWorkspace(String(result.lastInsertRowid));
   }
@@ -303,8 +290,8 @@ export class PooledDatabaseBridge extends EventEmitter {
     }
     
     return {
-      ...this.parseWorkspaceState(row.state),
-      id: row.id,
+      ...toDomainWorkspaceState(row),
+      id: String(row.id),
       name: row.name,
       folderPath: row.folder_path,
       createdAt: row.created_at,
@@ -320,7 +307,7 @@ export class PooledDatabaseBridge extends EventEmitter {
       UPDATE workspaces 
       SET state = ?, updated_at = strftime('%s', 'now') * 1000 
       WHERE name = ?
-    `, [JSON.stringify(state), name]);
+    `, [fromDomainWorkspaceState(state as WorkspaceState), name]);
   }
 
   async deleteWorkspace(name: string): Promise<void> {
@@ -457,30 +444,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   // Utility methods
-  private parseWorkspaceState(stateJson: string): WorkspaceState {
-    try {
-      return stateJson ? JSON.parse(stateJson) : this.getDefaultWorkspaceState();
-    } catch (error) {
-      console.warn('Failed to parse workspace state:', error);
-      return this.getDefaultWorkspaceState();
-    }
-  }
-
-  private getDefaultWorkspaceState(): WorkspaceState {
-    return {
-      selectedFolder: null,
-      selectedFiles: [],
-      expandedNodes: {},
-      sortOrder: 'name',
-      searchTerm: '',
-      fileTreeMode: 'none' as FileTreeMode,
-      exclusionPatterns: [],
-      userInstructions: '',
-      tokenCounts: {},
-      systemPrompts: [],
-      rolePrompts: []
-    };
-  }
+  // Workspace state parse/serialize handled by db/mappers
 
   // Performance and monitoring
   getStats() {

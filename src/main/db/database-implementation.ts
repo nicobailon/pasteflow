@@ -3,6 +3,8 @@ import type BetterSqlite3 from 'better-sqlite3';
 
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
 import type { WorkspaceState, Instruction } from '../../shared-types';
+import type { WorkspaceRecord, PreferenceRecord, InstructionRow } from './types';
+import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
 
 // Re-export for existing consumers
 export type { WorkspaceState, Instruction };
@@ -33,16 +35,6 @@ export type PreferenceValue = string | number | boolean | null | {
   [key: string]: PreferenceValue;
 } | PreferenceValue[];
 
-interface WorkspaceRow {
-  id: number;
-  name: string;
-  folder_path: string;
-  state: string | null;
-  created_at: number;
-  updated_at: number;
-  last_accessed: number;
-}
-
 // Parsed workspace with deserialized state
 export interface ParsedWorkspace {
   id: number;
@@ -54,18 +46,6 @@ export interface ParsedWorkspace {
   last_accessed: number;
 }
 
-interface PreferenceRow {
-  key: string;
-  value: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-// InstructionRow extends Instruction with DB metadata
-interface InstructionRow extends Instruction {
-  created_at: number;
-  updated_at: number;
-}
 
 interface PreparedStatements {
   listWorkspaces: BetterSqlite3.Statement<[]>;
@@ -351,10 +331,10 @@ export class PasteFlowDatabase {
   async listWorkspaces(): Promise<ParsedWorkspace[]> {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
-      const rows = this.statements.listWorkspaces.all() as WorkspaceRow[];
+      const rows = this.statements.listWorkspaces.all() as WorkspaceRecord[];
       return rows.map(row => ({
         ...row,
-        state: row.state ? JSON.parse(row.state) : {},
+        state: toDomainWorkspaceState(row),
       }));
     }, {
       operation: 'list_workspaces'
@@ -372,7 +352,7 @@ export class PasteFlowDatabase {
         expandedNodes: {},
         sortOrder: 'name',
         searchTerm: '',
-        fileTreeMode: 'none',
+        fileTreeMode: 'selected-with-roots',
         exclusionPatterns: [],
         userInstructions: '',
         tokenCounts: {},
@@ -380,9 +360,9 @@ export class PasteFlowDatabase {
         rolePrompts: [],
         ...state
       };
-      const stateJson = JSON.stringify(fullState);
+      const stateJson = fromDomainWorkspaceState(fullState);
       this.statements.createWorkspace.run(name, folderPath, stateJson);
-      const workspace = this.statements.getWorkspace.get(name, name) as WorkspaceRow;
+      const workspace = this.statements.getWorkspace.get(name, name) as WorkspaceRecord;
       return {
         ...workspace,
         state: fullState
@@ -394,9 +374,9 @@ export class PasteFlowDatabase {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
       const id = String(nameOrId);
-      const row = this.statements.getWorkspace.get(id, id) as WorkspaceRow | undefined;
+      const row = this.statements.getWorkspace.get(id, id) as WorkspaceRecord | undefined;
       if (!row) return null;
-      const parsedState = row.state ? JSON.parse(row.state) : {};
+      const parsedState = toDomainWorkspaceState(row);
       return {
         ...row,
         state: parsedState
@@ -410,7 +390,7 @@ export class PasteFlowDatabase {
   async updateWorkspace(name: string, state: Partial<WorkspaceState>): Promise<void> {
     this.ensureInitialized();
     await executeWithRetry(async () => {
-      const stateJson = JSON.stringify(state);
+      const stateJson = fromDomainWorkspaceState(state as WorkspaceState);
       this.statements.updateWorkspace.run(stateJson, name);
     }, {
       operation: 'update_workspace'
@@ -420,7 +400,7 @@ export class PasteFlowDatabase {
   async updateWorkspaceById(id: number, state: Partial<WorkspaceState>): Promise<void> {
     this.ensureInitialized();
     await executeWithRetry(async () => {
-      const stateJson = JSON.stringify(state);
+      const stateJson = fromDomainWorkspaceState(state as WorkspaceState);
       const result = this.statements.updateWorkspaceById.run(stateJson, String(id));
       if ((result as any).changes === 0) {
         throw new Error(`Workspace with id '${id}' not found`);
@@ -506,7 +486,7 @@ export class PasteFlowDatabase {
           UPDATE workspaces 
           SET state = ?, folder_path = ?, updated_at = strftime('%s', 'now') * 1000 
           WHERE name = ?
-        `).run(JSON.stringify(newState), updates.folderPath, name);
+        `).run(fromDomainWorkspaceState(newState), updates.folderPath, name);
       } else {
         await this.updateWorkspace(name, newState);
       }
@@ -539,7 +519,7 @@ export class PasteFlowDatabase {
   async getPreference(key: string): Promise<PreferenceValue> {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
-      const row = this.statements.getPreference.get(key) as PreferenceRow | undefined;
+      const row = this.statements.getPreference.get(key) as PreferenceRecord | undefined;
       if (!row || !row.value) return null;
       
       try {
