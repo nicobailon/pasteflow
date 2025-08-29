@@ -3,6 +3,7 @@
 import { normalizePath, getRelativePath, extname } from '../file-ops/path';
 import { generateAsciiFileTree } from '../file-ops/ascii-tree';
 import type { LineRange, SelectedFileReference, FileData, Instruction, SystemPrompt, RolePrompt, FileTreeMode } from '../shared-types';
+import type { PreviewWorkerMessage, PreviewStartPayload } from "../shared-types/messages";
 
 import {
   EmitContext,
@@ -51,20 +52,7 @@ import {
 */
 
 
-interface StartPayload {
-  id: string;
-  allFiles: FileData[];
-  selectedFiles: SelectedFileReference[];
-  sortOrder: string;
-  fileTreeMode: FileTreeMode;
-  selectedFolder: string | null;
-  selectedSystemPrompts?: SystemPrompt[];
-  selectedRolePrompts?: RolePrompt[];
-  selectedInstructions?: Instruction[];
-  userInstructions?: string;
-  chunkSize?: number; // files per batch
-  packOnly?: boolean;
-}
+type StartPayload = PreviewStartPayload;
 
 type UpdateFile = { path: string; content: string; tokenCount?: number };
 
@@ -355,7 +343,7 @@ function emitProgress() {
     total,
     percent,
     tokenTotal
-  });
+  } satisfies PreviewWorkerMessage);
 }
 
 function emitFooterAndComplete(userInstructions?: string) {
@@ -372,7 +360,7 @@ function emitFooterAndComplete(userInstructions?: string) {
     finalDisplayChunk: footerDisplay,
     finalFullChunk: footerFull,
     tokenTotal
-  });
+  } satisfies PreviewWorkerMessage);
   footerEmitted = true;
 }
 
@@ -425,7 +413,7 @@ function emitHeaderAndPrimingChunk(opts: {
     processed: emittedPaths.size,
     total: totalEligibleFiles,
     tokenDelta: estimateTokens(fullHeader)
-  });
+  } satisfies PreviewWorkerMessage);
   headerEmitted = true;
 }
 
@@ -496,7 +484,7 @@ function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: 
         processed: batchResult.processedAfter,
         total: totalEligibleFiles,
         tokenDelta: batchResult.combinedFullTokenDelta
-      });
+      } satisfies PreviewWorkerMessage);
 
       emitProgress();
     }
@@ -566,7 +554,7 @@ function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly
       processed: emittedPaths.size,
       total: totalEligibleFiles,
       tokenDelta
-    });
+    } satisfies PreviewWorkerMessage);
 
     emitProgress();
     checkAndCompleteIfDone();
@@ -1028,14 +1016,14 @@ function stopMemoryCleanup() {
 }
 
 // READY
-workerCtx.postMessage({ type: 'READY' as const });
+workerCtx.postMessage({ type: 'READY' as const } satisfies PreviewWorkerMessage);
 
 // Message loop
 workerCtx.addEventListener('message', async (e: MessageEvent<Incoming>) => {
   const msg = e.data;
   try {
     if (msg.type === 'INIT') {
-      workerCtx.postMessage({ type: 'READY' as const });
+      workerCtx.postMessage({ type: 'READY' as const } satisfies PreviewWorkerMessage);
       return;
     }
     if (msg.type === 'CANCEL') {
@@ -1048,14 +1036,14 @@ workerCtx.addEventListener('message', async (e: MessageEvent<Incoming>) => {
         pendingTimeouts.clear();
         // Stop memory cleanup on cancel
         stopMemoryCleanup();
-        workerCtx.postMessage({ type: 'CANCELLED' as const, id: currentId! });
+        workerCtx.postMessage({ type: 'CANCELLED' as const, id: currentId! } satisfies PreviewWorkerMessage);
       }
       return;
     }
     if (msg.type === 'START') {
       const p = msg.payload;
       if (!p || !p.id || !Array.isArray(p.allFiles) || !Array.isArray(p.selectedFiles)) {
-        workerCtx.postMessage({ type: 'ERROR' as const, id: p?.id || 'unknown', error: 'Invalid START payload' });
+        workerCtx.postMessage({ type: 'ERROR' as const, id: p?.id || 'unknown', error: 'Invalid START payload' } satisfies PreviewWorkerMessage);
         return;
       }
       // Start memory cleanup when processing begins
@@ -1077,6 +1065,6 @@ workerCtx.addEventListener('message', async (e: MessageEvent<Incoming>) => {
       type: 'ERROR' as const,
       id: (msg as Incoming & { payload?: { id?: string } })?.payload?.id || currentId || 'unknown',
       error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    } satisfies PreviewWorkerMessage);
   }
 });

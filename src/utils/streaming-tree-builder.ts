@@ -3,18 +3,11 @@ declare const jest: { fn?: unknown } | undefined;
 
 import { UI } from '../constants';
 import type { FileData, TreeNode } from '../types/file-types';
+import type { TreeWorkerMessage } from "../shared-types/messages";
 
 export interface TreeChunk {
   nodes: TreeNode[];
   progress: number;
-}
-
-interface WorkerMessage {
-  type: 'TREE_CHUNK' | 'TREE_COMPLETE' | 'TREE_ERROR' | 'CANCELLED';
-  id: string;
-  payload?: TreeChunk;
-  error?: string;
-  code?: string;
 }
 
 interface WorkerRequest {
@@ -30,7 +23,7 @@ export class StreamingTreeBuilder {
   private worker: Worker | null = null;
   private abortController = new AbortController();
   private id: string;
-  private messageHandler: ((e: MessageEvent<WorkerMessage>) => void) | null = null;
+  private messageHandler: ((e: MessageEvent<TreeWorkerMessage>) => void) | null = null;
   private errorHandler: ((error: ErrorEvent) => void) | null = null;
   private cancelResolver: (() => void) | null = null;
   private cancelled = false;
@@ -74,13 +67,13 @@ export class StreamingTreeBuilder {
       }
 
       // Set up message handlers
-      this.messageHandler = (e: MessageEvent<WorkerMessage>) => {
+      this.messageHandler = (e: MessageEvent<TreeWorkerMessage>) => {
         if (e.data.id !== this.id) return; // Ignore messages from other instances
 
         switch (e.data.type) {
           case 'TREE_CHUNK': {
             if (e.data.payload && !this.abortController.signal.aborted) {
-              onChunk(e.data.payload);
+              onChunk(e.data.payload as unknown as TreeChunk);
             }
             break;
           }

@@ -26,6 +26,7 @@ import type {
   RolePrompt,
   FileTreeMode,
 } from '../types/file-types';
+import type { PreviewWorkerMessage } from "../shared-types/messages";
 import { trackTokenAccuracy, trackPreviewStart, trackPreviewCancel } from '../utils/dev-metrics';
 import {
   appendToBuffers,
@@ -62,34 +63,6 @@ export interface StartPreviewParams {
   packOnly?: boolean;
 }
 
-type WorkerMessage =
-  | { type: 'READY' }
-  | { type: 'INIT_COMPLETE' } // For Jest MockWorker compatibility
-  | {
-      type: 'CHUNK';
-      id: string;
-      // New fields: display placeholder chunk + full content chunk
-      displayChunk?: string;
-      fullChunk?: string;
-      // Back-compat (older workers): a single 'chunk' contained full content
-      chunk?: string;
-      processed: number;
-      total: number;
-      tokenDelta?: number;
-    }
-  | { type: 'PROGRESS'; id: string; processed: number; total: number; percent: number; tokenTotal?: number }
-  | {
-      type: 'COMPLETE';
-      id: string;
-      // New fields: final display + full footer chunks
-      finalDisplayChunk?: string;
-      finalFullChunk?: string;
-      // Back-compat
-      finalChunk?: string;
-      tokenTotal?: number;
-    }
-  | { type: 'CANCELLED'; id: string }
-  | { type: 'ERROR'; id?: string; error: string };
 
 const DISPLAY_TRUNCATION_LIMIT = 200_000;
 const UI_THROTTLE_MS = 33; // ~15fps to keep UI responsive under heavy streams
@@ -116,7 +89,7 @@ function createWorker(): Worker {
 
 export function usePreviewGenerator() {
   const workerRef = useRef<Worker | null>(null);
-  const messageHandlerRef = useRef<((e: MessageEvent) => void) | null>(null);
+  const messageHandlerRef = useRef<((e: MessageEvent<PreviewWorkerMessage>) => void) | null>(null);
 
   const currentIdRef = useRef<string | null>(null);
   const rafPendingRef = useRef<boolean>(false);
@@ -146,8 +119,8 @@ export function usePreviewGenerator() {
   const ensureWorker = useCallback(() => {
     if (workerRef.current) return workerRef.current;
     const w = createWorker();
-    const readyListener = (e: MessageEvent) => {
-      const msg = e.data as WorkerMessage;
+    const readyListener = (e: MessageEvent<PreviewWorkerMessage>) => {
+      const msg = e.data;
       // Accept READY from real worker and INIT_COMPLETE from Jest MockWorker
       if (msg.type === 'READY' || msg.type === 'INIT_COMPLETE') {
         setIsReady(true);
@@ -203,8 +176,8 @@ export function usePreviewGenerator() {
     });
   }, [flushState]);
 
-  const handleMessage = useCallback((e: MessageEvent) => {
-    const msg = e.data as WorkerMessage;
+  const handleMessage = useCallback((e: MessageEvent<PreviewWorkerMessage>) => {
+    const msg = e.data;
     switch (msg.type) {
       case 'READY': {
         setIsReady(true);
@@ -344,7 +317,7 @@ export function usePreviewGenerator() {
         // ignore
       }
     }
-    messageHandlerRef.current = (e: MessageEvent) => handleMessage(e);
+    messageHandlerRef.current = (e: MessageEvent<PreviewWorkerMessage>) => handleMessage(e);
     worker.addEventListener('message', messageHandlerRef.current as EventListener);
   }, [handleMessage]);
 

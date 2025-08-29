@@ -1,33 +1,6 @@
 import { SelectionState } from './selection-cache';
 import { getGlobalPerformanceMonitor } from './performance-monitor';
-
-export type WorkerMessageType = 'INIT' | 'COMPUTE' | 'CANCEL' | 'BATCH' | 'DONE';
-
-export interface WorkerInitPayload {
-  directoryMap: [string, string[]][];
-  allDirectories: string[];
-}
-
-export interface WorkerComputePayload {
-  selectedPaths: string[];
-  priorityPaths: string[];
-  batchSize: number;
-}
-
-export interface WorkerBatchPayload {
-  updates: [string, 'f' | 'p' | 'n'][];
-}
-
-export type WorkerPayload = 
-  | WorkerInitPayload 
-  | WorkerComputePayload 
-  | WorkerBatchPayload
-  | undefined;
-
-export interface WorkerMessage {
-  type: WorkerMessageType;
-  payload?: WorkerPayload;
-}
+import type { OverlayWorkerMessage } from "../shared-types/messages";
 
 export interface WorkerBatchUpdate {
   updates: [string, 'f' | 'p' | 'n'][];
@@ -45,7 +18,7 @@ export interface ProgressiveRecomputeState {
   currentTaskId: number;
   cancelIdle: (() => void) | null;
   allowOnDemandCompute: boolean;
-  workerListener: ((ev: MessageEvent) => void) | null;
+  workerListener: ((ev: MessageEvent<OverlayWorkerMessage>) => void) | null;
   workerRef: Worker | null;
 }
 
