@@ -4,6 +4,7 @@ import fs from 'node:fs';
 
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import { LineRangeSchema, SelectedFileReferenceSchema } from '../shared-schemas';
 
 import { getPathValidator } from '../security/path-validator';
 import { getMainTokenService } from '../services/token-service-main';
@@ -43,8 +44,10 @@ export const foldersOpenBody = z.object({
   folderPath: z.string().min(1),
   name: z.string().min(1).max(255).optional(),
 });
-export const lineRange = z.object({ start: z.number().int().min(1), end: z.number().int().min(1) });
-export const selectionItem = z.object({ path: z.string().min(1), lines: z.array(lineRange).nonempty().optional() });
+export const selectionItem = SelectedFileReferenceSchema.extend({
+  path: SelectedFileReferenceSchema.shape.path.min(1),
+  lines: z.array(LineRangeSchema).nonempty().optional(),
+});
 export const selectionBody = z.object({ items: z.array(selectionItem).min(1) });
 export const exportBody = z.object({ outputPath: z.string().min(1), overwrite: z.boolean().optional() });
 export const previewStartBody = z.object({
