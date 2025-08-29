@@ -20,6 +20,8 @@ module.exports = {
     // Mock react-syntax-highlighter
     'react-syntax-highlighter/dist/esm/styles/prism': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.ts',
     'react-syntax-highlighter': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.ts',
+    // Mock worker factories to avoid import.meta.url issues during tests
+    '^.*/worker-factories$': '<rootDir>/src/__tests__/__mocks__/worker-factories.ts',
     // Handle worker imports
     '^.*/workers/token-counter-worker\\.ts$': '<rootDir>/src/__tests__/__mocks__/token-counter-worker.ts',
     // NOTE: Do not mock token-worker-pool; tests exercise real pool behavior
@@ -30,7 +32,7 @@ module.exports = {
     URL: URL,
     'process.env.NODE_ENV': 'test',
   },
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/worker-mock-setup.js', '<rootDir>/jest.setup.ts'],
   testPathIgnorePatterns: [
     '<rootDir>/node_modules/', 
     '<rootDir>/dist/',

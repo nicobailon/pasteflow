@@ -5,6 +5,7 @@ import { WORKER_POOL } from '@constants';
 
 import { DiscreteWorkerPoolBase } from './worker-base/discrete-worker-pool-base';
 import { estimateTokenCount } from './token-utils';
+import { createTokenCounterWorker } from './worker-factories';
 
 interface TokenRequest {
   text: string;
@@ -40,10 +41,7 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
    * Create the token counter worker with Vite-compatible static import
    */
   protected createWorker(): Worker {
-    return new Worker(
-      new URL('../workers/token-counter-worker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    return createTokenCounterWorker();
   }
 
   protected buildJobMessage(req: TokenRequest, id: string) {

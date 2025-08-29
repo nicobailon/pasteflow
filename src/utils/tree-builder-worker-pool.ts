@@ -8,6 +8,7 @@ import { UI } from '@constants';
 import type { FileData, TreeNode } from '../types/file-types';
 
 import { StreamingWorkerBase } from './worker-base/streaming-worker-base';
+import { createTreeBuilderWorker } from './worker-factories';
 
 interface TreeBuildStartRequest {
   files: FileData[];
@@ -55,10 +56,7 @@ export class TreeBuilderWorkerPool extends StreamingWorkerBase<
    * Create the tree builder worker with Vite-compatible static import
    */
   protected createWorker(): Worker {
-    return new Worker(
-      new URL('../workers/tree-builder-worker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    return createTreeBuilderWorker();
   }
 
   private async initialize(): Promise<void> {

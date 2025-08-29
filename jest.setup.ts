@@ -34,8 +34,7 @@ if (typeof global !== 'undefined' && !(global as unknown as { import?: unknown }
 }
 
 // Mock Worker for worker pool tests
-// DISABLED: Causes Jest to hang with Worker pool tests
-// Worker tests should use their own mocking strategy
+// DISABLED: Causes Jest to hang - using factory mocks instead
 if (false && (global as unknown as { Worker?: typeof Worker }).Worker === undefined) {
   const BaseEvent: typeof Event = typeof window !== 'undefined'
     ? ((window as unknown as { Event: typeof Event }).Event || Event)
@@ -74,6 +73,20 @@ if (false && (global as unknown as { Worker?: typeof Worker }).Worker === undefi
             data: { type: 'INIT_COMPLETE', id: message.id, success: true } 
           }));
         }, 0);
+      } else if (message.type === 'COUNT_TOKENS') {
+        // Handle token counting messages for TokenWorkerPool
+        setTimeout(() => {
+          this.dispatchEvent(new MockMessageEvent('message', {
+            data: { type: 'TOKEN_COUNT', id: message.id, result: 100, fallback: false }
+          }));
+        }, 0);
+      } else if (message.type === 'HEALTH_CHECK') {
+        // Handle health check messages
+        setTimeout(() => {
+          this.dispatchEvent(new MockMessageEvent('message', {
+            data: { type: 'HEALTH_RESPONSE', id: message.id, healthy: true }
+          }));
+        }, 0);
       }
     }
 
@@ -110,16 +123,16 @@ if (false && (global as unknown as { Worker?: typeof Worker }).Worker === undefi
 }
 
 // Keep window.Worker and global.Worker in sync so tests that override one affect the other
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && typeof Worker === 'undefined') {
   try {
-    Object.defineProperty(window as any, 'Worker', {
+    Object.defineProperty(window as unknown as { Worker?: typeof Worker }, 'Worker', {
       configurable: true,
-      get() { return (global as any).Worker; },
-      set(v) { (global as any).Worker = v; }
+      get() { return (global as unknown as { Worker?: typeof Worker }).Worker; },
+      set(v: typeof Worker) { (global as unknown as { Worker: typeof Worker }).Worker = v; }
     });
   } catch {
     // If defineProperty fails (unlikely), fall back to direct assignment
-    (window as any).Worker = (global as any).Worker;
+    (window as unknown as { Worker: typeof Worker }).Worker = (global as unknown as { Worker?: typeof Worker }).Worker as typeof Worker;
   }
 }
 
@@ -208,13 +221,13 @@ if ((global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder === 
 
 // Mock the window.electron object (guard for Node test environment)
 if (typeof window !== 'undefined') {
-  Object.defineProperty(window as any, 'electron', {
+  Object.defineProperty(window as unknown as { electron?: unknown }, 'electron', {
     value: {
       ipcRenderer: {
         send: jest.fn(),
         on: jest.fn(),
         removeListener: jest.fn(),
-        invoke: jest.fn().mockImplementation((channel: string, _data?: any) => {
+        invoke: jest.fn().mockImplementation((channel: string, _data?: unknown) => {
           // Workspace operations
           if (channel === '/workspace/list') return Promise.resolve([]);
           if (channel === '/workspace/load') return Promise.resolve(null);
@@ -252,17 +265,21 @@ if (typeof window !== 'undefined') {
 
 // Mock document.getElementById for React 18 createRoot (guard for Node)
 if (typeof document !== 'undefined') {
-  (document.getElementById as any) = jest.fn().mockImplementation(() => {
-    const div = document.createElement('div');
-    (div as any).id = 'root';
-    document.body.append(div);
-    return div;
+  const originalGetElementById = document.getElementById.bind(document);
+  document.getElementById = jest.fn().mockImplementation((id: string) => {
+    if (id === 'root') {
+      const div = document.createElement('div');
+      div.id = 'root';
+      document.body.append(div);
+      return div;
+    }
+    return originalGetElementById(id);
   });
 }
 
 // Mock window.matchMedia for theme support (guard for Node)
 if (typeof window !== 'undefined') {
-  Object.defineProperty(window as any, 'matchMedia', {
+  Object.defineProperty(window as unknown as { matchMedia?: unknown }, 'matchMedia', {
     writable: true,
     value: jest.fn().mockImplementation((query: string) => ({
       matches: false,
@@ -286,7 +303,7 @@ const localStorageMock = {
   length: 0,
   key: jest.fn(),
 } as unknown as Storage;
-(global as any).localStorage = localStorageMock;
+(global as unknown as { localStorage: Storage }).localStorage = localStorageMock;
 
 // Mock for main.tsx (avoid real rendering)
 jest.mock('./src/main.tsx', () => ({}), { virtual: true });

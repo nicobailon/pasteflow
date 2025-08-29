@@ -72,11 +72,20 @@ function buildTreeMap(
         // Coerce to directory if a file was created earlier at same key
         const existing = current[part] as TreeMapNode;
         if (!('children' in existing)) {
-          (existing as any).children = {};
+          // Convert file node to directory node
+          const dirNode: TreeDirectoryNode = {
+            name: existing.name,
+            path: existing.path,
+            children: {},
+            isDirectory: true as const,
+            isExpanded: expandedNodes[partAbs] ?? (i < 2)
+          };
+          current[part] = dirNode;
+        } else {
+          // Update existing directory node's expansion state
+          const dirNode = existing as TreeDirectoryNode;
+          dirNode.isExpanded = expandedNodes[partAbs] ?? (dirNode.isExpanded ?? (i < 2));
         }
-        (existing as any).isDirectory = true;
-        (existing as any).isExpanded =
-          expandedNodes[partAbs] ?? ((existing as any).isExpanded ?? (i < 2));
       }
 
       dirNode = current[part] as TreeDirectoryNode;
@@ -170,7 +179,7 @@ class MockTreeBuilderWorkerPool {
         sortOrder: 'default',
       };
       const nodes = buildTreeNodesFromMap(
-        map as unknown as Record<string, any>,
+        map,
         0,
         deps,
         Number.POSITIVE_INFINITY
