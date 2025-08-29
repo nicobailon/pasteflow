@@ -2,6 +2,10 @@
 import type BetterSqlite3 from 'better-sqlite3';
 
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
+import type { WorkspaceState, Instruction } from '../../shared-types';
+
+// Re-export for existing consumers
+export type { WorkspaceState, Instruction };
 
 // Runtime-safe loader to avoid ABI mismatch when not running under Electron
 type BetterSqlite3Module = typeof BetterSqlite3;
@@ -23,20 +27,6 @@ interface SQLiteError extends Error {
   syscall?: string;
 }
 
-// Define precise types for workspace state
-export interface WorkspaceState {
-  selectedFiles?: {
-    path: string;
-    lines?: { start: number; end: number }[];
-    content?: string;
-    tokenCount?: number;
-  }[];
-  expandedNodes?: string[];
-  userInstructions?: string;
-  systemPrompts?: { id: string; name: string; content: string }[];
-  rolePrompts?: { id: string; name: string; content: string }[];
-  [key: string]: unknown; // Allow extension but maintain type safety
-}
 
 // Define precise types for preferences
 export type PreferenceValue = string | number | boolean | null | {
@@ -71,10 +61,8 @@ interface PreferenceRow {
   updated_at: number;
 }
 
-interface InstructionRow {
-  id: string;
-  name: string;
-  content: string;
+// InstructionRow extends Instruction with DB metadata
+interface InstructionRow extends Instruction {
   created_at: number;
   updated_at: number;
 }
@@ -374,15 +362,30 @@ export class PasteFlowDatabase {
     return result.result as ParsedWorkspace[];
   }
 
-  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = {}): Promise<ParsedWorkspace> {
+  async createWorkspace(name: string, folderPath: string, state: Partial<WorkspaceState> = {}): Promise<ParsedWorkspace> {
     this.ensureInitialized();
     return await retryTransaction(async () => {
-      const stateJson = JSON.stringify(state);
+      // Merge with defaults to ensure full WorkspaceState
+      const fullState: WorkspaceState = {
+        selectedFolder: null,
+        selectedFiles: [],
+        expandedNodes: {},
+        sortOrder: 'name',
+        searchTerm: '',
+        fileTreeMode: 'none',
+        exclusionPatterns: [],
+        userInstructions: '',
+        tokenCounts: {},
+        systemPrompts: [],
+        rolePrompts: [],
+        ...state
+      };
+      const stateJson = JSON.stringify(fullState);
       this.statements.createWorkspace.run(name, folderPath, stateJson);
       const workspace = this.statements.getWorkspace.get(name, name) as WorkspaceRow;
       return {
         ...workspace,
-        state: state
+        state: fullState
       };
     });
   }
@@ -404,7 +407,7 @@ export class PasteFlowDatabase {
     return result.result as ParsedWorkspace | null;
   }
 
-  async updateWorkspace(name: string, state: WorkspaceState): Promise<void> {
+  async updateWorkspace(name: string, state: Partial<WorkspaceState>): Promise<void> {
     this.ensureInitialized();
     await executeWithRetry(async () => {
       const stateJson = JSON.stringify(state);
@@ -414,7 +417,7 @@ export class PasteFlowDatabase {
     });
   }
 
-  async updateWorkspaceById(id: number, state: WorkspaceState): Promise<void> {
+  async updateWorkspaceById(id: number, state: Partial<WorkspaceState>): Promise<void> {
     this.ensureInitialized();
     await executeWithRetry(async () => {
       const stateJson = JSON.stringify(state);

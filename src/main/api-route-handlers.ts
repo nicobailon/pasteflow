@@ -118,7 +118,7 @@ export class APIRouteHandlers {
       const created = await this.db.createWorkspace(
         parsed.data.name,
         parsed.data.folderPath,
-        (parsed.data.state ?? {}) as WorkspaceState
+        (parsed.data.state ?? {}) as Partial<WorkspaceState>
       );
       return res.json(ok(mapWorkspaceDbToJson(created)));
     } catch (error) {
@@ -143,7 +143,7 @@ export class APIRouteHandlers {
     const body = updateWorkspaceBody.safeParse(req.body);
     if (!params.success || !body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request'));
     try {
-      await this.db.updateWorkspaceById(params.data.id, body.data.state as WorkspaceState);
+      await this.db.updateWorkspaceById(params.data.id, body.data.state as Partial<WorkspaceState>);
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));

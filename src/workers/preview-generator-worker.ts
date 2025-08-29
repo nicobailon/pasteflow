@@ -2,6 +2,7 @@
 
 import { normalizePath, getRelativePath, extname } from '../file-ops/path';
 import { generateAsciiFileTree } from '../file-ops/ascii-tree';
+import type { LineRange, SelectedFileReference, FileData, Instruction, SystemPrompt, RolePrompt, FileTreeMode } from '../shared-types';
 
 import {
   EmitContext,
@@ -49,35 +50,6 @@ import {
      - { type: 'UPDATE_FILES', id, files: { path, content, tokenCount? }[] }
 */
 
-type LineRange = { start: number; end: number };
-
-type SelectedFileReference = {
-  path: string;
-  lines?: LineRange[];
-};
-
-type FileData = {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  isContentLoaded?: boolean;
-  tokenCount?: number;
-  children?: FileData[];
-  content?: string;
-  size: number;
-  isBinary: boolean;
-  isSkipped: boolean;
-  error?: string;
-  fileType?: string;
-  isCountingTokens?: boolean;
-  tokenCountError?: string;
-};
-
-type Instruction = { id: string; name: string; content: string; tokenCount?: number };
-type SystemPrompt = { id: string; name: string; content: string; tokenCount?: number };
-type RolePrompt = { id: string; name: string; content: string; tokenCount?: number };
-
-type FileTreeMode = 'none' | 'selected' | 'selected-with-roots' | 'complete';
 
 interface StartPayload {
   id: string;

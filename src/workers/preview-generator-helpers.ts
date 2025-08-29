@@ -1,29 +1,6 @@
 // Helper functions extracted from preview-generator-worker.ts to reduce complexity
 
-// Import types from the worker file
-type LineRange = { start: number; end: number };
-
-type SelectedFileReference = {
-  path: string;
-  lines?: LineRange[];
-};
-
-type FileData = {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  isContentLoaded?: boolean;
-  tokenCount?: number;
-  children?: FileData[];
-  content?: string;
-  size: number;
-  isBinary: boolean;
-  isSkipped: boolean;
-  error?: string;
-  fileType?: string;
-  isCountingTokens?: boolean;
-  tokenCountError?: string;
-};
+import type { LineRange, SelectedFileReference, FileData } from '../shared-types';
 
 type UpdateFile = { 
   path: string; 

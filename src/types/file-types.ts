@@ -1,5 +1,11 @@
 import type * as React from 'react';
 
+// Import and re-export domain types from shared module
+import type { FileData, LineRange, SelectedFileReference, SystemPrompt, RolePrompt, Instruction, FileTreeMode, WorkspaceState } from "../shared-types";
+
+// Re-export for consumers of this module
+export type { FileData, LineRange, SelectedFileReference, SystemPrompt, RolePrompt, Instruction, FileTreeMode, WorkspaceState };
+
 // Forward declaration of DirectorySelectionCache interface
 // The actual implementation is in utils/selection-cache.ts (renderer-only)
 export interface DirectorySelectionCache {
@@ -18,47 +24,6 @@ export interface DirectorySelectionCache {
   setSelectedPaths?(paths: Set<string>): void;
 }
 
-/**
- * Core interface representing a file or directory in the workspace.
- * 
- * This is the authoritative data structure for all file information in the
- * single-source-of-truth architecture. The `allFiles` array in the app state
- * contains all FileData objects, and this is the only place where file content,
- * metadata, and token counts are stored.
- * 
- * Components should never duplicate this data. Instead, they should:
- * 1. Use `SelectedFileReference` to track which files are selected
- * 2. Look up the actual file data from `allFiles` when needed
- * 3. Derive display data at render time by combining the reference with the source data
- * 
- * This pattern ensures consistency and prevents the state synchronization issues
- * that can cause UI flicker or stale data display.
- */
-export interface FileData {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  isContentLoaded?: boolean;
-  tokenCount?: number;
-  children?: FileData[];
-  content?: string;
-  size: number;
-  /** File modification time in milliseconds (from fs.stat.mtimeMs) */
-  mtimeMs?: number;
-  isBinary: boolean;
-  isSkipped: boolean;
-  error?: string;
-  fileType?: string;
-  excludedByDefault?: boolean;
-  isCountingTokens?: boolean;
-  tokenCountError?: string;
-}
-
-// New interface for selected line ranges
-export interface LineRange {
-  start: number;
-  end: number;
-}
 
 // New interface for selected files with line ranges
 export interface SelectedFileWithLines {
@@ -73,30 +38,6 @@ export interface SelectedFileWithLines {
   tokenCountError?: string;  // Error message if token counting failed
 }
 
-/**
- * Simplified interface for selected files following the single-source-of-truth pattern.
- * 
- * This interface only stores the minimal reference information needed to identify
- * which files (and optionally which line ranges) are selected. The actual file
- * content, metadata, and token counts are always retrieved from the `allFiles`
- * array in the app state, ensuring there's only one authoritative source for
- * file data.
- * 
- * This design prevents state desynchronization issues that previously caused
- * content flicker when switching between files.
- * 
- * @example
- * // Full file selection
- * { path: '/src/index.ts' }
- * 
- * @example
- * // Partial file selection with line ranges
- * { path: '/src/utils.ts', lines: [{ start: 10, end: 20 }, { start: 30, end: 40 }] }
- */
-export interface SelectedFileReference {
-  path: string;
-  lines?: LineRange[];       // Undefined or empty array means entire file
-}
 
 export interface TreeNode {
   id: string;
@@ -198,7 +139,6 @@ export interface CopyButtonProps {
   children?: React.ReactNode;
 }
 
-export type FileTreeMode = "none" | "selected" | "selected-with-roots" | "complete";
 
 export interface FilterModalProps {
   exclusionPatterns: string[];
@@ -228,21 +168,6 @@ export interface FileViewModalProps {
   loadFileContent: (filePath: string) => Promise<void>;
 }
 
-// Interface for system prompts
-export interface SystemPrompt {
-  id: string;
-  name: string;
-  content: string;
-  tokenCount?: number;
-}
-
-// Interface for role prompts
-export interface RolePrompt {
-  id: string;
-  name: string;
-  content: string;
-  tokenCount?: number;
-}
 
 export interface SystemPromptsModalProps {
   isOpen: boolean;
@@ -279,12 +204,6 @@ export interface Doc {
   tokenCount?: number;
 }
 
-export interface Instruction {
-  id: string;
-  name: string;
-  content: string;
-  tokenCount?: number;
-}
 
 export interface InstructionsModalProps {
   isOpen: boolean;
@@ -298,23 +217,6 @@ export interface InstructionsModalProps {
   initialEditInstruction?: Instruction | null;
 }
 
-export interface WorkspaceState {
-  selectedFolder: string | null;
-  selectedFiles: SelectedFileReference[];
-  expandedNodes: Record<string, boolean>;
-  sortOrder: string;
-  searchTerm: string;
-  fileTreeMode: FileTreeMode;
-  exclusionPatterns: string[];
-  userInstructions: string;
-  tokenCounts: { [filePath: string]: number };
-  folderIndex?: Map<string, string[]>; // Optional for backward compatibility
-  systemPrompts: SystemPrompt[];
-  rolePrompts: RolePrompt[];
-  // instructions are now stored in database, not in workspace
-  selectedInstructions?: Instruction[]; // Optional for backward compatibility
-  savedAt?: number; // Added timestamp for sorting
-}
 
 export interface LineSelectionValidationResult {
   isValid: boolean;

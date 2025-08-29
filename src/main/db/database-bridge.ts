@@ -125,7 +125,7 @@ export class DatabaseBridge {
    * @example
    * const workspace = await bridge.createWorkspace('my-app', '/path/to/app');
    */
-  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = {}) {
+  async createWorkspace(name: string, folderPath: string, state: Partial<WorkspaceState> = {}) {
     if (!this.db) throw new Error('Database not initialized');
     return this.db.createWorkspace(name, folderPath, state);
   }
@@ -154,7 +154,7 @@ export class DatabaseBridge {
    * @example
    * await bridge.updateWorkspace('my-app', { selectedFiles: ['main.js'] });
    */
-  async updateWorkspace(name: string, state: WorkspaceState) {
+  async updateWorkspace(name: string, state: Partial<WorkspaceState>) {
     if (!this.db) throw new Error('Database not initialized');
     return this.db.updateWorkspace(name, state);
   }
@@ -163,7 +163,7 @@ export class DatabaseBridge {
    * Updates workspace state by numeric ID.
    * @param id Workspace id as string (converted to number internally)
    */
-  async updateWorkspaceById(id: string, state: WorkspaceState) {
+  async updateWorkspaceById(id: string, state: Partial<WorkspaceState>) {
     if (!this.db) throw new Error('Database not initialized');
     // Database implementation expects number for ID
     // Coerce to number here to keep IPC/API surface string-typed

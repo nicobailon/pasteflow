@@ -6,65 +6,8 @@ import { app } from 'electron';
 
 import { PooledDatabase, PooledDatabaseConfig } from './pooled-database';
 import { QueryResult } from './connection-pool';
+import type { FileData, SelectedFileReference, SystemPrompt, RolePrompt, Instruction, WorkspaceState, FileTreeMode } from '../../shared-types';
 
-// Define precise types locally to avoid React dependencies
-interface FileData {
-  path: string;
-  name: string;
-  size: number;
-  isDirectory: boolean;
-  isSymlink?: boolean;
-  isBinary?: boolean;
-  extension?: string;
-  content?: string;
-  tokenCount?: number;
-}
-
-interface SelectedFileReference {
-  path: string;
-  lines?: { start: number; end: number }[];
-}
-
-interface SystemPrompt {
-  id: string;
-  name: string;
-  content: string;
-  isSelected: boolean;
-}
-
-interface RolePrompt {
-  id: string;
-  name: string;
-  content: string;
-  isSelected: boolean;
-}
-
-interface Instruction {
-  id: string;
-  title: string;
-  content: string;
-  isGlobal: boolean;
-  isSelected?: boolean;
-}
-
-type FileTreeMode = 'none' | 'selected' | 'selected_with_roots' | 'complete';
-
-interface WorkspaceState {
-  selectedFolder: string | null;
-  selectedFiles: SelectedFileReference[];
-  expandedNodes: Record<string, boolean>;
-  sortOrder: string;
-  searchTerm: string;
-  fileTreeMode: FileTreeMode;
-  exclusionPatterns: string[];
-  userInstructions: string;
-  tokenCounts: Record<string, number>;
-  folderIndex?: Map<string, string[]>;
-  systemPrompts: SystemPrompt[];
-  rolePrompts: RolePrompt[];
-  selectedInstructions?: Instruction[];
-  savedAt?: number;
-}
 
 // Error messages
 const DATABASE_NOT_INITIALIZED_ERROR = 'Database is not initialized';
@@ -370,7 +313,7 @@ export class PooledDatabaseBridge extends EventEmitter {
     } as WorkspaceStateWithMetadata;
   }
 
-  async updateWorkspace(name: string, state: WorkspaceState): Promise<void> {
+  async updateWorkspace(name: string, state: Partial<WorkspaceState>): Promise<void> {
     if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     await this.db.run(`
@@ -530,7 +473,7 @@ export class PooledDatabaseBridge extends EventEmitter {
       expandedNodes: {},
       sortOrder: 'name',
       searchTerm: '',
-      fileTreeMode: 'none',
+      fileTreeMode: 'none' as FileTreeMode,
       exclusionPatterns: [],
       userInstructions: '',
       tokenCounts: {},

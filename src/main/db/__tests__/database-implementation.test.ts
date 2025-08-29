@@ -46,7 +46,7 @@ describe('PasteFlowDatabase', () => {
   describe('Workspace CRUD Operations', () => {
     const mkState = (): DBWorkspaceState => ({
       selectedFiles: [{ path: 'file1.txt' }, { path: 'file2.txt' }],
-      expandedNodes: ['/test'],
+      expandedNodes: { '/test': true },
       userInstructions: 'Test instructions',
       systemPrompts: [{ id: 's1', name: 'Sys', content: 'sys content' }],
       rolePrompts: [{ id: 'r1', name: 'Role', content: 'role content' }]
@@ -116,7 +116,7 @@ describe('PasteFlowDatabase', () => {
 
       const newState: DBWorkspaceState = {
         selectedFiles: [{ path: 'file3.txt' }],
-        expandedNodes: ['/new'],
+        expandedNodes: { '/new': true },
         userInstructions: 'Updated',
         systemPrompts: [],
         rolePrompts: []
@@ -138,7 +138,7 @@ describe('PasteFlowDatabase', () => {
 
       const newState: DBWorkspaceState = {
         selectedFiles: [{ path: 'fileX.txt' }],
-        expandedNodes: ['/changed'],
+        expandedNodes: { '/changed': true },
         userInstructions: 'ById',
         systemPrompts: [],
         rolePrompts: []
@@ -155,7 +155,7 @@ it('should throw when updating by non-existent ID', async () => {
         selectedFiles: [],
         systemPrompts: [],
         rolePrompts: []
-      } as DBWorkspaceState)).rejects.toThrow("Workspace with id '999999' not found");
+      } as Partial<DBWorkspaceState>)).rejects.toThrow("Workspace with id '999999' not found");
     });
     it('should delete workspace successfully', async () => {
       await db.createWorkspace(
