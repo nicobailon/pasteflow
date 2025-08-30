@@ -163,8 +163,24 @@ export function attachSelectCommand(root: any): void {
           totals: { files: number; prompts: number; all: number };
         };
 
+        // Best-effort fetch of current file tree mode
+        let fileTreeMode: string | null = null;
+        try {
+          const st = await client.get('/api/v1/status');
+          const sdata = (st.data?.data ?? st.data) as { activeWorkspace: { id: string } | null };
+          const wsId = sdata?.activeWorkspace?.id;
+          if (wsId) {
+            const ws = await client.get(`/api/v1/workspaces/${encodeURIComponent(wsId)}`);
+            const wdata = (ws.data?.data ?? ws.data) as { state?: { fileTreeMode?: string } };
+            fileTreeMode = String(wdata?.state?.fileTreeMode || 'selected');
+          }
+        } catch {
+          // ignore — non-fatal for this command
+        }
+
         if (flags.json) {
-          printJsonOrText(data, flags);
+          const payload = { ...data, fileTreeMode: fileTreeMode ?? 'n/a' };
+          printJsonOrText(payload, flags);
           process.exit(0);
         }
 
@@ -207,6 +223,9 @@ export function attachSelectCommand(root: any): void {
             { key: 'note', header: 'Note' },
           ]);
           console.log(table);
+        }
+        if (fileTreeMode) {
+          console.log(`\nFile Tree Mode: ${fileTreeMode}`);
         }
         console.log(`\nTotals — Files: ${data.totals.files}, Prompts: ${data.totals.prompts}, All: ${data.totals.all} (backend: ${data.backend})`);
         process.exit(0);

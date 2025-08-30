@@ -148,6 +148,74 @@ async function buildAllFiles(
   return allFiles;
 }
 
+// Exported minimal scanner for building ASCII trees in API without duplicating logic
+export async function scanAllFilesForTree(
+  folderPath: string,
+  exclusionPatterns?: string[]
+): Promise<string[]> {
+  const ignoreFilter = loadGitignore(folderPath, exclusionPatterns ?? []);
+  const files: string[] = [];
+
+  const queue: string[] = [folderPath];
+  const seen = new Set<string>();
+
+  while (queue.length > 0) {
+    const dir = queue.shift()!;
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+
+    let dirents: fs.Dirent[];
+    try {
+      dirents = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    const filePaths: string[] = [];
+    const relMap = new Map<string, string>();
+
+    for (const d of dirents) {
+      const full = path.join(dir, d.name);
+      const rel = path.relative(folderPath, full);
+      if (ignoreFilter.ignores(rel)) continue;
+
+      if (d.isDirectory()) {
+        queue.push(full);
+        continue;
+      }
+      if (!d.isFile()) continue;
+
+      filePaths.push(full);
+      relMap.set(full, rel);
+    }
+
+    const BATCH_SIZE = 32;
+    for (let i = 0; i < filePaths.length; i += BATCH_SIZE) {
+      const batch = filePaths.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(
+        batch.map(async (full) => {
+          try {
+            const st = await statFile(full);
+            return { full, st };
+          } catch {
+            return { full, st: null as unknown as Awaited<ReturnType<typeof statFile>> };
+          }
+        })
+      );
+
+      for (const { full, st } of results) {
+        if (!st || !st.ok) continue;
+        if (st.data.isDirectory) continue;
+        files.push(full);
+      }
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  return files;
+}
+
 /**
  * Load UTF-8 content for selected files, pruning binary/special/oversize.
  * Returns number of files included (textual, not binary).

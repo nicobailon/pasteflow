@@ -130,6 +130,7 @@ Global flags
 - --raw: print raw content for file/content responses
 - --timeout <ms>: HTTP timeout (default ~10s)
 - --debug: prints HTTP request/response summary
+- -h, --help, --h: show help for any command
 
 Exit codes
 - 0: success
@@ -144,6 +145,8 @@ Command overview
 - Status
   ```bash
   pasteflow status
+  pasteflow status --include-selection   # adds per-file tokens table
+  # JSON includes fileTreeMode and selectionSummary
   ```
 - Workspaces
   ```bash
@@ -194,7 +197,26 @@ Command overview
   pasteflow select clear
   # Token breakdown for current selection (files + prompts/instructions)
   pasteflow select list [--summary-only] [--relative] [--max-files 500] [--max-bytes 2000000] [--no-include-instructions] [--no-include-prompts]
+  # Note: text output now includes current File Tree Mode; --json adds fileTreeMode
   ```
+- Tree
+  ```bash
+  pasteflow tree                      # ASCII file tree for active workspace/mode
+  pasteflow tree --json               # JSON { mode, root, tree }
+  pasteflow tree --list-modes         # List available file tree modes
+  pasteflow tree --mode selected      # Override mode for this call (does not change workspace)
+  ```
+
+File tree modes
+- none: disables tree output in content; `pf tree` prints empty tree.
+- selected: includes only selected files as leaves (no parent directories).
+- selected-with-roots: includes selected files and all their parent directories from the workspace root.
+- complete: includes all non-ignored files in the workspace (honors .gitignore and exclusion patterns).
+
+Notes
+- `pasteflow tree --list-modes` marks the current mode with `* - current`.
+- `pasteflow tree --mode <mode>` previews a mode without changing saved workspace state.
+- To persist a mode, update the workspace state field `state.fileTreeMode` via `pasteflow workspaces update`.
 
 API: Selection token breakdown
 - Endpoint: `GET /api/v1/selection/tokens`

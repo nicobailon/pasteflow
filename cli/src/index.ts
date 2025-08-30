@@ -10,6 +10,7 @@ import { attachFilesCommand } from "./commands/files";
 import { attachTokensCommand } from "./commands/tokens";
 import { attachSelectCommand } from "./commands/select";
 import { attachContentCommand } from "./commands/content";
+import { attachTreeCommand } from "./commands/tree";
 
 export interface RootOptions {
   host?: string;
@@ -29,6 +30,7 @@ async function main() {
     .alias("pf")
     .description("PasteFlow CLI — headless operations via the local HTTP API")
     .version("0.1.0")
+    .helpOption("-h, --help, --h", "Display help for command")
     .option("--host <host>", "API host (default: 127.0.0.1)")
     .option("--port <port>", "API port", (v) => Number.parseInt(v, 10))
     .option("--token <token>", "Auth token (overrides ~/.pasteflow/auth.token)")
@@ -46,6 +48,7 @@ async function main() {
   attachTokensCommand(program);
   attachSelectCommand(program);
   attachContentCommand(program);
+  attachTreeCommand(program);
 
   await program.parseAsync(process.argv);
 }

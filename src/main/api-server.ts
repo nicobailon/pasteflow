@@ -14,7 +14,7 @@ import { setAllowedWorkspacePaths, getAllowedWorkspacePaths } from './workspace-
 import { toApiError, ok } from './error-normalizer';
 import { validateAndResolvePath, statFile as fileServiceStatFile, readTextFile } from './file-service';
 import { applySelect, applyDeselect } from './selection-service';
-import { aggregateSelectedContent } from './content-aggregation';
+import { aggregateSelectedContent, scanAllFilesForTree } from './content-aggregation';
 import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
@@ -128,6 +128,9 @@ export class PasteFlowAPIServer {
 
     // Selection tokens breakdown
     this.app.get('/api/v1/selection/tokens', (req, res) => this.handleSelectionTokens(req, res));
+
+    // ASCII file tree
+    this.app.get('/api/v1/tree', (req, res) => this.handleFileTree(req, res));
 
     // Preview
     this.app.post('/api/v1/preview/start', (req, res) => this.handlePreviewStart(req, res));
@@ -245,6 +248,59 @@ export class PasteFlowAPIServer {
       const { bytes } = await writeExport(outVal.absolutePath, content, body.data.overwrite === true);
 
       return res.json(ok({ outputPath: outVal.absolutePath, bytes }));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  // ASCII file tree handler
+  private async handleFileTree(req: Request, res: Response) {
+    const validation = await this.validateActiveWorkspace(res);
+    if (!validation) return;
+
+    try {
+      const options = this.parseContentOptions(req, validation);
+
+      const root = options.selectedFolder || options.folderPath;
+      const validTreeModes: FileTreeMode[] = ['none', 'selected', 'selected-with-roots', 'complete'];
+      const queryMode = String(((req.query as unknown as { mode?: string })?.mode || '')).trim();
+      if (queryMode && !validTreeModes.includes(queryMode as FileTreeMode)) {
+        return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid mode'));
+      }
+      const mode = (queryMode ? (queryMode as FileTreeMode) : options.fileTreeMode);
+
+      if (mode === 'none') {
+        return res.json(ok({ mode, root, tree: '' }));
+      }
+
+      // Sanitize selection to absolute paths within workspace
+      const pruned: { path: string }[] = [];
+      for (const s of options.selection || []) {
+        const v = validateAndResolvePath(s.path);
+        if (!v.ok) continue;
+        pruned.push({ path: v.absolutePath });
+      }
+
+      let items: { path: string; isFile?: boolean }[] = [];
+
+      if (mode === 'selected') {
+        items = pruned.map((s) => ({ path: s.path, isFile: true }));
+      } else if (mode === 'selected-with-roots') {
+        const { getAllDirectories } = require('../file-ops/path');
+        const dirs: string[] = getAllDirectories(pruned, root);
+        items = [
+          ...dirs.map((d) => ({ path: d, isFile: false })),
+          ...pruned.map((s) => ({ path: s.path, isFile: true })),
+        ];
+      } else if (mode === 'complete') {
+        const all = await scanAllFilesForTree(options.folderPath, options.exclusionPatterns);
+        items = all.map((p) => ({ path: p, isFile: true }));
+      }
+
+      const { generateAsciiFileTree } = require('../file-ops/ascii-tree');
+      const tree: string = generateAsciiFileTree(items, root);
+
+      return res.json(ok({ mode, root, tree }));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
     }

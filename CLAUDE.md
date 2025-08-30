@@ -95,8 +95,6 @@ npm run test:watch     # Tests in watch mode
 npm run lint           # ESLint with TypeScript support
 npm run lint:strict    # ESLint with zero warnings tolerance
 npm run lint:filenames # Enforce kebab-case file naming
-npm run rename:check   # Check files that need kebab-case renaming
-npm run rename:files   # Automatically rename files to kebab-case
 
 # TypeScript Type Checking
 npx tsc --noEmit       # Run TypeScript compiler to check for type errors
@@ -116,7 +114,7 @@ Location and bootstrap
 - Entry point: [cli/src/index.ts](cli/src/index.ts)
 - HTTP client, discovery, error mapping: [cli/src/client.ts](cli/src/client.ts)
 - Commands implemented under: [cli/src/commands/](cli/src/commands/)
-  - status, workspaces, folders, instructions, prefs, files, tokens, select, content, preview
+  - status, workspaces, folders, instructions, prefs, files, tokens, select, content, preview, tree
 
 Build and usage
 - Build the CLI:
@@ -143,6 +141,7 @@ Global flags
 - --raw: emit raw content for file/content/preview content
 - --timeout <ms>: HTTP timeout (default ~10s)
 - --debug: HTTP request/response summaries to stderr
+- -h, --help, --h: show help for any command
 
 Exit codes
 - 0 success
@@ -157,6 +156,7 @@ Key commands (examples)
 - Status
   ```bash
   pasteflow status
+  pasteflow status --include-selection   # adds per-file tokens table; JSON includes fileTreeMode + selectionSummary
   ```
 - Workspaces
   ```bash
@@ -174,6 +174,7 @@ Key commands (examples)
   pasteflow select add --path "/abs/path/file.ts" --lines "10-20,30"
   # Token breakdown for current selection (files + prompts/instructions)
   pasteflow select list [--summary-only] [--relative] [--max-files 500] [--max-bytes 2000000] [--no-include-instructions] [--no-include-prompts]
+  # Text output includes current File Tree Mode; --json adds fileTreeMode
   ```
   
   Tokens
@@ -188,6 +189,15 @@ Key commands (examples)
   pasteflow content get --max-files 500 --max-bytes 2000000 --out pack.txt --overwrite
   pasteflow content export --out "/abs/path/pack.txt" --overwrite
   ```
+- Tree
+  ```bash
+  pasteflow tree                      # ASCII file tree for active workspace/mode
+  pasteflow tree --json               # JSON { mode, root, tree }
+  pasteflow tree --list-modes         # List available file tree modes
+  pasteflow tree --mode selected      # Override mode for this call (does not change workspace)
+  ```
+  Notes:
+  - `pasteflow tree --list-modes` marks the current mode with `* - current`.
 - Preview (async)
   ```bash
   pasteflow preview start --prompt @prompt.txt --follow --out preview.md --overwrite
@@ -210,7 +220,7 @@ HTTP API reference
 - The HTTP API is defined in [src/main/api-server.ts](src/main/api-server.ts) and covers:
   - /api/v1/status, /workspaces, /instructions, /prefs, /files/info|content,
     /tokens/count|backend, /files/select|deselect|clear|selected, /content, /content/export,
-    /selection/tokens,
+    /selection/tokens, /tree (optional query ?mode=<none|selected|selected-with-roots|complete>),
     /preview/start|status/:id|content/:id|cancel/:id
 
 Selection tokens example
