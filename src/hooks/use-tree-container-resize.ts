@@ -7,7 +7,7 @@ export const useTreeContainerResize = (containerRef: RefObject<HTMLDivElement>) 
       return containerRef.current.clientHeight || window.innerHeight * 0.7;
     }
     // Use 70% of viewport height as fallback
-    return typeof window !== 'undefined' ? window.innerHeight * 0.7 : 400;
+    return typeof window === 'undefined' ? 400 : window.innerHeight * 0.7;
   };
 
   const [treeHeight, setTreeHeight] = useState<number>(getInitialHeight);

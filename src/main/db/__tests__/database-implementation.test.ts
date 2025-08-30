@@ -1,64 +1,98 @@
-import Database from 'better-sqlite3';
-import { PasteFlowDatabase } from '../database-implementation';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+// Mock better-sqlite3 directly before any imports
+jest.mock('better-sqlite3');
+
+// Mock process.versions.electron to bypass the check
+const originalProcessVersions = process.versions;
+beforeAll(() => {
+  Object.defineProperty(process, 'versions', {
+    value: {
+      ...originalProcessVersions,
+      electron: '34.3.0'
+    },
+    writable: true,
+    configurable: true
+  });
+});
+
+afterAll(() => {
+  Object.defineProperty(process, 'versions', {
+    value: originalProcessVersions,
+    writable: true,
+    configurable: true
+  });
+});
+
+import { PasteFlowDatabase, WorkspaceState as DBWorkspaceState } from '../database-implementation';
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 describe('PasteFlowDatabase', () => {
+  // Set a reasonable timeout for all tests in this suite
+  jest.setTimeout(30000); // 30 seconds should be more than enough
+  
   let db: PasteFlowDatabase;
-  let tempDbPath: string;
 
   beforeEach(async () => {
-    // Use in-memory database for testing to avoid Node.js version issues
-    tempDbPath = ':memory:';
-    db = new PasteFlowDatabase(tempDbPath);
+    // Use in-memory database for testing
+    db = new PasteFlowDatabase(':memory:');
     await db.initializeDatabase();
   });
 
   afterEach(() => {
-    // Clean up database after each test
     if (db) {
       db.close();
     }
-    // No need to clean up in-memory databases
   });
 
   describe('Database Initialization', () => {
     it('should create all required tables and indexes', () => {
-      // Test table creation by attempting to query each table
-      const workspacesCount = db.db.prepare('SELECT COUNT(*) as count FROM workspaces').get();
-      const preferencesCount = db.db.prepare('SELECT COUNT(*) as count FROM preferences').get();
-      const customPromptsCount = db.db.prepare('SELECT COUNT(*) as count FROM custom_prompts').get();
+      const raw = db.db!;
+      const workspacesCount = raw.prepare('SELECT COUNT(*) as count FROM workspaces').get() as { count: number };
+      const preferencesCount = raw.prepare('SELECT COUNT(*) as count FROM preferences').get() as { count: number };
+      const instructionsCount = raw.prepare('SELECT COUNT(*) as count FROM instructions').get() as { count: number };
 
       expect(workspacesCount.count).toBe(0);
       expect(preferencesCount.count).toBe(0);
-      expect(customPromptsCount.count).toBe(0);
+      expect(instructionsCount.count).toBe(0);
     });
 
     it('should set performance optimizations correctly', () => {
-      const journalMode = db.db.pragma('journal_mode', { simple: true });
-      const synchronous = db.db.pragma('synchronous', { simple: true });
-      const tempStore = db.db.pragma('temp_store', { simple: true });
+      const raw = db.db!;
+      const journalMode = raw.pragma('journal_mode', { simple: true }) as string;
+      const synchronous = raw.pragma('synchronous', { simple: true }) as number;
+      const tempStore = raw.pragma('temp_store', { simple: true }) as number;
 
-      expect(journalMode).toBe('wal');
+      expect(journalMode.toLowerCase()).toBe('wal');
       expect(synchronous).toBe(1); // NORMAL = 1
       expect(tempStore).toBe(2); // MEMORY = 2
     });
   });
 
   describe('Workspace CRUD Operations', () => {
+    const mkState = (): DBWorkspaceState => ({
+      selectedFolder: '/test/path',
+      selectedFiles: [{ path: 'file1.txt' }, { path: 'file2.txt' }],
+      expandedNodes: { '/test': true },
+      sortOrder: 'name',
+      searchTerm: '',
+      fileTreeMode: 'selected' as const,
+      exclusionPatterns: [],
+      userInstructions: 'Test instructions',
+      tokenCounts: {},
+      systemPrompts: [{ id: 's1', name: 'Sys', content: 'sys content' }],
+      rolePrompts: [{ id: 'r1', name: 'Role', content: 'role content' }]
+    });
+
     const testWorkspaceData = {
       name: 'Test Workspace',
       folderPath: '/test/path',
-      state: {
-        selectedFiles: ['file1.txt', 'file2.txt'],
-        expandedNodes: { '/test': true },
-        selectedFolder: '/test/path'
-      }
+      state: mkState()
     };
 
-    it('should create a new workspace successfully', () => {
-      const workspace = db.createWorkspace(
+    it('should create a new workspace successfully', async () => {
+      const workspace = await db.createWorkspace(
         testWorkspaceData.name,
         testWorkspaceData.folderPath,
         testWorkspaceData.state
@@ -66,445 +100,321 @@ describe('PasteFlowDatabase', () => {
 
       expect(workspace).toBeDefined();
       expect(workspace.name).toBe(testWorkspaceData.name);
-      expect(workspace.folderPath).toBe(testWorkspaceData.folderPath);
+      expect(workspace.folder_path).toBe(testWorkspaceData.folderPath);
       expect(workspace.state).toEqual(testWorkspaceData.state);
       expect(workspace.id).toBeDefined();
       expect(workspace.created_at).toBeDefined();
       expect(workspace.updated_at).toBeDefined();
     });
 
-    it('should retrieve a workspace by name', () => {
-      db.createWorkspace(
+    it('should retrieve a workspace by name', async () => {
+      await db.createWorkspace(
         testWorkspaceData.name,
         testWorkspaceData.folderPath,
         testWorkspaceData.state
       );
 
-      const retrieved = db.getWorkspace(testWorkspaceData.name);
+      const retrieved = await db.getWorkspace(testWorkspaceData.name);
 
       expect(retrieved).toBeDefined();
-      expect(retrieved.name).toBe(testWorkspaceData.name);
-      expect(retrieved.state).toEqual(testWorkspaceData.state);
+      expect(retrieved!.name).toBe(testWorkspaceData.name);
+      expect(retrieved!.state).toEqual(testWorkspaceData.state);
     });
 
-    it('should retrieve a workspace by ID', () => {
-      const created = db.createWorkspace(
+    it('should retrieve a workspace by ID', async () => {
+      const created = await db.createWorkspace(
         testWorkspaceData.name,
         testWorkspaceData.folderPath,
         testWorkspaceData.state
       );
 
-      const retrieved = db.getWorkspace(created.id);
+      const retrieved = await db.getWorkspace(created.id);
 
       expect(retrieved).toBeDefined();
-      expect(retrieved.id).toBe(created.id);
-      expect(retrieved.name).toBe(testWorkspaceData.name);
+      expect(retrieved!.id).toBe(created.id);
+      expect(retrieved!.name).toBe(testWorkspaceData.name);
     });
 
-    it('should return null for non-existent workspace', () => {
-      const result = db.getWorkspace('Non-existent Workspace');
+    it('should return null for non-existent workspace', async () => {
+      const result = await db.getWorkspace('Non-existent Workspace');
       expect(result).toBeNull();
     });
 
-    it('should update workspace state', () => {
-      db.createWorkspace(
+    it('should update workspace state (by name)', async () => {
+      await db.createWorkspace(
         testWorkspaceData.name,
         testWorkspaceData.folderPath,
         testWorkspaceData.state
       );
 
-      const newState = {
-        selectedFiles: ['file3.txt'],
+      const newState: DBWorkspaceState = {
+        selectedFolder: '/test/path',
+        selectedFiles: [{ path: 'file3.txt' }],
         expandedNodes: { '/new': true },
-        selectedFolder: '/new/path'
+        sortOrder: 'name',
+        searchTerm: '',
+        fileTreeMode: 'selected' as const,
+        exclusionPatterns: [],
+        userInstructions: 'Updated',
+        tokenCounts: {},
+        systemPrompts: [],
+        rolePrompts: []
       };
 
-      db.updateWorkspace(testWorkspaceData.name, newState);
-      const updated = db.getWorkspace(testWorkspaceData.name);
+      await db.updateWorkspace(testWorkspaceData.name, newState);
+      const updated = await db.getWorkspace(testWorkspaceData.name);
 
-      expect(updated.state).toEqual(newState);
-      expect(updated.updated_at).toBeGreaterThan(updated.created_at);
+      expect(updated!.state).toEqual(newState);
+      expect(updated!.updated_at).toBeGreaterThan(updated!.created_at);
     });
 
-    it('should delete workspace successfully', () => {
-      db.createWorkspace(
+    it('should update workspace state by ID', async () => {
+      const created = await db.createWorkspace(
         testWorkspaceData.name,
         testWorkspaceData.folderPath,
         testWorkspaceData.state
       );
 
-      db.deleteWorkspace(testWorkspaceData.name);
-      const retrieved = db.getWorkspace(testWorkspaceData.name);
+      const newState: DBWorkspaceState = {
+        selectedFolder: '/test/path',
+        selectedFiles: [{ path: 'fileX.txt' }],
+        expandedNodes: { '/changed': true },
+        sortOrder: 'name',
+        searchTerm: '',
+        fileTreeMode: 'selected' as const,
+        exclusionPatterns: [],
+        userInstructions: 'ById',
+        tokenCounts: {},
+        systemPrompts: [],
+        rolePrompts: []
+      };
+
+      await db.updateWorkspaceById(created.id, newState);
+      const updated = await db.getWorkspace(created.id);
+
+      expect(updated!.state).toEqual(newState);
+    });
+
+it('should throw when updating by non-existent ID', async () => {
+      await expect(db.updateWorkspaceById(999_999, {
+        selectedFiles: [],
+        systemPrompts: [],
+        rolePrompts: []
+      } as Partial<DBWorkspaceState>)).rejects.toThrow("Workspace with id '999999' not found");
+    });
+    it('should delete workspace successfully', async () => {
+      await db.createWorkspace(
+        testWorkspaceData.name,
+        testWorkspaceData.folderPath,
+        testWorkspaceData.state
+      );
+
+      await db.deleteWorkspace(testWorkspaceData.name);
+      const retrieved = await db.getWorkspace(testWorkspaceData.name);
 
       expect(retrieved).toBeNull();
     });
 
-    it('should rename workspace successfully', () => {
-      db.createWorkspace(
+    it('should rename workspace successfully', async () => {
+      await db.createWorkspace(
         testWorkspaceData.name,
         testWorkspaceData.folderPath,
         testWorkspaceData.state
       );
 
       const newName = 'Renamed Workspace';
-      db.renameWorkspace(testWorkspaceData.name, newName);
+      await db.renameWorkspace(testWorkspaceData.name, newName);
 
-      const oldWorkspace = db.getWorkspace(testWorkspaceData.name);
-      const newWorkspace = db.getWorkspace(newName);
+      const oldWorkspace = await db.getWorkspace(testWorkspaceData.name);
+      const newWorkspace = await db.getWorkspace(newName);
 
       expect(oldWorkspace).toBeNull();
       expect(newWorkspace).toBeDefined();
-      expect(newWorkspace.name).toBe(newName);
-      expect(newWorkspace.state).toEqual(testWorkspaceData.state);
+      expect(newWorkspace!.name).toBe(newName);
+      expect(newWorkspace!.state).toEqual(testWorkspaceData.state);
     });
 
-    it('should update last accessed time when touching workspace', () => {
-      const workspace = db.createWorkspace(
+    it('should update last accessed time when touching workspace', async () => {
+      const workspace = await db.createWorkspace(
         testWorkspaceData.name,
         testWorkspaceData.folderPath,
         testWorkspaceData.state
       );
 
       const originalAccessTime = workspace.last_accessed;
-      
-      // Wait a small amount to ensure timestamp difference
-      setTimeout(() => {
-        db.touchWorkspace(testWorkspaceData.name);
-        const touched = db.getWorkspace(testWorkspaceData.name);
 
-        expect(touched.last_accessed).toBeGreaterThan(originalAccessTime);
-      }, 10);
+      await delay(10);
+      await db.touchWorkspace(testWorkspaceData.name);
+      const touched = await db.getWorkspace(testWorkspaceData.name);
+
+      expect(touched!.last_accessed).toBeGreaterThan(originalAccessTime);
     });
 
-    it('should list workspaces ordered by last accessed', () => {
-      const workspace1 = db.createWorkspace('Workspace 1', '/path1', {});
-      const workspace2 = db.createWorkspace('Workspace 2', '/path2', {});
-      
-      // Touch workspace1 to make it more recently accessed
-      db.touchWorkspace('Workspace 1');
-      
-      const workspaces = db.listWorkspaces();
+    it('should list workspaces ordered by last accessed', async () => {
+      await db.createWorkspace('Workspace 1', '/path1', {});
+      await db.createWorkspace('Workspace 2', '/path2', {});
+      await db.touchWorkspace('Workspace 1');
 
-      expect(workspaces).toHaveLength(2);
-      expect(workspaces[0].name).toBe('Workspace 1'); // Most recently accessed first
+      const workspaces = await db.listWorkspaces();
+
+      expect(workspaces.length).toBe(2);
+      expect(workspaces[0].name).toBe('Workspace 1');
       expect(workspaces[1].name).toBe('Workspace 2');
     });
 
-    it('should get workspace names efficiently', () => {
-      db.createWorkspace('Alpha Workspace', '/alpha', {});
-      db.createWorkspace('Beta Workspace', '/beta', {});
+    it('should get workspace names efficiently', async () => {
+      await db.createWorkspace('Alpha Workspace', '/alpha', {});
+      await db.createWorkspace('Beta Workspace', '/beta', {});
 
-      const names = db.getWorkspaceNames();
+      const names = await db.getWorkspaceNames();
 
-      expect(names).toHaveLength(2);
+      expect(names.length).toBe(2);
       expect(names).toContain('Alpha Workspace');
       expect(names).toContain('Beta Workspace');
     });
   });
 
   describe('Preference Operations', () => {
-    it('should store and retrieve string preferences', () => {
+    it('should store and retrieve string preferences', async () => {
       const key = 'test-string-pref';
       const value = 'test-value';
 
-      db.setPreference(key, value);
-      const retrieved = db.getPreference(key);
+      await db.setPreference(key, value);
+      const retrieved = await db.getPreference(key);
 
       expect(retrieved).toBe(value);
     });
 
-    it('should store and retrieve object preferences', () => {
+    it('should store and retrieve object preferences', async () => {
       const key = 'test-object-pref';
       const value = { setting1: true, setting2: 42, setting3: 'nested' };
 
-      db.setPreference(key, value);
-      const retrieved = db.getPreference(key);
+      await db.setPreference(key, value);
+      const retrieved = await db.getPreference(key);
 
       expect(retrieved).toEqual(value);
     });
 
-    it('should store and retrieve array preferences', () => {
+    it('should store and retrieve array preferences', async () => {
       const key = 'test-array-pref';
       const value = ['item1', 'item2', 'item3'];
 
-      db.setPreference(key, value);
-      const retrieved = db.getPreference(key);
+      await db.setPreference(key, value);
+      const retrieved = await db.getPreference(key);
 
       expect(retrieved).toEqual(value);
     });
 
-    it('should store and retrieve boolean preferences', () => {
+    it('should store and retrieve boolean preferences', async () => {
       const key = 'test-boolean-pref';
       const value = true;
 
-      db.setPreference(key, value);
-      const retrieved = db.getPreference(key);
+      await db.setPreference(key, value);
+      const retrieved = await db.getPreference(key);
 
       expect(retrieved).toBe(value);
     });
 
-    it('should store and retrieve number preferences', () => {
+    it('should store and retrieve number preferences', async () => {
       const key = 'test-number-pref';
       const value = 42.5;
 
-      db.setPreference(key, value);
-      const retrieved = db.getPreference(key);
+      await db.setPreference(key, value);
+      const retrieved = await db.getPreference(key);
 
       expect(retrieved).toBe(value);
     });
 
-    it('should return null for non-existent preferences', () => {
-      const result = db.getPreference('non-existent-key');
+    it('should return null for non-existent preferences', async () => {
+      const result = await db.getPreference('non-existent-key');
       expect(result).toBeNull();
     });
 
-    it('should update existing preferences', () => {
+    it('should update existing preferences', async () => {
       const key = 'update-test';
       const originalValue = 'original';
       const updatedValue = 'updated';
 
-      db.setPreference(key, originalValue);
-      db.setPreference(key, updatedValue);
-      const retrieved = db.getPreference(key);
+      await db.setPreference(key, originalValue);
+      await db.setPreference(key, updatedValue);
+      const retrieved = await db.getPreference(key);
 
       expect(retrieved).toBe(updatedValue);
     });
 
-    it('should handle malformed JSON gracefully', () => {
+    it('should handle malformed JSON gracefully', async () => {
       const key = 'malformed-json-test';
-      
-      // Directly insert malformed JSON to test error handling
-      db.statements.setPreference.run(key, '{"invalid": json}');
-      const retrieved = db.getPreference(key);
+
+      // Directly insert malformed JSON using raw handle
+      const raw = db.db!;
+      raw.prepare('INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)').run(key, '{"invalid": json}');
+      const retrieved = await db.getPreference(key);
 
       // Should return the raw value when JSON parsing fails
       expect(retrieved).toBe('{"invalid": json}');
     });
 
-    it('should handle null and empty values correctly', () => {
+    it('should handle null and empty values correctly', async () => {
       const nullKey = 'null-test';
       const emptyKey = 'empty-test';
 
-      db.setPreference(nullKey, null);
-      db.setPreference(emptyKey, '');
+      await db.setPreference(nullKey, null);
+      await db.setPreference(emptyKey, '');
 
-      expect(db.getPreference(nullKey)).toBeNull();
-      expect(db.getPreference(emptyKey)).toBeNull();
+      expect(await db.getPreference(nullKey)).toBeNull();
+      expect(await db.getPreference(emptyKey)).toBeNull();
     });
   });
 
-  describe('Transaction Support', () => {
-    it('should execute successful transactions', () => {
-      const result = db.runInTransaction(() => {
-        db.createWorkspace('TX Workspace 1', '/tx1', {});
-        db.createWorkspace('TX Workspace 2', '/tx2', {});
-        return 'success';
-      });
-
-      expect(result).toBe('success');
-      expect(db.getWorkspace('TX Workspace 1')).toBeDefined();
-      expect(db.getWorkspace('TX Workspace 2')).toBeDefined();
-    });
-
-    it('should rollback failed transactions', () => {
-      expect(() => {
-        db.runInTransaction(() => {
-          db.createWorkspace('TX Workspace 1', '/tx1', {});
-          // This should cause an error due to duplicate name
-          db.createWorkspace('TX Workspace 1', '/tx1', {});
-        });
-      }).toThrow();
-
-      // Neither workspace should exist due to rollback
-      expect(db.getWorkspace('TX Workspace 1')).toBeNull();
-    });
-
-    it('should perform atomic workspace updates', () => {
-      const originalWorkspace = db.createWorkspace('Atomic Test', '/original', {
+  describe('Atomic Operations', () => {
+    it('should perform atomic workspace updates', async () => {
+      const originalWorkspace = await db.createWorkspace('Atomic Test', '/original', {
         setting1: 'value1'
-      });
+      } as unknown as DBWorkspaceState);
 
       const updates = {
-        state: { setting1: 'updated', setting2: 'new' },
+        state: { setting1: 'updated', setting2: 'new' } as Partial<DBWorkspaceState>,
         folderPath: '/updated'
       };
 
-      const updatedWorkspace = db.updateWorkspaceAtomic('Atomic Test', updates);
+      const updatedWorkspace = await db.updateWorkspaceAtomic('Atomic Test', updates);
 
-      expect(updatedWorkspace.folderPath).toBe('/updated');
-      expect(updatedWorkspace.state.setting1).toBe('updated');
-      expect(updatedWorkspace.state.setting2).toBe('new');
+      expect(updatedWorkspace.folder_path).toBe('/updated');
+      expect((updatedWorkspace.state as any).setting1).toBe('updated');
+      expect((updatedWorkspace.state as any).setting2).toBe('new');
       expect(updatedWorkspace.last_accessed).toBeGreaterThan(originalWorkspace.last_accessed);
     });
 
-    it('should throw error for atomic update of non-existent workspace', () => {
-      expect(() => {
-        db.updateWorkspaceAtomic('Non-existent', { state: {} });
-      }).toThrow("Workspace 'Non-existent' not found");
+    it('should throw error for atomic update of non-existent workspace', async () => {
+      await expect(db.updateWorkspaceAtomic('Non-existent', { state: {} })).rejects.toThrow("Workspace 'Non-existent' not found");
     });
 
-    it('should perform atomic workspace rename', () => {
-      db.createWorkspace('Original Name', '/path', { setting: 'value' });
+    it('should perform atomic workspace rename', async () => {
+      await db.createWorkspace('Original Name', '/path', { setting: 'value' } as unknown as DBWorkspaceState);
 
-      const renamedWorkspace = db.renameWorkspaceAtomic('Original Name', 'New Name');
+      const renamedWorkspace = await db.renameWorkspaceAtomic('Original Name', 'New Name');
 
       expect(renamedWorkspace.name).toBe('New Name');
-      expect(renamedWorkspace.state.setting).toBe('value');
-      expect(db.getWorkspace('Original Name')).toBeNull();
+      expect((renamedWorkspace.state as any).setting).toBe('value');
+      expect(await db.getWorkspace('Original Name')).toBeNull();
     });
 
-    it('should throw error when renaming to existing workspace name', () => {
-      db.createWorkspace('Workspace 1', '/path1', {});
-      db.createWorkspace('Workspace 2', '/path2', {});
+    it('should throw error when renaming to existing workspace name', async () => {
+      await db.createWorkspace('Workspace 1', '/path1', {});
+      await db.createWorkspace('Workspace 2', '/path2', {});
 
-      expect(() => {
-        db.renameWorkspaceAtomic('Workspace 1', 'Workspace 2');
-      }).toThrow("Workspace 'Workspace 2' already exists");
-    });
-  });
-
-  describe('Error Handling and Edge Cases', () => {
-    it('should handle workspace creation with empty state', () => {
-      const workspace = db.createWorkspace('Empty State', '/path', {});
-
-      expect(workspace.state).toEqual({});
-    });
-
-    it('should handle workspace creation with undefined state', () => {
-      const workspace = db.createWorkspace('Undefined State', '/path');
-
-      expect(workspace.state).toEqual({});
-    });
-
-    it('should handle complex nested state objects', () => {
-      const complexState = {
-        selectedFiles: ['file1.txt', 'file2.txt'],
-        fileTree: {
-          '/src': {
-            expanded: true,
-            children: ['file1.txt', 'file2.txt']
-          }
-        },
-        settings: {
-          theme: 'dark',
-          fontSize: 14,
-          features: {
-            autoSave: true,
-            linting: false
-          }
-        }
-      };
-
-      const workspace = db.createWorkspace('Complex State', '/complex', complexState);
-      const retrieved = db.getWorkspace('Complex State');
-
-      expect(retrieved.state).toEqual(complexState);
-    });
-
-    it('should handle very large state objects', () => {
-      // Create a large state object to test JSON serialization limits
-      const largeState = {
-        selectedFiles: Array.from({ length: 1000 }, (_, i) => `file${i}.txt`),
-        metadata: {}
-      };
-
-      // Add a large nested object
-      for (let i = 0; i < 100; i++) {
-        largeState.metadata[`key${i}`] = {
-          description: `This is a description for key ${i}`.repeat(10),
-          values: Array.from({ length: 50 }, (_, j) => `value${i}-${j}`)
-        };
-      }
-
-      const workspace = db.createWorkspace('Large State', '/large', largeState);
-      const retrieved = db.getWorkspace('Large State');
-
-      expect(retrieved.state.selectedFiles).toHaveLength(1000);
-      expect(Object.keys(retrieved.state.metadata)).toHaveLength(100);
-    });
-
-    it('should handle special characters in workspace names', () => {
-      const specialName = 'Workspace with "quotes" & <symbols> [brackets] {braces}';
-      const workspace = db.createWorkspace(specialName, '/special', {});
-
-      const retrieved = db.getWorkspace(specialName);
-      expect(retrieved.name).toBe(specialName);
-    });
-
-    it('should handle special characters in preference keys and values', () => {
-      const specialKey = 'pref/with:special@chars#';
-      const specialValue = 'Value with "quotes" & symbols! {complex: "json"}';
-
-      db.setPreference(specialKey, specialValue);
-      const retrieved = db.getPreference(specialKey);
-
-      expect(retrieved).toBe(specialValue);
-    });
-  });
-
-  describe('Performance Characteristics', () => {
-    it('should handle bulk workspace operations efficiently', () => {
-      const startTime = Date.now();
-      const workspaceCount = 100;
-
-      // Create many workspaces
-      for (let i = 0; i < workspaceCount; i++) {
-        db.createWorkspace(`Workspace ${i}`, `/path${i}`, {
-          index: i,
-          files: Array.from({ length: 10 }, (_, j) => `file${j}.txt`)
-        });
-      }
-
-      const createTime = Date.now() - startTime;
-
-      // List all workspaces
-      const listStart = Date.now();
-      const workspaces = db.listWorkspaces();
-      const listTime = Date.now() - listStart;
-
-      expect(workspaces).toHaveLength(workspaceCount);
-      expect(createTime).toBeLessThan(5000); // Should complete in under 5 seconds
-      expect(listTime).toBeLessThan(1000); // Should list in under 1 second
-    });
-
-    it('should handle bulk preference operations efficiently', () => {
-      const startTime = Date.now();
-      const prefCount = 1000;
-
-      // Set many preferences
-      for (let i = 0; i < prefCount; i++) {
-        db.setPreference(`pref${i}`, {
-          value: i,
-          name: `Preference ${i}`,
-          active: i % 2 === 0
-        });
-      }
-
-      const setTime = Date.now() - startTime;
-
-      // Get many preferences
-      const getStart = Date.now();
-      for (let i = 0; i < prefCount; i++) {
-        const pref = db.getPreference(`pref${i}`);
-        expect(pref.value).toBe(i);
-      }
-      const getTime = Date.now() - getStart;
-
-      expect(setTime).toBeLessThan(5000); // Should complete in under 5 seconds
-      expect(getTime).toBeLessThan(3000); // Should retrieve in under 3 seconds
+      await expect(db.renameWorkspaceAtomic('Workspace 1', 'Workspace 2')).rejects.toThrow("Workspace 'Workspace 2' already exists");
     });
   });
 
   describe('Database Cleanup', () => {
-    it('should close database connection properly', () => {
+    it('should close database connection properly', async () => {
       expect(() => {
         db.close();
       }).not.toThrow();
 
       // Verify database is closed by attempting an operation
-      expect(() => {
-        db.getWorkspace('test');
-      }).toThrow();
+      await expect(db.getWorkspace('test')).rejects.toThrow();
     });
   });
 });

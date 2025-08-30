@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { unstable_batchedUpdates, flushSync } from 'react-dom';
-import { normalizePath } from '@file-ops/path';
-import { logger } from '../utils/logger';
 
+import { normalizePath } from '@file-ops/path';
 import { STORAGE_KEYS, TOKEN_COUNTING } from '@constants';
+
+import { logger } from '../utils/logger';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
@@ -28,6 +29,10 @@ import { useTokenService } from './use-token-service';
 import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
+import {
+  buildWorkspaceState,
+  reconcileSelectedInstructions,
+} from './use-app-state-helpers';
 
 type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 
@@ -483,10 +488,10 @@ const useAppState = () => {
     };
 
     // Only use flushSync for single-file user interactions, not bulk operations
-    if (!isBulkOperation) {
-      flushSync(updateFn);
-    } else {
+    if (isBulkOperation) {
       updateFn();
+    } else {
+      flushSync(updateFn);
     }
 
     // Removed automatic file selection when loading content
@@ -554,10 +559,10 @@ const useAppState = () => {
 
     // Use flushSync only for single-file user interactions, not bulk operations
     // This fixes the issue where token counts don't appear until a second file is selected
-    if (!isBulkOperation) {
-      flushSync(updateFn);
-    } else {
+    if (isBulkOperation) {
       updateFn();
+    } else {
+      flushSync(updateFn);
     }
 
     // Note: We don't call updateSelectedFile here because:
@@ -646,9 +651,9 @@ const useAppState = () => {
               });
             }
           })
-          .catch(err => {
+          .catch(error => {
             if (!isMountedRef.current) return;
-            logger.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, err);
+            logger.error(`[loadFileContent] Token counting failed in background for ${filePath}:`, error);
           });
       } else {
         // Handle error
@@ -888,35 +893,20 @@ const useAppState = () => {
 
   // Wrap saveWorkspace in useCallback to avoid recreating it on every render
   const saveWorkspace = useCallback(async (name: string) => {
-    // Deduplicate selected files before saving
-    const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
-
-    const workspace: WorkspaceState = {
-      selectedFolder: selectedFolder,
-      expandedNodes: expandedNodes,
-      selectedFiles: uniqueSelectedFiles,
-      allFiles: allFiles,
-      sortOrder: sortOrder,
-      searchTerm: searchTerm,
-      fileTreeMode: fileTreeMode,
-      exclusionPatterns: exclusionPatterns,
-      userInstructions: userInstructions,
-      tokenCounts: (() => {
-        const acc: { [filePath: string]: number } = {};
-        const allFilesMap = new Map(allFiles.map(f => [f.path, f]));
-        for (const selectedFile of fileSelection.selectedFiles) {
-          const fileData = allFilesMap.get(selectedFile.path);
-          acc[selectedFile.path] = fileData?.tokenCount || 0;
-        }
-        return acc;
-      })(),
-      customPrompts: {
-        systemPrompts: promptState.selectedSystemPrompts,
-        rolePrompts: promptState.selectedRolePrompts
-      },
-      // Save which instructions are selected (the instructions themselves are in database)
-      selectedInstructions: selectedInstructions
-    };
+    const workspace = buildWorkspaceState({
+      selectedFolder,
+      expandedNodes,
+      allFiles,
+      selectedFiles: fileSelection.selectedFiles,
+      sortOrder,
+      searchTerm,
+      fileTreeMode,
+      exclusionPatterns,
+      userInstructions,
+      systemPrompts: promptState.selectedSystemPrompts,
+      rolePrompts: promptState.selectedRolePrompts,
+      selectedInstructions,
+    });
 
     await persistWorkspace(name, workspace);
 
@@ -1027,7 +1017,7 @@ const useAppState = () => {
 
     if (filesToLoad.length > 0) {
       // Batch loading to avoid main-thread saturation and keep tree-building responsive
-      const uniquePaths = Array.from(new Set(filesToLoad.map(f => f.path)));
+      const uniquePaths = [...new Set(filesToLoad.map(f => f.path))];
       const pending = [...uniquePaths];
 
       // Adaptive batch size/priority based on selection size
@@ -1137,27 +1127,20 @@ const useAppState = () => {
     applyExpandedNodes(workspaceData.expandedNodes);
     applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
     setUserInstructions(workspaceData.userInstructions || '');
-    applyPrompts(workspaceData.customPrompts);
+    applyPrompts({
+      systemPrompts: (workspaceData as any).systemPrompts || [],
+      rolePrompts: (workspaceData as any).rolePrompts || []
+    });
 
     // Reconcile selectedInstructions with current database state
     // The workspace stores full instruction objects, but we need to match them
     // with the current instructions from the database by ID
-    if (workspaceData.selectedInstructions && workspaceData.selectedInstructions.length > 0) {
-      const currentInstructions = instructionsState.instructions;
-      const reconciledInstructions = workspaceData.selectedInstructions
-        .map(savedInstruction => {
-          // Try to find the instruction in the current database by ID
-          const currentInstruction = currentInstructions.find(inst => inst.id === savedInstruction.id);
-          // Use the current version if found, otherwise use the saved version
-          // (in case the instruction was deleted from DB but still in workspace)
-          return currentInstruction || savedInstruction;
-        })
-        .filter(inst => inst !== null); // Remove any null entries
-
-      setSelectedInstructions(reconciledInstructions);
-    } else {
-      setSelectedInstructions([]);
-    }
+    setSelectedInstructions(
+      reconcileSelectedInstructions(
+        workspaceData.selectedInstructions,
+        instructionsState.instructions
+      )
+    );
 
     // Reset the flag after applying
     isApplyingWorkspaceDataRef.current = false;
@@ -1349,7 +1332,6 @@ const useAppState = () => {
       selectedFolder: selectedFolder,
       expandedNodes: expandedNodes,
       selectedFiles: uniqueSelectedFiles,
-      allFiles: allFiles,
       sortOrder: sortOrder,
       searchTerm: searchTerm,
       fileTreeMode: fileTreeMode,
@@ -1364,10 +1346,8 @@ const useAppState = () => {
         }
         return acc;
       })(),
-      customPrompts: {
-        systemPrompts: promptState.selectedSystemPrompts,
-        rolePrompts: promptState.selectedRolePrompts
-      },
+      systemPrompts: promptState.selectedSystemPrompts,
+      rolePrompts: promptState.selectedRolePrompts,
       selectedInstructions: selectedInstructions
     };
 
@@ -1506,35 +1486,20 @@ const useAppState = () => {
     if (event.detail?.name && event.detail?.workspace) {
       // Save current workspace before switching (if there is one)
       if (currentWorkspaceRef.current && currentWorkspaceRef.current !== event.detail.name) {
-        // Build the current workspace state to save
-        const uniqueSelectedFiles = [...new Map(fileSelection.selectedFiles.map(file => [file.path, file])).values()];
-        const workspace: WorkspaceState = {
+        const workspace = buildWorkspaceState({
           selectedFolder: selectedFolderRef.current,
           expandedNodes: expandedNodesRef.current,
-          selectedFiles: uniqueSelectedFiles,
           allFiles: allFilesRef.current,
+          selectedFiles: fileSelection.selectedFiles,
           sortOrder: sortOrderRef.current,
           searchTerm: searchTermRef.current,
           fileTreeMode: fileTreeModeRef.current,
           exclusionPatterns: exclusionPatternsRef.current,
           userInstructions: userInstructionsRef.current,
-          tokenCounts: (() => {
-            const acc: { [filePath: string]: number } = {};
-            const allFilesMap = new Map(allFilesRef.current.map(f => [f.path, f]));
-            for (const selectedFile of fileSelection.selectedFiles) {
-              const fileData = allFilesMap.get(selectedFile.path);
-              acc[selectedFile.path] = fileData?.tokenCount || 0;
-            }
-            return acc;
-          })(),
-          customPrompts: {
-            systemPrompts: promptStateRef.current.selectedSystemPrompts,
-            rolePrompts: promptStateRef.current.selectedRolePrompts
-          },
-          selectedInstructions: selectedInstructionsRef.current
-        };
-
-        // Wait for the save to complete before switching
+          systemPrompts: promptStateRef.current.selectedSystemPrompts,
+          rolePrompts: promptStateRef.current.selectedRolePrompts,
+          selectedInstructions: selectedInstructionsRef.current,
+        });
         await persistWorkspace(currentWorkspaceRef.current, workspace);
       }
 
@@ -1699,11 +1664,11 @@ const useAppState = () => {
 
       // Deselect system prompts
       const currentPrompts = promptStateRef.current;
-      for (const sp of [...currentPrompts.selectedSystemPrompts]) {
+      for (const sp of currentPrompts.selectedSystemPrompts) {
         currentPrompts.toggleSystemPromptSelection(sp);
       }
       // Deselect role prompts
-      for (const rp of [...currentPrompts.selectedRolePrompts]) {
+      for (const rp of currentPrompts.selectedRolePrompts) {
         currentPrompts.toggleRolePromptSelection(rp);
       }
 

@@ -1,5 +1,6 @@
-import { TreeNode } from '../types/file-types';
 import { TREE_SORTING } from '@constants';
+
+import { TreeNode } from '../types/file-types';
 
 import { BoundedLRUCache } from './bounded-lru-cache';
 

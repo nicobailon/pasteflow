@@ -1,7 +1,9 @@
-import * as path from 'path';
+import * as path from 'node:path';
+
 import { app } from 'electron';
+
 import { PasteFlowDatabase, WorkspaceState, PreferenceValue } from './database-implementation';
-import { retryConnection, executeWithRetry, retryUtility } from './retry-utils';
+import { DatabaseLogs, type LogEntry, type LogEntryInput, type LogListOptions } from './database-logs';
 
 // Define precise error types for SQLite
 interface SQLiteError extends Error {
@@ -12,16 +14,13 @@ interface SQLiteError extends Error {
 
 /**
  * Async wrapper bridge for PasteFlowDatabase with initialization management.
- * Provides promise-based interface and handles database initialization with retry logic.
- * Includes fallback to in-memory database if persistent storage fails.
+ * Provides a promise-based interface and database initialization with retry logic.
+ * Fail-fast policy: no in-memory fallback is used if persistent storage initialization fails.
  */
 export class DatabaseBridge {
   private db: PasteFlowDatabase | null = null;
   public initialized = false;
-  private fallbackMode = false;
-  private inMemoryDb: PasteFlowDatabase | null = null;
-  private connectionAttempts = 0;
-  private readonly maxConnectionAttempts = 5;
+  private logs: DatabaseLogs | null = null;
 
   /**
    * Creates a new DatabaseBridge instance.
@@ -36,12 +35,12 @@ export class DatabaseBridge {
   }
 
   /**
-   * Initializes the database connection with retry logic and fallback support.
-   * Attempts to create persistent database, falls back to in-memory on failure.
-   * 
+   * Initializes the database connection with retry logic (fail-fast).
+   * Attempts to create persistent database and fails if it cannot be initialized.
+   *
    * @param maxRetries - Maximum number of initialization attempts
    * @param retryDelay - Delay between retry attempts in milliseconds
-   * @throws {Error} If all initialization attempts fail including in-memory fallback
+   * @throws {Error} If all initialization attempts fail
    * @example
    * await bridge.initialize(5, 2000); // 5 retries with 2s delay
    */
@@ -64,8 +63,8 @@ export class DatabaseBridge {
         if (this.db.db) {
           try {
             this.db.db.prepare('SELECT 1 as test').get();
-          } catch (e) {
-            console.warn('Database health check failed:', e);
+          } catch (error) {
+            console.warn('Database health check failed:', error);
           }
         }
         
@@ -96,17 +95,9 @@ export class DatabaseBridge {
       }
     }
     
-    // All retries failed - attempt fallback to in-memory database
-    console.error('All database initialization attempts failed, trying in-memory fallback');
-    try {
-      this.db = new PasteFlowDatabase(':memory:');
-      await this.db.initializeDatabase();
-      this.initialized = true;
-      console.warn('Database initialized in memory mode - data will not persist');
-    } catch (memoryError) {
-      console.error('Failed to initialize in-memory database:', memoryError);
-      throw lastError || new Error('Database initialization failed');
-    }
+    // All retries failed - fail fast (no in-memory fallback)
+    console.error('Database initialization failed - failing fast (no in-memory fallback)');
+    throw lastError || new Error('Database initialization failed');
   }
 
   // Workspace operations
@@ -134,7 +125,7 @@ export class DatabaseBridge {
    * @example
    * const workspace = await bridge.createWorkspace('my-app', '/path/to/app');
    */
-  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = {}) {
+  async createWorkspace(name: string, folderPath: string, state: Partial<WorkspaceState> = {}) {
     if (!this.db) throw new Error('Database not initialized');
     return this.db.createWorkspace(name, folderPath, state);
   }
@@ -163,9 +154,20 @@ export class DatabaseBridge {
    * @example
    * await bridge.updateWorkspace('my-app', { selectedFiles: ['main.js'] });
    */
-  async updateWorkspace(name: string, state: WorkspaceState) {
+  async updateWorkspace(name: string, state: Partial<WorkspaceState>) {
     if (!this.db) throw new Error('Database not initialized');
     return this.db.updateWorkspace(name, state);
+  }
+
+  /**
+   * Updates workspace state by numeric ID.
+   * @param id Workspace id as string (converted to number internally)
+   */
+  async updateWorkspaceById(id: string, state: Partial<WorkspaceState>) {
+    if (!this.db) throw new Error('Database not initialized');
+    // Database implementation expects number for ID
+    // Coerce to number here to keep IPC/API surface string-typed
+    return (this.db as any).updateWorkspaceById(Number(id), state);
   }
 
   /**
@@ -363,10 +365,34 @@ export class DatabaseBridge {
    * @example
    * await bridge.close();
    */
+  // Logs (optional)
+  private getLogs(): DatabaseLogs {
+    if (!this.db || !this.db.db) {
+      throw new Error('Database not initialized');
+    }
+    if (!this.logs) {
+      this.logs = new DatabaseLogs(this.db.db);
+    }
+    return this.logs;
+  }
+
+  async insertLog(entry: LogEntryInput): Promise<void> {
+    this.getLogs().insertLog(entry);
+  }
+
+  async listLogs(opts: LogListOptions = {}): Promise<LogEntry[]> {
+    return this.getLogs().listLogs(opts);
+  }
+
+  async pruneLogs(olderThanTs: number): Promise<number> {
+    return this.getLogs().pruneLogs(olderThanTs);
+  }
+
   async close() {
     if (this.db) {
       this.db.close();
       this.db = null;
     }
+    this.logs = null;
   }
 }

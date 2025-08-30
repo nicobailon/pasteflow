@@ -57,8 +57,24 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
   const pendingUpdates = useRef<Map<string, Partial<T>>>(new Map());
   const lastParamsRef = useRef<P | undefined>();
 
+  // Stabilize option values across renders without forcing callback identity changes
+  const cacheEnabledRef = useRef<boolean>(Boolean(options.cache));
+  const cacheTTLRef = useRef<number>(options.cacheTTL ?? 60_000);
+  const optimisticUpdateRef = useRef<boolean>(Boolean(options.optimisticUpdate));
+
+  // Keep refs up to date if options change, but do not couple callback identities to options object
+  useEffect(() => {
+    cacheEnabledRef.current = Boolean(options.cache);
+  }, [options.cache]);
+  useEffect(() => {
+    cacheTTLRef.current = options.cacheTTL ?? 60_000;
+  }, [options.cacheTTL]);
+  useEffect(() => {
+    optimisticUpdateRef.current = Boolean(options.optimisticUpdate);
+  }, [options.optimisticUpdate]);
+
   const getCached = useCallback((key: string): T | null => {
-    if (!options.cache) return null;
+    if (!cacheEnabledRef.current) return null;
 
     const entry = cache.current.get(key);
     if (!entry) return null;
@@ -70,17 +86,17 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
     }
 
     return entry.data;
-  }, [options.cache]);
+  }, []);
 
   const setCached = useCallback((key: string, value: T) => {
-    if (!options.cache) return;
+    if (!cacheEnabledRef.current) return;
 
     cache.current.set(key, {
       data: value,
       timestamp: Date.now(),
-      ttl: options.cacheTTL || 60_000
+      ttl: cacheTTLRef.current
     });
-  }, [options.cache, options.cacheTTL]);
+  }, []);
 
   const fetchData = useCallback(async (params?: P): Promise<T> => {
     // Remember last params for callers that invoke updateData without providing fetch params
@@ -124,7 +140,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
     const updateId = `${Date.now()}-${Math.random()}`;
 
     try {
-      if (options.optimisticUpdate && optimisticData) {
+      if (optimisticUpdateRef.current && optimisticData) {
         setData(prev => ({ ...(prev as any), ...optimisticData } as T));
         pendingUpdates.current.set(updateId, optimisticData);
       }
@@ -165,7 +181,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
       setError(error_ as Error);
       throw error_;
     }
-  }, [options.optimisticUpdate, fetchData]);
+  }, [fetchData]);
 
   const handleUpdate = useCallback((_event: unknown, updatedData?: T) => {
     if (updatedData !== undefined) {
@@ -173,7 +189,7 @@ export function useDatabaseState<T, P = unknown, U = unknown, R = unknown>(
     }
     cache.current.clear();
     // If no data provided, trigger a refetch with last known params (if any)
-    if (updatedData === undefined) {
+    if (updatedData === undefined && lastParamsRef.current !== undefined) {
       fetchData(lastParamsRef.current).catch(error => {
         console.error('Error refetching data on update:', error);
       });

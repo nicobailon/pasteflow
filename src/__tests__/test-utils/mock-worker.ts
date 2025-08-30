@@ -50,18 +50,20 @@ export class MockWorker {
     
     if (this.options.autoRespond) {
       setTimeout(() => {
-        if (data.type === 'INIT') {
-          this.simulateMessage({ type: 'INIT_COMPLETE', id: data.id, success: true });
-        } else if (data.type === 'HEALTH_CHECK') {
-          this.simulateMessage({ type: 'HEALTH_RESPONSE', id: data.id, healthy: true });
-        } else if (data.type === 'COUNT_TOKENS' && data.payload) {
-          const tokenCount = Math.ceil(data.payload.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
-          this.simulateMessage({ 
-            type: 'TOKEN_COUNT', 
-            id: data.id, 
-            result: tokenCount,
-            fallback: false 
-          });
+        if (!this.terminated) {
+          if (data.type === 'INIT') {
+            this.simulateMessage({ type: 'INIT_COMPLETE', id: data.id, success: true });
+          } else if (data.type === 'HEALTH_CHECK') {
+            this.simulateMessage({ type: 'HEALTH_RESPONSE', id: data.id, healthy: true });
+          } else if (data.type === 'COUNT_TOKENS' && data.payload) {
+            const tokenCount = Math.ceil(data.payload.text.length / TOKEN_COUNTING.CHARS_PER_TOKEN);
+            this.simulateMessage({ 
+              type: 'TOKEN_COUNT', 
+              id: data.id, 
+              result: tokenCount,
+              fallback: false 
+            });
+          }
         }
       }, this.options.responseDelay || 0);
     }

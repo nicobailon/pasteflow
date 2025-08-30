@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import ignore from 'ignore';
 
@@ -10,7 +10,7 @@ interface IgnoreFilter {
   ignores: (path: string) => boolean;
 }
 
-export const loadGitignore = (rootDir: string): IgnoreFilter => {
+export const loadGitignore = (rootDir: string, userPatterns?: string[]): IgnoreFilter => {
   const ig = ignore();
   const gitignorePath = path.join(rootDir, ".gitignore");
 
@@ -25,5 +25,10 @@ export const loadGitignore = (rootDir: string): IgnoreFilter => {
   // Add the excludedFiles patterns
   ig.add(excludedFiles);
 
+  // Apply user-provided patterns if present
+  if (userPatterns?.length) {
+    ig.add(userPatterns);
+  }
+
   return ig;
-}; 
+};

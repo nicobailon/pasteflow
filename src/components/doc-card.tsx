@@ -1,7 +1,8 @@
 import { FileText, X } from "lucide-react";
 
-import { Instruction } from "../types/file-types";
 import { TOKEN_COUNTING } from "@constants";
+
+import { Instruction } from "../types/file-types";
 
 import CopyButton from "./copy-button";
 

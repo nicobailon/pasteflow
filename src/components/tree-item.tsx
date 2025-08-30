@@ -1,8 +1,7 @@
 import { ChevronRight, Eye, File, Folder, FolderOpen } from "lucide-react";
 import { useEffect, useRef, memo, useCallback } from "react";
 
-import { TreeItemProps, TreeNode, SelectedFileReference } from "../types/file-types";
-import type { DirectorySelectionCache } from "../utils/selection-cache";
+import { TreeItemProps, TreeNode, SelectedFileReference, DirectorySelectionCache } from "../types/file-types";
 
 // Helper function to check if a node is fully selected - moved outside component
 const isNodeFullySelected = (node: TreeNode, selectedFiles: { path: string; lines?: { start: number; end: number }[] }[]): boolean => {
@@ -392,13 +391,7 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
   // Check if folderSelectionCache changed for directories
   // CRITICAL: Do NOT call .get(...) here — it reads current global state for both prev/next and can mask changes.
   // Rely solely on wrapper identity to detect updates (wrapper identity is recreated when optimistic/progressive versions change).
-  if (prevProps.node.type === 'directory') {
-    if (prevProps.folderSelectionCache !== nextProps.folderSelectionCache) {
-      return false;
-    }
-  }
-  
-  return true;
+  return !(prevProps.node.type === 'directory' && prevProps.folderSelectionCache !== nextProps.folderSelectionCache);
 };
 
 // Helper function to get tree item state

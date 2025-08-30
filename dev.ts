@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
+ 
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { platform as osPlatform } from 'node:os';
 import { createRequire } from 'node:module';
@@ -10,7 +10,6 @@ try {
   // Test loading key dependencies
   require('ignore');
   require('tiktoken');
-  require('gpt-3-encoder');
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`\n❌ Missing dependency: ${message}`);
@@ -110,13 +109,15 @@ function startElectron(): void {
       if (mainWatch) {
         try {
           mainWatch.kill();
-        } catch {}
+        } catch {
+          // Intentionally empty - process may already be dead
+        }
       }
       viteProcess.kill();
       process.exit(code ?? 0);
     });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('❌ Dev startup failed (schemas or main build step):', message);
     viteProcess.kill();
     process.exit(1);
@@ -129,7 +130,9 @@ process.on('SIGINT', () => {
   if (mainWatch) {
     try {
       mainWatch.kill();
-    } catch {}
+    } catch {
+      // Intentionally empty - process may already be dead
+    }
   }
   viteProcess.kill();
   process.exit(130);
@@ -140,7 +143,9 @@ process.on('SIGTERM', () => {
   if (mainWatch) {
     try {
       mainWatch.kill();
-    } catch {}
+    } catch {
+      // Intentionally empty - process may already be dead
+    }
   }
   viteProcess.kill();
   process.exit(143);

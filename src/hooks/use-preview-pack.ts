@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
-import { usePreviewGenerator } from './use-preview-generator';
-import type { StartPreviewParams } from './use-preview-generator';
+
 import type {
   FileData,
   SelectedFileReference,
@@ -10,6 +9,9 @@ import type {
   FileTreeMode,
 } from '../types/file-types';
 import { logger } from '../utils/logger';
+
+import { usePreviewGenerator } from './use-preview-generator';
+import type { StartPreviewParams } from './use-preview-generator';
 
 export type PackStatus = 'idle' | 'packing' | 'ready' | 'error' | 'cancelled';
 
@@ -36,6 +38,13 @@ export interface UsePreviewPackParams {
   selectedInstructions: Instruction[];
   userInstructions: string;
   fileTreeMode: FileTreeMode;
+}
+
+export interface PackOverrides {
+  overrideUserInstructions?: string;
+  overrideFileTreeMode?: FileTreeMode;
+  maxFiles?: number;
+  maxBytes?: number;
 }
 
 /**
@@ -87,7 +96,7 @@ class PreparedPreviewCache {
     state: PackState;
     timestamp: number;
   }> = new Map();
-  private maxEntries: number = 1;
+  private maxEntries = 1;
 
   get(signature: string): PackState | null {
     const entry = this.cache.get(signature);
@@ -131,6 +140,7 @@ export function usePreviewPack(params: UsePreviewPackParams) {
   
   const cacheRef = useRef<PreparedPreviewCache>(new PreparedPreviewCache());
   const currentSignatureRef = useRef<string>('');
+  const lastPackUsedOverridesRef = useRef<boolean>(false);
   const [packState, setPackState] = useState<PackState>({
     status: 'idle',
     processed: 0,
@@ -180,7 +190,8 @@ export function usePreviewPack(params: UsePreviewPackParams) {
     // Handle completion, error, and cancellation states
     if (currentSignatureRef.current && previewState.id) {
       // Check if preview is complete
-      if (previewState.status === 'complete') {
+      switch (previewState.status) {
+      case 'complete': {
         logger.info('[Pack] Pack operation completed', {
           processed: previewState.processed,
           total: previewState.total,
@@ -208,8 +219,14 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           }
           return completeState;
         });
-        cacheRef.current.set(currentSignatureRef.current, completeState);
-      } else if (previewState.status === 'error') {
+        // Only cache when not using per-call overrides and the signature matches the UI signature
+        if (!lastPackUsedOverridesRef.current && currentSignatureRef.current === signature) {
+          cacheRef.current.set(currentSignatureRef.current, completeState);
+        }
+      
+      break;
+      }
+      case 'error': {
         logger.error('[Pack] Pack operation failed', { error: previewState.error });
         setPackState(prev => ({
           ...prev,
@@ -218,13 +235,20 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           fullContent: previewState.fullContent, // Keep any partial content
           contentForDisplay: previewState.contentForDisplay,
         }));
-      } else if (previewState.status === 'cancelled') {
+      
+      break;
+      }
+      case 'cancelled': {
         setPackState(prev => ({
           ...prev,
           status: 'cancelled',
           fullContent: previewState.fullContent, // Keep any partial content
           contentForDisplay: previewState.contentForDisplay,
         }));
+      
+      break;
+      }
+      // No default
       }
     }
   }, [previewState]); // Only depend on previewState
@@ -271,19 +295,24 @@ export function usePreviewPack(params: UsePreviewPackParams) {
   }, [signature, packState.status, packState.fullContent, cancel]);
 
   // Pack function - starts background processing without opening modal
-  const pack = useCallback(() => {
+  const pack = useCallback((overrides?: PackOverrides) => {
     logger.debug('[Pack] Starting pack operation', { signature });
     
-    // Check cache first
-    const cached = cacheRef.current.get(signature);
-    if (cached && cached.status === 'ready') {
-      logger.debug('[Pack] Using cached result', { signature });
-      currentSignatureRef.current = signature;  // Set BEFORE updating state
-      setPackState({
-        ...cached,
-        hasSignatureChanged: false,  // Clear the flag since we're now up-to-date
-      });
-      return;
+    // Track whether this invocation used overrides (affects caching behavior)
+    lastPackUsedOverridesRef.current = !!overrides;
+
+    // Check cache first unless overrides are used
+    if (!lastPackUsedOverridesRef.current) {
+      const cached = cacheRef.current.get(signature);
+      if (cached && cached.status === 'ready') {
+        logger.debug('[Pack] Using cached result', { signature });
+        currentSignatureRef.current = signature;  // Set BEFORE updating state
+        setPackState({
+          ...cached,
+          hasSignatureChanged: false,  // Clear the flag since we're now up-to-date
+        });
+        return;
+      }
     }
     
     // Update state to packing
@@ -298,22 +327,53 @@ export function usePreviewPack(params: UsePreviewPackParams) {
       hasSignatureChanged: false,  // Clear the flag when starting new pack
     });
 
+    // Build effective parameters with safe, per-call overrides
+    const effectiveUserInstructions = overrides?.overrideUserInstructions ?? params.userInstructions;
+    const effectiveFileTreeMode = overrides?.overrideFileTreeMode ?? params.fileTreeMode;
+
+    // Apply caps to selection if requested
+    let effectiveSelectedFiles = params.selectedFiles;
+    if (overrides?.maxFiles || overrides?.maxBytes) {
+      const map = new Map(params.allFiles.map(f => [f.path, f] as const));
+      const maxFiles = overrides.maxFiles ?? Number.POSITIVE_INFINITY;
+      const maxBytes = overrides.maxBytes ?? Number.POSITIVE_INFINITY;
+      let totalBytes = 0;
+      const trimmed: typeof effectiveSelectedFiles = [];
+      for (const sel of params.selectedFiles) {
+        if (trimmed.length >= maxFiles) break;
+        const fd = map.get(sel.path);
+        if (!fd || fd.isDirectory) continue;
+        const size = fd.size ?? 0;
+        if (totalBytes + size > maxBytes) break;
+        trimmed.push(sel);
+        totalBytes += size;
+      }
+      effectiveSelectedFiles = trimmed;
+    }
+
     logger.info('[Pack] Starting preview generation', { 
-      fileCount: params.selectedFiles.length,
-      signature 
+      fileCount: effectiveSelectedFiles.length,
+      signature,
+      overrides: overrides ? {
+        hasOverrides: true,
+        fileTreeMode: overrides.overrideFileTreeMode,
+        maxFiles: overrides.maxFiles,
+        maxBytes: overrides.maxBytes,
+        userInstructionsOverridden: typeof overrides.overrideUserInstructions === 'string',
+      } : undefined
     });
 
     // Start the preview generation in the worker
     const startParams: StartPreviewParams = {
       allFiles: params.allFiles,
-      selectedFiles: params.selectedFiles,
+      selectedFiles: effectiveSelectedFiles,
       sortOrder: params.sortOrder,
-      fileTreeMode: params.fileTreeMode,
+      fileTreeMode: effectiveFileTreeMode,
       selectedFolder: params.selectedFolder,
       selectedSystemPrompts: params.selectedSystemPrompts,
       selectedRolePrompts: params.selectedRolePrompts,
       selectedInstructions: params.selectedInstructions,
-      userInstructions: params.userInstructions,
+      userInstructions: effectiveUserInstructions,
       packOnly: true,  // Always use pack-only mode to minimize UI updates
     };
 
@@ -346,7 +406,7 @@ export function usePreviewPack(params: UsePreviewPackParams) {
   }, [reset]);
 
   // Clear cache when workspace (selectedFolder) actually changes
-  const previousFolderRef = useRef<string | null | undefined>(undefined);
+  const previousFolderRef = useRef<string | null | undefined>();
   useEffect(() => {
     // Skip on initial mount (when previousFolderRef is undefined)
     if (previousFolderRef.current === undefined) {

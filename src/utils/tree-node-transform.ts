@@ -4,10 +4,11 @@
  * without side effects or React dependencies.
  */
 
-import type { FileData, TreeNode } from '../types/file-types';
 import { TREE_FLATTEN_CACHE } from '@constants';
-
 import { normalizePath } from '@file-ops/path';
+
+import type { FileData, TreeNode } from '../types/file-types';
+
 import { BoundedLRUCache } from './bounded-lru-cache';
 
 interface TreeTransformDependencies {

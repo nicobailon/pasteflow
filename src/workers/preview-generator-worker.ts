@@ -1,7 +1,25 @@
 /// <reference lib="webworker" />
 
-import { normalizePath, getRelativePath, extname } from '@file-ops/path';
-import { generateAsciiFileTree } from '@file-ops/ascii-tree';
+import { normalizePath, getRelativePath, extname } from '../file-ops/path';
+import { generateAsciiFileTree } from '../file-ops/ascii-tree';
+import type { LineRange, SelectedFileReference, FileData, Instruction, SystemPrompt, RolePrompt, FileTreeMode } from '../shared-types';
+import type { PreviewWorkerMessage, PreviewStartPayload } from "../shared-types/messages";
+
+import {
+  EmitContext,
+  FileEmitResult,
+  handleFileEmitFailure,
+  markFileAsEmitted,
+  canEmitFile,
+  processFileForEmission,
+  scheduleFileRetry,
+  processBatchForEmission,
+  processFileUpdate,
+  RETRY_MAX_ATTEMPTS,
+  RETRY_DELAY_MS,
+  RETRY_BACKOFF_MULTIPLIER,
+  PENDING_FILE_TIMEOUT as PENDING_FILE_TIMEOUT_IMPORT
+} from './preview-generator-helpers';
 
 /* Preview Generator Web Worker (progressive, update-aware)
    - Opens immediately by streaming a header chunk
@@ -33,50 +51,8 @@ import { generateAsciiFileTree } from '@file-ops/ascii-tree';
      - { type: 'UPDATE_FILES', id, files: { path, content, tokenCount? }[] }
 */
 
-type LineRange = { start: number; end: number };
 
-type SelectedFileReference = {
-  path: string;
-  lines?: LineRange[];
-};
-
-type FileData = {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  isContentLoaded?: boolean;
-  tokenCount?: number;
-  children?: FileData[];
-  content?: string;
-  size: number;
-  isBinary: boolean;
-  isSkipped: boolean;
-  error?: string;
-  fileType?: string;
-  isCountingTokens?: boolean;
-  tokenCountError?: string;
-};
-
-type Instruction = { id: string; name: string; content: string; tokenCount?: number };
-type SystemPrompt = { id: string; name: string; content: string; tokenCount?: number };
-type RolePrompt = { id: string; name: string; content: string; tokenCount?: number };
-
-type FileTreeMode = 'none' | 'selected' | 'selected-with-roots' | 'complete';
-
-interface StartPayload {
-  id: string;
-  allFiles: FileData[];
-  selectedFiles: SelectedFileReference[];
-  sortOrder: string;
-  fileTreeMode: FileTreeMode;
-  selectedFolder: string | null;
-  selectedSystemPrompts?: SystemPrompt[];
-  selectedRolePrompts?: RolePrompt[];
-  selectedInstructions?: Instruction[];
-  userInstructions?: string;
-  chunkSize?: number; // files per batch
-  packOnly?: boolean;
-}
+type StartPayload = PreviewStartPayload;
 
 type UpdateFile = { path: string; content: string; tokenCount?: number };
 
@@ -126,13 +102,10 @@ const CHARS_PER_TOKEN = 4;
 // Default chunk size (files per batch)
 const DEFAULT_CHUNK_SIZE = 8;
 let currentChunkSize = DEFAULT_CHUNK_SIZE;
-// Timeout for pending files (30 seconds)
-const PENDING_FILE_TIMEOUT = 30_000;
-const RETRY_MAX_ATTEMPTS = 3;  // Increased for better resilience
-const RETRY_DELAY_MS = 200;
-const RETRY_BACKOFF_MULTIPLIER = 1.5;  // Exponential backoff for retries
+// Use imported constants from helpers
+const PENDING_FILE_TIMEOUT = PENDING_FILE_TIMEOUT_IMPORT;
 // Memory management limits
-const MAX_TRACKED_PATHS = 10000;  // Maximum paths to track in any single Set
+const MAX_TRACKED_PATHS = 10_000;  // Maximum paths to track in any single Set
 const MAX_PENDING_TIMEOUTS = 5000;  // Maximum concurrent pending timeouts
 const MAX_RETRY_COUNTS = 1000;  // Maximum retry counts to track (much smaller than paths)
 const CLEANUP_INTERVAL_MS = 30_000;  // Interval for memory cleanup
@@ -151,10 +124,10 @@ function countLines(text: string | undefined): number {
   let lines = 1;
   // ASCII 10 = '\n'
   for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) === 10) lines++;
+    if ((text.codePointAt(i) ?? 0) === 10) lines++;
   }
   // If ends with '\n', don't count an empty trailing line
-  if (text.length > 0 && text.charCodeAt(text.length - 1) === 10) {
+  if (text.length > 0 && (text.codePointAt(text.length - 1) ?? 0) === 10) {
     lines--;
   }
   return Math.max(lines, text.length > 0 ? 1 : 0);
@@ -164,44 +137,73 @@ function countLines(text: string | undefined): number {
 
 function getLanguageIdentifier(extension: string, filePath: string): string {
   switch (extension) {
-    case 'js': return 'javascript';
-    case 'ts': return 'typescript';
-    case 'tsx': return 'tsx';
-    case 'jsx': return 'jsx';
-    case 'py': return 'python';
-    case 'rb': return 'ruby';
-    case 'php': return 'php';
-    case 'java': return 'java';
-    case 'cs': return 'csharp';
-    case 'go': return 'go';
-    case 'rs': return 'rust';
-    case 'swift': return 'swift';
+    case 'js': { return 'javascript';
+    }
+    case 'ts': { return 'typescript';
+    }
+    case 'tsx': { return 'tsx';
+    }
+    case 'jsx': { return 'jsx';
+    }
+    case 'py': { return 'python';
+    }
+    case 'rb': { return 'ruby';
+    }
+    case 'php': { return 'php';
+    }
+    case 'java': { return 'java';
+    }
+    case 'cs': { return 'csharp';
+    }
+    case 'go': { return 'go';
+    }
+    case 'rs': { return 'rust';
+    }
+    case 'swift': { return 'swift';
+    }
     case 'kt':
-    case 'kts': return 'kotlin';
+    case 'kts': { return 'kotlin';
+    }
     case 'c':
-    case 'h': return 'c';
+    case 'h': { return 'c';
+    }
     case 'cpp':
     case 'cc':
     case 'cxx':
-    case 'hpp': return 'cpp';
+    case 'hpp': { return 'cpp';
+    }
     case 'sh':
-    case 'bash': return 'bash';
-    case 'ps1': return 'powershell';
+    case 'bash': { return 'bash';
+    }
+    case 'ps1': { return 'powershell';
+    }
     case 'bat':
-    case 'cmd': return 'batch';
+    case 'cmd': { return 'batch';
+    }
     case 'yaml':
-    case 'yml': return 'yaml';
-    case 'toml': return 'toml';
-    case 'ini': return 'ini';
-    case 'css': return 'css';
+    case 'yml': { return 'yaml';
+    }
+    case 'toml': { return 'toml';
+    }
+    case 'ini': { return 'ini';
+    }
+    case 'css': { return 'css';
+    }
     case 'scss':
-    case 'sass': return 'scss';
-    case 'less': return 'less';
-    case 'html': return 'html';
-    case 'json': return 'json';
-    case 'md': return 'markdown';
-    case 'svg': return 'svg';
-    case 'sql': return 'sql';
+    case 'sass': { return 'scss';
+    }
+    case 'less': { return 'less';
+    }
+    case 'html': { return 'html';
+    }
+    case 'json': { return 'json';
+    }
+    case 'md': { return 'markdown';
+    }
+    case 'svg': { return 'svg';
+    }
+    case 'sql': { return 'sql';
+    }
     default: {
       if (extension === 'dockerfile' || filePath.toLowerCase().endsWith('dockerfile')) return 'dockerfile';
       return extension || 'plaintext';
@@ -294,8 +296,9 @@ function generateFileTreeItems(
       // Include all files (even skipped/binary) in the tree to reflect complete selection
       return allFiles.map(f => ({ path: normalizePath(f.path), isFile: !f.isDirectory }));
     }
-    default:
+    default: {
       return [];
+    }
   }
 }
 
@@ -305,20 +308,22 @@ function sortFilesByOrder(files: FileData[], sortOrder: string): FileData[] {
   const cmp = (a: number | string, b: number | string) => (a === b ? 0 : (a < b ? -1 : 1));
   const arr = [...files];
   switch (key) {
-    case 'tokens':
+    case 'tokens': {
       arr.sort((a, b) => cmp(a.tokenCount ?? Math.round(a.size / CHARS_PER_TOKEN), b.tokenCount ?? Math.round(b.size / CHARS_PER_TOKEN)));
       break;
-    case 'size':
+    }
+    case 'size': {
       arr.sort((a, b) => cmp(a.size, b.size));
       break;
+    }
     case 'extension': {
       const ext = (n: string) => (n.split('.').pop() || '');
       arr.sort((a, b) => cmp(ext(a.name), ext(b.name)) || cmp(a.name, b.name));
       break;
     }
-    case 'name':
-    default:
+    default: {
       arr.sort((a, b) => cmp(a.name, b.name));
+    }
   }
   if (dir === 'desc') arr.reverse();
   return arr;
@@ -338,7 +343,7 @@ function emitProgress() {
     total,
     percent,
     tokenTotal
-  });
+  } satisfies PreviewWorkerMessage);
 }
 
 function emitFooterAndComplete(userInstructions?: string) {
@@ -355,7 +360,7 @@ function emitFooterAndComplete(userInstructions?: string) {
     finalDisplayChunk: footerDisplay,
     finalFullChunk: footerFull,
     tokenTotal
-  });
+  } satisfies PreviewWorkerMessage);
   footerEmitted = true;
 }
 
@@ -408,109 +413,78 @@ function emitHeaderAndPrimingChunk(opts: {
     processed: emittedPaths.size,
     total: totalEligibleFiles,
     tokenDelta: estimateTokens(fullHeader)
-  });
+  } satisfies PreviewWorkerMessage);
   headerEmitted = true;
 }
 
 function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: string | null, packOnly?: boolean) {
   if (!currentId || isCancelled) return;
+  
+  const context: EmitContext = {
+    currentId,
+    isCancelled,
+    emittedPaths,
+    pendingPaths,
+    failedPaths,
+    skippedPaths,
+    pendingTimeouts,
+    retryCounts,
+    tokenTotal,
+    totalEligibleFiles
+  };
+  
   for (let i = 0; i < paths.length; i += chunkSize) {
     if (isCancelled) return;
     const slice = paths.slice(i, Math.min(i + chunkSize, paths.length));
 
-    // Combine slice into a single CHUNK to reduce postMessage overhead
-    let combinedDisplay = '';
-    let combinedFull = '';
-    let combinedFullTokenDelta = 0;
-    let processedAfter = emittedPaths.size;
-
+    const batchResult = processBatchForEmission(
+      slice,
+      context,
+      currentAllMap,
+      currentSelectedMap,
+      userSelectedFolder,
+      buildFileBlocks,
+      enforceMemoryLimits
+    );
+    
+    // Update global tokenTotal from context
+    tokenTotal = context.tokenTotal;
+    
+    // Handle files that couldn't be processed
     for (const p of slice) {
-      if (isCancelled) return;
-      
-      // Skip if already emitted (handles duplicates in the paths array)
-      if (emittedPaths.has(p)) continue;
-      
-      const fd = currentAllMap.get(p);
-      if (!fd || !fd.isContentLoaded || fd.content === undefined) {
-        // File can't be emitted - mark as failed if it's still pending
-        if (pendingPaths.has(p)) {
-          pendingPaths.delete(p);
-          failedPaths.add(p);
-          // Clear any timeout
-          const timeout = pendingTimeouts.get(p);
-          if (timeout) {
-            clearTimeout(timeout);
-            pendingTimeouts.delete(p);
-          }
-        }
-        continue;
-      }
-
-      try {
-        const selRef = currentSelectedMap.get(p);
-        const { displayBlock, fullBlock, tokenDelta } = buildFileBlocks(fd, selRef, userSelectedFolder);
-
-        tokenTotal += tokenDelta;
-        combinedFullTokenDelta += tokenDelta;
-        combinedDisplay += displayBlock;
-        combinedFull += fullBlock;
-
-        emittedPaths.add(p);
-        pendingPaths.delete(p);
-        failedPaths.delete(p);  // Remove from failed if it was previously marked as failed
-        skippedPaths.delete(p);  // Remove from skipped if it was previously marked as skipped
-        // Clear any timeout for this successfully emitted file
-        const timeout = pendingTimeouts.get(p);
-        if (timeout) {
-          clearTimeout(timeout);
-          pendingTimeouts.delete(p);
-        }
-        // Clear retry count for successfully emitted file
-        retryCounts.delete(p);
+      if (!context.emittedPaths.has(p)) {
+        const fd = currentAllMap.get(p);
+        if (!canEmitFile(p, fd, context)) continue;
         
-        // Enforce memory limits during active processing (every 100 files)
-        if (emittedPaths.size % 100 === 0) {
-          enforceMemoryLimits();
-        }
-        
-        processedAfter = emittedPaths.size;
-      } catch (error) {
-        // Retry transient build failures a few times before marking as failed
-        if (!emittedPaths.has(p)) {
-          // Check if this is a likely transient error
-          const isTransient = isTransientError(error);
-          if (isTransient) {
-            scheduleRetry(p, userSelectedFolder, !!packOnly);
-          } else {
-            // Non-transient error, mark as failed immediately
-            pendingPaths.delete(p);
-            failedPaths.add(p);
-            skippedPaths.delete(p);
-            const timeout = pendingTimeouts.get(p);
-            if (timeout) {
-              clearTimeout(timeout);
-              pendingTimeouts.delete(p);
-            }
-            // Ensure no stale retry count
-            retryCounts.delete(p);
+        // Try to process individually with error handling
+        try {
+          const selRef = currentSelectedMap.get(p);
+          const result = processFileForEmission(p, fd!, selRef, userSelectedFolder, buildFileBlocks);
+          if (!result) {
+            throw new Error('Failed to build file blocks');
           }
-        }
-        if (DEBUG_ENABLED) {
-          console.log('[Worker] Build blocks failed:', p, error);
+        } catch (error) {
+          handleFileEmitFailure(
+            p,
+            error,
+            context,
+            isTransientError,
+            (path) => scheduleRetry(path, userSelectedFolder, !!packOnly)
+          );
         }
       }
     }
 
-    if (combinedDisplay.length > 0 || combinedFull.length > 0) {
+    if (batchResult.combinedDisplay.length > 0 || batchResult.combinedFull.length > 0) {
       workerCtx.postMessage({
         type: 'CHUNK',
         id: currentId!,
-        displayChunk: packOnly ? '' : combinedDisplay,
-        fullChunk: combinedFull,
-        processed: processedAfter,
+        displayChunk: packOnly ? '' : batchResult.combinedDisplay,
+        fullChunk: batchResult.combinedFull,
+        processed: batchResult.processedAfter,
         total: totalEligibleFiles,
-        tokenDelta: combinedFullTokenDelta
-      });
+        tokenDelta: batchResult.combinedFullTokenDelta
+      } satisfies PreviewWorkerMessage);
 
       emitProgress();
     }
@@ -521,38 +495,28 @@ function emitFilesChunk(paths: string[], chunkSize: number, userSelectedFolder: 
   checkAndCompleteIfDone();
 }
 
-// Retry helpers for transient build failures
+// Retry helper wrapper
 function scheduleRetry(path: string, userSelectedFolder: string | null, packOnly: boolean) {
-  if (isCancelled) return;
-  const attempts = retryCounts.get(path) ?? 0;
-  if (attempts >= RETRY_MAX_ATTEMPTS) {
-    // Give up; mark as failed for completion accounting
-    pendingPaths.delete(path);
-    failedPaths.add(path);
-    skippedPaths.delete(path);
-    const timeout = pendingTimeouts.get(path);
-    if (timeout) {
-      clearTimeout(timeout);
-      pendingTimeouts.delete(path);
-    }
-    // Clean up retry count for permanently failed file
-    retryCounts.delete(path);
-    if (DEBUG_ENABLED) {
-      console.log('[Worker] Max retries reached for path:', path);
-    }
-    emitProgress();
-    checkAndCompleteIfDone();
-    return;
-  }
-  retryCounts.set(path, attempts + 1);
-  // Use exponential backoff for retries
-  const delay = Math.round(RETRY_DELAY_MS * Math.pow(RETRY_BACKOFF_MULTIPLIER, attempts));
-  self.setTimeout(() => {
-    if (DEBUG_ENABLED) {
-      console.log('[Worker] Retrying path (attempt', attempts + 1, '):', path);
-    }
-    tryEmitSingle(path, userSelectedFolder, packOnly);
-  }, delay);
+  const context: EmitContext = {
+    currentId,
+    isCancelled,
+    emittedPaths,
+    pendingPaths,
+    failedPaths,
+    skippedPaths,
+    pendingTimeouts,
+    retryCounts,
+    tokenTotal,
+    totalEligibleFiles
+  };
+  
+  scheduleFileRetry(
+    path,
+    context,
+    () => tryEmitSingle(path, userSelectedFolder, packOnly),
+    emitProgress,
+    checkAndCompleteIfDone
+  );
 }
 
 function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly: boolean) {
@@ -590,7 +554,7 @@ function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly
       processed: emittedPaths.size,
       total: totalEligibleFiles,
       tokenDelta
-    });
+    } satisfies PreviewWorkerMessage);
 
     emitProgress();
     checkAndCompleteIfDone();
@@ -744,67 +708,33 @@ async function streamPreview(payload: StartPayload) {
 function handleUpdateFiles(id: string, files: UpdateFile[], chunkSize: number) {
   if (!currentId || currentId !== id || isCancelled) return;
 
+  const context: EmitContext = {
+    currentId,
+    isCancelled,
+    emittedPaths,
+    pendingPaths,
+    failedPaths,
+    skippedPaths,
+    pendingTimeouts,
+    retryCounts,
+    tokenTotal,
+    totalEligibleFiles
+  };
+
   const newlyReady: string[] = [];
+  
   for (const f of files) {
-    try {
-      const existing = currentAllMap.get(f.path) || {
-        name: f.path.split('/').pop() || f.path,
-        path: f.path,
-        isDirectory: false,
-        size: f.content?.length ?? 0,
-        isBinary: false,
-        isSkipped: false
-      } as FileData;
-
-      existing.content = f.content;
-      existing.isContentLoaded = true;
-      if (typeof f.tokenCount === 'number') existing.tokenCount = f.tokenCount;
-      currentAllMap.set(f.path, existing);
-
-      // Allow retrying failed/skipped files and processing pending files
-      if (!emittedPaths.has(f.path)) {
-        // Only process if this file was originally eligible
-        if (eligiblePathsSet.has(f.path)) {
-          if (pendingPaths.has(f.path) || failedPaths.has(f.path) || skippedPaths.has(f.path)) {
-            newlyReady.push(f.path);
-            // Clear timeout for pending files
-            const timeout = pendingTimeouts.get(f.path);
-            if (timeout) {
-              clearTimeout(timeout);
-              pendingTimeouts.delete(f.path);
-            }
-            // If it was failed or skipped, move back to pending for retry
-            if (failedPaths.has(f.path)) {
-              failedPaths.delete(f.path);
-              pendingPaths.add(f.path);
-              // Set a new timeout for the retry
-              const newTimeout = self.setTimeout(() => handlePendingTimeout(f.path), PENDING_FILE_TIMEOUT);
-              pendingTimeouts.set(f.path, newTimeout);
-            } else if (skippedPaths.has(f.path)) {
-              skippedPaths.delete(f.path);
-              pendingPaths.add(f.path);
-              // Set a new timeout for the retry
-              const newTimeout = self.setTimeout(() => handlePendingTimeout(f.path), PENDING_FILE_TIMEOUT);
-              pendingTimeouts.set(f.path, newTimeout);
-            }
-          }
-        }
-      }
-    } catch (error) {
-      // Handle errors in processing individual file updates
-      if (DEBUG_ENABLED) {
-        console.log('[Worker] Error processing file update:', f.path, error);
-      }
-      // Mark as failed if it's not a transient error
-      if (!isTransientError(error) && eligiblePathsSet.has(f.path)) {
-        pendingPaths.delete(f.path);
-        failedPaths.add(f.path);
-        const timeout = pendingTimeouts.get(f.path);
-        if (timeout) {
-          clearTimeout(timeout);
-          pendingTimeouts.delete(f.path);
-        }
-      }
+    const isReady = processFileUpdate(
+      f,
+      currentAllMap,
+      eligiblePathsSet,
+      context,
+      handlePendingTimeout,
+      isTransientError
+    );
+    
+    if (isReady) {
+      newlyReady.push(f.path);
     }
   }
 
@@ -1086,14 +1016,14 @@ function stopMemoryCleanup() {
 }
 
 // READY
-workerCtx.postMessage({ type: 'READY' as const });
+workerCtx.postMessage({ type: 'READY' as const } satisfies PreviewWorkerMessage);
 
 // Message loop
 workerCtx.addEventListener('message', async (e: MessageEvent<Incoming>) => {
   const msg = e.data;
   try {
     if (msg.type === 'INIT') {
-      workerCtx.postMessage({ type: 'READY' as const });
+      workerCtx.postMessage({ type: 'READY' as const } satisfies PreviewWorkerMessage);
       return;
     }
     if (msg.type === 'CANCEL') {
@@ -1106,14 +1036,14 @@ workerCtx.addEventListener('message', async (e: MessageEvent<Incoming>) => {
         pendingTimeouts.clear();
         // Stop memory cleanup on cancel
         stopMemoryCleanup();
-        workerCtx.postMessage({ type: 'CANCELLED' as const, id: currentId! });
+        workerCtx.postMessage({ type: 'CANCELLED' as const, id: currentId! } satisfies PreviewWorkerMessage);
       }
       return;
     }
     if (msg.type === 'START') {
       const p = msg.payload;
       if (!p || !p.id || !Array.isArray(p.allFiles) || !Array.isArray(p.selectedFiles)) {
-        workerCtx.postMessage({ type: 'ERROR' as const, id: p?.id || 'unknown', error: 'Invalid START payload' });
+        workerCtx.postMessage({ type: 'ERROR' as const, id: p?.id || 'unknown', error: 'Invalid START payload' } satisfies PreviewWorkerMessage);
         return;
       }
       // Start memory cleanup when processing begins
@@ -1135,6 +1065,6 @@ workerCtx.addEventListener('message', async (e: MessageEvent<Incoming>) => {
       type: 'ERROR' as const,
       id: (msg as Incoming & { payload?: { id?: string } })?.payload?.id || currentId || 'unknown',
       error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    } satisfies PreviewWorkerMessage);
   }
 });

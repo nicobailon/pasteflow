@@ -1,7 +1,7 @@
 export * from './app-constants';
 export * from './workspace-drag-constants';
 
-import { excludedFiles } from '@shared/excluded-files';
+
 
 export const STORAGE_KEYS = {
   SELECTED_FOLDER: 'pasteflow.selected_folder',
@@ -32,4 +32,5 @@ export const SORT_OPTIONS = [
  * Default exclusion patterns for file scanning.
  * Exported as an alias to the shared excludedFiles list to avoid duplication.
  */
-export const DEFAULT_EXCLUSION_PATTERNS = excludedFiles;
+
+export {excludedFiles as DEFAULT_EXCLUSION_PATTERNS} from '@shared/excluded-files';

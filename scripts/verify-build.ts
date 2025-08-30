@@ -3,12 +3,12 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 function log(msg: string): void {
-  // eslint-disable-next-line no-console
+   
   console.log(msg);
 }
 
 function err(msg: string): void {
-  // eslint-disable-next-line no-console
+   
   console.error(msg);
 }
 
@@ -81,7 +81,7 @@ function err(msg: string): void {
       log(`🏗️ electron-builder version: ${version}`);
     } catch (error) {
       err('❌ Failed to get electron-builder version');
-      // eslint-disable-next-line no-console
+       
       console.error(error);
     }
 
@@ -92,7 +92,7 @@ function err(msg: string): void {
     log('  npm run package:all    # Build for all platforms (requires proper setup)');
   } catch (error) {
     err('❌ Error while verifying build configuration:');
-    // eslint-disable-next-line no-console
+     
     console.error(error);
     process.exit(1);
   }

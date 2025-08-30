@@ -32,6 +32,10 @@ type WorkerIncomingMessage =
   | WorkerHealthCheckMessage;
 
 // Worker response types
+interface WorkerReadyResponse {
+  type: 'WORKER_READY';
+}
+
 interface WorkerInitCompleteResponse {
   type: 'INIT_COMPLETE';
   id: string;
@@ -64,6 +68,7 @@ interface WorkerErrorResponse {
 }
 
 type WorkerOutgoingMessage = 
+  | WorkerReadyResponse
   | WorkerInitCompleteResponse 
   | WorkerTokenCountResponse 
   | WorkerBatchResultResponse 
@@ -72,6 +77,18 @@ type WorkerOutgoingMessage =
 
 export default class TokenCounterWorker {
   onmessage: ((event: MessageEvent<WorkerOutgoingMessage>) => void) | null = null;
+  
+  constructor() {
+    // Send WORKER_READY signal immediately as the real worker does
+    setTimeout(() => {
+      if (this.onmessage) {
+        const readyResponse: WorkerReadyResponse = { type: 'WORKER_READY' };
+        this.onmessage(new MessageEvent('message', {
+          data: readyResponse
+        }));
+      }
+    }, 0);
+  }
   
   postMessage(data: WorkerIncomingMessage): void {
     // Simulate worker behavior with realistic timing

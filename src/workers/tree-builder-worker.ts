@@ -1,6 +1,6 @@
+import { UI } from '../constants';
+import { normalizePath } from '../file-ops/path';
 import type { FileData, TreeNode } from '../types/file-types';
-import { UI } from '@constants';
-import { normalizePath } from '@file-ops/path';
 
 interface TreeBuilderMessage {
   type?: 'INIT' | 'BUILD_TREE' | 'CANCEL';

@@ -1,4 +1,9 @@
-import { z } from 'zod';
+import { z } from "zod";
+import {
+  LineRangeSchema,
+  SelectedFileReferenceSchema,
+  InstructionSchema as SharedInstructionSchema
+} from "../../shared-schemas";
 
 // Workspace schemas
 export const WorkspaceSchema = z.object({
@@ -49,10 +54,7 @@ export const FileContentRequestSchema = z.object({
   // Allow both UUID and numeric string IDs (database uses INTEGER PRIMARY KEY)
   workspaceId: z.string().min(1),
   filePath: z.string(),
-  lineRanges: z.array(z.object({
-    start: z.number().int().positive(),
-    end: z.number().int().positive()
-  })).optional()
+  lineRanges: z.array(LineRangeSchema).optional()
 });
 
 // Legacy file content request schema for backward compatibility
@@ -62,9 +64,7 @@ export const RequestFileContentSchema = z.object({
 
 export const FileContentResponseSchema = z.object({
   content: z.string(),
-  tokenCount: z.number().int(),
-  hash: z.string(),
-  compressed: z.boolean()
+  tokenCount: z.number().int()
 });
 
 export const FileSaveSchema = z.object({
@@ -121,45 +121,37 @@ export const InstructionSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(255),
   content: z.string(),
-  category: z.string().optional(),
   createdAt: z.number(),
   updatedAt: z.number()
 });
 
 export const InstructionCreateSchema = z.object({
-  name: z.string().min(1).max(255),
-  content: z.string(),
-  category: z.string().optional()
+  name: SharedInstructionSchema.shape.name,
+  content: SharedInstructionSchema.shape.content
 });
 
 // Workspace selection schemas
 export const WorkspaceSelectionSchema = z.object({
-  selectedFiles: z.array(z.object({
-    path: z.string(),
-    lines: z.array(z.object({
-      start: z.number().int().positive(),
-      end: z.number().int().positive()
-    })).optional(),
-    content: z.string().optional(),
-    tokenCount: z.number().int().optional(),
-    isFullFile: z.boolean().optional(),
-    isContentLoaded: z.boolean().optional()
-  })),
+  selectedFiles: z.array(
+    SelectedFileReferenceSchema.extend({
+      content: z.string().optional(),
+      tokenCount: z.number().int().optional(),
+      isFullFile: z.boolean().optional(),
+      isContentLoaded: z.boolean().optional()
+    })
+  ),
   lastModified: z.number()
 });
 
 export const WorkspaceSelectionUpdateSchema = z.object({
-  selectedFiles: z.array(z.object({
-    path: z.string(),
-    lines: z.array(z.object({
-      start: z.number().int().positive(),
-      end: z.number().int().positive()
-    })).optional(),
-    content: z.string().optional(),
-    tokenCount: z.number().int().optional(),
-    isFullFile: z.boolean().optional(),
-    isContentLoaded: z.boolean().optional()
-  })),
+  selectedFiles: z.array(
+    SelectedFileReferenceSchema.extend({
+      content: z.string().optional(),
+      tokenCount: z.number().int().optional(),
+      isFullFile: z.boolean().optional(),
+      isContentLoaded: z.boolean().optional()
+    })
+  ),
   lastModified: z.number()
 });
 
@@ -196,3 +188,5 @@ export type WorkspaceSelectionType = z.infer<typeof WorkspaceSelectionSchema>;
 export type WorkspaceSelectionUpdateType = z.infer<typeof WorkspaceSelectionUpdateSchema>;
 export type ActivePromptsType = z.infer<typeof ActivePromptsSchema>;
 export type AuditLogEntryType = z.infer<typeof AuditLogEntrySchema>;
+export type LineRangeType = z.infer<typeof LineRangeSchema>;
+export type SelectedFileReferenceType = z.infer<typeof SelectedFileReferenceSchema>;

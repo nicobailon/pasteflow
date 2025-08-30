@@ -3,8 +3,9 @@ import { FixedSizeList as List } from 'react-window';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-import { useTheme } from '../context/theme-context';
 import { UI } from '@constants';
+
+import { useTheme } from '../context/theme-context';
 
 interface VirtualizedFileViewerProps {
   content: string;

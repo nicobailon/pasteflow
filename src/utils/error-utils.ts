@@ -21,7 +21,7 @@ export function getErrorMessage(error: unknown): string {
  * Use at the end of a switch to ensure all variants are handled.
  */
 export function assertNever(x: never, message = 'Unexpected value'): never {
-  // eslint-disable-next-line no-console
+   
   console.error(`[assertNever] ${message}:`, x);
   throw new Error(`${message}: ${String(x)}`);
 }

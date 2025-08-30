@@ -4,11 +4,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
+import { UI } from '@constants';
+
 import { useTheme } from '../context/theme-context';
 import { FileData, FileViewModalProps, LineRange } from '../types/file-types';
 import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 import { useOptimizedSelection } from '../hooks/use-optimized-selection';
-import { UI } from '@constants';
 import { fileViewerPerformance } from '../utils/file-viewer-performance';
 import { throttle } from '../utils/throttle';
 import { estimateTokenCount } from '../utils/token-utils';

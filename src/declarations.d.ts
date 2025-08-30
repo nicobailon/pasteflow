@@ -2,7 +2,6 @@
 declare module "electron";
 declare module "tiktoken";
 declare module "ignore";
-declare module "gpt-3-encoder";
 
 // Allow importing CSS files
 declare module "*.css" {

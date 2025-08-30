@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+
 import { notarize } from '@electron/notarize';
 
 // This script is called by electron-builder after signing the app

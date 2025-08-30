@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 
 import { STORAGE_KEYS, FILE_PROCESSING } from '@constants';
+
 import { FileData, LineRange, SelectedFileReference } from '../types/file-types';
 import { buildFolderIndex, getFilesInFolder, type FolderIndex } from '../utils/folder-selection-index';
 import { createDirectorySelectionCache } from '../utils/selection-cache';
@@ -8,6 +9,165 @@ import { BoundedLRUCache } from '../utils/bounded-lru-cache';
 import { getGlobalPerformanceMonitor } from '../utils/performance-monitor';
 
 import { useDebouncedPersistentState } from './use-debounced-persistent-state';
+
+/**
+ * Pure state transition helper to apply selection changes.
+ * Designed for unit testing and to reduce branching inside the hook.
+ */
+export type SelectionAction =
+  | { type: "toggle-file"; filePath: string }
+  | { type: "toggle-line-range"; filePath: string; range?: LineRange }
+  | { type: "toggle-folder"; folderPath: string; isSelected: boolean }
+  | { type: "select-all"; displayedFiles: FileData[] }
+  | { type: "deselect-all"; displayedFiles: FileData[] }
+  | { type: "clear" }
+  | { type: "set"; files: SelectedFileReference[] };
+
+export interface SelectionContext {
+  allFilesMap?: Map<string, FileData>;
+  folderIndex?: FolderIndex;
+}
+
+function canSelectPath(p: string, ctx: SelectionContext): boolean {
+  if (!ctx.allFilesMap) return true;
+  const file = ctx.allFilesMap.get(p);
+  return !!file && !file.isBinary && !file.isSkipped;
+}
+
+function applyClear(): SelectedFileReference[] { return []; }
+
+function applySet(files: SelectedFileReference[]): SelectedFileReference[] {
+  const unique = new Map<string, SelectedFileReference>();
+  for (const f of files) {
+    if (!f?.path) continue;
+    unique.set(f.path, { path: f.path, lines: f.lines });
+  }
+  return [...unique.values()];
+}
+
+function applyToggleFile(state: SelectedFileReference[], filePath: string, ctx: SelectionContext): SelectedFileReference[] {
+  if (!canSelectPath(filePath, ctx)) return state;
+  const byPath = new Map(state.map((s) => [s.path, s] as const));
+  if (byPath.has(filePath)) {
+    byPath.delete(filePath);
+  } else {
+    byPath.set(filePath, { path: filePath });
+  }
+  return [...byPath.values()];
+}
+
+function applyToggleLineRange(state: SelectedFileReference[], filePath: string, range: LineRange | undefined, ctx: SelectionContext): SelectedFileReference[] {
+  if (!range) return applyToggleFile(state, filePath, ctx);
+  if (!canSelectPath(filePath, ctx)) return state;
+  const byPath = new Map(state.map((s) => [s.path, s] as const));
+  const existing = byPath.get(filePath);
+  if (!existing) {
+    byPath.set(filePath, { path: filePath, lines: [range] });
+    return [...byPath.values()];
+  }
+  const existingLines = existing.lines || [];
+  const idx = existingLines.findIndex((x) => x.start === range.start && x.end === range.end);
+  if (idx >= 0) {
+    const nextLines = existingLines.filter((_, i) => i !== idx);
+    if (nextLines.length === 0) {
+      byPath.delete(filePath);
+    } else {
+      byPath.set(filePath, { path: filePath, lines: nextLines });
+    }
+  } else {
+    byPath.set(filePath, { path: filePath, lines: [...existingLines, range] });
+  }
+  return [...byPath.values()];
+}
+
+function applySelectAll(state: SelectedFileReference[], displayedFiles: FileData[], ctx: SelectionContext): SelectedFileReference[] {
+  const byPath = new Map(state.map((s) => [s.path, s] as const));
+  for (const f of displayedFiles) {
+    if (f.isBinary || f.isSkipped) continue;
+    if (!byPath.has(f.path) && canSelectPath(f.path, ctx)) byPath.set(f.path, { path: f.path });
+  }
+  return [...byPath.values()];
+}
+
+function applyDeselectAll(state: SelectedFileReference[], displayedFiles: FileData[]): SelectedFileReference[] {
+  const toRemove = new Set(displayedFiles.map((f) => f.path));
+  return state.filter((s) => !toRemove.has(s.path));
+}
+
+function applyToggleFolder(state: SelectedFileReference[], folderPath: string, isSelected: boolean, ctx: SelectionContext): SelectedFileReference[] {
+  const index = ctx.folderIndex;
+  if (!index) return state;
+  const inFolder = getFilesInFolder(index, folderPath).filter((p) => canSelectPath(p, ctx));
+  if (inFolder.length === 0) return state;
+
+  const byPath = new Map(state.map((s) => [s.path, s] as const));
+  const selectedInFolder = inFolder.filter((p) => byPath.has(p));
+  const allSelected = selectedInFolder.length === inFolder.length;
+  const noneSelected = selectedInFolder.length === 0;
+  if ((isSelected && allSelected) || (!isSelected && noneSelected)) return state;
+
+  if (isSelected) {
+    for (const p of inFolder) if (!byPath.has(p)) byPath.set(p, { path: p });
+  } else {
+    for (const p of inFolder) byPath.delete(p);
+  }
+  return [...byPath.values()];
+}
+
+export function applySelectionChange(
+  state: SelectedFileReference[],
+  action: SelectionAction,
+  ctx: SelectionContext = {}
+): SelectedFileReference[] {
+  switch (action.type) {
+    case "clear": { return applyClear(); }
+    case "set": { return applySet(action.files); }
+    case "toggle-file": { return applyToggleFile(state, action.filePath, ctx); }
+    case "toggle-line-range": { return applyToggleLineRange(state, action.filePath, action.range, ctx); }
+    case "select-all": { return applySelectAll(state, action.displayedFiles, ctx); }
+    case "deselect-all": { return applyDeselectAll(state, action.displayedFiles); }
+    case "toggle-folder": { return applyToggleFolder(state, action.folderPath, action.isSelected, ctx); }
+    default: { return state; }
+  }
+}
+
+// Helper: list selectable file paths under a folder
+function getSelectableFolderFiles(
+  allFilesMap: Map<string, FileData>,
+  index: FolderIndex,
+  folderPath: string
+): string[] {
+  const filesInFolderPaths = getFilesInFolder(index, folderPath);
+  if (filesInFolderPaths.length === 0) return [];
+  return filesInFolderPaths.filter((filePath) => {
+    const file = allFilesMap.get(filePath);
+    return !!file && !file.isBinary && !file.isSkipped;
+  });
+}
+
+type FolderTogglePlan =
+  | { kind: 'noop' }
+  | { kind: 'add'; additions: string[] }
+  | { kind: 'remove'; toRemove: Set<string> };
+
+function computeFolderTogglePlan(
+  selectableFiles: string[],
+  selectedFiles: SelectedFileReference[],
+  isSelected: boolean
+): FolderTogglePlan {
+  if (selectableFiles.length === 0) return { kind: 'noop' };
+  const setSelectable = new Set(selectableFiles);
+  const selectedInFolder = selectedFiles.filter((f) => setSelectable.has(f.path));
+  const allFilesSelected = selectedInFolder.length === selectableFiles.length;
+  const noFilesSelected = selectedInFolder.length === 0;
+  if ((isSelected && allFilesSelected) || (!isSelected && noFilesSelected)) return { kind: 'noop' };
+  if (isSelected) {
+    const existing = new Set(selectedFiles.map((f) => f.path));
+    const additions = selectableFiles.filter((p) => !existing.has(p));
+    return { kind: 'add', additions };
+  }
+  return { kind: 'remove', toRemove: new Set(selectableFiles) };
+}
 
 /**
  * Custom hook to manage file selection state
@@ -189,7 +349,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (allFiles.length === 0) return;
     
     // Create a Set of all current file paths for O(1) lookup (leveraging precomputed map)
-    const existingFilePaths = new Set<string>([...allFilesMap.keys()]);
+    const existingFilePaths = new Set<string>(allFilesMap.keys());
     
     setSelectedFiles(prev => {
       // Filter out any selected files that no longer exist in allFiles
@@ -235,76 +395,17 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
   // Toggle file selection
   const toggleFileSelection = useCallback((filePath: string): void => {
-    setSelectedFiles((prev) => {
-      // Use functional update to ensure we have latest state
-      const existingIndex = prev.findIndex((f) => f.path === filePath);
-      
-      if (existingIndex >= 0) {
-        // File exists - remove it
-        return prev.filter((f) => f.path !== filePath);
-      }
-      
-      // Double-check to prevent race condition duplicates
-      if (prev.some(f => f.path === filePath)) {
-        return prev;
-      }
-      
-      const fileData = allFiles.find((f) => f.path === filePath);
-      if (!fileData) return prev;
-      
-      const newFile: SelectedFileReference = {
-        path: filePath
-        // lines undefined means entire file
-      };
-      
-      return [...prev, newFile];
-    });
-  }, [allFiles, setSelectedFiles]);
+    setSelectedFiles((prev) =>
+      applySelectionChange(prev, { type: "toggle-file", filePath }, { allFilesMap })
+    );
+  }, [allFilesMap, setSelectedFiles]);
 
   // Toggle selection for a specific line range within a file
   const toggleSelection = useCallback((filePath: string, lineRange?: LineRange) => {
-    setSelectedFiles((prev) => {
-      const existingIndex = prev.findIndex((f) => f.path === filePath);
-
-      if (!lineRange) {
-        // If no line range, toggle the entire file
-        return existingIndex >= 0 ? prev.filter((f) => f.path !== filePath) : [...prev, { path: filePath }];
-      }
-
-      // With a line range
-      if (existingIndex < 0) {
-        // If file not selected, add it with the new line range
-        return [...prev, { path: filePath, lines: [lineRange] }];
-      } else {
-        // File is already selected, modify its line ranges
-        const newSelection = [...prev];
-        const selectedFile = newSelection[existingIndex];
-        const existingLines = selectedFile.lines || [];
-        const lineIndex = existingLines.findIndex(
-          (r) => r.start === lineRange.start && r.end === lineRange.end
-        );
-
-        if (lineIndex >= 0) {
-          // Line range exists, remove it
-          const updatedLines = existingLines.filter((_, i) => i !== lineIndex);
-          if (updatedLines.length === 0) {
-            // If no lines are left, remove the file from selection
-            return prev.filter((f) => f.path !== filePath);
-          } else {
-            newSelection[existingIndex] = { ...selectedFile, lines: updatedLines };
-            return newSelection;
-          }
-        } else {
-          // Line range doesn't exist, add it
-          newSelection[existingIndex] = {
-            ...selectedFile,
-            lines: [...existingLines, lineRange],
-          };
-          return newSelection;
-        }
-      }
-    });
-  }, [setSelectedFiles]);
+    setSelectedFiles((prev) =>
+      applySelectionChange(prev, { type: "toggle-line-range", filePath, range: lineRange }, { allFilesMap })
+    );
+  }, [setSelectedFiles, allFilesMap]);
 
   // Toggle folder selection (select/deselect all files in folder) with chunking and coalescing
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
@@ -317,99 +418,40 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
     const endMeasureToggle = perf.startMeasure('selection.apply.toggleFolder.ms');
 
-    // Use folder index for O(1) lookup with absolute paths
-    const filesInFolderPaths = getFilesInFolder(folderIndex, folderPath);
-
-    // If no files in folder, bail early
-    if (filesInFolderPaths.length === 0) {
-      endMeasureToggle();
-      return;
-    }
-
-    // Filter to only selectable files with O(1) lookups
-    const selectableFiles = filesInFolderPaths.filter((filePath) => {
-      const file = allFilesMap.get(filePath);
-      return file && !file.isBinary && !file.isSkipped;
-    });
-
-    if (selectableFiles.length === 0) {
-      endMeasureToggle();
-      return;
-    }
-
-    // Precompute set for fast membership checks
-    const selectableFilesSet = new Set(selectableFiles);
-
-    // Check current selection state of folder
-    const selectedFilesInFolder = selectedFiles.filter(
-      (f: SelectedFileReference) => selectableFilesSet.has(f.path)
-    );
-
-    // Determine if we should actually toggle
-    const allFilesSelected = selectedFilesInFolder.length === selectableFiles.length;
-    const noFilesSelected = selectedFilesInFolder.length === 0;
-
-    if ((isSelected && allFilesSelected) || (!isSelected && noFilesSelected)) {
-      endMeasureToggle();
-      return;
-    }
+    // Compute folder plan
+    const selectableFiles = getSelectableFolderFiles(allFilesMap, folderIndex, folderPath);
+    const plan = computeFolderTogglePlan(selectableFiles, selectedFiles, isSelected);
+    if (plan.kind === 'noop') { endMeasureToggle(); return; }
 
     // Optimistically update the cache if requested
-    if (opts?.optimistic !== false) {
+    const updateOptimistic = () => {
+      if (opts?.optimistic === false) return;
       const newState = isSelected ? 'full' : 'none';
-
-      // Compute canonical alt path variant to avoid leading-slash mismatch issues
-      // Special-case root: do not create an empty-string key
-      const altPath = folderPath === '/'
-        ? null
-        : (folderPath.startsWith('/') ? folderPath.slice(1) : ('/' + folderPath));
-
-      // Clear any existing timeout for this path
+      const altPath = folderPath === '/' ? null : (folderPath.startsWith('/') ? folderPath.slice(1) : ('/' + folderPath));
       const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
-      if (existingTimeout) {
-        clearTimeout(existingTimeout);
-      }
-
-      // Mark operation as pending
+      if (existingTimeout) clearTimeout(existingTimeout);
       pendingOperationsRef.current.add(folderPath);
-
-      // Set optimistic state using the folder path and (when present) its mirrored variant
       optimisticFolderStatesRef.current.set(folderPath, newState);
-      if (altPath) {
-        optimisticFolderStatesRef.current.set(altPath, newState);
-      }
-      
-      // Immediately update the base cache as well for instant feedback (base cache already mirrors variants)
+      if (altPath) optimisticFolderStatesRef.current.set(altPath, newState);
       const cache = baseFolderSelectionCacheRef.current;
       if (cache && cache.set) {
         cache.set(folderPath, newState);
-        // Also ensure the cache knows about the current selected paths
         const paths = new Set<string>(selectedFiles.map(f => f.path));
-        if (cache.setSelectedPaths) {
-          cache.setSelectedPaths(paths);
-        }
-        setManualCacheVersion(v => v + 1); // Trigger re-render for cache update
+        cache.setSelectedPaths?.(paths);
+        setManualCacheVersion(v => v + 1);
       }
-      
-      setOptimisticStateVersion(v => v + 1); // Trigger re-render for optimistic update
-
-      // Schedule cleanup with a shorter timeout for faster UI updates
+      setOptimisticStateVersion(v => v + 1);
       const timeout = setTimeout(() => {
-        // Only clean up if no pending operations for this path
         if (!pendingOperationsRef.current.has(folderPath)) {
           optimisticFolderStatesRef.current.delete(folderPath);
-          if (altPath) {
-            optimisticFolderStatesRef.current.delete(altPath);
-          }
-          setOptimisticStateVersion(v => v + 1); // Trigger re-render
+          if (altPath) optimisticFolderStatesRef.current.delete(altPath);
+          setOptimisticStateVersion(v => v + 1);
           optimisticTimeoutsRef.current.delete(folderPath);
         }
-      }, FILE_PROCESSING.OPTIMISTIC_UPDATE_CLEANUP_MS); // Shorter delay for faster UI feedback
-
+      }, FILE_PROCESSING.OPTIMISTIC_UPDATE_CLEANUP_MS);
       optimisticTimeoutsRef.current.set(folderPath, timeout);
-    }
+    };
 
-    // Helper: kick progressive overlay recompute
     const kickOverlay = () => {
       const cache = baseFolderSelectionCacheRef.current;
       if (!cache) return;
@@ -418,107 +460,76 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       cache.startProgressiveRecompute?.({ selectedPaths: paths });
     };
 
-    if (isSelected) {
-      // Add all files from this folder that aren't already selected (chunked)
-      const existingSelected = new Set<string>(selectedFiles.map(f => f.path));
-      const additions = selectableFiles.filter(p => !existingSelected.has(p));
+    const runAdditionsChunked = (additions: string[]) => {
       const total = additions.length;
       if (total === 0) {
-        if (opts?.optimistic !== false) {
-          pendingOperationsRef.current.delete(folderPath);
-        }
+        if (opts?.optimistic !== false) pendingOperationsRef.current.delete(folderPath);
         endMeasureToggle();
         return;
       }
-
       const endMeasureChunks = perf.startMeasure('selection.apply.add.chunked.total.ms');
       let index = 0;
       let chunks = 0;
-
       const runChunk = () => {
         const start = index;
         const end = Math.min(index + BULK.ADD_CHUNK, total);
         const slice = additions.slice(start, end);
-
         startTransition(() => {
           setSelectedFiles((prev: SelectedFileReference[]) => {
-            // Deduplicate using a Set seeded with prev
             const set = new Set<string>(prev.map(f => f.path));
-            if (slice.every(p => set.has(p))) {
-              return prev;
-            }
+            if (slice.every(p => set.has(p))) return prev;
             const next = [...prev];
-            for (const p of slice) {
-              if (!set.has(p)) {
-                set.add(p);
-                next.push({ path: p });
-              }
-            }
+            for (const p of slice) if (!set.has(p)) { set.add(p); next.push({ path: p }); }
             return next;
           });
         });
-
         index = end;
         chunks++;
-
-        // Keep overlay progressing while applying chunks
         kickOverlay();
-
         if (index < total) {
-          // Schedule next chunk via microtask to keep UI responsive
           Promise.resolve().then(runChunk);
         } else {
-          // Completed
           endMeasureChunks();
           perf.recordMetric('selection.apply.chunks', chunks);
-          if (opts?.optimistic !== false) {
-            pendingOperationsRef.current.delete(folderPath);
-          }
+          if (opts?.optimistic !== false) pendingOperationsRef.current.delete(folderPath);
           endMeasureToggle();
         }
       };
-
       runChunk();
-    } else {
-      // Remove all files from this folder (chunk building + single commit)
-      const toRemove = new Set(selectableFiles);
-      const snapshot = selectedFiles.slice(); // snapshot for deterministic rebuild
+    };
+
+    const runRemovalsChunked = (toRemove: Set<string>) => {
+      const snapshot = [...selectedFiles];
       const total = snapshot.length;
       let index = 0;
       const CHUNK = BULK.REMOVE_CHUNK;
       const kept: SelectedFileReference[] = [];
-
       const endMeasureChunks = perf.startMeasure('selection.apply.remove.chunked.total.ms');
-
       const buildNext = () => {
         const start = index;
         const end = Math.min(index + CHUNK, total);
         for (let i = start; i < end; i++) {
           const f = snapshot[i];
-          if (!toRemove.has(f.path)) {
-            kept.push(f);
-          }
+          if (!toRemove.has(f.path)) kept.push(f);
         }
         index = end;
-
-        // Keep overlay progressing as we compute
         kickOverlay();
-
         if (index < total) {
           setTimeout(buildNext, 0);
         } else {
-          // Commit in a single state update for removals
           startTransition(() => setSelectedFiles(kept));
           endMeasureChunks();
-          if (opts?.optimistic !== false) {
-            pendingOperationsRef.current.delete(folderPath);
-          }
+          if (opts?.optimistic !== false) pendingOperationsRef.current.delete(folderPath);
           endMeasureToggle();
         }
       };
-
       buildNext();
-    }
+    };
+
+    updateOptimistic();
+
+    if (plan.kind === 'add') { runAdditionsChunked(plan.additions); }
+    else { runRemovalsChunked(plan.toRemove); }
   }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex, perf, BULK]);
 
   // Handle select all files (chunked to maintain responsiveness)
@@ -609,7 +620,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     // Convert displayed paths to a Set for faster lookups
     const toRemove = new Set(displayedFiles.map((file: FileData) => file.path));
 
-    const snapshot = selectedFiles.slice();
+    const snapshot = [...selectedFiles];
     const total = snapshot.length;
     let index = 0;
     const CHUNK = BULK.REMOVE_CHUNK;

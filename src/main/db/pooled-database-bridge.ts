@@ -5,69 +5,10 @@ import * as fs from 'node:fs/promises';
 import { app } from 'electron';
 
 import { PooledDatabase, PooledDatabaseConfig } from './pooled-database';
-import { QueryResult } from './connection-pool';
+import type { FileData, SelectedFileReference, SystemPrompt, RolePrompt, Instruction, WorkspaceState } from '../../shared-types';
+import type { WorkspaceRecord, PreferenceRecord } from './types';
+import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
 
-// Define precise types locally to avoid React dependencies
-interface FileData {
-  path: string;
-  name: string;
-  size: number;
-  isDirectory: boolean;
-  isSymlink?: boolean;
-  isBinary?: boolean;
-  extension?: string;
-  content?: string;
-  tokenCount?: number;
-}
-
-interface SelectedFileReference {
-  path: string;
-  lines?: { start: number; end: number }[];
-}
-
-interface SystemPrompt {
-  id: string;
-  name: string;
-  content: string;
-  isSelected: boolean;
-}
-
-interface RolePrompt {
-  id: string;
-  name: string;
-  content: string;
-  isSelected: boolean;
-}
-
-interface Instruction {
-  id: string;
-  title: string;
-  content: string;
-  isGlobal: boolean;
-  isSelected?: boolean;
-}
-
-type FileTreeMode = 'none' | 'selected' | 'selected_with_roots' | 'complete';
-
-interface WorkspaceState {
-  selectedFolder: string | null;
-  allFiles: FileData[];
-  selectedFiles: SelectedFileReference[];
-  expandedNodes: Record<string, boolean>;
-  sortOrder: string;
-  searchTerm: string;
-  fileTreeMode: FileTreeMode;
-  exclusionPatterns: string[];
-  userInstructions: string;
-  tokenCounts: Record<string, number>;
-  folderIndex?: Map<string, string[]>;
-  customPrompts: {
-    systemPrompts: SystemPrompt[];
-    rolePrompts: RolePrompt[];
-  };
-  selectedInstructions?: Instruction[];
-  savedAt?: number;
-}
 
 // Error messages
 const DATABASE_NOT_INITIALIZED_ERROR = 'Database is not initialized';
@@ -81,21 +22,7 @@ export interface DatabaseBridgeConfig extends PooledDatabaseConfig {
   maintenanceInterval?: number;
 }
 
-// Precise types for workspace operations
-export interface WorkspaceRecord extends QueryResult {
-  id: string;
-  name: string;
-  folder_path: string;
-  state: string;
-  created_at: number;
-  updated_at: number;
-  last_accessed: number;
-}
-
-export interface PreferenceRecord extends QueryResult {
-  key: string;
-  value: string;
-}
+// DTO types imported from ./types
 
 // Extended workspace state with database metadata
 export interface WorkspaceStateWithMetadata extends WorkspaceState {
@@ -328,8 +255,8 @@ export class PooledDatabaseBridge extends EventEmitter {
     `);
     
     return rows.map(row => ({
-      ...this.parseWorkspaceState(row.state),
-      id: row.id,
+      ...toDomainWorkspaceState(row),
+      id: String(row.id),
       name: row.name,
       folderPath: row.folder_path,
       createdAt: row.created_at,
@@ -344,7 +271,7 @@ export class PooledDatabaseBridge extends EventEmitter {
     const result = await this.db.run(`
       INSERT INTO workspaces (name, folder_path, state) 
       VALUES (?, ?, ?)
-    `, [name, folderPath, JSON.stringify(state)]);
+    `, [name, folderPath, fromDomainWorkspaceState(state as WorkspaceState)]);
     
     return this.getWorkspace(String(result.lastInsertRowid));
   }
@@ -363,8 +290,8 @@ export class PooledDatabaseBridge extends EventEmitter {
     }
     
     return {
-      ...this.parseWorkspaceState(row.state),
-      id: row.id,
+      ...toDomainWorkspaceState(row),
+      id: String(row.id),
       name: row.name,
       folderPath: row.folder_path,
       createdAt: row.created_at,
@@ -373,14 +300,14 @@ export class PooledDatabaseBridge extends EventEmitter {
     } as WorkspaceStateWithMetadata;
   }
 
-  async updateWorkspace(name: string, state: WorkspaceState): Promise<void> {
+  async updateWorkspace(name: string, state: Partial<WorkspaceState>): Promise<void> {
     if (!this.db) throw new Error(DATABASE_NOT_INITIALIZED_ERROR);
     
     await this.db.run(`
       UPDATE workspaces 
       SET state = ?, updated_at = strftime('%s', 'now') * 1000 
       WHERE name = ?
-    `, [JSON.stringify(state), name]);
+    `, [fromDomainWorkspaceState(state as WorkspaceState), name]);
   }
 
   async deleteWorkspace(name: string): Promise<void> {
@@ -517,33 +444,7 @@ export class PooledDatabaseBridge extends EventEmitter {
   }
 
   // Utility methods
-  private parseWorkspaceState(stateJson: string): WorkspaceState {
-    try {
-      return stateJson ? JSON.parse(stateJson) : this.getDefaultWorkspaceState();
-    } catch (error) {
-      console.warn('Failed to parse workspace state:', error);
-      return this.getDefaultWorkspaceState();
-    }
-  }
-
-  private getDefaultWorkspaceState(): WorkspaceState {
-    return {
-      selectedFolder: null,
-      allFiles: [],
-      selectedFiles: [],
-      expandedNodes: {},
-      sortOrder: 'name',
-      searchTerm: '',
-      fileTreeMode: 'none',
-      exclusionPatterns: [],
-      userInstructions: '',
-      tokenCounts: {},
-      customPrompts: {
-        systemPrompts: [],
-        rolePrompts: []
-      }
-    };
-  }
+  // Workspace state parse/serialize handled by db/mappers
 
   // Performance and monitoring
   getStats() {

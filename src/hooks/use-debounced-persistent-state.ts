@@ -19,7 +19,19 @@ export function useDebouncedPersistentState<T>(
 
   // Keep local value in sync when persisted value changes (e.g., initial load)
   useEffect(() => {
-    setValue(persistedValue);
+    // Avoid redundant updates that can cause re-render cascades
+    setValue(prev => {
+      if (Object.is(prev, persistedValue)) return prev;
+      try {
+        // Fallback deep compare for objects/arrays
+        const prevJson = typeof prev === 'object' && prev !== null ? JSON.stringify(prev) : prev as unknown as string;
+        const nextJson = typeof persistedValue === 'object' && persistedValue !== null ? JSON.stringify(persistedValue) : persistedValue as unknown as string;
+        if (prevJson === nextJson) return prev;
+      } catch {
+        // If serialization fails, proceed to update to be safe
+      }
+      return persistedValue;
+    });
   }, [persistedValue]);
 
   const setDebounced = useCallback((next: T | ((val: T) => T)) => {
@@ -49,4 +61,3 @@ export function useDebouncedPersistentState<T>(
 }
 
 export default useDebouncedPersistentState;
-

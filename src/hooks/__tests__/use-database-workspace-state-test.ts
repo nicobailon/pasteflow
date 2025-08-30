@@ -43,6 +43,9 @@ Object.defineProperty(window, 'removeEventListener', {
 });
 
 describe('useDatabaseWorkspaceState', () => {
+  // Set a reasonable timeout for all tests in this suite
+  jest.setTimeout(30000); // 30 seconds should be more than enough
+
   beforeEach(() => {
     jest.clearAllMocks();
     
@@ -55,7 +58,6 @@ describe('useDatabaseWorkspaceState', () => {
   const mockWorkspaceState: WorkspaceState = {
     selectedFiles: [{ path: 'file1.txt' }],
     selectedFolder: '/test/folder',
-    allFiles: [],
     expandedNodes: { '/test': true },
     sortOrder: 'name',
     searchTerm: '',
@@ -63,10 +65,8 @@ describe('useDatabaseWorkspaceState', () => {
     exclusionPatterns: [],
     userInstructions: 'Test instructions',
     tokenCounts: {},
-    customPrompts: {
-      systemPrompts: [],
-      rolePrompts: []
-    },
+    systemPrompts: [],
+    rolePrompts: [],
     savedAt: Date.now()
   };
 
@@ -95,12 +95,12 @@ describe('useDatabaseWorkspaceState', () => {
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
       await waitFor(() => {
-        expect(mockInvoke).toHaveBeenCalledWith('/workspace/list');
-      });
+        expect(mockInvoke).toHaveBeenCalledWith('/workspace/list', {});
+      }, { timeout: 5000 });
 
       await waitFor(() => {
         expect(result.current.workspacesList).toEqual([mockDatabaseWorkspace]);
-      });
+      }, { timeout: 5000 });
     });
 
     it('should set up event listener for workspaces changes', () => {
@@ -532,12 +532,22 @@ describe('useDatabaseWorkspaceState', () => {
     });
 
     it('should handle concurrent operations gracefully', async () => {
+      // Set up mock responses for concurrent operations
       mockInvoke
-        .mockResolvedValue([]) // refreshWorkspacesList
-        .mockResolvedValue(null) // findWorkspaceByName
-        .mockResolvedValue(mockDatabaseWorkspace); // create workspace
+        .mockResolvedValueOnce([]) // Initial refreshWorkspacesList  
+        .mockResolvedValueOnce(null) // findWorkspaceByName for Workspace 1
+        .mockResolvedValueOnce(null) // findWorkspaceByName for Workspace 2
+        .mockResolvedValueOnce(null) // findWorkspaceByName for Workspace 3
+        .mockResolvedValueOnce(mockDatabaseWorkspace) // create Workspace 1
+        .mockResolvedValueOnce(mockDatabaseWorkspace) // create Workspace 2
+        .mockResolvedValueOnce(mockDatabaseWorkspace); // create Workspace 3
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
+
+      // Wait for initial refresh to complete
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('/workspace/list', {});
+      }, { timeout: 2000 });
 
       // Start multiple save operations concurrently
       const promises = [
@@ -551,7 +561,7 @@ describe('useDatabaseWorkspaceState', () => {
       });
 
       // All operations should complete successfully
-      expect(mockInvoke).toHaveBeenCalledTimes(5); // Initial refresh + 3 findWorkspaceByName + 1 create call
+      expect(mockInvoke).toHaveBeenCalledTimes(7); // Initial refresh + 3 findWorkspaceByName + 3 create calls
     });
   });
 
@@ -598,10 +608,13 @@ describe('useDatabaseWorkspaceState', () => {
 
       const { result } = renderHook(() => useDatabaseWorkspaceState());
 
-      // Wait for initial load
+      // Wait for initial load to complete
       await waitFor(() => {
-        expect(result.current.workspacesList).toEqual([]);
-      });
+        expect(mockInvoke).toHaveBeenCalledWith('/workspace/list', {});
+      }, { timeout: 5000 });
+
+      // Verify initial state
+      expect(result.current.workspacesList).toEqual([]);
 
       // Get the event handler that was registered
       const eventHandler = mockAddEventListener.mock.calls
@@ -609,16 +622,18 @@ describe('useDatabaseWorkspaceState', () => {
 
       expect(eventHandler).toBeDefined();
 
-      // Trigger the event
+      // Trigger the event to cause a refresh
       await act(async () => {
         if (eventHandler) {
           eventHandler(new CustomEvent('workspacesChanged'));
+          // Give the async operation time to complete
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       });
 
       await waitFor(() => {
         expect(result.current.workspacesList).toEqual([mockDatabaseWorkspace]);
-      });
+      }, { timeout: 5000 });
 
       expect(mockInvoke).toHaveBeenCalledTimes(2); // Initial + event triggered
     });

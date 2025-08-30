@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, type DragEvent } from 'react';
 
-import { WorkspaceSortMode, moveWorkspace, setWorkspaceManualOrder, setWorkspaceSortMode } from '../utils/workspace-sorting';
 import { WORKSPACE_DRAG_SCROLL, WORKSPACE_TRANSFORMS } from '@constants';
+
+import { WorkspaceSortMode, moveWorkspace, setWorkspaceManualOrder, setWorkspaceSortMode } from '../utils/workspace-sorting';
 
 interface UseWorkspaceDragOptions {
   sortMode: WorkspaceSortMode;

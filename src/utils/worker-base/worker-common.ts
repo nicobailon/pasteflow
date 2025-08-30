@@ -29,7 +29,7 @@ export function resolveWorkerUrl(workerRelativePath: string): string {
     // Fallback to environment-specific resolution
     
     // Jest environment - return mock path
-    if (typeof jest !== 'undefined') {
+    if (jest !== undefined) {
       const mockPath = '/mock/worker/path';
       debugLog(`Jest environment detected, using mock: ${mockPath}`);
       return mockPath;

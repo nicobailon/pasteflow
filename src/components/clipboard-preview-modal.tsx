@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Copy, FileText, X } from 'lucide-react';
+
 import type { PreviewState } from '../hooks/use-preview-generator';
 import './clipboard-preview-modal.css';
 
@@ -150,6 +151,8 @@ const ClipboardPreviewModal: React.FC<ClipboardPreviewModalProps> = ({
   return (
     <div
       className="clipboard-preview-overlay"
+      role="button"
+      tabIndex={0}
       onClick={handleClose}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {

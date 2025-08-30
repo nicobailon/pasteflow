@@ -1,3 +1,4 @@
+process.env.TSESTREE_NO_WARN_ON_MULTIPLE_PROJECTS = "true";
 module.exports = {
   root: true,
   env: { browser: true, es2020: true, node: true },
@@ -15,6 +16,10 @@ module.exports = {
   ],
   ignorePatterns: ["dist", ".eslintrc.cjs", "*.json"],
   parser: "@typescript-eslint/parser",
+  parserOptions: {
+    tsconfigRootDir: __dirname,
+    noWarnOnMultipleProjects: true
+  },
   plugins: [
     "react-refresh", 
     "filenames", 
@@ -39,7 +44,8 @@ module.exports = {
     }],
     "@typescript-eslint/array-type": ["error", { "default": "array" }], // Force array types to be properly typed
     "@typescript-eslint/no-inferrable-types": "warn", // Warn about unnecessary type annotations
-    "filenames/match-regex": ["warn", "^[a-z0-9-]+(.d)?$", true],
+    // Allow kebab-case and dotted suffixes like *.test.ts, jest.setup.ts
+    "filenames/match-regex": ["warn", "^[a-z0-9-]+(\\.[a-z0-9-]+)*(.d)?$", true],
     "filenames/match-exported": ["warn", "kebab"],
     "filenames/no-index": "off",
     "react-hooks/rules-of-hooks": "warn", // Downgrade to warning for now
@@ -165,6 +171,14 @@ module.exports = {
       }
     },
     {
+      // Dev and TS scripts are CLI-like; allow process.exit and CommonJS patterns
+      files: ["dev.ts", "build.ts", "scripts/**/*.ts"],
+      rules: {
+        "unicorn/no-process-exit": "off",
+        "unicorn/prefer-module": "off"
+      }
+    },
+    {
       // Scripts folder
       files: ["scripts/*.js"],
       rules: {
@@ -203,7 +217,9 @@ module.exports = {
       // TypeScript React component files
       files: ["src/components/*.tsx", "src/components/**/*.tsx"],
       parserOptions: {
-        project: "./tsconfig.json"
+        project: "./tsconfig.json",
+        tsconfigRootDir: __dirname,
+        noWarnOnMultipleProjects: true
       },
       rules: {
         "@typescript-eslint/no-use-before-define": "warn", // Handle variable used before declaration
@@ -236,6 +252,22 @@ module.exports = {
         'complexity': ['warn', { max: 25 }], // Hooks often need more complexity
         '@typescript-eslint/no-unused-vars': 'warn'
       }
+    },
+    {
+      // Ensure ESLint/TS parser resolves modules for the CLI project using its tsconfig
+      files: ["cli/src/**/*.ts"],
+      parserOptions: {
+        project: "./cli/tsconfig.json",
+        tsconfigRootDir: __dirname,
+        noWarnOnMultipleProjects: true
+      }
+    },
+    {
+      // CLI commands intentionally use process.exit for exit codes
+      files: ["cli/src/**/*.ts"],
+      rules: {
+        "unicorn/no-process-exit": "off"
+      }
     }
   ],
   settings: {
@@ -243,7 +275,17 @@ module.exports = {
       version: "detect",
     },
     "import/resolver": {
-      typescript: {}
+      typescript: {
+        // Use the shared base tsconfig for path alias resolution across the repo
+        project: [
+          "./tsconfig.base.json",
+          "./tsconfig.json",
+          "./tsconfig.main.json",
+          "./tsconfig.scripts.json",
+          "./cli/tsconfig.json"
+        ],
+        alwaysTryTypes: true
+      }
     }
   },
 };

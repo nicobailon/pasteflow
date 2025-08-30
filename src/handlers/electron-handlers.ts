@@ -32,7 +32,6 @@ export const getGlobalRequestId = (): string | null => {
 // Helper function to create initial workspace state
 const createInitialWorkspaceState = (folderPath: string): WorkspaceState => ({
   selectedFolder: folderPath,
-  allFiles: [],
   selectedFiles: [],
   expandedNodes: {},
   sortOrder: 'alphabetical',
@@ -41,7 +40,8 @@ const createInitialWorkspaceState = (folderPath: string): WorkspaceState => ({
   exclusionPatterns: [],
   userInstructions: '',
   tokenCounts: {},
-  customPrompts: { systemPrompts: [], rolePrompts: [] },
+  systemPrompts: [],
+  rolePrompts: [],
   selectedInstructions: []
 });
 

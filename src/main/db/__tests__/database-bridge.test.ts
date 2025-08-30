@@ -1,8 +1,9 @@
-import { DatabaseBridge } from '../database-bridge';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
 import { PasteFlowDatabase } from '../database-implementation';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import { DatabaseBridge } from '../database-bridge';
 
 // Mock electron app.getPath
 const mockApp = {
@@ -418,10 +419,10 @@ describe('DatabaseBridge', () => {
       const workspaces = await Promise.all(operations);
 
       expect(workspaces).toHaveLength(10);
-      workspaces.forEach((workspace, index) => {
+      for (const [index, workspace] of workspaces.entries()) {
         expect(workspace.name).toBe(`Workspace ${index}`);
         expect(workspace.state.index).toBe(index);
-      });
+      }
 
       // Verify all workspaces were created
       const allWorkspaces = await bridge.listWorkspaces();

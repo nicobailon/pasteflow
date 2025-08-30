@@ -264,6 +264,8 @@ export const UI = {
 export const FEATURES = {
   /** Enable WebWorker-based progressive Preview generation */
   PREVIEW_WORKER_ENABLED: true,
+  /** Enable Pack workflow UI (Pack/Ready/Repack). When disabled, show legacy Preview-only flow. */
+  PREVIEW_PACK_ENABLED: true,
 } as const;
 // ==================== DATABASE ====================
 

@@ -1,11 +1,13 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { logger } from '../utils/logger';
-import { FEATURES, UI, TOKEN_COUNTING } from '@constants';
-import { usePreviewPack } from '../hooks/use-preview-pack';
 
-import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
+import { FEATURES, UI, TOKEN_COUNTING } from '@constants';
 import { getRelativePath, dirname, normalizePath } from '@file-ops/path';
+
+import { logger } from '../utils/logger';
+import { usePreviewPack } from '../hooks/use-preview-pack';
+import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
+
 
 import CopyButton from './copy-button';
 import Dropdown from './dropdown';
@@ -21,6 +23,56 @@ const computeQueryFromValue = (text: string, caret: number) => {
     return match[1];
   }
   return null;
+};
+
+// Helper: determine batch size and pacing based on selection size
+const getBatchConfig = (selectionCount: number) => {
+  let batch = 10;
+  let delayMs = 25;
+  if (selectionCount >= 1000) { batch = 40; delayMs = 8; }
+  else if (selectionCount >= 500) { batch = 30; delayMs = 12; }
+  else if (selectionCount >= 200) { batch = 20; delayMs = 16; }
+  else if (selectionCount >= 80)  { batch = 14; delayMs = 20; }
+  return { batch, delayMs };
+};
+
+// Helper: collect pending file paths and error paths from selection
+const collectPendingAndErrors = (
+  selectedFiles: SelectedFileReference[],
+  byPath: Map<string, FileData>
+) => {
+  const pending: string[] = [];
+  const errorFiles: string[] = [];
+  for (const sel of selectedFiles) {
+    const fd = byPath.get(sel.path);
+    if (!fd) continue;
+    if (fd.isDirectory) continue;
+    if (fd.isBinary || fd.isSkipped) continue;
+    if (fd.error && /binary/i.test(String(fd.error))) continue;
+    if (fd.error && !fd.isContentLoaded) {
+      errorFiles.push(sel.path);
+      continue;
+    }
+    if (fd.isContentLoaded || fd.isCountingTokens) continue;
+    pending.push(sel.path);
+  }
+  return { pending, errorFiles };
+};
+
+// Helper: report error status to worker for a list of paths
+const reportErrors = (
+  paths: string[],
+  byPath: Map<string, FileData>,
+  reported: Set<string>,
+  pushFileStatus?: (path: string, status: 'error', message?: string) => void
+) => {
+  if (!pushFileStatus || paths.length === 0) return;
+  for (const path of paths) {
+    if (reported.has(path)) continue;
+    const fd = byPath.get(path);
+    pushFileStatus(path, 'error', fd?.error || 'Failed to load file');
+    reported.add(path);
+  }
 };
 
 // Minimal inline component implementing @path autocomplete for the instructions textarea only
@@ -367,6 +419,8 @@ const ContentArea = ({
   const onClearAll = clearAllSelections || (() => {});
 
 
+  const features = (window as any).__PF_FEATURES ?? FEATURES;
+
   const { 
     pack, 
     cancelPack, 
@@ -389,6 +443,71 @@ const ContentArea = ({
   // Track which files have already been pushed to the worker to avoid duplicates
   const lastPushedRef = useRef<Set<string>>(new Set());
   const reportedErrorsRef = useRef<Set<string>>(new Set());
+
+  // --- Minimal CLI bridge integration (Plan A) ---
+  // Listen for CLI pack start/cancel events and invoke existing pipeline
+  useEffect(() => {
+    const onCliPackRequest = (e: Event) => {
+      try {
+        const detail = (e as CustomEvent).detail as { id?: string; options?: { includeTrees?: boolean; maxFiles?: number; maxBytes?: number; prompt?: string } } | undefined;
+        const opts = detail?.options || {};
+        const overrides: { overrideUserInstructions?: string; overrideFileTreeMode?: FileTreeMode; maxFiles?: number; maxBytes?: number } = {};
+        if (typeof opts.prompt === 'string') overrides.overrideUserInstructions = opts.prompt;
+        if (typeof opts.includeTrees === 'boolean' && opts.includeTrees === true) {
+          overrides.overrideFileTreeMode = 'selected-with-roots';
+        }
+        if (typeof opts.maxFiles === 'number') overrides.maxFiles = Math.max(0, Math.floor(opts.maxFiles));
+        if (typeof opts.maxBytes === 'number') overrides.maxBytes = Math.max(0, Math.floor(opts.maxBytes));
+        pack(overrides);
+      } catch { /* ignore */ }
+    };
+    const onCliPackCancel = (_e: Event) => {
+      try { cancelPack(); } catch { /* ignore */ }
+    };
+    window.addEventListener('pf-cli-pack-request', onCliPackRequest as EventListener);
+    window.addEventListener('pf-cli-pack-cancel', onCliPackCancel as EventListener);
+    return () => {
+      window.removeEventListener('pf-cli-pack-request', onCliPackRequest as EventListener);
+      window.removeEventListener('pf-cli-pack-cancel', onCliPackCancel as EventListener);
+    };
+  }, [pack, cancelPack]);
+
+  // Emit pf-pack-state events for bridge to translate into ipc status/content
+  useEffect(() => {
+    const st = packState;
+    if (!st) return;
+    const detail = {
+      status: st.status,
+      processed: st.processed,
+      total: st.total,
+      percent: st.percent,
+      tokenEstimate: st.tokenEstimate,
+      fullContent: st.fullContent,
+      contentForDisplay: st.contentForDisplay,
+    };
+    window.dispatchEvent(new CustomEvent('pf-pack-state', { detail }));
+  }, [packState]);
+
+  // Emit minimal lifecycle events for bridge to forward to main
+  const lastEmittedStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const status = packState?.status;
+    if (!status) return;
+
+    // Avoid repeated emissions for the same terminal state
+    if (status === lastEmittedStatusRef.current && (status === 'ready' || status === 'error' || status === 'cancelled')) {
+      return;
+    }
+
+    if (status === 'ready') {
+      window.dispatchEvent(new CustomEvent('pf-pack-ready', { detail: { fullContent: packState.fullContent || '', total: packState.total } }));
+    } else if (status === 'error') {
+      window.dispatchEvent(new CustomEvent('pf-pack-error', { detail: { message: packState.error || 'Unknown error' } }));
+    } else if (status === 'cancelled') {
+      window.dispatchEvent(new Event('pf-pack-cancelled'));
+    }
+    lastEmittedStatusRef.current = status;
+  }, [packState?.status, packState?.fullContent, packState?.total, packState?.error]);
 
   // Memoize header file stats to avoid recomputing during streaming UI updates
   const headerFileStats = useMemo(() => {
@@ -441,7 +560,7 @@ const ContentArea = ({
 
   // Push newly loaded file contents to the worker so it can stream them
   useEffect(() => {
-    if (!FEATURES?.PREVIEW_WORKER_ENABLED) return;
+    if (!features?.PREVIEW_WORKER_ENABLED) return;
 
     // Feed the worker during packing or when ready (for updates)
     const shouldFeedWorker = packState?.status === 'packing' || packState?.status === 'ready';
@@ -467,67 +586,32 @@ const ContentArea = ({
         const slice = updates.slice(i, i + BATCH);
         setTimeout(() => pushFileUpdates(slice), 0);
       }
-      updates.forEach(u => lastPushedRef.current.add(u.path));
+      for (const u of updates) lastPushedRef.current.add(u.path);
     }
-  }, [allFiles, selectedFiles, packState?.status, pushFileUpdates]);
+  }, [allFiles, selectedFiles, packState?.status, pushFileUpdates, features?.PREVIEW_WORKER_ENABLED]);
 
   // Background progressive file loader for streaming preview
   // Loads not-yet-loaded selected files in small batches without blocking UI.
   useEffect(() => {
-    if (!FEATURES?.PREVIEW_WORKER_ENABLED) return;
+    if (!features?.PREVIEW_WORKER_ENABLED) return;
     
     // Load files during packing
     const shouldLoadFiles = packState?.status === 'packing';
     
     if (!shouldLoadFiles) return;
 
-     // Build quick lookup for file metadata
-     const byPath = new Map(allFiles.map(f => [f.path, f]));
-    
-     // Collect pending file paths (not loaded, not binary/skipped)
-     const pending: string[] = [];
-     const errorFiles: string[] = [];
-     for (const sel of selectedFiles) {
-       const fd = byPath.get(sel.path);
-       if (!fd) continue;
-       if (fd.isDirectory) continue;
-       if (fd.isBinary || fd.isSkipped) continue;
-       // If backend previously flagged this as binary, skip re-requests even before isBinary propagates
-       if (fd.error && /binary/i.test(String(fd.error))) continue;
-       // Track files with other errors for status update
-       if (fd.error && !fd.isContentLoaded) {
-         errorFiles.push(sel.path);
-         continue;
-       }
-       if (fd.isContentLoaded || fd.isCountingTokens) continue;
-       pending.push(sel.path);
-     }
-
-     // Send error status for files that have terminal errors
-     if (pushFileStatus && errorFiles.length > 0) {
-       for (const path of errorFiles) {
-         if (!reportedErrorsRef.current.has(path)) {
-           const fd = byPath.get(path);
-           pushFileStatus(path, 'error', fd?.error || 'Failed to load file');
-           reportedErrorsRef.current.add(path);
-         }
-       }
-     }
+    // Build quick lookup for file metadata
+    const byPath = new Map(allFiles.map(f => [f.path, f]));
+    const { pending, errorFiles } = collectPendingAndErrors(selectedFiles, byPath);
+    // Send error status for files that have terminal errors
+    reportErrors(errorFiles, byPath, reportedErrorsRef.current, pushFileStatus);
 
     if (pending.length === 0) return;
 
     let cancelled = false;
 
-    // Adaptive loader pacing for many selected files:
-    // - Larger batches and shorter delays when selection is large
-    // - Keeps UI responsive for small selections
-    const n = selectedFiles.length;
-    let BATCH = 10;
-    let STEP_DELAY_MS = 25;
-    if (n >= 1000) { BATCH = 40; STEP_DELAY_MS = 8; }
-    else if (n >= 500) { BATCH = 30; STEP_DELAY_MS = 12; }
-    else if (n >= 200) { BATCH = 20; STEP_DELAY_MS = 16; }
-    else if (n >= 80)  { BATCH = 14; STEP_DELAY_MS = 20; }
+    // Adaptive loader pacing for many selected files
+    const { batch: BATCH, delayMs: STEP_DELAY_MS } = getBatchConfig(selectedFiles.length);
 
     const step = async () => {
       if (cancelled) return;
@@ -537,34 +621,16 @@ const ContentArea = ({
       try {
         // Load this batch using batched loading for better performance
         await loadMultipleFileContents(slice, { priority: 10 });
-        
-        // Check for any files that failed to load and report them to the worker
-        if (pushFileStatus) {
-          for (const path of slice) {
-            const fd = byPath.get(path);
-            if (fd && fd.error && !fd.isContentLoaded && !reportedErrorsRef.current.has(path)) {
-              pushFileStatus(path, 'error', fd.error);
-              reportedErrorsRef.current.add(path);
-            }
-          }
-        }
+        // Report any files with errors to the worker
+        reportErrors(slice, byPath, reportedErrorsRef.current, pushFileStatus);
       } catch (error) {
         // Log the error for debugging but continue processing
-        logger.debug('[Progressive loader] Batch load failed', { 
-          batchSize: slice.length, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        logger.debug('[Progressive loader] Batch load failed', {
+          batchSize: slice.length,
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
-        
         // Report any files with errors to the worker
-        if (pushFileStatus) {
-          for (const path of slice) {
-            const fd = byPath.get(path);
-            if (fd && fd.error && !fd.isContentLoaded && !reportedErrorsRef.current.has(path)) {
-              pushFileStatus(path, 'error', fd.error);
-              reportedErrorsRef.current.add(path);
-            }
-          }
-        }
+        reportErrors(slice, byPath, reportedErrorsRef.current, pushFileStatus);
       }
 
       if (pending.length > 0 && !cancelled) {
@@ -579,18 +645,20 @@ const ContentArea = ({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [allFiles, selectedFiles, packState?.status, loadMultipleFileContents, pushFileStatus]);
+  }, [allFiles, selectedFiles, packState?.status, loadMultipleFileContents, pushFileStatus, features?.PREVIEW_WORKER_ENABLED]);
 
   // Clear lastPushedRef and reportedErrorsRef when pack starts or when idle/error/cancelled/ready
   useEffect(() => {
-    if (packState?.status === 'packing') {
-      lastPushedRef.current.clear();
-      reportedErrorsRef.current.clear();
-    } else if (packState?.status === 'idle' || packState?.status === 'error' || packState?.status === 'cancelled' || packState?.status === 'ready') {
-      // Also clear when not actively packing or when complete to prevent memory leak
-      lastPushedRef.current.clear();
-      reportedErrorsRef.current.clear();
-    }
+    const shouldClear =
+      packState?.status === 'packing' ||
+      packState?.status === 'idle' ||
+      packState?.status === 'error' ||
+      packState?.status === 'cancelled' ||
+      packState?.status === 'ready';
+    if (!shouldClear) return;
+    // Clear when starting or when not actively packing/complete to prevent memory leak
+    lastPushedRef.current.clear();
+    reportedErrorsRef.current.clear();
   }, [packState?.status]);
 
   // Periodic housekeeping during long packing sessions to prevent unbounded growth of tracking sets.
@@ -611,7 +679,7 @@ const ContentArea = ({
     const interval = window.setInterval(() => {
       trimSet(lastPushedRef.current);
       trimSet(reportedErrorsRef.current);
-    }, UI.PREVIEW?.CLEANUP_INTERVAL_MS ?? 30000);
+    }, UI.PREVIEW?.CLEANUP_INTERVAL_MS ?? 30_000);
 
     return () => window.clearInterval(interval);
   }, [packState?.status]);
@@ -628,7 +696,7 @@ const ContentArea = ({
         // Fallback to streaming preview or modal content
         return streamingPreview?.fullContent || previewContent || '';
       };
-      const isPlaceholder = (t: string) => /\[Content is loading\.\.\.\]/.test(t);
+      const isPlaceholder = (t: string) => /\[Content is loading\.{3}]/.test(t);
 
       // Backoff to avoid copying placeholders when preview just started
       let textToCopy = getText();
@@ -642,7 +710,8 @@ const ContentArea = ({
         }
       }
 
-      await navigator.clipboard.writeText(textToCopy);
+      const nav: any = navigator as any;
+      await nav.clipboard?.writeText(textToCopy);
     } catch (error) {
       logger.error('Failed to copy to clipboard:', error);
       // Modern browsers should support clipboard API, but show alert if it fails
@@ -766,16 +835,33 @@ const ContentArea = ({
               
               if (!hasPreviewableContent) return null;
               
-              // Idle state - show Pack button
+              // Idle state - show Pack button (or legacy Preview when feature disabled)
               if (packState.status === 'idle') {
+                if (features?.PREVIEW_PACK_ENABLED) {
+                  return (
+                    <button
+                      className="preview-button"
+                      onClick={() => pack()}
+                      disabled={!hasPreviewableContent}
+                    >
+                      <Eye size={16} />
+                      <span>Pack</span>
+                    </button>
+                  );
+                }
+                // Legacy path: show Preview directly without packing
                 return (
                   <button
                     className="preview-button"
-                    onClick={() => pack()}
+                    onClick={() => {
+                      const display = previewContent || _getSelectedFilesContent();
+                      const tokens = memoTokenCount;
+                      openClipboardPreviewModal(display, tokens);
+                    }}
                     disabled={!hasPreviewableContent}
                   >
                     <Eye size={16} />
-                    <span>Pack</span>
+                    <span>Preview</span>
                   </button>
                 );
               }
@@ -908,8 +994,8 @@ const ContentArea = ({
         content={previewContent}
         tokenCount={previewTokenCount}
         onCopy={handleCopyFromPreview}
-        previewState={(FEATURES?.PREVIEW_WORKER_ENABLED && packState.status === 'packing') ? streamingPreview : undefined}
-        onCancel={FEATURES?.PREVIEW_WORKER_ENABLED ? cancelPack : undefined}
+        previewState={(features?.PREVIEW_WORKER_ENABLED && packState.status === 'packing') ? streamingPreview : undefined}
+        onCancel={features?.PREVIEW_WORKER_ENABLED ? cancelPack : undefined}
       />
     </div>
   );

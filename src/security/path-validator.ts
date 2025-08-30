@@ -14,17 +14,14 @@ export class PathValidator {
     this.allowedBasePaths = new Set(workspacePaths.map(p => normalizePath(p)));
     this.blockedPaths = new Set([
       '/etc',
-      '/sys', 
+      '/sys',
       '/proc',
       '/root',
       '/boot',
-      'C:\\Windows\\System32',
-      'C:\\Windows\\SysWOW64',
-      'C:\\Windows\\System',
-      'C:\\Windows\\Boot',
-      '/Users/*/.*',
-      '/home/*/.*',
-      'C:\\Users\\*\\.*',
+      'C:/Windows/System32',
+      'C:/Windows/SysWOW64',
+      'C:/Windows/System',
+      'C:/Windows/Boot',
       // Common sensitive directories - skip in browser environment
     ]);
   }
@@ -51,23 +48,28 @@ export class PathValidator {
       return { valid: false, reason: 'PATH_RESOLUTION_FAILED' };
     }
 
-    // Check against blocked paths
+    // Allow-first: if within any allowed base path, allow immediately (including dotfiles)
+    if (this.allowedBasePaths.size > 0) {
+      const isInWorkspace = [...this.allowedBasePaths]
+        .some(basePath => resolved.startsWith(basePath + '/') || resolved === basePath);
+      if (isInWorkspace) {
+        return { valid: true, sanitizedPath: resolved };
+      }
+    }
+
+    // Check against blocked paths (for paths outside workspace or when no workspace set)
     for (const blockedPath of this.blockedPaths) {
       if (resolved.startsWith(blockedPath) || this.matchesPattern(resolved, blockedPath)) {
         return { valid: false, reason: 'BLOCKED_PATH' };
       }
     }
 
-    // Verify within allowed workspaces
+    // If workspaces are defined and path is not inside any, deny
     if (this.allowedBasePaths.size > 0) {
-      const isInWorkspace = [...this.allowedBasePaths]
-        .some(basePath => resolved.startsWith(basePath + '/') || resolved === basePath);
-      
-      if (!isInWorkspace) {
-        return { valid: false, reason: 'OUTSIDE_WORKSPACE' };
-      }
+      return { valid: false, reason: 'OUTSIDE_WORKSPACE' };
     }
 
+    // No workspace restriction configured: allow if not blocked
     return { valid: true, sanitizedPath: resolved };
   }
 
@@ -93,6 +95,10 @@ export class PathValidator {
 
   updateWorkspacePaths(workspacePaths: string[]): void {
     this.allowedBasePaths = new Set(workspacePaths.map(p => normalizePath(p)));
+  }
+
+  getAllowedPaths(): string[] {
+    return [...this.allowedBasePaths];
   }
 }
 

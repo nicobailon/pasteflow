@@ -250,7 +250,6 @@ const WorkspaceModal = ({
       expandedNodes: appState.expandedNodes,
       selectedFiles: appState.selectedFiles,
       userInstructions: appState.userInstructions,
-      allFiles: appState.allFiles || [],
       sortOrder: appState.sortOrder || "name",
       searchTerm: appState.searchTerm || "",
       fileTreeMode: appState.fileTreeMode || "none",
@@ -264,10 +263,8 @@ const WorkspaceModal = ({
         }
         return acc;
       })(),
-      customPrompts: {
-        systemPrompts: appState.selectedSystemPrompts,
-        rolePrompts: appState.selectedRolePrompts
-      },
+      systemPrompts: appState.selectedSystemPrompts,
+      rolePrompts: appState.selectedRolePrompts,
       selectedInstructions: appState.selectedInstructions
     };
 

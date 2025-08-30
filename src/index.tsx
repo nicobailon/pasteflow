@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 
+import { SORT_OPTIONS } from "@constants";
+
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
 import InstructionsModal from "./components/instructions-modal";
@@ -10,7 +12,6 @@ import RolePromptsModal from "./components/role-prompts-modal";
 import Sidebar, { SidebarRef } from "./components/sidebar";
 import SystemPromptsModal from "./components/system-prompts-modal";
 import WorkspaceModal from "./components/workspace-modal";
-import { SORT_OPTIONS } from "@constants";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
 import { initializeCacheRegistry } from "./utils/cache-registry";

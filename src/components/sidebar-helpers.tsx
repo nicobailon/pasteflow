@@ -1,4 +1,4 @@
-import { DirectorySelectionCache } from '../utils/selection-cache';
+import type { DirectorySelectionCache } from '../types/file-types';
 
 import { DropdownOption } from './dropdown';
 

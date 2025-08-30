@@ -95,8 +95,6 @@ npm run test:watch     # Tests in watch mode
 npm run lint           # ESLint with TypeScript support
 npm run lint:strict    # ESLint with zero warnings tolerance
 npm run lint:filenames # Enforce kebab-case file naming
-npm run rename:check   # Check files that need kebab-case renaming
-npm run rename:files   # Automatically rename files to kebab-case
 
 # TypeScript Type Checking
 npx tsc --noEmit       # Run TypeScript compiler to check for type errors
@@ -107,6 +105,145 @@ npx tsc --noEmit       # Run TypeScript compiler to check for type errors
 1. **Vite Build** - Compiles React/TypeScript to `dist/`
 2. **Main/Preload Compile** - Compiles Electron main/preload TypeScript to CommonJS (`build/main`)
 3. **Electron Builder** - Packages for multiple platforms; packaging hooks are compiled TS in `build/scripts`
+
+## First‑Party CLI (Commander + Axios)
+
+The repository includes a first‑party CLI that communicates with the local HTTP API hosted by the Electron main process. It is intended for automation and headless workflows and mirrors key UI capabilities: workspaces CRUD, instructions, preferences, file metadata/content, selection management, content aggregation/export, and preview (async).
+
+Location and bootstrap
+- Entry point: [cli/src/index.ts](cli/src/index.ts)
+- HTTP client, discovery, error mapping: [cli/src/client.ts](cli/src/client.ts)
+- Commands implemented under: [cli/src/commands/](cli/src/commands/)
+  - status, workspaces, folders, instructions, prefs, files, tokens, select, content, preview, tree
+
+Build and usage
+- Build the CLI:
+  ```bash
+  npm run build:cli
+  # or in watch mode
+  npm run build:cli:watch
+  ```
+- Run locally:
+  ```bash
+  node cli/dist/index.js status
+  ```
+- Global bin (dev):
+  ```bash
+  npm link
+  pasteflow status
+  # alias also available:
+  pf status
+  ```
+
+Global flags
+- --host, --port, --token: override discovery from ~/.pasteflow/{server.port,auth.token}
+- --json: machine‑readable output (prints raw success/error payloads)
+- --raw: emit raw content for file/content/preview content
+- --timeout <ms>: HTTP timeout (default ~10s)
+- --debug: HTTP request/response summaries to stderr
+- -h, --help, --h: show help for any command
+
+Exit codes
+- 0 success
+- 1 general/server error (INTERNAL_ERROR, FILE_SYSTEM_ERROR)
+- 2 validation or path denied (VALIDATION_ERROR, NO_ACTIVE_WORKSPACE)
+- 3 authentication failure (UNAUTHORIZED)
+- 4 not found
+- 5 conflict/binary (CONFLICT, BINARY_FILE, local EEXIST)
+- 6 server not running/unreachable
+
+Key commands (examples)
+- Status
+  ```bash
+  pasteflow status
+  pasteflow status --include-selection   # adds per-file tokens table; JSON includes fileTreeMode + selectionSummary
+  ```
+- Workspaces
+  ```bash
+  pasteflow workspaces list
+  pasteflow workspaces create --name "WS" --folder "/abs/path"
+  pasteflow workspaces load <id>
+  ```
+- Files (absolute paths enforced client‑side)
+  ```bash
+  pasteflow files info --path "/abs/path/file.ts"
+  pasteflow files content --path "/abs/path/file.ts" --out out.txt --overwrite
+  ```
+- Selection
+  ```bash
+  pasteflow select add --path "/abs/path/file.ts" --lines "10-20,30"
+  # Token breakdown for current selection (files + prompts/instructions)
+  pasteflow select list [--summary-only] [--relative] [--max-files 500] [--max-bytes 2000000] [--no-include-instructions] [--no-include-prompts]
+  # Text output includes current File Tree Mode; --json adds fileTreeMode
+  ```
+  
+  Tokens
+  ```bash
+  pasteflow tokens backend
+  pasteflow tokens count --text @README.md
+  # Alias for selection token breakdown (same as `select list`)
+  pasteflow tokens selection [--summary-only] [--relative] [--max-files 500] [--max-bytes 2000000] [--no-include-instructions] [--no-include-prompts]
+  ```
+- Content aggregation
+  ```bash
+  pasteflow content get --max-files 500 --max-bytes 2000000 --out pack.txt --overwrite
+  pasteflow content export --out "/abs/path/pack.txt" --overwrite
+  ```
+- Tree
+  ```bash
+  pasteflow tree                      # ASCII file tree for active workspace/mode
+  pasteflow tree --json               # JSON { mode, root, tree }
+  pasteflow tree --list-modes         # List available file tree modes
+  pasteflow tree --mode selected      # Override mode for this call (does not change workspace)
+  ```
+  Notes:
+  - `pasteflow tree --list-modes` marks the current mode with `* - current`.
+- Preview (async)
+  ```bash
+  pasteflow preview start --prompt @prompt.txt --follow --out preview.md --overwrite
+  pasteflow preview status <id> --watch
+  pasteflow preview content <id> --raw
+  pasteflow preview cancel <id>
+  ```
+
+Error mapping and guidance
+- CLI normalizes server errors via handleAxiosError and preserves envelopes when --json is set.
+- If you encounter NO_ACTIVE_WORKSPACE, initialize or load one:
+  ```bash
+  pasteflow folders open --folder "/your/repo"
+  # or
+  pasteflow workspaces load <id>
+  ```
+- Only files and select enforce absolute paths in the CLI; server remains the source of truth for path validation.
+
+HTTP API reference
+- The HTTP API is defined in [src/main/api-server.ts](src/main/api-server.ts) and covers:
+  - /api/v1/status, /workspaces, /instructions, /prefs, /files/info|content,
+    /tokens/count|backend, /files/select|deselect|clear|selected, /content, /content/export,
+    /selection/tokens, /tree (optional query ?mode=<none|selected|selected-with-roots|complete>),
+    /preview/start|status/:id|content/:id|cancel/:id
+
+Selection tokens example
+```bash
+curl -H "Authorization: Bearer $(cat ~/.pasteflow/auth.token)" \
+     "http://127.0.0.1:5839/api/v1/selection/tokens?relativePaths=true&maxFiles=100"
+```
+Response (truncated):
+```json
+{
+  "backend": "tiktoken",
+  "files": [
+    { "path": "/abs/path/src/app.ts", "relativePath": "src/app.ts", "ranges": null, "bytes": 1234, "tokenCount": 456, "partial": false, "skipped": false, "reason": null }
+  ],
+  "prompts": {
+    "system": [{ "id": "system-0", "name": "System Prompt 1", "tokenCount": 12 }],
+    "roles": [],
+    "instructions": [],
+    "user": { "present": false, "tokenCount": 0 }
+  },
+  "totals": { "files": 456, "prompts": 12, "all": 468 }
+}
+```
 
 ## Development Guidelines
 

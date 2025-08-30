@@ -2,8 +2,10 @@
 declare const jest: { fn?: unknown } | undefined;
 
 import { WORKER_POOL } from '@constants';
+
 import { DiscreteWorkerPoolBase } from './worker-base/discrete-worker-pool-base';
 import { estimateTokenCount } from './token-utils';
+import { createTokenCounterWorker } from './worker-factories';
 
 interface TokenRequest {
   text: string;
@@ -39,10 +41,7 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
    * Create the token counter worker with Vite-compatible static import
    */
   protected createWorker(): Worker {
-    return new Worker(
-      new URL('../workers/token-counter-worker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    return createTokenCounterWorker();
   }
 
   protected buildJobMessage(req: TokenRequest, id: string) {
@@ -99,7 +98,7 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
     let hash = 0;
     for (let i = 0; i < Math.min(text.length, 1024); i++) {
       hash = (hash << 5) - hash + (text.codePointAt(i) ?? 0);
-      hash |= 0;
+      hash = Math.trunc(hash);
     }
     return `${text.length}-${hash}`;
   }

@@ -1,8 +1,24 @@
-import Database from 'better-sqlite3';
-import * as path from 'path';
-import * as fs from 'fs';
-import { app } from 'electron';
+/* eslint-disable @typescript-eslint/no-var-requires */
+import type BetterSqlite3 from 'better-sqlite3';
+
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
+import type { WorkspaceState, Instruction } from '../../shared-types';
+import type { WorkspaceRecord, PreferenceRecord, InstructionRow } from './types';
+import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
+
+// Re-export for existing consumers
+export type { WorkspaceState, Instruction };
+
+// Runtime-safe loader to avoid ABI mismatch when not running under Electron
+type BetterSqlite3Module = typeof BetterSqlite3;
+function loadBetterSqlite3(): BetterSqlite3Module {
+  // Ensure we are running under Electron's embedded Node (correct ABI)
+  if (!process.versions?.electron) {
+    throw new Error('better-sqlite3 must be loaded from Electron main process. Launch via Electron (npm start / dev:electron), not plain node.');
+  }
+   
+  return require('better-sqlite3') as BetterSqlite3Module;
+}
 
 // Define SQLite error type with proper constraints
 interface SQLiteError extends Error {
@@ -13,35 +29,11 @@ interface SQLiteError extends Error {
   syscall?: string;
 }
 
-// Define precise types for workspace state
-export interface WorkspaceState {
-  selectedFiles?: Array<{
-    path: string;
-    lines?: Array<{ start: number; end: number }>;
-    content?: string;
-    tokenCount?: number;
-  }>;
-  expandedNodes?: string[];
-  userInstructions?: string;
-  systemPrompts?: Array<{ id: string; name: string; content: string }>;
-  rolePrompts?: Array<{ id: string; name: string; content: string }>;
-  [key: string]: unknown; // Allow extension but maintain type safety
-}
 
 // Define precise types for preferences
 export type PreferenceValue = string | number | boolean | null | {
   [key: string]: PreferenceValue;
 } | PreferenceValue[];
-
-interface WorkspaceRow {
-  id: number;
-  name: string;
-  folder_path: string;
-  state: string | null;
-  created_at: number;
-  updated_at: number;
-  last_accessed: number;
-}
 
 // Parsed workspace with deserialized state
 export interface ParsedWorkspace {
@@ -54,37 +46,24 @@ export interface ParsedWorkspace {
   last_accessed: number;
 }
 
-interface PreferenceRow {
-  key: string;
-  value: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-interface InstructionRow {
-  id: string;
-  name: string;
-  content: string;
-  created_at: number;
-  updated_at: number;
-}
 
 interface PreparedStatements {
-  listWorkspaces: Database.Statement<[]>;
-  getWorkspace: Database.Statement<[string, string]>;
-  createWorkspace: Database.Statement<[string, string, string]>;
-  updateWorkspace: Database.Statement<[string, string]>;
-  deleteWorkspace: Database.Statement<[string]>;
-  deleteWorkspaceById: Database.Statement<[string, string]>;
-  renameWorkspace: Database.Statement<[string, string]>;
-  touchWorkspace: Database.Statement<[string]>;
-  getWorkspaceNames: Database.Statement<[]>;
-  getPreference: Database.Statement<[string]>;
-  setPreference: Database.Statement<[string, string]>;
-  listInstructions: Database.Statement<[]>;
-  createInstruction: Database.Statement<[string, string, string]>;
-  updateInstruction: Database.Statement<[string, string, string]>;
-  deleteInstruction: Database.Statement<[string]>;
+  listWorkspaces: BetterSqlite3.Statement<[]>;
+  getWorkspace: BetterSqlite3.Statement<[string, string]>;
+  createWorkspace: BetterSqlite3.Statement<[string, string, string]>;
+  updateWorkspace: BetterSqlite3.Statement<[string, string]>;
+  updateWorkspaceById: BetterSqlite3.Statement<[string, string]>;
+  deleteWorkspace: BetterSqlite3.Statement<[string]>;
+  deleteWorkspaceById: BetterSqlite3.Statement<[string, string]>;
+  renameWorkspace: BetterSqlite3.Statement<[string, string]>;
+  touchWorkspace: BetterSqlite3.Statement<[string]>;
+  getWorkspaceNames: BetterSqlite3.Statement<[]>;
+  getPreference: BetterSqlite3.Statement<[string]>;
+  setPreference: BetterSqlite3.Statement<[string, string]>;
+  listInstructions: BetterSqlite3.Statement<[]>;
+  createInstruction: BetterSqlite3.Statement<[string, string, string]>;
+  updateInstruction: BetterSqlite3.Statement<[string, string, string]>;
+  deleteInstruction: BetterSqlite3.Statement<[string]>;
 }
 
 /**
@@ -94,7 +73,7 @@ interface PreparedStatements {
  */
 export class PasteFlowDatabase {
   private dbPath: string;
-  public db: Database.Database | null = null;
+  public db: BetterSqlite3.Database | null = null;
   private isInitialized = false;
   private initializationPromise: Promise<void> | null = null;
   private statements!: PreparedStatements;
@@ -127,7 +106,8 @@ export class PasteFlowDatabase {
   private async _performInitialization(): Promise<void> {
     try {
       this.db = await retryConnection(async () => {
-        const db = new Database(this.dbPath);
+        const BetterSqlite = loadBetterSqlite3();
+        const db = new BetterSqlite(this.dbPath);
         // Test connection with a simple query
         db.prepare('SELECT 1').get();
         return db;
@@ -143,22 +123,30 @@ export class PasteFlowDatabase {
       const sqliteError = error as SQLiteError;
       if (sqliteError.code) {
         switch (sqliteError.code) {
-          case 'SQLITE_BUSY':
+          case 'SQLITE_BUSY': {
             throw new Error(`Database is locked by another process: ${sqliteError.message}`);
-          case 'SQLITE_LOCKED':
+          }
+          case 'SQLITE_LOCKED': {
             throw new Error(`Database table is locked: ${sqliteError.message}`);
-          case 'SQLITE_CORRUPT':
+          }
+          case 'SQLITE_CORRUPT': {
             throw new Error(`Database file is corrupted: ${sqliteError.message}`);
-          case 'SQLITE_CANTOPEN':
+          }
+          case 'SQLITE_CANTOPEN': {
             throw new Error(`Cannot open database file at ${this.dbPath}: ${sqliteError.message}`);
-          case 'SQLITE_READONLY':
+          }
+          case 'SQLITE_READONLY': {
             throw new Error(`Database is read-only: ${sqliteError.message}`);
-          case 'SQLITE_IOERR':
+          }
+          case 'SQLITE_IOERR': {
             throw new Error(`Database I/O error: ${sqliteError.message}`);
-          case 'SQLITE_FULL':
+          }
+          case 'SQLITE_FULL': {
             throw new Error(`Disk is full or database quota exceeded: ${sqliteError.message}`);
-          default:
+          }
+          default: {
             throw new Error(`Database initialization failed (${sqliteError.code}): ${sqliteError.message}`);
+          }
         }
       }
       
@@ -199,6 +187,9 @@ export class PasteFlowDatabase {
     // Create tables if they don't exist with retry
     await executeWithRetry(async () => {
       this.db!.exec(`
+        DROP INDEX IF EXISTS idx_prompts_name;
+        DROP TABLE IF EXISTS custom_prompts;
+
         CREATE TABLE IF NOT EXISTS workspaces (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT UNIQUE NOT NULL,
@@ -216,13 +207,6 @@ export class PasteFlowDatabase {
           updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
         );
 
-        CREATE TABLE IF NOT EXISTS custom_prompts (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          content TEXT NOT NULL,
-          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-          updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-        );
 
         CREATE TABLE IF NOT EXISTS instructions (
           id TEXT PRIMARY KEY,
@@ -238,7 +222,6 @@ export class PasteFlowDatabase {
         CREATE INDEX IF NOT EXISTS idx_workspaces_folder_path ON workspaces(folder_path);
         CREATE INDEX IF NOT EXISTS idx_preferences_key ON preferences(key);
         CREATE INDEX IF NOT EXISTS idx_preferences_updated_at ON preferences(updated_at);
-        CREATE INDEX IF NOT EXISTS idx_prompts_name ON custom_prompts(name);
         CREATE INDEX IF NOT EXISTS idx_instructions_name ON instructions(name);
         CREATE INDEX IF NOT EXISTS idx_instructions_updated_at ON instructions(updated_at DESC);
       `);
@@ -273,9 +256,15 @@ export class PasteFlowDatabase {
         `),
         
         updateWorkspace: this.db!.prepare(`
-          UPDATE workspaces 
-          SET state = ?, updated_at = strftime('%s', 'now') * 1000 
+          UPDATE workspaces
+          SET state = ?, updated_at = strftime('%s', 'now') * 1000
           WHERE name = ?
+        `),
+
+        updateWorkspaceById: this.db!.prepare(`
+          UPDATE workspaces
+          SET state = ?, updated_at = strftime('%s', 'now') * 1000
+          WHERE id = ?
         `),
         
         deleteWorkspace: this.db!.prepare(`
@@ -342,10 +331,10 @@ export class PasteFlowDatabase {
   async listWorkspaces(): Promise<ParsedWorkspace[]> {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
-      const rows = this.statements.listWorkspaces.all() as WorkspaceRow[];
+      const rows = this.statements.listWorkspaces.all() as WorkspaceRecord[];
       return rows.map(row => ({
         ...row,
-        state: row.state ? JSON.parse(row.state) : {},
+        state: toDomainWorkspaceState(row),
       }));
     }, {
       operation: 'list_workspaces'
@@ -353,15 +342,30 @@ export class PasteFlowDatabase {
     return result.result as ParsedWorkspace[];
   }
 
-  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = {}): Promise<ParsedWorkspace> {
+  async createWorkspace(name: string, folderPath: string, state: Partial<WorkspaceState> = {}): Promise<ParsedWorkspace> {
     this.ensureInitialized();
     return await retryTransaction(async () => {
-      const stateJson = JSON.stringify(state);
-      const info = this.statements.createWorkspace.run(name, folderPath, stateJson);
-      const workspace = this.statements.getWorkspace.get(name, name) as WorkspaceRow;
+      // Merge with defaults to ensure full WorkspaceState
+      const fullState: WorkspaceState = {
+        selectedFolder: null,
+        selectedFiles: [],
+        expandedNodes: {},
+        sortOrder: 'name',
+        searchTerm: '',
+        fileTreeMode: 'selected-with-roots',
+        exclusionPatterns: [],
+        userInstructions: '',
+        tokenCounts: {},
+        systemPrompts: [],
+        rolePrompts: [],
+        ...state
+      };
+      const stateJson = fromDomainWorkspaceState(fullState);
+      this.statements.createWorkspace.run(name, folderPath, stateJson);
+      const workspace = this.statements.getWorkspace.get(name, name) as WorkspaceRecord;
       return {
         ...workspace,
-        state: state
+        state: fullState
       };
     });
   }
@@ -370,27 +374,39 @@ export class PasteFlowDatabase {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
       const id = String(nameOrId);
-      const workspace = this.statements.getWorkspace.get(id, id) as WorkspaceRow | undefined;
-      if (workspace && workspace.state) {
-        return {
-          ...workspace,
-          state: JSON.parse(workspace.state)
-        };
-      }
-      return workspace || null;
+      const row = this.statements.getWorkspace.get(id, id) as WorkspaceRecord | undefined;
+      if (!row) return null;
+      const parsedState = toDomainWorkspaceState(row);
+      return {
+        ...row,
+        state: parsedState
+      };
     }, {
       operation: 'get_workspace'
     });
     return result.result as ParsedWorkspace | null;
   }
 
-  async updateWorkspace(name: string, state: WorkspaceState): Promise<void> {
+  async updateWorkspace(name: string, state: Partial<WorkspaceState>): Promise<void> {
     this.ensureInitialized();
     await executeWithRetry(async () => {
-      const stateJson = JSON.stringify(state);
+      const stateJson = fromDomainWorkspaceState(state as WorkspaceState);
       this.statements.updateWorkspace.run(stateJson, name);
     }, {
       operation: 'update_workspace'
+    });
+  }
+
+  async updateWorkspaceById(id: number, state: Partial<WorkspaceState>): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      const stateJson = fromDomainWorkspaceState(state as WorkspaceState);
+      const result = this.statements.updateWorkspaceById.run(stateJson, String(id));
+      if ((result as any).changes === 0) {
+        throw new Error(`Workspace with id '${id}' not found`);
+      }
+    }, {
+      operation: 'update_workspace_by_id'
     });
   }
 
@@ -444,7 +460,7 @@ export class PasteFlowDatabase {
   async getWorkspaceNames(): Promise<string[]> {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
-      const rows = this.statements.getWorkspaceNames.all() as Array<{ name: string }>;
+      const rows = this.statements.getWorkspaceNames.all() as { name: string }[];
       return rows.map(row => row.name);
     }, {
       operation: 'get_workspace_names'
@@ -461,16 +477,16 @@ export class PasteFlowDatabase {
         throw new Error(`Workspace '${name}' not found`);
       }
       
-      const newState = updates.state !== undefined 
-        ? { ...workspace.state, ...updates.state }
-        : workspace.state;
+      const newState = updates.state === undefined 
+        ? workspace.state
+        : { ...workspace.state, ...updates.state };
       
       if (updates.folderPath) {
         this.db!.prepare(`
           UPDATE workspaces 
           SET state = ?, folder_path = ?, updated_at = strftime('%s', 'now') * 1000 
           WHERE name = ?
-        `).run(JSON.stringify(newState), updates.folderPath, name);
+        `).run(fromDomainWorkspaceState(newState), updates.folderPath, name);
       } else {
         await this.updateWorkspace(name, newState);
       }
@@ -503,7 +519,7 @@ export class PasteFlowDatabase {
   async getPreference(key: string): Promise<PreferenceValue> {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
-      const row = this.statements.getPreference.get(key) as PreferenceRow | undefined;
+      const row = this.statements.getPreference.get(key) as PreferenceRecord | undefined;
       if (!row || !row.value) return null;
       
       try {
@@ -522,7 +538,7 @@ export class PasteFlowDatabase {
     await executeWithRetry(async () => {
       const valueJson = value === null || value === undefined 
         ? null 
-        : typeof value === 'string' ? value : JSON.stringify(value);
+        : (typeof value === 'string' ? value : JSON.stringify(value));
       this.statements.setPreference.run(key, valueJson as string);
     }, {
       operation: 'set_preference'

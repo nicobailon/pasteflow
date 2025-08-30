@@ -1,17 +1,34 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
-import ignore from 'ignore';
+import os from 'node:os';
 
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+
+import { loadGitignore } from '../utils/ignore-utils';
 import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants';
-import { excludedFiles, binaryExtensions } from '../shared/excluded-files';
+import { binaryExtensions } from '../shared/excluded-files';
 import { getPathValidator } from '../security/path-validator';
 import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
-import * as zSchemas from './ipc/schemas';
-import { DatabaseBridge } from './db/database-bridge';
 import { getMainTokenService } from '../services/token-service-main';
 
+import * as zSchemas from './ipc/schemas';
+import { DatabaseBridge } from './db/database-bridge';
+import { PasteFlowAPIServer } from './api-server';
+import { setAllowedWorkspacePaths } from './workspace-context';
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
+
+// ABI/runtime diagnostics (helps verify native module compatibility)
+try {
+   
+  console.log('Runtime versions', {
+    electron: process.versions.electron,
+    node: process.versions.node,
+    v8: process.versions.v8,
+    modules: process.versions.modules
+  });
+} catch {
+  // Intentionally empty - diagnostic logging
+}
 
 /** State */
 let mainWindow: BrowserWindow | null = null;
@@ -24,19 +41,10 @@ let currentRequestId: string | null = null;
 // Track current workspace paths for path-validator
 let currentWorkspacePaths: string[] = [];
 
-// In-memory fallback stores (when database not initialized)
-type WorkspaceData = {
-  folderPath?: string;
-  state?: Record<string, unknown>;
-  createdAt?: number;
-  updatedAt?: number;
-  lastAccessed?: number;
-};
-const workspaceStore = new Map<string, WorkspaceData>();
-const preferencesStore = new Map<string, unknown>();
-
 // Database instance (initialized in whenReady)
 let database: DatabaseBridge | null = null;
+// HTTP API server instance
+let apiServer: PasteFlowAPIServer | null = null;
 
 // Initialize token service
 const tokenService = getMainTokenService();
@@ -92,23 +100,6 @@ type SerializableFile = {
   isContentLoaded: boolean;
 };
 
-function loadGitignore(rootDir: string, userExclusionPatterns: string[] = []) {
-  const ig = ignore();
-  const gitignorePath = path.join(rootDir, '.gitignore');
-  try {
-    if (fs.existsSync(gitignorePath)) {
-      const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
-      ig.add(gitignoreContent);
-    }
-  } catch {
-    // ignore
-  }
-  // Defaults
-  ig.add(['.git', 'node_modules', '.DS_Store']);
-  ig.add(excludedFiles);
-  if (userExclusionPatterns?.length) ig.add(userExclusionPatterns);
-  return ig;
-}
 
 // Use exclusion logic from file-ops
 const shouldExcludeByDefault = shouldExcludeByDefaultFromFileOps;
@@ -215,7 +206,7 @@ function createWindow(): void {
       mainWindow?.webContents.session.clearCache().then(() => {
         mainWindow?.loadURL(startUrl);
         if (mainWindow && !mainWindow.webContents.isDevToolsOpened()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           mainWindow.webContents.openDevTools({ mode: ELECTRON.WINDOW.DEVTOOLS_MODE as any });
         }
       });
@@ -227,9 +218,9 @@ function createWindow(): void {
   }
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    // eslint-disable-next-line no-console
+     
     console.error(`Failed to load the application: ${errorDescription} (${errorCode})`);
-    // eslint-disable-next-line no-console
+     
     console.error(`Attempted to load URL: ${validatedURL}`);
 
     const isDev2 = process.env.NODE_ENV === 'development';
@@ -251,18 +242,62 @@ function createWindow(): void {
 }
 
 /** Lifecycle */
+// eslint-disable-next-line unicorn/prefer-top-level-await
 app.whenReady().then(async () => {
-  // Initialize database bridge (safe fallback to in-memory)
+  // Initialize database bridge (fail-fast on error)
   try {
     database = new DatabaseBridge();
     await database.initialize();
-    // eslint-disable-next-line no-console
+     
     console.log('Database initialized successfully');
+
+    // On fresh app start, clear any previously persisted "active" workspace so
+    // CLI status reflects the UI (no folder loaded) until the user explicitly
+    // opens a folder or loads a workspace.
+    try {
+      await database.setPreference('workspace.active', null as unknown as any);
+      setAllowedWorkspacePaths([]);
+      getPathValidator([]);
+    } catch (error) {
+      console.warn('Failed to clear active workspace on startup:', error);
+    }
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.error('Failed to initialize database:', error);
-    database = null;
+    app.exit(1);
+    return;
   }
+
+  // Start local HTTP API server
+  try {
+    apiServer = new PasteFlowAPIServer(database!, 5839);
+    // Await actual bind to ensure we write the real bound port
+    await apiServer.startAsync();
+
+    // Write server port for CLI discovery
+    const boundPort = apiServer.getPort();
+    const configDir = path.join(os.homedir(), '.pasteflow');
+    try { fs.mkdirSync(configDir, { recursive: true, mode: 0o700 }); } catch {
+      // Intentionally empty - directory may already exist
+    }
+    const portFile = path.join(configDir, 'server.port');
+    // Write with 0644 per plan so CLI tools can read it
+    try {
+      fs.writeFileSync(portFile, String(boundPort) + '\n', { mode: 0o644 });
+      // Ensure correct permissions even if file already existed
+      try { fs.chmodSync(portFile, 0o644); } catch {
+        // Intentionally empty - best effort chmod
+      }
+    } catch (error) {
+       
+      console.warn('Failed to write server.port:', error);
+    }
+  } catch (error: unknown) {
+     
+    console.error('Failed to start API server:', error);
+    // Proceed to launch UI; CLI integration will be unavailable
+  }
+
   createWindow();
 });
 
@@ -285,11 +320,11 @@ app.on('before-quit', async (event) => {
       mainWindow.webContents.send('app-will-quit');
       const result = await savePromise;
       if (result === 'timeout') {
-        // eslint-disable-next-line no-console
+         
         console.warn('Auto-save timeout during shutdown - proceeding with quit');
       }
     } catch (error: unknown) {
-      // eslint-disable-next-line no-console
+       
       console.error('Error during shutdown save:', error);
     }
   }
@@ -300,15 +335,44 @@ app.on('before-quit', async (event) => {
   } catch (error) {
     console.warn('Error cleaning up token service:', error);
   }
+
+  // Close API server
+  if (apiServer) {
+    try {
+      apiServer.close();
+       
+      console.log('API server closed');
+    } catch (error) {
+       
+      console.error('Error closing API server:', error);
+    } finally {
+      apiServer = null;
+    }
+  }
   
+  // Clear active workspace preference and allowed paths on shutdown
+  try {
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference('workspace.active', null);
+    }
+  } catch (error) {
+    console.warn('Failed to clear active workspace on shutdown:', error);
+  }
+  try {
+    setAllowedWorkspacePaths([]);
+    getPathValidator([]);
+  } catch {
+    // best-effort
+  }
+
   // Best-effort close database
   if (database && (database as unknown as { initialized?: boolean }).initialized) {
     try {
       await (database as unknown as { close: () => Promise<void> }).close();
-      // eslint-disable-next-line no-console
+       
       console.log('Database closed successfully');
     } catch (error: unknown) {
-      // eslint-disable-next-line no-console
+       
       console.error('Error closing database:', error);
     }
   }
@@ -320,7 +384,9 @@ app.on('before-quit', async (event) => {
 function broadcastUpdate(channel: string, data?: unknown): void {
   const windows = BrowserWindow.getAllWindows();
   for (const win of windows) {
-    try { win.webContents.send(channel, data as never); } catch {}
+    try { win.webContents.send(channel, data as never); } catch {
+      // Intentionally empty - window may be destroyed
+    }
   }
 }
 
@@ -329,7 +395,7 @@ ipcMain.on('open-folder', async (event) => {
   try {
     zSchemas.FolderSelectionSchema.parse({});
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.warn('Validation error for open-folder:', (error as Error)?.message);
   }
 
@@ -337,12 +403,34 @@ ipcMain.on('open-folder', async (event) => {
   if (!result.canceled && result.filePaths?.length) {
     const selectedPath = String(result.filePaths[0]);
     try {
+      // Update in-memory validator and HTTP API allowed paths
       currentWorkspacePaths = [selectedPath];
+      setAllowedWorkspacePaths(currentWorkspacePaths);
       getPathValidator(currentWorkspacePaths); // Initialize validator
+
+      // Persist active workspace selection for API/CLI consumers
+      try {
+        if (database && (database as unknown as { initialized?: boolean }).initialized) {
+          const db: any = database as unknown as any;
+          const workspaces: any[] = await db.listWorkspaces();
+          let ws = workspaces.find((w) => w.folder_path === selectedPath);
+          if (!ws) {
+            // Create a workspace for this folder; avoid name collisions
+            const baseName = path.basename(selectedPath) || 'workspace';
+            const collision = workspaces.find((w) => w.name === baseName && w.folder_path !== selectedPath);
+            const name = collision ? `${baseName}-${Math.random().toString(36).slice(2, 8)}` : baseName;
+            ws = await db.createWorkspace(name, selectedPath, {});
+          }
+          await db.setPreference('workspace.active', String(ws.id));
+        }
+      } catch (persistError) {
+         
+        console.warn('Failed to persist active workspace for selected folder:', persistError);
+      }
       event.sender.send('folder-selected', selectedPath);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error sending folder-selected event:', err);
+    } catch (error) {
+       
+      console.error('Error sending folder-selected event:', error);
     }
   }
 });
@@ -364,6 +452,7 @@ ipcMain.on(
     try {
       // Update workspace paths for path validator
       currentWorkspacePaths = [folderPath];
+      setAllowedWorkspacePaths(currentWorkspacePaths);
       getPathValidator(currentWorkspacePaths);
 
       fileLoadingCancelled = false;
@@ -374,7 +463,7 @@ ipcMain.on(
       });
 
       const allFiles: SerializableFile[] = [];
-      const directoryQueue: Array<{ path: string; depth: number }> = [{ path: folderPath, depth: 0 }];
+      const directoryQueue: { path: string; depth: number }[] = [{ path: folderPath, depth: 0 }];
       const processedDirs = new Set<string>();
       const ignoreFilter = loadGitignore(folderPath, exclusionPatterns);
       let processingComplete = false;
@@ -384,7 +473,7 @@ ipcMain.on(
           name: file.name || '',
           path: file.path || '',
           tokenCount: file.tokenCount || 0,
-          size: file.size || 0,
+          size: file.size ?? 0,
           content: '',
           mtimeMs: file.mtimeMs,
           isBinary: Boolean(file.isBinary),
@@ -423,8 +512,8 @@ ipcMain.on(
           MIN_FILES: 50,
           MAX_FILES: 500,
           calculateBatchSize(files: SerializableFile[]) {
-            if (!files.length) return this.MIN_FILES;
-            const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
+            if (files.length === 0) return this.MIN_FILES;
+            const totalSize = files.reduce((sum, f) => sum + (f.size ?? 0), 0);
             const avgFileSize = totalSize / files.length || 1024;
             const optimalCount = Math.floor(this.TARGET_BATCH_SIZE / avgFileSize);
             return Math.max(this.MIN_FILES, Math.min(this.MAX_FILES, optimalCount));
@@ -448,7 +537,7 @@ ipcMain.on(
           try {
             const dirents = await fs.promises.readdir(dirPath, { withFileTypes: true });
 
-            const filePromises: Array<Promise<void>> = [];
+            const filePromises: Promise<void>[] = [];
             for (const dirent of dirents) {
               const fullPath = path.join(dirPath, dirent.name);
               const relativePath = path.relative(folderPath, fullPath);
@@ -467,7 +556,7 @@ ipcMain.on(
                       allFiles.push(fi);
                     })
                     .catch((error: unknown) => {
-                      // eslint-disable-next-line no-console
+                       
                       console.error(`Error processing file ${fullPath}:`, error);
                     })
                 );
@@ -483,7 +572,7 @@ ipcMain.on(
               await Promise.all(filePromises);
             }
           } catch (error: unknown) {
-            // eslint-disable-next-line no-console
+             
             console.error(`Error reading directory ${dirPath}:`, error);
           }
 
@@ -528,7 +617,7 @@ ipcMain.on(
       // Start
       processNextBatch();
     } catch (error: unknown) {
-      // eslint-disable-next-line no-console
+       
       console.error('Error reading directory:', error);
       event.sender.send('file-processing-status', {
         status: 'error',
@@ -547,7 +636,7 @@ ipcMain.on('cancel-file-loading', (_event, requestId: string | null = null) => {
     fileLoadingCancelled = true;
     currentRequestId = null;
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.error('Invalid input for cancel-file-loading:', (error as Error)?.message);
   }
 });
@@ -557,7 +646,7 @@ ipcMain.on('open-docs', (event, docName?: string) => {
   try {
     zSchemas.OpenDocsSchema.parse({ docName });
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.warn('Invalid input for open-docs:', (error as Error)?.message);
     return;
   }
@@ -567,20 +656,20 @@ ipcMain.on('open-docs', (event, docName?: string) => {
   const resolvedDocPath = path.resolve(docPath);
   const docsDir = path.resolve(__dirname, 'docs');
   if (!resolvedDocPath.startsWith(docsDir + path.sep)) {
-    // eslint-disable-next-line no-console
+     
     console.warn(`Attempted access outside docs directory: ${docName}`);
     return;
   }
 
   fs.access(resolvedDocPath, fs.constants.F_OK, (err) => {
     if (err) {
-      // eslint-disable-next-line no-console
+       
       console.error(`Documentation file not found: ${resolvedDocPath}`);
       return;
     }
     shell.openPath(resolvedDocPath).then((result) => {
       if (result) {
-        // eslint-disable-next-line no-console
+         
         console.error(`Error opening documentation: ${result}`);
       }
     });
@@ -623,27 +712,27 @@ ipcMain.handle('request-file-content', async (_event, filePath: string) => {
 });
 
 /** Workspace management (envelope) */
+function mapWorkspaceDbToIpc(w: any) {
+  return {
+    id: String(w.id),
+    name: w.name,
+    folderPath: w.folder_path,
+    state: w.state,
+    createdAt: w.created_at,
+    updatedAt: w.updated_at,
+    lastAccessed: w.last_accessed
+  };
+}
+
 ipcMain.handle('/workspace/list', async () => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const workspaces: any[] = await (database as unknown as { listWorkspaces: () => Promise<any[]> }).listWorkspaces();
-      const shaped = workspaces.map((w) => ({ ...w, id: String(w.id) }));
+      const shaped = workspaces.map(mapWorkspaceDbToIpc);
       return { success: true, data: shaped };
     }
-
-    const workspaces = Array.from(workspaceStore.entries())
-      .sort((a, b) => (b[1].lastAccessed || 0) - (a[1].lastAccessed || 0))
-      .map(([name, data]) => ({
-        id: name,
-        name,
-        folderPath: data.folderPath || '',
-        state: data.state || {},
-        createdAt: data.createdAt || Date.now(),
-        updatedAt: data.updatedAt || Date.now(),
-        lastAccessed: data.lastAccessed || Date.now()
-      }));
-    return { success: true, data: workspaces };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -655,24 +744,16 @@ ipcMain.handle('/workspace/create', async (_e, params: unknown) => {
     const { name, folderPath, state } = validated;
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const created: any = await (database as unknown as { createWorkspace: (n: string, f: string, s?: unknown) => Promise<any> }).createWorkspace(
         name,
         folderPath,
         state
       );
-      return { success: true, data: { ...created, id: String(created.id) } };
+      return { success: true, data: { ...mapWorkspaceDbToIpc(created) } };
     }
 
-    const now = Date.now();
-    workspaceStore.set(name, {
-      folderPath,
-      state,
-      createdAt: now,
-      updatedAt: now,
-      lastAccessed: now
-    });
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -683,26 +764,28 @@ ipcMain.handle('/workspace/load', async (_e, params: unknown) => {
     const { id } = zSchemas.WorkspaceLoadSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const ws: any | null = await (database as unknown as { getWorkspace: (id: string) => Promise<any | null> }).getWorkspace(id);
       if (!ws) return { success: true, data: null };
-      return { success: true, data: { ...ws, id: String(ws.id) } };
+      // Mark as active and sync allowed paths for API/CLI
+      try {
+        await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference('workspace.active', String(ws.id));
+      } catch (prefErr) {
+         
+        console.warn('Failed to set active workspace preference:', prefErr);
+      }
+      try {
+        setAllowedWorkspacePaths([ws.folder_path]);
+        getPathValidator([ws.folder_path]);
+      } catch (syncErr) {
+         
+        console.warn('Failed to sync allowed paths for loaded workspace:', syncErr);
+      }
+      const shaped = mapWorkspaceDbToIpc(ws);
+      return { success: true, data: shaped };
     }
 
-    const ws = workspaceStore.get(id);
-    if (!ws) return { success: true, data: null };
-    return {
-      success: true,
-      data: {
-        id,
-        name: id,
-        folderPath: ws.folderPath || '',
-        state: ws.state || {},
-        createdAt: ws.createdAt || Date.now(),
-        updatedAt: ws.updatedAt || Date.now(),
-        lastAccessed: ws.lastAccessed || Date.now()
-      }
-    };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -713,19 +796,13 @@ ipcMain.handle('/workspace/update', async (_e, params: unknown) => {
     const { id, state } = zSchemas.WorkspaceUpdateSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // Find then update by name (DB contract)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
-      const ws = await db.getWorkspace(id);
-      if (!ws) return { success: false, error: 'Workspace not found' };
-      await db.updateWorkspace(ws.name, state);
+      await db.updateWorkspaceById(id, state);
       return { success: true, data: null };
     }
 
-    const existing = workspaceStore.get(id);
-    if (!existing) return { success: false, error: 'Workspace not found' };
-    workspaceStore.set(id, { ...existing, state: state ?? existing.state, updatedAt: Date.now() });
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -736,7 +813,7 @@ ipcMain.handle('/workspace/touch', async (_e, params: unknown) => {
     const { id } = zSchemas.WorkspaceTouchSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       const ws = await db.getWorkspace(id);
       if (!ws) return { success: false, error: 'Workspace not found' };
@@ -744,10 +821,7 @@ ipcMain.handle('/workspace/touch', async (_e, params: unknown) => {
       return { success: true, data: null };
     }
 
-    const existing = workspaceStore.get(id);
-    if (!existing) return { success: false, error: 'Workspace not found' };
-    workspaceStore.set(id, { ...existing, lastAccessed: Date.now() });
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -758,13 +832,12 @@ ipcMain.handle('/workspace/delete', async (_e, params: unknown) => {
     const { id } = zSchemas.WorkspaceDeleteSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       await (database as unknown as { deleteWorkspaceById: (id: string) => Promise<void> }).deleteWorkspaceById(id);
       return { success: true, data: null };
     }
 
-    workspaceStore.delete(id);
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -775,30 +848,40 @@ ipcMain.handle('/workspace/rename', async (_e, params: unknown) => {
     const { id, newName } = zSchemas.WorkspaceRenameSchema.parse(params);
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (database as unknown as { renameWorkspace: (oldName: string, newName: string) => Promise<void> }).renameWorkspace(id, newName);
+       
+      const db: any = database as unknown as any;
+      const ws = await db.getWorkspace(id);
+      if (!ws) return { success: false, error: 'Workspace not found' };
+      await db.renameWorkspace(ws.name, newName);
       return { success: true, data: null };
     }
 
-    const existing = workspaceStore.get(id);
-    if (!existing) return { success: false, error: 'Workspace not found' };
-    workspaceStore.set(newName, { ...existing, updatedAt: Date.now() });
-    workspaceStore.delete(id);
-    return { success: true, data: null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
 });
 
 /** Instructions (envelope) */
+function mapInstructionDbToIpc(i: any) {
+  return {
+    id: i.id,
+    name: i.name,
+    content: i.content,
+    createdAt: i.created_at,
+    updatedAt: i.updated_at
+  };
+}
+
 ipcMain.handle('/instructions/list', async () => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const list: any[] = await (database as unknown as { listInstructions: () => Promise<any[]> }).listInstructions();
-      return { success: true, data: list };
+      const shaped = list.map(mapInstructionDbToIpc);
+      return { success: true, data: shaped };
     }
-    return { success: false, error: 'Database not initialized' };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -807,12 +890,12 @@ ipcMain.handle('/instructions/list', async () => {
 ipcMain.handle('/instructions/create', async (_e, params: { id: string; name: string; content: string }) => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       await db.createInstruction(params.id, params.name, params.content);
       return { success: true, data: null };
     }
-    return { success: false, error: 'Database not initialized' };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -821,12 +904,12 @@ ipcMain.handle('/instructions/create', async (_e, params: { id: string; name: st
 ipcMain.handle('/instructions/update', async (_e, params: { id: string; name: string; content: string }) => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       await db.updateInstruction(params.id, params.name, params.content);
       return { success: true, data: null };
     }
-    return { success: false, error: 'Database not initialized' };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -835,12 +918,12 @@ ipcMain.handle('/instructions/update', async (_e, params: { id: string; name: st
 ipcMain.handle('/instructions/delete', async (_e, params: { id: string }) => {
   try {
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const db: any = database as unknown as any;
       await db.deleteInstruction(params.id);
       return { success: true, data: null };
     }
-    return { success: false, error: 'Database not initialized' };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -860,13 +943,12 @@ ipcMain.handle('/prefs/get', async (_e, params: unknown) => {
     }
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const value: any = await (database as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference(key);
       return { success: true, data: value ?? null };
     }
 
-    const value = preferencesStore.get(key);
-    return { success: true, data: value ?? null };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
@@ -884,15 +966,13 @@ ipcMain.handle('/prefs/set', async (_e, params: unknown) => {
     }
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference(key, value);
       broadcastUpdate('/prefs/get:update');
       return { success: true, data: true };
     }
 
-    preferencesStore.set(key, value);
-    broadcastUpdate('/prefs/get:update');
-    return { success: true, data: true };
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }

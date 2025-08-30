@@ -2,6 +2,7 @@ import { createContext, useCallback, useEffect, useMemo } from 'react';
 import type { Dispatch, SetStateAction, ReactNode } from 'react';
 
 import { STORAGE_KEYS } from '@constants';
+
 import { openFolderDialog, cancelFileLoading } from '../handlers/electron-handlers';
 import { refreshFileTree } from '../handlers/filter-handlers';
 import { FileData } from '../types/file-types';

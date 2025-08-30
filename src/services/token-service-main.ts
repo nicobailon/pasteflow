@@ -1,5 +1,6 @@
-import { TokenServiceBackend, TokenService } from './token-service';
 import { TOKEN_COUNTING } from '@constants';
+
+import { TokenServiceBackend, TokenService } from './token-service';
 
 interface TiktokenEncoder {
   encode(text: string): Uint32Array;

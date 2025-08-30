@@ -1,7 +1,7 @@
 import { VariableSizeList as List } from 'react-window';
 import { useCallback, useRef, forwardRef, useImperativeHandle, useEffect, useMemo, memo, useState } from 'react';
  
-import { TreeNode, SelectedFileReference } from '../types/file-types';
+import { TreeNode, SelectedFileReference, DirectorySelectionCache } from '../types/file-types';
  
 import TreeItem from './tree-item';
 
@@ -14,7 +14,7 @@ interface VirtualizedTreeProps {
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
   height: number;
-  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache;
+  folderSelectionCache?: DirectorySelectionCache;
 }
 
 interface ItemData {
@@ -26,7 +26,7 @@ interface ItemData {
   toggleExpanded: (path: string) => void;
   onViewFile?: (path: string) => void;
   loadFileContent?: (path: string) => Promise<void>;
-  folderSelectionCache?: import('../utils/selection-cache').DirectorySelectionCache;
+  folderSelectionCache?: DirectorySelectionCache;
 }
 
 const ITEM_HEIGHT = 32;
@@ -140,7 +140,7 @@ const VirtualizedTree = forwardRef<VirtualizedTreeHandle, VirtualizedTreeProps>(
       const velocity = dy / dt; // px per ms
       // Simple heuristic: bump overscan when velocity is high
       let next = 5;
-      if (velocity > 2.0) next = 20;       // very fast scroll
+      if (velocity > 2) next = 20;       // very fast scroll
       else if (velocity > 0.75) next = 12; // moderate scroll
       if (next !== overscan) setOverscan(next);
     }
