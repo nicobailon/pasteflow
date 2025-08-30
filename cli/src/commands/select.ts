@@ -133,56 +133,7 @@ export function attachSelectCommand(root: any): void {
   // select list
   cmd
     .command("list")
-    .description("List selected files and ranges")
-    .action(async () => {
-      const flags = root.opts() as any;
-      try {
-        const d = await discover(flags);
-        const client = createClient(d, flags);
-        const res = await client.get("/api/v1/files/selected");
-        const rows = (res.data?.data ?? res.data) as { path: string; lines?: { start: number; end: number }[] }[];
-
-        if (flags.json) {
-          printJsonOrText(rows, flags);
-          process.exit(0);
-        }
-
-        if (rows.length === 0) {
-           
-          console.log("No files selected");
-          process.exit(0);
-        }
-
-        const fmt = (lines?: { start: number; end: number }[]) => {
-          if (!lines || lines.length === 0) return "(all)";
-          return lines.map((r) => (r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`)).join(",");
-        };
-
-        const table = formatAsTable(
-          rows.map((r) => ({ path: r.path, ranges: fmt(r.lines) })),
-          [
-            { key: "path", header: "Path" },
-            { key: "ranges", header: "Ranges" },
-          ]
-        );
-         
-        console.log(table);
-        process.exit(0);
-      } catch (error) {
-        const mapped = handleAxiosError(error, flags);
-        if (flags.json && mapped.json) printJsonOrText(mapped.json, flags);
-        else if (mapped.message) {
-           
-          console.error(mapped.message);
-        }
-        process.exit(mapped.exitCode);
-      }
-    });
-
-  // select tokens — show per-item token counts and totals
-  cmd
-    .command("tokens")
-    .description("Show token counts for selected files, prompts and instructions")
+    .description("Show token breakdown for current selection (files/prompts/instructions)")
     .option("--max-files <n>", "Maximum number of files to include", (v: string) => parseInt(String(v), 10))
     .option("--max-bytes <n>", "Maximum total bytes to include", (v: string) => parseInt(String(v), 10))
     .option("--no-include-instructions", "Exclude instructions from totals")
@@ -268,4 +219,5 @@ export function attachSelectCommand(root: any): void {
         process.exit(mapped.exitCode);
       }
     });
+
 }

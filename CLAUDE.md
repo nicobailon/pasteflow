@@ -172,7 +172,16 @@ Key commands (examples)
 - Selection
   ```bash
   pasteflow select add --path "/abs/path/file.ts" --lines "10-20,30"
-  pasteflow select list
+  # Token breakdown for current selection (files + prompts/instructions)
+  pasteflow select list [--summary-only] [--relative] [--max-files 500] [--max-bytes 2000000] [--no-include-instructions] [--no-include-prompts]
+  ```
+  
+  Tokens
+  ```bash
+  pasteflow tokens backend
+  pasteflow tokens count --text @README.md
+  # Alias for selection token breakdown (same as `select list`)
+  pasteflow tokens selection [--summary-only] [--relative] [--max-files 500] [--max-bytes 2000000] [--no-include-instructions] [--no-include-prompts]
   ```
 - Content aggregation
   ```bash
@@ -201,7 +210,30 @@ HTTP API reference
 - The HTTP API is defined in [src/main/api-server.ts](src/main/api-server.ts) and covers:
   - /api/v1/status, /workspaces, /instructions, /prefs, /files/info|content,
     /tokens/count|backend, /files/select|deselect|clear|selected, /content, /content/export,
+    /selection/tokens,
     /preview/start|status/:id|content/:id|cancel/:id
+
+Selection tokens example
+```bash
+curl -H "Authorization: Bearer $(cat ~/.pasteflow/auth.token)" \
+     "http://127.0.0.1:5839/api/v1/selection/tokens?relativePaths=true&maxFiles=100"
+```
+Response (truncated):
+```json
+{
+  "backend": "tiktoken",
+  "files": [
+    { "path": "/abs/path/src/app.ts", "relativePath": "src/app.ts", "ranges": null, "bytes": 1234, "tokenCount": 456, "partial": false, "skipped": false, "reason": null }
+  ],
+  "prompts": {
+    "system": [{ "id": "system-0", "name": "System Prompt 1", "tokenCount": 12 }],
+    "roles": [],
+    "instructions": [],
+    "user": { "present": false, "tokenCount": 0 }
+  },
+  "totals": { "files": 456, "prompts": 12, "all": 468 }
+}
+```
 
 ## Development Guidelines
 

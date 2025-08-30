@@ -14,6 +14,7 @@ A desktop app for efficiently selecting, packaging, and copying code to share wi
   - Line Range Selection: copy specific line ranges
 - Token Counting
   - Unified token service: renderer worker pool with estimation fallback; main uses tiktoken; batch support for lists
+  - Per-item token breakdown via API and CLI (file/range-level counts + totals)
 - Smart Exclusions
   - Automatically excludes binaries, build outputs, vendor artifacts, and common non-source files
 - System Prompts
@@ -116,11 +117,12 @@ How to run (local repo)
   ```bash
   node cli/dist/index.js status
   ```
-- Optional: add pasteflow/pf to your PATH:
+- Global installation (one-time setup):
   ```bash
-  npm link   # then use `pasteflow` or `pf`
+  npm link   # Creates persistent global `pasteflow` and `pf` commands
   pasteflow status
   ```
+  Note: `npm link` is a one-time setup that persists across sessions. Rebuild CLI with `npm run build:cli` when making changes.
 
 Global flags
 - --host, --port, --token: override discovery from ~/.pasteflow/{server.port,auth.token}
@@ -181,6 +183,8 @@ Command overview
   ```bash
   pasteflow tokens backend
   pasteflow tokens count --text @README.md
+  # Alias for selection token breakdown (same as `select list`)
+  pasteflow tokens selection [--summary-only] [--relative] [--max-files 500] [--max-bytes 2000000] [--no-include-instructions] [--no-include-prompts]
   ```
 - Selection
   ```bash
@@ -188,7 +192,41 @@ Command overview
   pasteflow select add --path "/abs/path/file.ts" --lines "10-20,30"
   pasteflow select remove --path "/abs/path/file.ts" --lines "30"
   pasteflow select clear
-  pasteflow select list
+  # Token breakdown for current selection (files + prompts/instructions)
+  pasteflow select list [--summary-only] [--relative] [--max-files 500] [--max-bytes 2000000] [--no-include-instructions] [--no-include-prompts]
+  ```
+
+API: Selection token breakdown
+- Endpoint: `GET /api/v1/selection/tokens`
+- Example:
+  ```bash
+  curl -H "Authorization: Bearer $(cat ~/.pasteflow/auth.token)" \
+       "http://127.0.0.1:5839/api/v1/selection/tokens?relativePaths=true&maxFiles=500&maxBytes=2000000"
+  ```
+  Response (truncated):
+  ```json
+  {
+    "backend": "tiktoken",
+    "files": [
+      {
+        "path": "/abs/path/src/app.ts",
+        "relativePath": "src/app.ts",
+        "ranges": null,
+        "bytes": 1234,
+        "tokenCount": 456,
+        "partial": false,
+        "skipped": false,
+        "reason": null
+      }
+    ],
+    "prompts": {
+      "system": [{ "id": "system-0", "name": "System Prompt 1", "tokenCount": 12 }],
+      "roles": [],
+      "instructions": [],
+      "user": { "present": false, "tokenCount": 0 }
+    },
+    "totals": { "files": 456, "prompts": 12, "all": 468 }
+  }
   ```
 - Content aggregation
   ```bash

@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "build/main/main.js",
   "bin": {
-    "pasteflow": "cli/dist/index.js",
-    "pf": "cli/dist/index.js"
+    "pasteflow": "cli/bin/pf.cjs",
+    "pf": "cli/bin/pf.cjs"
   },
   "scripts": {
     "start": "electron .",
