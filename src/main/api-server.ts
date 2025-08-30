@@ -126,6 +126,9 @@ export class PasteFlowAPIServer {
     this.app.get('/api/v1/content', (req, res) => this.handleContent(req, res));
     this.app.post('/api/v1/content/export', (req, res) => this.handleContentExport(req, res));
 
+    // Selection tokens breakdown
+    this.app.get('/api/v1/selection/tokens', (req, res) => this.handleSelectionTokens(req, res));
+
     // Preview
     this.app.post('/api/v1/preview/start', (req, res) => this.handlePreviewStart(req, res));
     this.app.get('/api/v1/preview/status/:id', (req, res) => this.handlePreviewStatus(req, res));
@@ -244,6 +247,241 @@ export class PasteFlowAPIServer {
       return res.json(ok({ outputPath: outVal.absolutePath, bytes }));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  // Selection token breakdown handler
+  private async handleSelectionTokens(req: Request, res: Response) {
+    const validation = await this.validateActiveWorkspace(res);
+    if (!validation) return;
+
+    try {
+      const options = this.parseContentOptions(req, validation);
+
+      // Parse query flags
+      const q = req.query as unknown as {
+        includePrompts?: string;
+        includeInstructions?: string;
+        relativePaths?: string;
+        maxFiles?: string;
+        maxBytes?: string;
+      };
+      const includePrompts = q.includePrompts === undefined ? true : String(q.includePrompts) !== 'false';
+      const includeInstructions = q.includeInstructions === undefined ? true : String(q.includeInstructions) !== 'false';
+      const relativePaths = String(q.relativePaths || '') === 'true';
+
+      // Prune/validate selection to absolute paths within workspace
+      const pruned: { path: string; lines?: { start: number; end: number }[] }[] = [];
+      for (const s of options.selection || []) {
+        const v = validateAndResolvePath(s.path);
+        if (!v.ok) continue;
+        pruned.push({ path: v.absolutePath, lines: s.lines });
+      }
+
+      // Limits
+      const maxFiles = options.maxFiles;
+      const maxBytes = options.maxBytes;
+
+      const tokenService = getMainTokenService();
+      const activeBackend = await tokenService.getActiveBackend();
+
+      // Process files sequentially, respecting limits
+      const files: Array<{
+        path: string;
+        relativePath?: string;
+        ranges: { start: number; end: number }[] | null;
+        bytes: number;
+        tokenCount: number;
+        partial: boolean;
+        skipped: boolean;
+        reason: null | 'binary' | 'not-found' | 'outside-workspace' | 'too-large' | 'file-error' | 'read-error' | 'directory';
+      }> = [];
+
+      let includedFiles = 0;
+      let totalBytes = 0;
+
+      for (const s of pruned) {
+        if (typeof maxFiles === 'number' && includedFiles >= maxFiles) break;
+
+        // Stat and basic checks
+        const st = await fileServiceStatFile(s.path);
+        if (!st.ok) {
+          const reason = st.code === 'FILE_NOT_FOUND' ? 'not-found' : 'file-error';
+          files.push({
+            path: s.path,
+            relativePath: relativePaths ? this.toRelativePath(validation.ws.folder_path, s.path) : undefined,
+            ranges: s.lines ?? null,
+            bytes: 0,
+            tokenCount: 0,
+            partial: Boolean(s.lines && s.lines.length > 0),
+            skipped: true,
+            reason,
+          });
+          continue;
+        }
+        if (st.data.isDirectory) {
+          files.push({
+            path: st.data.path,
+            relativePath: relativePaths ? this.toRelativePath(validation.ws.folder_path, st.data.path) : undefined,
+            ranges: s.lines ?? null,
+            bytes: 0,
+            tokenCount: 0,
+            partial: Boolean(s.lines && s.lines.length > 0),
+            skipped: true,
+            reason: 'directory',
+          });
+          continue;
+        }
+        if (st.data.isBinary) {
+          files.push({
+            path: st.data.path,
+            relativePath: relativePaths ? this.toRelativePath(validation.ws.folder_path, st.data.path) : undefined,
+            ranges: s.lines ?? null,
+            bytes: 0,
+            tokenCount: 0,
+            partial: Boolean(s.lines && s.lines.length > 0),
+            skipped: true,
+            reason: 'binary',
+          });
+          continue;
+        }
+
+        const r = await readTextFile(st.data.path);
+        if (!r.ok) {
+          let reason: 'read-error' | 'binary' | 'file-error' = 'read-error';
+          if (r.code === 'BINARY_FILE') reason = 'binary';
+          else if (r.code === 'FILE_SYSTEM_ERROR') reason = 'file-error';
+          files.push({
+            path: st.data.path,
+            relativePath: relativePaths ? this.toRelativePath(validation.ws.folder_path, st.data.path) : undefined,
+            ranges: s.lines ?? null,
+            bytes: 0,
+            tokenCount: 0,
+            partial: Boolean(s.lines && s.lines.length > 0),
+            skipped: true,
+            reason,
+          });
+          continue;
+        }
+        if (r.isLikelyBinary) {
+          files.push({
+            path: st.data.path,
+            relativePath: relativePaths ? this.toRelativePath(validation.ws.folder_path, st.data.path) : undefined,
+            ranges: s.lines ?? null,
+            bytes: 0,
+            tokenCount: 0,
+            partial: Boolean(s.lines && s.lines.length > 0),
+            skipped: true,
+            reason: 'binary',
+          });
+          continue;
+        }
+
+        // Extract selected content if ranges provided
+        const selected = { path: st.data.path, lines: s.lines } as { path: string; lines?: { start: number; end: number }[] };
+        // Lazy import to avoid circular deps issues
+        const { processFileContent } = require('../utils/content-formatter');
+        const { content, partial } = processFileContent(r.content, {
+          path: selected.path,
+          lines: selected.lines,
+          isFullFile: !selected.lines || selected.lines.length === 0,
+        });
+
+        const bytes = Buffer.byteLength(content || '', 'utf8');
+        if (typeof maxBytes === 'number' && (totalBytes + bytes) > maxBytes) {
+          // Respect overall bytes limit by skipping this and remaining files
+          files.push({
+            path: st.data.path,
+            relativePath: relativePaths ? this.toRelativePath(validation.ws.folder_path, st.data.path) : undefined,
+            ranges: s.lines ?? null,
+            bytes: 0,
+            tokenCount: 0,
+            partial,
+            skipped: true,
+            reason: 'too-large',
+          });
+          break;
+        }
+
+        const { count } = await tokenService.countTokens(content);
+        files.push({
+          path: st.data.path,
+          relativePath: relativePaths ? this.toRelativePath(validation.ws.folder_path, st.data.path) : undefined,
+          ranges: s.lines ?? null,
+          bytes,
+          tokenCount: count,
+          partial,
+          skipped: false,
+          reason: null,
+        });
+        includedFiles += 1;
+        totalBytes += bytes;
+      }
+
+      // Prompts/instructions
+      const promptsOut: {
+        system: { id: string; name: string; tokenCount: number }[];
+        roles: { id: string; name: string; tokenCount: number }[];
+        instructions: { id: string; name: string; tokenCount: number }[];
+        user: { present: boolean; tokenCount: number };
+      } = {
+        system: [],
+        roles: [],
+        instructions: [],
+        user: { present: false, tokenCount: 0 },
+      };
+
+      if (includePrompts) {
+        for (const p of options.systemPrompts || []) {
+          const { count } = await tokenService.countTokens(p.content || '');
+          promptsOut.system.push({ id: p.id, name: p.name, tokenCount: count });
+        }
+        for (const p of options.rolePrompts || []) {
+          const { count } = await tokenService.countTokens(p.content || '');
+          promptsOut.roles.push({ id: p.id, name: p.name, tokenCount: count });
+        }
+      }
+      if (includeInstructions) {
+        for (const i of options.selectedInstructions || []) {
+          const { count } = await tokenService.countTokens(i.content || '');
+          promptsOut.instructions.push({ id: i.id, name: i.name, tokenCount: count });
+        }
+        const userText = options.userInstructions || '';
+        if (userText && userText.trim().length > 0) {
+          const { count } = await tokenService.countTokens(userText);
+          promptsOut.user = { present: true, tokenCount: count };
+        } else {
+          promptsOut.user = { present: false, tokenCount: 0 };
+        }
+      }
+
+      const totalsFiles = files.reduce((acc, f) => acc + (f.skipped ? 0 : f.tokenCount), 0);
+      const totalsPrompts =
+        (promptsOut.system?.reduce((a, b) => a + b.tokenCount, 0) || 0) +
+        (promptsOut.roles?.reduce((a, b) => a + b.tokenCount, 0) || 0) +
+        (promptsOut.instructions?.reduce((a, b) => a + b.tokenCount, 0) || 0) +
+        (promptsOut.user?.tokenCount || 0);
+      const totalsAll = totalsFiles + totalsPrompts;
+
+      return res.json(
+        ok({
+          backend: activeBackend ?? 'estimate',
+          files,
+          prompts: promptsOut,
+          totals: { files: totalsFiles, prompts: totalsPrompts, all: totalsAll },
+        })
+      );
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  private toRelativePath(root: string, p: string): string {
+    try {
+      const path = require('node:path');
+      return path.relative(root, p) || p;
+    } catch {
+      return p;
     }
   }
 

@@ -251,19 +251,15 @@ app.whenReady().then(async () => {
      
     console.log('Database initialized successfully');
 
-    // Auto-init allowed workspace paths if an active workspace exists to avoid NO_ACTIVE_WORKSPACE errors
+    // On fresh app start, clear any previously persisted "active" workspace so
+    // CLI status reflects the UI (no folder loaded) until the user explicitly
+    // opens a folder or loads a workspace.
     try {
-      const activeId = await database.getPreference('workspace.active');
-      if (activeId) {
-        const ws = await database.getWorkspace(String(activeId));
-        if (ws?.folder_path) {
-          setAllowedWorkspacePaths([ws.folder_path]);
-          getPathValidator([ws.folder_path]);
-        }
-      }
+      await database.setPreference('workspace.active', null as unknown as any);
+      setAllowedWorkspacePaths([]);
+      getPathValidator([]);
     } catch (error) {
-       
-      console.warn('Workspace path auto-init failed:', error);
+      console.warn('Failed to clear active workspace on startup:', error);
     }
   } catch (error: unknown) {
      
@@ -354,6 +350,21 @@ app.on('before-quit', async (event) => {
     }
   }
   
+  // Clear active workspace preference and allowed paths on shutdown
+  try {
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+      await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference('workspace.active', null);
+    }
+  } catch (error) {
+    console.warn('Failed to clear active workspace on shutdown:', error);
+  }
+  try {
+    setAllowedWorkspacePaths([]);
+    getPathValidator([]);
+  } catch {
+    // best-effort
+  }
+
   // Best-effort close database
   if (database && (database as unknown as { initialized?: boolean }).initialized) {
     try {
@@ -392,8 +403,30 @@ ipcMain.on('open-folder', async (event) => {
   if (!result.canceled && result.filePaths?.length) {
     const selectedPath = String(result.filePaths[0]);
     try {
+      // Update in-memory validator and HTTP API allowed paths
       currentWorkspacePaths = [selectedPath];
+      setAllowedWorkspacePaths(currentWorkspacePaths);
       getPathValidator(currentWorkspacePaths); // Initialize validator
+
+      // Persist active workspace selection for API/CLI consumers
+      try {
+        if (database && (database as unknown as { initialized?: boolean }).initialized) {
+          const db: any = database as unknown as any;
+          const workspaces: any[] = await db.listWorkspaces();
+          let ws = workspaces.find((w) => w.folder_path === selectedPath);
+          if (!ws) {
+            // Create a workspace for this folder; avoid name collisions
+            const baseName = path.basename(selectedPath) || 'workspace';
+            const collision = workspaces.find((w) => w.name === baseName && w.folder_path !== selectedPath);
+            const name = collision ? `${baseName}-${Math.random().toString(36).slice(2, 8)}` : baseName;
+            ws = await db.createWorkspace(name, selectedPath, {});
+          }
+          await db.setPreference('workspace.active', String(ws.id));
+        }
+      } catch (persistError) {
+         
+        console.warn('Failed to persist active workspace for selected folder:', persistError);
+      }
       event.sender.send('folder-selected', selectedPath);
     } catch (error) {
        
@@ -419,6 +452,7 @@ ipcMain.on(
     try {
       // Update workspace paths for path validator
       currentWorkspacePaths = [folderPath];
+      setAllowedWorkspacePaths(currentWorkspacePaths);
       getPathValidator(currentWorkspacePaths);
 
       fileLoadingCancelled = false;
@@ -733,6 +767,20 @@ ipcMain.handle('/workspace/load', async (_e, params: unknown) => {
        
       const ws: any | null = await (database as unknown as { getWorkspace: (id: string) => Promise<any | null> }).getWorkspace(id);
       if (!ws) return { success: true, data: null };
+      // Mark as active and sync allowed paths for API/CLI
+      try {
+        await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference('workspace.active', String(ws.id));
+      } catch (prefErr) {
+         
+        console.warn('Failed to set active workspace preference:', prefErr);
+      }
+      try {
+        setAllowedWorkspacePaths([ws.folder_path]);
+        getPathValidator([ws.folder_path]);
+      } catch (syncErr) {
+         
+        console.warn('Failed to sync allowed paths for loaded workspace:', syncErr);
+      }
       const shaped = mapWorkspaceDbToIpc(ws);
       return { success: true, data: shaped };
     }
