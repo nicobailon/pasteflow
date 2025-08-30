@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld('electron', {
     }
   },
   receive: (channel: string, func: IpcFn) => {
-    const validChannels = ['folder-selected', 'file-list-data', 'file-processing-status', 'apply-changes-response'];
+    const validChannels = ['folder-selected', 'file-list-data', 'file-processing-status', 'apply-changes-response', 'workspace-updated'];
     if (!validChannels.includes(channel)) return;
 
     ipcRenderer.on(channel, (_event, ...args: unknown[]) => {

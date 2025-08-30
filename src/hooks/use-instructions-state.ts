@@ -91,6 +91,26 @@ export function useInstructionsState(): UseInstructionsStateReturn {
 
   useEffect(() => {
     fetchInstructions();
+
+    // Subscribe to external updates (e.g., CLI changes via HTTP API)
+    const handler = () => { void fetchInstructions(); };
+    try {
+      if (window.electron?.ipcRenderer?.on) {
+        window.electron.ipcRenderer.on('instructions-updated', handler as unknown as (...args: unknown[]) => void);
+      }
+    } catch {
+      // ignore subscription errors silently
+    }
+
+    return () => {
+      try {
+        if (window.electron?.ipcRenderer?.removeListener) {
+          window.electron.ipcRenderer.removeListener('instructions-updated', handler as unknown as (...args: unknown[]) => void);
+        }
+      } catch {
+        // ignore cleanup errors
+      }
+    };
   }, [fetchInstructions]);
 
   return {

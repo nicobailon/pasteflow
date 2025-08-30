@@ -158,6 +158,13 @@ export class PasteFlowAPIServer {
       const newState: WorkspaceState = { ...validation.state, selectedFiles: next.selectedFiles };
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
 
+      // Notify renderer processes that the workspace selection changed
+      this.broadcastWorkspaceUpdated({
+        workspaceId: String(validation.ws.id),
+        folderPath: validation.ws.folder_path,
+        selectedFiles: newState.selectedFiles ?? [],
+      });
+
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -181,6 +188,13 @@ export class PasteFlowAPIServer {
       const newState: WorkspaceState = { ...validation.state, selectedFiles: next.selectedFiles };
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
 
+      // Notify renderer processes that the workspace selection changed
+      this.broadcastWorkspaceUpdated({
+        workspaceId: String(validation.ws.id),
+        folderPath: validation.ws.folder_path,
+        selectedFiles: newState.selectedFiles ?? [],
+      });
+
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -194,6 +208,14 @@ export class PasteFlowAPIServer {
     try {
       const newState: WorkspaceState = { ...validation.state, selectedFiles: [] };
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
+
+      // Notify renderer processes that the workspace selection changed
+      this.broadcastWorkspaceUpdated({
+        workspaceId: String(validation.ws.id),
+        folderPath: validation.ws.folder_path,
+        selectedFiles: [],
+      });
+
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -209,6 +231,23 @@ export class PasteFlowAPIServer {
       return res.json(ok(selection));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  /**
+   * Best-effort broadcast of workspace selection updates to renderer windows.
+   * Avoids hard dependency on Electron in test environments.
+   */
+  private broadcastWorkspaceUpdated(payload: { workspaceId: string; folderPath: string; selectedFiles: { path: string; lines?: { start: number; end: number }[] }[] }): void {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, data?: unknown) => void } }> } };
+      const windows = BrowserWindow.getAllWindows();
+      for (const win of windows) {
+        try { win.webContents.send('workspace-updated', payload); } catch { /* per-window failure ignored */ }
+      }
+    } catch {
+      // Electron not present (e.g., during jest tests) — no-op
     }
   }
 

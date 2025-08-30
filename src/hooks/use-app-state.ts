@@ -1210,6 +1210,20 @@ const useAppState = () => {
           handleFiltersAndSort(files, sortOrderRef.current, searchTermRef.current);
         };
 
+        // React to external workspace updates (e.g., CLI selection changes)
+        const handleWorkspaceUpdatedWrapper = (payload: { folderPath?: string; selectedFiles?: SelectedFileReference[] }) => {
+          try {
+            const folderPath = payload?.folderPath || null;
+            const incoming = Array.isArray(payload?.selectedFiles) ? (payload!.selectedFiles as SelectedFileReference[]) : [];
+            // Only apply if the update is for the currently open folder
+            if (folderPath && folderPath === selectedFolderRef.current) {
+              applySelectedFiles(incoming, allFilesRef.current);
+            }
+          } catch (error) {
+            logger.warn('[useAppState] Failed to handle workspace-updated payload', error as Error);
+          }
+        };
+
         const cleanup = setupElectronHandlers(
           isElectron,
           setSelectedFolder,
@@ -1226,7 +1240,8 @@ const useAppState = () => {
           persistWorkspace,
           getWorkspaceNames,
           selectedFolderRef.current,
-          validateSelectedFilesExist
+          validateSelectedFilesExist,
+          handleWorkspaceUpdatedWrapper
         );
 
         // Dispatch a custom event when handlers are set up

@@ -1,28 +1,43 @@
 # PasteFlow
 
-A desktop app for efficiently selecting, packaging, and copying code to share with AI assistants.
+Build precise, token-efficient context from any codebase. Select exact files and line ranges via CLI or UI; changes sync instantly between them.
 
 ![PasteFlow Screenshot](https://github.com/user-attachments/assets/d17bc6b4-4c92-4775-8f25-f99fed7d2385)
 
-## Features
+## Why PasteFlow
 
-- Pack workflow
-  - Progressive Preview Pack: background file processing with seamless Pack → Preview/Copy workflow
-  - Smart file batching and UI that stays responsive during large packs
-- File Tree Navigation
-  - Browse and select files/folders from your codebase
-  - Line Range Selection: copy specific line ranges
-- Token Counting
-  - Unified token service: renderer worker pool with estimation fallback; main uses tiktoken; batch support for lists
-  - Per-item token breakdown via API and CLI (file/range-level counts + totals)
-- Smart Exclusions
-  - Automatically excludes binaries, build outputs, vendor artifacts, and common non-source files
-- System Prompts
-  - Create and manage reusable prompts bundled with your code packs
-- Workspace Management
-  - Save and restore complete application state (workspaces) backed by SQLite
-- Dark Mode
-  - Light and dark themes
+- CLI-first: automate context assembly for AI coding assistants (Claude Code, Cursor, Continue, etc.).
+- Surgical selection: add whole files or specific line ranges.
+- Predictable tokens: see counts before sending to LLMs.
+- Reusable state: save complete contexts as workspaces.
+
+## Core Features
+
+### Context Building
+- **CLI-First Architecture**: Every feature accessible via CLI for external agent integration and automation
+- **Surgical Selection**: Select specific files and line ranges, not entire directories
+- **Tree Visualization**: ASCII tree output for architectural understanding
+- **Smart Exclusions**: Automatically filters binaries, node_modules, build artifacts, vendor files
+
+### Token Management
+- **Token Intelligence**: Unified token service with tiktoken (GPT-3.5/4 compatible)
+- **Per-Item Breakdown**: File and line-range level token counts via API and CLI
+- **Batch Processing**: Efficient token counting for large file lists
+
+### Pack Workflow
+- Progressive preview: background processing without blocking the UI
+- Smooth flow: Pack → Preview → Copy
+- Smart batching for large codebases
+
+### Workspace & Prompts
+- **Workspace Persistence**: Save and restore complete application state via SQLite
+- **System Prompts**: Create and manage reusable prompts bundled with code packs
+- **Configuration Reuse**: Save context selections for repeated use
+
+### User Experience
+- **File Tree Navigation**: Browse and select files/folders from your codebase
+- **Line Range Selection**: Copy specific line ranges (e.g., lines 45-120)
+- **Dark Mode**: Light and dark themes for comfortable viewing
 
 ## Installation
 
@@ -34,8 +49,7 @@ Or build from source:
 git clone https://github.com/yourusername/pasteflow.git
 cd pasteflow
 npm install
-npm run build-electron   # orchestrates a production build (Vite + packaging)
-npm run package          # package for current platform via electron-builder
+npm run package          # build + package for current platform
 ```
 
 Notes
@@ -44,26 +58,17 @@ Notes
 
 ## Development
 
-Single-command development (recommended):
-
 ```bash
-# Start the full dev environment: Vite + Electron orchestrated in one process
+# Vite + Electron in one command
 npm run dev:electron
-```
 
-Additional commands:
-
-```bash
-# Start only the Vite dev server (UI). Usually not needed when using dev:electron.
+# UI-only
 npm run dev
 
-# Run tests
+# Tests
 npm test
 npm run test:watch
 ```
-
-Why single-command dev?
-- We use a TypeScript dev orchestrator dev.ts executed via tsx. It launches Vite, detects the dev port dynamically, builds/watches the Electron main process TypeScript, and then spawns Electron with the correct start URL. This preserves exactly the same behavior as the previous JS launcher but in TypeScript.
 
 ## Build and Packaging
 
@@ -98,12 +103,55 @@ Under the hood:
 - Jest + ts-jest — Test runner and TS support
 - tsx — Dev-time execution of TypeScript scripts
 
+## AI Agent Integration
+
+PasteFlow works with ANY coding assistant that can execute shell commands. The CLI exposes all functionality for intelligent context building.
+
+### Workflow for AI Agents (Claude Code, Cursor, etc.)
+
+1. **Map the architecture**: Start with `pf tree --mode complete` to understand codebase structure
+2. **Search strategically**: Use tree insights to target searches with `grep` or `rg`
+3. **Check file sizes**: Use `pf files info` before reading large files
+4. **Select surgically**: Add specific line ranges with `pf select add --lines 45-120`
+5. **Verify tokens**: Check total with `pf tokens selection` before sending to LLM
+6. **Get content**: Retrieve optimized context with `pf content get`
+
+### Example: Agent Building Context
+
+```bash
+# Agent receives: "Fix the performance issue in file selection"
+
+# 1. Understand structure
+pf tree --mode complete | grep -E "(select|list|performance)"
+
+# 2. Check file sizes first
+pf files info --path src/hooks/use-file-selection.ts
+# Output: 450 lines, ~3500 tokens
+
+# 3. Select only relevant sections
+pf select add --path src/hooks/use-file-selection.ts --lines 45-120,200-250
+pf select add --path src/components/file-list.tsx --lines 80-150
+
+# 4. Verify token budget
+pf tokens selection
+# Output: 2,100 tokens (vs 15,000 if entire files were included)
+
+# 5. Get optimized context
+pf content get
+```
+
+### Best Practices
+
+- **Build context once, use in fresh chat**: After building optimal context in PasteFlow, start a new chat with your AI assistant to preserve token limits
+- **Use workspaces**: Save context configurations with `pf workspaces create` for reuse
+- **Let PasteFlow handle tokens**: The app tracks exact counts, preventing context overflow
+
 ## Command-Line Interface (CLI)
 
-PasteFlow ships a first‑party CLI that talks to the local HTTP API exposed by the Electron main process. It enables headless workflows (automation, CI scripts) that mirror app capabilities.
+PasteFlow ships with a first-party CLI that communicates with the local HTTP API exposed by the Electron main process. This enables both human and AI agent workflows, as well as headless automation for CI scripts and other automated tasks.
 
 Prerequisites
-- Start the app so the local HTTP server is running and port/token are written to ~/.pasteflow:
+- Start the app so the local HTTP server is running and port/token are written to `~/.pasteflow`:
   ```bash
   npm run dev:electron
   ```
@@ -218,6 +266,15 @@ Notes
 - `pasteflow tree --mode <mode>` previews a mode without changing saved workspace state.
 - To persist a mode, update the workspace state field `state.fileTreeMode` via `pasteflow workspaces update`.
 
+### UI Synchronization
+- `folders open`: opens the folder in the UI immediately.
+- `workspaces load`: switches the UI to the workspace folder and applies its selection.
+- `select add|remove|clear`: updates selections in the UI (including line ranges).
+- `workspaces update`: applies selection-related state changes to the UI.
+- `instructions create|update|delete`: refreshes the instructions list in the UI.
+- `prefs set`: refreshes persisted settings across the UI.
+- `workspaces create|rename|delete`: refreshes the UI’s workspace list.
+
 API: Selection token breakdown
 - Endpoint: `GET /api/v1/selection/tokens`
 - Example:
@@ -265,7 +322,7 @@ API: Selection token breakdown
   ```
 
 Notes
-- Only files and select commands enforce absolute paths in the CLI; the server remains the source of truth for path validation.
+- Only files and select commands enforce absolute paths in the CLI; the server validates paths.
 - If you see NO_ACTIVE_WORKSPACE, initialize one:
   ```bash
   pasteflow folders open --folder "/your/repo"
@@ -278,21 +335,13 @@ Implementation
 
 ## Workspaces and the Database
 
-PasteFlow uses a high-performance SQLite database with:
-- Worker thread isolation for non-blocking I/O
-- Connection pooling for concurrency
-- Automatic retry logic for transient failures
-- Typed interfaces across the stack
-
-See the database layer docs for details at:
-- src/main/db/README.md
+- SQLite-backed persistence for workspaces (state, prompts, instructions).
+- See src/main/db/README.md for details.
 
 ## Contributing
 
-- Use npm run dev:electron for local development
-- Keep docs and scripts in sync with TypeScript updates:
-  - Scripts live under scripts/*.ts and are executed with tsx in dev
-  - Packaging hooks are compiled (build/scripts) and used by electron-builder at runtime
+- Use `npm run dev:electron` for local development.
+- Keep docs and scripts in sync when changing TypeScript build/pack scripts.
 
 ## License
 
