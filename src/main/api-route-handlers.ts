@@ -19,6 +19,7 @@ import { aggregateSelectedContent } from './content-aggregation';
 import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
+import { broadcastToRenderers, broadcastWorkspaceUpdated } from './broadcast-helper';
 
 // Schema definitions
 export const idParam = z.object({ id: z.string().min(1) });
@@ -123,6 +124,8 @@ export class APIRouteHandlers {
         parsed.data.folderPath,
         (parsed.data.state ?? {}) as Partial<WorkspaceState>
       );
+      // Notify renderers that the workspaces list changed
+      broadcastToRenderers('workspaces-updated');
       return res.json(ok(mapWorkspaceDbToJson(created)));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -147,6 +150,19 @@ export class APIRouteHandlers {
     if (!params.success || !body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request'));
     try {
       await this.db.updateWorkspaceById(params.data.id, body.data.state as Partial<WorkspaceState>);
+      // Best-effort: broadcast updated state to renderer windows for immediate UI sync
+      try {
+        const ws = await this.db.getWorkspace(params.data.id);
+        if (ws) {
+          broadcastWorkspaceUpdated({
+            workspaceId: String(ws.id),
+            folderPath: ws.folder_path,
+            selectedFiles: (ws.state?.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[],
+          });
+        }
+      } catch {
+        // ignore broadcast errors
+      }
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -158,6 +174,8 @@ export class APIRouteHandlers {
     if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
     try {
       await this.db.deleteWorkspaceById(params.data.id);
+      // Notify renderers that the workspaces list changed
+      broadcastToRenderers('workspaces-updated');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -172,6 +190,8 @@ export class APIRouteHandlers {
       const ws = await this.db.getWorkspace(params.data.id);
       if (!ws) return res.status(404).json(toApiError('WORKSPACE_NOT_FOUND', 'Workspace not found'));
       await this.db.renameWorkspace(ws.name, body.data.newName);
+      // Notify renderers that the workspaces list changed
+      broadcastToRenderers('workspaces-updated');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -187,6 +207,13 @@ export class APIRouteHandlers {
       if (ws?.folder_path) {
         setAllowedWorkspacePaths([ws.folder_path]);
         getPathValidator([ws.folder_path]);
+        // Best-effort: notify all renderer windows to open this folder and apply selection state
+        broadcastToRenderers('folder-selected', ws.folder_path);
+        broadcastWorkspaceUpdated({
+          workspaceId: String(ws.id),
+          folderPath: ws.folder_path,
+          selectedFiles: (ws.state?.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[],
+        });
       }
       return res.json(ok(true));
     } catch (error) {
@@ -217,6 +244,8 @@ export class APIRouteHandlers {
     const id = body.data.id ?? randomUUID();
     try {
       await this.db.createInstruction(id, body.data.name, body.data.content);
+      // Notify renderers that instruction set changed
+      broadcastToRenderers('instructions-updated');
       return res.json(ok({ id, name: body.data.name, content: body.data.content }));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -229,6 +258,8 @@ export class APIRouteHandlers {
     if (!params.success || !body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request'));
     try {
       await this.db.updateInstruction(params.data.id, body.data.name, body.data.content);
+      // Notify renderers that instruction set changed
+      broadcastToRenderers('instructions-updated');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -240,6 +271,8 @@ export class APIRouteHandlers {
     if (!params.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid id'));
     try {
       await this.db.deleteInstruction(params.data.id);
+      // Notify renderers that instruction set changed
+      broadcastToRenderers('instructions-updated');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -266,6 +299,8 @@ export class APIRouteHandlers {
     }
     try {
       await this.db.setPreference(params.data.key, (body.data.value ?? null) as PreferenceValue);
+      // Notify renderers to refresh cached preferences
+      broadcastToRenderers('/prefs/get:update');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -369,6 +404,10 @@ export class APIRouteHandlers {
       // TypeScript now knows workspace.error is false, so workspace.data exists
       const { data } = workspace;
       await this.activateWorkspace(data);
+
+      // Best-effort: notify all renderer windows to open this folder
+      broadcastToRenderers('folder-selected', data.folder_path);
+
       return res.json(ok({ 
         id: String(data.id), 
         name: data.name, 

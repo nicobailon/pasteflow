@@ -1,4 +1,5 @@
-import { FileData, WorkspaceState } from '../types/file-types';
+import { FileData, WorkspaceState, SelectedFileReference } from '../types/file-types';
+import type { WorkspaceUpdatedPayload } from '../shared-types';
 import { getPathValidator } from '../security/path-validator';
 import { ApplicationError, ERROR_CODES, getRecoverySuggestions, logError } from '../utils/error-handling';
 import { generateUniqueWorkspaceName } from '../utils/workspace-utils';
@@ -168,6 +169,7 @@ interface HandlerParams {
   getWorkspaceNames: () => Promise<string[]>;
   selectedFolder: string | null;
   validateSelectedFilesExist?: () => void;
+  onWorkspaceUpdated?: (payload: { workspaceId?: string; folderPath?: string; selectedFiles?: SelectedFileReference[] }) => void;
 }
 
 // Create the folder selected handler factory
@@ -256,7 +258,8 @@ export const setupElectronHandlers = (
   persistWorkspace: (name: string, state: WorkspaceState) => Promise<void>,
   getWorkspaceNames: () => Promise<string[]>,
   selectedFolder: string | null,
-  validateSelectedFilesExist?: () => void
+  validateSelectedFilesExist?: () => void,
+  onWorkspaceUpdated?: (payload: WorkspaceUpdatedPayload) => void
 ): (() => void) => {
   if (!isElectron) return () => {};
 
@@ -276,7 +279,8 @@ export const setupElectronHandlers = (
     persistWorkspace,
     getWorkspaceNames,
     selectedFolder,
-    validateSelectedFilesExist
+    validateSelectedFilesExist,
+    onWorkspaceUpdated
   });
 
   if (isHandlerAlreadyRegistered()) {
@@ -306,6 +310,7 @@ function createHandlerConfiguration(params: {
   getWorkspaceNames: () => Promise<string[]>;
   selectedFolder: string | null;
   validateSelectedFilesExist?: () => void;
+  onWorkspaceUpdated?: (payload: WorkspaceUpdatedPayload) => void;
 }) {
   const handlerParams: HandlerParams = {
     ...params
@@ -373,11 +378,21 @@ function createElectronHandlers(
   const processFileData = createFileDataProcessor(accumulatedFiles, params);
   const handleFileListData = createFileListDataHandler(params, currentRequestId, processFileData, accumulatedFiles);
   const handleProcessingStatus = createProcessingStatusHandlerInternal(params);
+  const handleWorkspaceUpdated = (payload: WorkspaceUpdatedPayload) => {
+    try {
+      params.onWorkspaceUpdated?.(payload);
+    } catch (error) {
+      // Best-effort: don't let handler errors break global IPC
+      // eslint-disable-next-line no-console
+      console.warn('workspace-updated handler failed:', error);
+    }
+  };
   
   return {
     handleFolderSelected,
     handleFileListData,
-    handleProcessingStatus
+    handleProcessingStatus,
+    handleWorkspaceUpdated
   };
 }
 
@@ -667,10 +682,12 @@ function registerIPCHandlers(handlers: {
   handleFolderSelected: (folderPath: string) => void;
   handleFileListData: (data: FileListIPCData) => void;
   handleProcessingStatus: (status: ProcessingStatus) => void;
+  handleWorkspaceUpdated: (payload: WorkspaceUpdatedPayload) => void;
 }): void {
   window.electron.ipcRenderer.on("folder-selected", handlers.handleFolderSelected);
   window.electron.ipcRenderer.on("file-list-data", handlers.handleFileListData);
   window.electron.ipcRenderer.on("file-processing-status", handlers.handleProcessingStatus);
+  window.electron.ipcRenderer.on("workspace-updated", handlers.handleWorkspaceUpdated);
 }
 
 /**
@@ -681,6 +698,7 @@ function createCleanupFunction(
     handleFolderSelected: (folderPath: string) => void;
     handleFileListData: (data: FileListIPCData) => void;
     handleProcessingStatus: (status: ProcessingStatus) => void;
+    handleWorkspaceUpdated: (payload: WorkspaceUpdatedPayload) => void;
   },
   accumulatedFiles: FileData[],
   cleanupInterval: NodeJS.Timeout
@@ -699,6 +717,7 @@ function createCleanupFunction(
     window.electron.ipcRenderer.removeListener("folder-selected", handlers.handleFolderSelected);
     window.electron.ipcRenderer.removeListener("file-list-data", handlers.handleFileListData);
     window.electron.ipcRenderer.removeListener("file-processing-status", handlers.handleProcessingStatus);
+    window.electron.ipcRenderer.removeListener("workspace-updated", handlers.handleWorkspaceUpdated);
   };
 }
 

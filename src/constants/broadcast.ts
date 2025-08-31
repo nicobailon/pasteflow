@@ -1,0 +1,5 @@
+export const BROADCAST_CONFIG = {
+  DEBOUNCE_MS: 100,
+  MAX_EVENTS_PER_SECOND: 200,
+};
+

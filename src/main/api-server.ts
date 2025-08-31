@@ -18,6 +18,7 @@ import { aggregateSelectedContent, scanAllFilesForTree } from './content-aggrega
 import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
+import { broadcastWorkspaceUpdated } from './broadcast-helper';
 import { 
   APIRouteHandlers,
   selectionBody,
@@ -158,6 +159,13 @@ export class PasteFlowAPIServer {
       const newState: WorkspaceState = { ...validation.state, selectedFiles: next.selectedFiles };
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
 
+      // Notify renderer processes that the workspace selection changed
+      broadcastWorkspaceUpdated({
+        workspaceId: String(validation.ws.id),
+        folderPath: validation.ws.folder_path,
+        selectedFiles: newState.selectedFiles ?? [],
+      });
+
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -181,6 +189,13 @@ export class PasteFlowAPIServer {
       const newState: WorkspaceState = { ...validation.state, selectedFiles: next.selectedFiles };
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
 
+      // Notify renderer processes that the workspace selection changed
+      broadcastWorkspaceUpdated({
+        workspaceId: String(validation.ws.id),
+        folderPath: validation.ws.folder_path,
+        selectedFiles: newState.selectedFiles ?? [],
+      });
+
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -194,6 +209,14 @@ export class PasteFlowAPIServer {
     try {
       const newState: WorkspaceState = { ...validation.state, selectedFiles: [] };
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
+
+      // Notify renderer processes that the workspace selection changed
+      broadcastWorkspaceUpdated({
+        workspaceId: String(validation.ws.id),
+        folderPath: validation.ws.folder_path,
+        selectedFiles: [],
+      });
+
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -211,6 +234,8 @@ export class PasteFlowAPIServer {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
     }
   }
+
+  
 
   // Content handlers
   private async handleContent(req: Request, res: Response) {

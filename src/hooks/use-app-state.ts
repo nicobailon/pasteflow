@@ -9,6 +9,7 @@ import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronH
 import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
 import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction, SelectedFileWithLines, SelectedFileReference } from '../types/file-types';
+import type { WorkspaceUpdatedPayload } from '../shared-types';
 import { getSelectedFilesContent, getSelectedFilesContentWithoutInstructions } from '../utils/content-formatter';
 import { resetFolderState } from '../utils/file-utils';
 import { calculateFileTreeTokens, estimateTokenCount, getFileTreeModeTokens } from '../utils/token-utils';
@@ -182,6 +183,9 @@ const useAppState = () => {
   // Ref to always access latest selected files
   const selectedFilesRef = useRef(selectedFiles);
   useEffect(() => { selectedFilesRef.current = selectedFiles; }, [selectedFiles]);
+
+  // Track last processed sequence per workspace to avoid out-of-order updates
+  const workspaceSeqRef = useRef<Map<string, number>>(new Map());
 
   // Track previous mtimes to detect changed files across refreshes
   const prevMtimeByPathRef = useRef<Map<string, number>>(new Map());
@@ -1210,6 +1214,30 @@ const useAppState = () => {
           handleFiltersAndSort(files, sortOrderRef.current, searchTermRef.current);
         };
 
+        // React to external workspace updates (e.g., CLI selection changes)
+        const handleWorkspaceUpdatedWrapper = (payload: WorkspaceUpdatedPayload) => {
+          try {
+            const folderPath = payload?.folderPath || null;
+            const incoming = Array.isArray(payload?.selectedFiles) ? (payload!.selectedFiles as SelectedFileReference[]) : [];
+            const seq = typeof (payload as { sequence?: number }).sequence === 'number' ? (payload as { sequence?: number }).sequence as number : undefined;
+            const wsId = String((payload as { workspaceId?: string }).workspaceId || '');
+            // Only apply if the update is for the currently open folder
+            if (folderPath && folderPath === selectedFolderRef.current) {
+              if (!wsId || typeof seq !== 'number') {
+                // Drop updates without required sequencing metadata
+                return;
+              }
+              const last = workspaceSeqRef.current.get(wsId) ?? 0;
+              if (seq > last) {
+                workspaceSeqRef.current.set(wsId, seq);
+                applySelectedFiles(incoming, allFilesRef.current);
+              }
+            }
+          } catch (error) {
+            logger.warn('[useAppState] Failed to handle workspace-updated payload', error as Error);
+          }
+        };
+
         const cleanup = setupElectronHandlers(
           isElectron,
           setSelectedFolder,
@@ -1226,7 +1254,8 @@ const useAppState = () => {
           persistWorkspace,
           getWorkspaceNames,
           selectedFolderRef.current,
-          validateSelectedFilesExist
+          validateSelectedFilesExist,
+          handleWorkspaceUpdatedWrapper
         );
 
         // Dispatch a custom event when handlers are set up
