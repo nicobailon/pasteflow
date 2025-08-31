@@ -86,27 +86,6 @@ export const useDatabaseWorkspaceState = () => {
     };
   }, []);
 
-  // Listen for external workspace list updates (e.g., CLI create/rename/delete via HTTP API)
-  useEffect(() => {
-    const onUpdated = () => { void refreshWorkspacesList(); };
-    try {
-      if (window.electron?.ipcRenderer?.on) {
-        window.electron.ipcRenderer.on('workspaces-updated', onUpdated as unknown as (...args: unknown[]) => void);
-      }
-    } catch {
-      // ignore subscription errors
-    }
-    return () => {
-      try {
-        if (window.electron?.ipcRenderer?.removeListener) {
-          window.electron.ipcRenderer.removeListener('workspaces-updated', onUpdated as unknown as (...args: unknown[]) => void);
-        }
-      } catch {
-        // ignore cleanup errors
-      }
-    };
-  }, [refreshWorkspacesList]);
-
   // Safe state setters that check if component is still mounted
   const safeSetIsLoading = useCallback((loading: boolean) => {
     if (isMountedRef.current) {
@@ -151,6 +130,27 @@ export const useDatabaseWorkspaceState = () => {
       }
     });
   }, [runCancellableOperation, safeSetWorkspacesList, safeSetError]);
+
+  // Listen for external workspace list updates (e.g., CLI create/rename/delete via HTTP API)
+  useEffect(() => {
+    const onUpdated = () => { void refreshWorkspacesList(); };
+    try {
+      if (window.electron?.ipcRenderer?.on) {
+        window.electron.ipcRenderer.on('workspaces-updated', onUpdated as unknown as (...args: unknown[]) => void);
+      }
+    } catch {
+      // ignore subscription errors
+    }
+    return () => {
+      try {
+        if (window.electron?.ipcRenderer?.removeListener) {
+          window.electron.ipcRenderer.removeListener('workspaces-updated', onUpdated as unknown as (...args: unknown[]) => void);
+        }
+      } catch {
+        // ignore cleanup errors
+      }
+    };
+  }, [refreshWorkspacesList]);
 
   useEffect(() => {
     refreshWorkspacesList();

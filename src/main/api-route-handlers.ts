@@ -19,6 +19,7 @@ import { aggregateSelectedContent } from './content-aggregation';
 import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
+import { broadcastToRenderers, broadcastWorkspaceUpdated } from './broadcast-helper';
 
 // Schema definitions
 export const idParam = z.object({ id: z.string().min(1) });
@@ -124,13 +125,7 @@ export class APIRouteHandlers {
         (parsed.data.state ?? {}) as Partial<WorkspaceState>
       );
       // Notify renderers that the workspaces list changed
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-        for (const win of BrowserWindow.getAllWindows()) {
-          try { win.webContents.send('workspaces-updated'); } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
+      broadcastToRenderers('workspaces-updated');
       return res.json(ok(mapWorkspaceDbToJson(created)));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -159,17 +154,11 @@ export class APIRouteHandlers {
       try {
         const ws = await this.db.getWorkspace(params.data.id);
         if (ws) {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-          for (const win of BrowserWindow.getAllWindows()) {
-            try { 
-              win.webContents.send('workspace-updated', {
-                workspaceId: String(ws.id),
-                folderPath: ws.folder_path,
-                selectedFiles: (ws.state?.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[]
-              });
-            } catch { /* ignore */ }
-          }
+          broadcastWorkspaceUpdated({
+            workspaceId: String(ws.id),
+            folderPath: ws.folder_path,
+            selectedFiles: (ws.state?.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[],
+          });
         }
       } catch {
         // ignore broadcast errors
@@ -186,13 +175,7 @@ export class APIRouteHandlers {
     try {
       await this.db.deleteWorkspaceById(params.data.id);
       // Notify renderers that the workspaces list changed
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-        for (const win of BrowserWindow.getAllWindows()) {
-          try { win.webContents.send('workspaces-updated'); } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
+      broadcastToRenderers('workspaces-updated');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -208,13 +191,7 @@ export class APIRouteHandlers {
       if (!ws) return res.status(404).json(toApiError('WORKSPACE_NOT_FOUND', 'Workspace not found'));
       await this.db.renameWorkspace(ws.name, body.data.newName);
       // Notify renderers that the workspaces list changed
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-        for (const win of BrowserWindow.getAllWindows()) {
-          try { win.webContents.send('workspaces-updated'); } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
+      broadcastToRenderers('workspaces-updated');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -231,22 +208,12 @@ export class APIRouteHandlers {
         setAllowedWorkspacePaths([ws.folder_path]);
         getPathValidator([ws.folder_path]);
         // Best-effort: notify all renderer windows to open this folder and apply selection state
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-          for (const win of BrowserWindow.getAllWindows()) {
-            try { win.webContents.send('folder-selected', ws.folder_path); } catch { /* ignore */ }
-            try { 
-              win.webContents.send('workspace-updated', {
-                workspaceId: String(ws.id),
-                folderPath: ws.folder_path,
-                selectedFiles: (ws.state?.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[]
-              });
-            } catch { /* ignore */ }
-          }
-        } catch {
-          // Electron may be unavailable in headless/test environments; ignore
-        }
+        broadcastToRenderers('folder-selected', ws.folder_path);
+        broadcastWorkspaceUpdated({
+          workspaceId: String(ws.id),
+          folderPath: ws.folder_path,
+          selectedFiles: (ws.state?.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[],
+        });
       }
       return res.json(ok(true));
     } catch (error) {
@@ -278,13 +245,7 @@ export class APIRouteHandlers {
     try {
       await this.db.createInstruction(id, body.data.name, body.data.content);
       // Notify renderers that instruction set changed
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-        for (const win of BrowserWindow.getAllWindows()) {
-          try { win.webContents.send('instructions-updated'); } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
+      broadcastToRenderers('instructions-updated');
       return res.json(ok({ id, name: body.data.name, content: body.data.content }));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -298,13 +259,7 @@ export class APIRouteHandlers {
     try {
       await this.db.updateInstruction(params.data.id, body.data.name, body.data.content);
       // Notify renderers that instruction set changed
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-        for (const win of BrowserWindow.getAllWindows()) {
-          try { win.webContents.send('instructions-updated'); } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
+      broadcastToRenderers('instructions-updated');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -317,13 +272,7 @@ export class APIRouteHandlers {
     try {
       await this.db.deleteInstruction(params.data.id);
       // Notify renderers that instruction set changed
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-        for (const win of BrowserWindow.getAllWindows()) {
-          try { win.webContents.send('instructions-updated'); } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
+      broadcastToRenderers('instructions-updated');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -351,13 +300,7 @@ export class APIRouteHandlers {
     try {
       await this.db.setPreference(params.data.key, (body.data.value ?? null) as PreferenceValue);
       // Notify renderers to refresh cached preferences
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-        for (const win of BrowserWindow.getAllWindows()) {
-          try { win.webContents.send('/prefs/get:update'); } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
+      broadcastToRenderers('/prefs/get:update');
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
@@ -463,15 +406,7 @@ export class APIRouteHandlers {
       await this.activateWorkspace(data);
 
       // Best-effort: notify all renderer windows to open this folder
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, payload?: unknown) => void } }> } };
-        for (const win of BrowserWindow.getAllWindows()) {
-          try { win.webContents.send('folder-selected', data.folder_path); } catch { /* ignore individual window errors */ }
-        }
-      } catch {
-        // Electron may be unavailable in headless/test environments; ignore
-      }
+      broadcastToRenderers('folder-selected', data.folder_path);
 
       return res.json(ok({ 
         id: String(data.id), 

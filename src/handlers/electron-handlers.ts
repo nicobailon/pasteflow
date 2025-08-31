@@ -1,4 +1,5 @@
 import { FileData, WorkspaceState, SelectedFileReference } from '../types/file-types';
+import type { WorkspaceUpdatedPayload } from '../shared-types';
 import { getPathValidator } from '../security/path-validator';
 import { ApplicationError, ERROR_CODES, getRecoverySuggestions, logError } from '../utils/error-handling';
 import { generateUniqueWorkspaceName } from '../utils/workspace-utils';
@@ -258,7 +259,7 @@ export const setupElectronHandlers = (
   getWorkspaceNames: () => Promise<string[]>,
   selectedFolder: string | null,
   validateSelectedFilesExist?: () => void,
-  onWorkspaceUpdated?: (payload: { workspaceId?: string; folderPath?: string; selectedFiles?: SelectedFileReference[] }) => void
+  onWorkspaceUpdated?: (payload: WorkspaceUpdatedPayload) => void
 ): (() => void) => {
   if (!isElectron) return () => {};
 
@@ -309,7 +310,7 @@ function createHandlerConfiguration(params: {
   getWorkspaceNames: () => Promise<string[]>;
   selectedFolder: string | null;
   validateSelectedFilesExist?: () => void;
-  onWorkspaceUpdated?: (payload: { workspaceId?: string; folderPath?: string; selectedFiles?: SelectedFileReference[] }) => void;
+  onWorkspaceUpdated?: (payload: WorkspaceUpdatedPayload) => void;
 }) {
   const handlerParams: HandlerParams = {
     ...params
@@ -377,7 +378,7 @@ function createElectronHandlers(
   const processFileData = createFileDataProcessor(accumulatedFiles, params);
   const handleFileListData = createFileListDataHandler(params, currentRequestId, processFileData, accumulatedFiles);
   const handleProcessingStatus = createProcessingStatusHandlerInternal(params);
-  const handleWorkspaceUpdated = (payload: { workspaceId?: string; folderPath?: string; selectedFiles?: SelectedFileReference[] }) => {
+  const handleWorkspaceUpdated = (payload: WorkspaceUpdatedPayload) => {
     try {
       params.onWorkspaceUpdated?.(payload);
     } catch (error) {
@@ -681,7 +682,7 @@ function registerIPCHandlers(handlers: {
   handleFolderSelected: (folderPath: string) => void;
   handleFileListData: (data: FileListIPCData) => void;
   handleProcessingStatus: (status: ProcessingStatus) => void;
-  handleWorkspaceUpdated: (payload: { workspaceId?: string; folderPath?: string; selectedFiles?: SelectedFileReference[] }) => void;
+  handleWorkspaceUpdated: (payload: WorkspaceUpdatedPayload) => void;
 }): void {
   window.electron.ipcRenderer.on("folder-selected", handlers.handleFolderSelected);
   window.electron.ipcRenderer.on("file-list-data", handlers.handleFileListData);
@@ -697,7 +698,7 @@ function createCleanupFunction(
     handleFolderSelected: (folderPath: string) => void;
     handleFileListData: (data: FileListIPCData) => void;
     handleProcessingStatus: (status: ProcessingStatus) => void;
-    handleWorkspaceUpdated: (payload: { workspaceId?: string; folderPath?: string; selectedFiles?: SelectedFileReference[] }) => void;
+    handleWorkspaceUpdated: (payload: WorkspaceUpdatedPayload) => void;
   },
   accumulatedFiles: FileData[],
   cleanupInterval: NodeJS.Timeout

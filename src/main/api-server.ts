@@ -18,6 +18,7 @@ import { aggregateSelectedContent, scanAllFilesForTree } from './content-aggrega
 import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
+import { broadcastWorkspaceUpdated } from './broadcast-helper';
 import { 
   APIRouteHandlers,
   selectionBody,
@@ -159,7 +160,7 @@ export class PasteFlowAPIServer {
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
 
       // Notify renderer processes that the workspace selection changed
-      this.broadcastWorkspaceUpdated({
+      broadcastWorkspaceUpdated({
         workspaceId: String(validation.ws.id),
         folderPath: validation.ws.folder_path,
         selectedFiles: newState.selectedFiles ?? [],
@@ -189,7 +190,7 @@ export class PasteFlowAPIServer {
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
 
       // Notify renderer processes that the workspace selection changed
-      this.broadcastWorkspaceUpdated({
+      broadcastWorkspaceUpdated({
         workspaceId: String(validation.ws.id),
         folderPath: validation.ws.folder_path,
         selectedFiles: newState.selectedFiles ?? [],
@@ -210,7 +211,7 @@ export class PasteFlowAPIServer {
       await this.db.updateWorkspaceById(String(validation.ws.id), newState);
 
       // Notify renderer processes that the workspace selection changed
-      this.broadcastWorkspaceUpdated({
+      broadcastWorkspaceUpdated({
         workspaceId: String(validation.ws.id),
         folderPath: validation.ws.folder_path,
         selectedFiles: [],
@@ -234,22 +235,7 @@ export class PasteFlowAPIServer {
     }
   }
 
-  /**
-   * Best-effort broadcast of workspace selection updates to renderer windows.
-   * Avoids hard dependency on Electron in test environments.
-   */
-  private broadcastWorkspaceUpdated(payload: { workspaceId: string; folderPath: string; selectedFiles: { path: string; lines?: { start: number; end: number }[] }[] }): void {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { BrowserWindow } = require('electron') as { BrowserWindow: { getAllWindows: () => Array<{ webContents: { send: (ch: string, data?: unknown) => void } }> } };
-      const windows = BrowserWindow.getAllWindows();
-      for (const win of windows) {
-        try { win.webContents.send('workspace-updated', payload); } catch { /* per-window failure ignored */ }
-      }
-    } catch {
-      // Electron not present (e.g., during jest tests) — no-op
-    }
-  }
+  
 
   // Content handlers
   private async handleContent(req: Request, res: Response) {
