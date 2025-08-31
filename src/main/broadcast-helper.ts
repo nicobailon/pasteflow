@@ -1,4 +1,5 @@
 import type { SelectedFileReference, WorkspaceUpdatedPayload } from "../shared-types";
+import { BROADCAST_CONFIG } from "../constants/broadcast";
 
 /**
  * Centralized broadcasting utilities for sending IPC messages to all
@@ -28,7 +29,7 @@ function getBrowserWindow(): BrowserWindowType | null {
 /**
  * Simple per-channel rate limiter. Allows up to N sends per second.
  */
-const MAX_EVENTS_PER_SECOND = 200;
+const MAX_EVENTS_PER_SECOND = BROADCAST_CONFIG.MAX_EVENTS_PER_SECOND;
 const rateState = new Map<string, { count: number; windowStart: number }>();
 
 function allowSend(channel: string): boolean {
@@ -75,7 +76,7 @@ export function broadcastToRenderers(channel: string, payload?: unknown): void {
 const debounceTimers = new Map<string, NodeJS.Timeout>();
 const debounceLastPayload = new Map<string, unknown>();
 
-export function debouncedBroadcastToRenderers(channel: string, payload?: unknown, waitMs = 100): void {
+export function debouncedBroadcastToRenderers(channel: string, payload?: unknown, waitMs = BROADCAST_CONFIG.DEBOUNCE_MS): void {
   debounceLastPayload.set(channel, payload);
   const existing = debounceTimers.get(channel);
   if (existing) clearTimeout(existing);
@@ -116,5 +117,5 @@ export function broadcastWorkspaceUpdated(input: {
     timestamp: Date.now(),
   };
 
-  debouncedBroadcastToRenderers("workspace-updated", payload, 100);
+  debouncedBroadcastToRenderers("workspace-updated", payload, BROADCAST_CONFIG.DEBOUNCE_MS);
 }

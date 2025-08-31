@@ -83,4 +83,37 @@ describe('broadcast-helper', () => {
       });
     });
   });
+
+  test('rate limiting drops excessive events within 1 second window', async () => {
+    const sends: Array<{ ch: string; payload: unknown }> = [];
+    jest.doMock('electron', () => ({
+      BrowserWindow: {
+        getAllWindows: () => [{ webContents: { send: (ch: string, payload?: unknown) => sends.push({ ch, payload }) } }],
+      },
+    }), { virtual: true });
+
+    // Override config for test to a small rate
+    jest.doMock('../../constants/broadcast', () => ({
+      BROADCAST_CONFIG: { DEBOUNCE_MS: 5, MAX_EVENTS_PER_SECOND: 3 }
+    }), { virtual: true });
+
+    await new Promise<void>((resolve) => {
+      jest.isolateModules(async () => {
+        const mod = await import('../../main/broadcast-helper');
+        for (let i = 0; i < 10; i++) {
+          mod.broadcastToRenderers('test-rate', { i });
+        }
+        // Only first 3 should pass within the same second
+        expect(sends.length).toBeLessThanOrEqual(3);
+
+        // Advance time past window and ensure more can pass
+        jest.advanceTimersByTime(1000);
+        for (let i = 0; i < 2; i++) {
+          mod.broadcastToRenderers('test-rate', { i: `after-${i}` });
+        }
+        expect(sends.length).toBeGreaterThanOrEqual(4);
+        resolve();
+      });
+    });
+  });
 });

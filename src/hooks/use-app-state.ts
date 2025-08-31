@@ -1223,9 +1223,13 @@ const useAppState = () => {
             const wsId = String((payload as { workspaceId?: string }).workspaceId || '');
             // Only apply if the update is for the currently open folder
             if (folderPath && folderPath === selectedFolderRef.current) {
+              if (!wsId || typeof seq !== 'number') {
+                // Drop updates without required sequencing metadata
+                return;
+              }
               const last = workspaceSeqRef.current.get(wsId) ?? 0;
-              if (!seq || seq > last) {
-                if (seq) workspaceSeqRef.current.set(wsId, seq);
+              if (seq > last) {
+                workspaceSeqRef.current.set(wsId, seq);
                 applySelectedFiles(incoming, allFilesRef.current);
               }
             }
