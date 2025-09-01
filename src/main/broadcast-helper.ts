@@ -1,5 +1,11 @@
 import type { SelectedFileReference, WorkspaceUpdatedPayload } from "../shared-types";
 import { BROADCAST_CONFIG } from "../constants/broadcast";
+import { createRequire } from "node:module";
+
+// Local require that works in both CJS (module.require) and ESM (createRequire)
+const nodeRequire: NodeJS.Require = (typeof module !== "undefined" && (module as any).require)
+  ? (module as any).require.bind(module)
+  : createRequire(import.meta.url);
 
 /**
  * Centralized broadcasting utilities for sending IPC messages to all
@@ -17,8 +23,7 @@ let cachedBrowserWindow: BrowserWindowType | null | undefined;
 function getBrowserWindow(): BrowserWindowType | null {
   if (cachedBrowserWindow !== undefined) return cachedBrowserWindow;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { BrowserWindow } = require("electron") as { BrowserWindow: BrowserWindowType };
+    const { BrowserWindow } = nodeRequire("electron") as { BrowserWindow: BrowserWindowType };
     cachedBrowserWindow = BrowserWindow;
   } catch {
     cachedBrowserWindow = null;

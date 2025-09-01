@@ -89,7 +89,7 @@ npm run package:all
 
 Under the hood:
 - Vite production build for the renderer (dist/)
-- TypeScript compile for Electron main/preload to CommonJS (build/main)
+- tsup builds Electron main and preload/worker as ESM (build/main/*.mjs)
 - TypeScript compile for packaging scripts to CommonJS (build/scripts)
 - electron-builder is configured to use the compiled afterSign hook at build/scripts/notarize.js
 

@@ -8,6 +8,17 @@ on:
 jobs:
   release:
     runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+      KEYCHAIN_PWD: ${{ secrets.KEYCHAIN_PWD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      NOTARIZE: ${{ secrets.NOTARIZE }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
 
     strategy:
       matrix:
@@ -41,10 +52,10 @@ jobs:
         if: matrix.os == 'macos-latest' && github.event.repository.fork == false
         uses: apple-actions/import-codesign-certs@v1
         with:
-          p12-file-base64: ${{ secrets.MACOS_CERTIFICATE }}
-          p12-password: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          p12-file-base64: ${{ env.MACOS_CERTIFICATE }}
+          p12-password: ${{ env.MACOS_CERTIFICATE_PWD }}
           keychain: build.keychain
-          keychain-password: ${{ secrets.KEYCHAIN_PWD }}
+          keychain-password: ${{ env.KEYCHAIN_PWD }}
 
       # Code signing setup for Windows
       - name: Set up Windows code signing
@@ -63,21 +74,21 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: npm run package
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          TEAM_ID: ${{ secrets.TEAM_ID }}
-          NOTARIZE: ${{ secrets.NOTARIZE || 'false' }}
+          GH_TOKEN: ${{ env.GH_TOKEN }}
+          CSC_LINK: ${{ env.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ env.MACOS_CERTIFICATE_PWD }}
+          APPLE_ID: ${{ env.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD }}
+          TEAM_ID: ${{ env.TEAM_ID }}
+          NOTARIZE: ${{ env.NOTARIZE || 'false' }}
 
       - name: Build and package Electron app (Windows)
         if: matrix.os == 'windows-latest'
         run: npm run package
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
+          GH_TOKEN: ${{ env.GH_TOKEN }}
+          CSC_LINK: ${{ env.WINDOWS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ env.WINDOWS_CERTIFICATE_PWD }}
 
       - name: Build and package Electron app (Linux)
         if: matrix.os == 'ubuntu-latest'

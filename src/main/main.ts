@@ -174,7 +174,7 @@ function createWindow(): void {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      // Important: at runtime compiled preload is co-located under build/main/preload.js
+      // Load preload built alongside main (CJS)
       preload: path.join(__dirname, 'preload.js')
     }
   });

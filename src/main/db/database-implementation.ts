@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import type BetterSqlite3 from 'better-sqlite3';
+import { createRequire } from 'node:module';
+
+// Local require compatible with CJS and ESM builds
+const nodeRequire: NodeJS.Require = (typeof module !== 'undefined' && (module as any).require)
+  ? (module as any).require.bind(module)
+  : createRequire(import.meta.url);
 
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
 import type { WorkspaceState, Instruction } from '../../shared-types';
@@ -17,7 +23,7 @@ function loadBetterSqlite3(): BetterSqlite3Module {
     throw new Error('better-sqlite3 must be loaded from Electron main process. Launch via Electron (npm start / dev:electron), not plain node.');
   }
    
-  return require('better-sqlite3') as BetterSqlite3Module;
+  return nodeRequire('better-sqlite3') as BetterSqlite3Module;
 }
 
 // Define SQLite error type with proper constraints
