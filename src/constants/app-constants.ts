@@ -266,6 +266,8 @@ export const FEATURES = {
   PREVIEW_WORKER_ENABLED: true,
   /** Enable Pack workflow UI (Pack/Ready/Repack). When disabled, show legacy Preview-only flow. */
   PREVIEW_PACK_ENABLED: true,
+  /** Use local draft state + debounced sync for instructions input */
+  USER_INSTRUCTIONS_LOCAL_DRAFT: true,
 } as const;
 // ==================== DATABASE ====================
 

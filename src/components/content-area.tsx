@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Eye, FileText, Settings, User, Eraser, Package } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { FEATURES, UI, TOKEN_COUNTING } from '@constants';
 import { getRelativePath, dirname, normalizePath } from '@file-ops/path';
@@ -76,7 +76,7 @@ const reportErrors = (
 };
 
 // Minimal inline component implementing @path autocomplete for the instructions textarea only
-const InstructionsTextareaWithPathAutocomplete = ({
+const InstructionsTextareaWithPathAutocomplete = memo(({
   allFiles,
   selectedFolder,
   expandedNodes,
@@ -99,6 +99,28 @@ const InstructionsTextareaWithPathAutocomplete = ({
   const [query, setQuery] = useState<string>("");
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [anchorPosition, setAnchorPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [valueDraft, setValueDraft] = useState<string>(value);
+
+  // Feature flag: enable local draft typing decoupling
+  const features = (window as any).__PF_FEATURES ?? FEATURES;
+  const useLocalDraft = features?.USER_INSTRUCTIONS_LOCAL_DRAFT !== false; // default true
+
+  // Keep local draft in sync when external value changes (e.g., workspace load)
+  useEffect(() => {
+    if (!useLocalDraft) return;
+    setValueDraft(prev => (prev === value ? prev : value));
+  }, [value, useLocalDraft]);
+
+  // Small debounce for syncing local draft -> global state to reduce re-renders
+  useEffect(() => {
+    if (!useLocalDraft) return;
+    const t = setTimeout(() => {
+      if (valueDraft !== value) {
+        onChange(valueDraft);
+      }
+    }, 280); // 250–300ms window
+    return () => clearTimeout(t);
+  }, [valueDraft, value, onChange, useLocalDraft]);
 
   // Build searchable list once per allFiles change
   const fileItems = useMemo(() => {
@@ -107,25 +129,71 @@ const InstructionsTextareaWithPathAutocomplete = ({
       .filter((f) => !f.isDirectory)
       .map((f) => {
         const rel = getRelativePath(normalizePath(f.path), normalizePath(root));
-        return { abs: f.path, rel };
+        const relLower = rel.toLowerCase();
+        return { abs: f.path, rel, relLower };
       });
   }, [allFiles, selectedFolder]);
 
+  // Build a tiny prefix index (first 2 chars) to reduce search space for short queries
+  const prefixIndex = useMemo(() => {
+    const map = new Map<string, { abs: string; rel: string; relLower: string }[]>();
+    for (const it of fileItems) {
+      const key = it.relLower.slice(0, 2);
+      const arr = map.get(key);
+      if (arr) arr.push(it);
+      else map.set(key, [it]);
+    }
+    return map;
+  }, [fileItems]);
+
   // Filter results based on current query
+  // Debounce query slightly to avoid filtering on every keystroke
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 50);
+    return () => clearTimeout(t);
+  }, [query]);
+
   const results = useMemo(() => {
     if (!open) return [] as { abs: string; rel: string }[];
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     if (!q) {
       return fileItems.slice(0, 12);
     }
-    // Case-insensitive partial match against rel path
-    const filtered = fileItems.filter((it) => it.rel.toLowerCase().includes(q));
+    // Narrow candidates using prefix index when possible
+    const candidates = q.length >= 2 ? (prefixIndex.get(q.slice(0, 2)) || fileItems) : fileItems;
+    // Case-insensitive partial match against rel path (use precomputed relLower)
+    const filtered = candidates.filter((it) => it.relLower.includes(q));
     // Light sort: shortest rel path first then lexicographic
     filtered.sort((a, b) => a.rel.length - b.rel.length || a.rel.localeCompare(b.rel));
     return filtered.slice(0, 12);
-  }, [fileItems, query, open]);
+  }, [fileItems, debouncedQuery, open, prefixIndex]);
 
   // Calculate cursor position in pixels
+  // Cache style metrics to avoid repeated layout reads
+  const metricsRef = useRef<{ lineHeight: number; fontSize: number; paddingLeft: number; charWidth: number }>({
+    lineHeight: 24,
+    fontSize: 14,
+    paddingLeft: 16,
+    charWidth: 7.7,
+  });
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const recompute = () => {
+      const computed = window.getComputedStyle(el);
+      const lineHeight = Number.parseInt(computed.lineHeight) || 24;
+      const fontSize = Number.parseInt(computed.fontSize) || 14;
+      const paddingLeft = Number.parseInt(computed.paddingLeft) || 16;
+      const charWidth = fontSize * 0.55;
+      metricsRef.current = { lineHeight, fontSize, paddingLeft, charWidth };
+    };
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, []);
+
   const getCursorCoordinates = (textarea: HTMLTextAreaElement, position: number) => {
     // Get text before cursor to calculate position
     const textBeforeCursor = textarea.value.slice(0, Math.max(0, position));
@@ -137,11 +205,7 @@ const InstructionsTextareaWithPathAutocomplete = ({
     const atPosition = atMatch ? currentLine.length - atMatch[0].length : currentLine.length;
     
     // Get computed styles for measurements
-    const computed = window.getComputedStyle(textarea);
-    const lineHeight = Number.parseInt(computed.lineHeight) || 24;
-    const fontSize = Number.parseInt(computed.fontSize) || 14;
-    const padding = Number.parseInt(computed.paddingLeft) || 16;
-    const charWidth = fontSize * 0.55; // Approximate char width
+    const { lineHeight, paddingLeft: padding, charWidth } = metricsRef.current;
     
     // Calculate horizontal position - align with @ symbol
     const xPosition = padding + (atPosition * charWidth);
@@ -191,22 +255,35 @@ const InstructionsTextareaWithPathAutocomplete = ({
   };
 
   // Open/close and derive query on input
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const lastCaretRef = useRef<number>(0);
+  const scheduleCoords = useCallback((textarea: HTMLTextAreaElement, caret: number) => {
+    // Defer layout reads until next frame to avoid forced reflow during input
+    requestAnimationFrame(() => {
+      const coords = getCursorCoordinates(textarea, caret);
+      setAnchorPosition(coords);
+    });
+  }, []);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
-    onChange(text);
+    if (useLocalDraft) {
+      setValueDraft(text);
+    } else {
+      onChange(text);
+    }
     const caret = e.target.selectionStart ?? text.length;
+    lastCaretRef.current = caret;
     const q = computeQueryFromValue(text, caret);
     if (q === null) {
       setOpen(false);
     } else {
       setQuery(q);
-      // Calculate cursor position for dropdown placement
-      const coords = getCursorCoordinates(e.target, caret);
-      setAnchorPosition(coords);
+      // Calculate cursor position for dropdown placement (deferred)
+      scheduleCoords(e.target, caret);
       setOpen(true);
       setActiveIndex(0);
     }
-  };
+  }, [onChange, scheduleCoords, useLocalDraft]);
 
   const close = () => setOpen(false);
 
@@ -229,7 +306,7 @@ const InstructionsTextareaWithPathAutocomplete = ({
     close();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open || results.length === 0) return;
     switch (e.key) {
     case 'Tab': {
@@ -265,7 +342,7 @@ const InstructionsTextareaWithPathAutocomplete = ({
     }
     // No default
     }
-  };
+  }, [open, results, activeIndex]);
 
   // Clicking outside closes
   useEffect(() => {
@@ -285,9 +362,15 @@ const InstructionsTextareaWithPathAutocomplete = ({
         ref={textareaRef}
         className="user-instructions-input"
         placeholder="Enter your instructions here..."
-        value={value}
+        value={useLocalDraft ? valueDraft : value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
+        onBlur={() => {
+          // Ensure latest draft is synced when leaving the field
+          if (useLocalDraft && valueDraft !== value) {
+            onChange(valueDraft);
+          }
+        }}
       />
       {open && results.length > 0 && (
         <div
@@ -315,7 +398,7 @@ const InstructionsTextareaWithPathAutocomplete = ({
       )}
     </div>
   );
-};
+});
 
 
 interface ContentAreaProps {
