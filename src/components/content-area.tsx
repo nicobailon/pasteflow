@@ -101,6 +101,8 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
   const [anchorPosition, setAnchorPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [valueDraft, setValueDraft] = useState<string>(value);
   const listboxIdRef = useRef<string>('instructions-ac-' + Math.random().toString(36).slice(2));
+  const descIdRef = useRef<string>(listboxIdRef.current + '-desc');
+  const liveIdRef = useRef<string>(listboxIdRef.current + '-live');
 
   // Feature flag: enable local draft typing decoupling
   const features = (window as any).__PF_FEATURES ?? FEATURES;
@@ -357,9 +359,23 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
+  // Build live region message for screen readers
+  const liveMessage = useMemo(() => {
+    if (!open) return '';
+    if (results.length === 0) return 'No suggestions';
+    const current = results[activeIndex];
+    return `${results.length} suggestions. ${current ? 'Highlighted ' + current.rel : ''}`;
+  }, [open, results, activeIndex]);
+
   return (
     <div ref={containerRef} className="autocomplete-container">
       {/* ARIA for autocomplete accessibility */}
+      <div id={descIdRef.current} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(1px, 1px, 1px, 1px)' }}>
+        Use Up and Down arrow keys to navigate suggestions, Enter to insert the selected path, and Escape to close the list.
+      </div>
+      <div id={liveIdRef.current} aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(1px, 1px, 1px, 1px)' }}>
+        {liveMessage}
+      </div>
       <textarea
         ref={textareaRef}
         className="user-instructions-input"
@@ -371,6 +387,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
         aria-expanded={open}
         aria-controls={open ? (listboxIdRef.current) : undefined}
         aria-activedescendant={open ? `${listboxIdRef.current}-item-${activeIndex}` : undefined}
+        aria-describedby={descIdRef.current}
         onBlur={() => {
           // Ensure latest draft is synced when leaving the field
           if (useLocalDraft && valueDraft !== value) {
@@ -387,7 +404,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
           }}
           id={listboxIdRef.current}
           role="listbox"
-          aria-label="File suggestions"
+          aria-label="File suggestions. Use Up/Down to navigate, Enter to insert, Escape to close."
         >
           <div className="autocomplete-header">Files</div>
           {results.map((item, idx) => (
