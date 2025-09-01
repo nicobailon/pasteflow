@@ -126,7 +126,17 @@ const handleWorkspaceUpdate = async (
   // Wait for workspace to be persisted before setting it as current
   await persistWorkspace(newWorkspaceName, initialWorkspaceState);
   setCurrentWorkspace(newWorkspaceName);
-  
+
+  // Best-effort: align main's active workspace to this newly created one
+  try {
+    if (window?.electron?.ipcRenderer) {
+      await window.electron.ipcRenderer.invoke('/workspace/activate', { id: newWorkspaceName });
+    }
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn('[electron-handlers] Failed to activate workspace in main process:', error);
+  }
+
   return newWorkspaceName;
 };
 

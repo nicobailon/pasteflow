@@ -1,12 +1,14 @@
 ## Electron Main ESM Migration Plan
 
+STATUS: Completed. The main process now runs as ESM-only (`build/main/main.mjs`) built via tsup. Legacy CJS main scripts (`build:main`, `build:main:watch`) and `tsconfig.main.json` have been removed. Dev and packaging scripts use `build:main:esm`. Rollback instructions in this document are obsolete.
+
 This is a concrete, step-by-step plan to migrate the Electron main build from CommonJS (CJS) to ESM with minimal disruption. It builds on the analysis in `esm-migration-analysis.md`.
 
 Goals
 - Keep renderer (Vite) unchanged
 - Keep packaging scripts (CJS) unchanged
-- Migrate Electron main to ESM, with preload allowed to remain CJS initially
-- Avoid flipping repo-wide module type (no `"type": "module"` change at first)
+- Switch Electron main to ESM-only; preload and worker compiled as CJS runtime artifacts
+- Avoid flipping repo-wide module type (no `"type": "module"` change)
 
 Approach Summary
 - Emit an ESM main entry as `.mjs` using `tsup` (recommended) or use `tsc` with NodeNext as an alternative
@@ -25,8 +27,8 @@ Approach Summary
 - npm i -D tsup
 - Rationale: tsup can emit `.mjs` easily and optionally provide `__dirname`/`require` shims. We’ll still update code to ESM-safe patterns to reduce reliance on shims.
 
-3) Keep preload as CJS initially
-- Preload remains built by the existing `tsc` path in `build/main/preload.js`
+3) Preload as ESM runtime
+- Preload is compiled to ESM by tsup alongside main and worker (`build/main/preload.mjs`)
 
 ---
 
@@ -67,7 +69,7 @@ Suggested replacement:
 - const __filename = fileURLToPath(import.meta.url);
 - const __dirname = path.dirname(__filename);
 - Resolve the built `.js` artifact:
-  - const workerPath = path.join(__dirname, 'database-worker.js');
+  - const workerPath = path.join(__dirname, 'database-worker.mjs');
   - this.worker = new Worker(workerPath, { workerData: { ... } });
 Notes:
 - Ensure the worker is compiled to JS alongside this file in the same directory (tsup/tsc config will place outputs together).
@@ -107,23 +109,19 @@ D) Quick scan for other CJS-only patterns
 
 ## Phase 2: Build and Scripts
 
-Option A (Recommended): tsup-based ESM build for main
+Option A (Implemented): tsup-based ESM build for main
 
-1) Add build scripts (do not remove old ones yet)
-- package.json additions (conceptual):
-  - "build:main:esm": "tsup src/main/main.ts src/main/preload.ts --format esm --out-dir build/main --target node20 --sourcemap --splitting false"
-  - If you want temporary shims while migrating: add `--shims`
+1) Build scripts
+- package.json includes:
+  - "build:main:esm": "tsup --config tsup.config.ts"
+  - tsup emits ESM main and CJS preload/worker in one pass
 
-2) Update dev workflow (trial)
-- Add a trial start script that runs Electron against the emitted `.mjs` entry directly:
-  - "start:esm": "electron build/main/main.mjs"
-- During trial, run Vite separately: `npm run dev` in one terminal, and `npm run build:main:esm -- --watch` in another, then `npm run start:esm`.
-- Alternatively, adapt `dev.ts` to call `build:main:esm` and then run `electron build/main/main.mjs`.
+2) Dev workflow
+- dev.ts runs tsup watch and starts Electron with `build/main/main.mjs`.
+- `npm run dev:electron` orchestrates Vite + tsup + Electron.
 
-3) Packaging script (trial)
-- Add a trial packaging script that builds renderer, builds ESM main, and packages:
-  - "package:esm": "vite build && npm run build:main:esm && npm run build:scripts && electron-builder --publish=never"
-- Important: Ensure package.json `main` still points to CJS until you’re ready to switch. For packaging with ESM main, electron will use `main` unless you pass a direct entry; to fully test packaging with ESM, temporarily change `main` to `build/main/main.mjs` on your branch.
+3) Packaging scripts
+- `package`, `package:*`, and `release` use `build:main:esm` and package against ESM main (package.json main → main.mjs)
 
 Option B: tsc NodeNext (alternative, more intrusive)
 
@@ -163,24 +161,12 @@ Blocking checks
 ---
 
 ## Phase 4: Cutover
-
-After successful trial:
-1) Update package.json "main"
-- Change from "build/main/main.js" to "build/main/main.mjs"
-
-2) Update scripts and dev.ts (optional but recommended)
-- Replace old `build:main` in packaging scripts with `build:main:esm`
-- Update `dev.ts` to invoke `build:main:esm` and start Electron with the `.mjs` entry (or restore `electron .` if you keep `main` pointing at `.mjs`)
-
-3) Commit and PR
-- Include summary of changes, validation outcomes, and any known caveats
+Completed. Repo now uses ESM-only main; no CJS main compatibility maintained.
 
 ---
 
 ## Rollback Plan
-- Revert package.json main back to CJS entry
-- Switch packaging scripts back to the original `build:main`
-- Any code changes are backward compatible (using `fileURLToPath` and `createRequire` also work in CJS), so rollback is trivial
+Deprecated. We no longer maintain CJS main compatibility.
 
 ---
 
@@ -200,4 +186,3 @@ After successful trial:
 - dev.ts (optional): point to `build:main:esm` and `.mjs` entry during dev
 
 This plan keeps scope tight, avoids broad repo changes, and provides a safe trial path before cutover.
-

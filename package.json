@@ -48,7 +48,9 @@
     "test:assertion-check": "npx tsx scripts/test-quality/assertion-density-checker.ts",
     "test:quality-full": "npm run test:mock-check && npm run test:assertion-check && npm test",
     "build:cli": "tsup --config tsup.config.ts",
-    "build:cli:watch": "tsup --config tsup.config.ts --watch"
+    "build:cli:watch": "tsup --config tsup.config.ts --watch",
+    "cli:dev": "tsx cli/src/index.ts",
+    "link:cli": "npm run build:cli && npm link"
   },
   "keywords": [
     "clipboard",
