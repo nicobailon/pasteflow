@@ -100,6 +100,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [anchorPosition, setAnchorPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [valueDraft, setValueDraft] = useState<string>(value);
+  const listboxIdRef = useRef<string>('instructions-ac-' + Math.random().toString(36).slice(2));
 
   // Feature flag: enable local draft typing decoupling
   const features = (window as any).__PF_FEATURES ?? FEATURES;
@@ -118,7 +119,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
       if (valueDraft !== value) {
         onChange(valueDraft);
       }
-    }, 280); // 250–300ms window
+    }, UI.INSTRUCTIONS_INPUT.DRAFT_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [valueDraft, value, onChange, useLocalDraft]);
 
@@ -150,7 +151,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
   // Debounce query slightly to avoid filtering on every keystroke
   const [debouncedQuery, setDebouncedQuery] = useState(query);
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(query), 50);
+    const t = setTimeout(() => setDebouncedQuery(query), UI.INSTRUCTIONS_INPUT.QUERY_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [query]);
 
@@ -186,7 +187,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
       const lineHeight = Number.parseInt(computed.lineHeight) || 24;
       const fontSize = Number.parseInt(computed.fontSize) || 14;
       const paddingLeft = Number.parseInt(computed.paddingLeft) || 16;
-      const charWidth = fontSize * 0.55;
+      const charWidth = fontSize * UI.INSTRUCTIONS_INPUT.CHAR_WIDTH_FACTOR;
       metricsRef.current = { lineHeight, fontSize, paddingLeft, charWidth };
     };
     recompute();
@@ -194,7 +195,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
     return () => window.removeEventListener('resize', recompute);
   }, []);
 
-  const getCursorCoordinates = (textarea: HTMLTextAreaElement, position: number) => {
+  const getCursorCoordinates = useCallback((textarea: HTMLTextAreaElement, position: number) => {
     // Get text before cursor to calculate position
     const textBeforeCursor = textarea.value.slice(0, Math.max(0, position));
     const textLines = textBeforeCursor.split('\n');
@@ -216,7 +217,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
     const yPosition = currentLineY + lineHeight + dropdownOffset + padding;
     
     // Check if dropdown would go outside textarea bounds
-    const dropdownHeight = 200; // Max height from CSS
+    const dropdownHeight = UI.INSTRUCTIONS_INPUT.DROPDOWN_MAX_HEIGHT; // Max height from CSS
     const wouldOverflow = yPosition + dropdownHeight > textarea.offsetHeight;
     
     // If it would overflow, place above the line instead
@@ -228,7 +229,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
       x: Math.min(xPosition, textarea.offsetWidth - 250), // Keep within textarea bounds
       y: finalY
     };
-  };
+  }, []);
 
   // Ensure parent folders expanded to reveal the file
   const ensureAncestorsExpanded = (absPath: string) => {
@@ -262,7 +263,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
       const coords = getCursorCoordinates(textarea, caret);
       setAnchorPosition(coords);
     });
-  }, []);
+  }, [getCursorCoordinates]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
@@ -358,6 +359,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
 
   return (
     <div ref={containerRef} className="autocomplete-container">
+      {/* ARIA for autocomplete accessibility */}
       <textarea
         ref={textareaRef}
         className="user-instructions-input"
@@ -365,6 +367,10 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
         value={useLocalDraft ? valueDraft : value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? (listboxIdRef.current) : undefined}
+        aria-activedescendant={open ? `${listboxIdRef.current}-item-${activeIndex}` : undefined}
         onBlur={() => {
           // Ensure latest draft is synced when leaving the field
           if (useLocalDraft && valueDraft !== value) {
@@ -379,6 +385,9 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
             left: anchorPosition.x,
             top: anchorPosition.y,
           }}
+          id={listboxIdRef.current}
+          role="listbox"
+          aria-label="File suggestions"
         >
           <div className="autocomplete-header">Files</div>
           {results.map((item, idx) => (
@@ -390,6 +399,10 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
                 acceptSelection(item);
               }}
               type="button"
+              role="option"
+              id={`${listboxIdRef.current}-item-${idx}`}
+              aria-selected={idx === activeIndex}
+              tabIndex={-1}
             >
               <span>{item.rel}</span>
             </button>

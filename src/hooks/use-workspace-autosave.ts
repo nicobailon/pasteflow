@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { UI } from '@constants';
 
 import { debounce } from '../utils/debounce';
 
@@ -101,6 +102,9 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
         clearTimeout(minIntervalTimerRef.current);
         minIntervalTimerRef.current = null;
       }
+      // Cancel any pending debounced saves when switching workspaces
+      debouncedSaveFastRef.current?.cancel?.();
+      debouncedSaveSlowRef.current?.cancel?.();
       pendingSignatureRef.current = null;
     }
   }, [currentWorkspace, isApplyingWorkspaceData, currentSignature, nonInstrSignature]);
@@ -155,11 +159,9 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     // Fast debounce for general changes (preferences-controlled)
     debouncedSaveFastRef.current = debounce(performAutoSave, debounceMs);
     // Slow debounce specifically for typing-driven userInstructions changes
-    debouncedSaveSlowRef.current = debounce(performAutoSave, 4000);
+    debouncedSaveSlowRef.current = debounce(performAutoSave, UI.INSTRUCTIONS_INPUT.AUTOSAVE_TYPING_DEBOUNCE_MS);
     return () => {
-      // @ts-expect-error cancel may exist at runtime
       debouncedSaveFastRef.current?.cancel?.();
-      // @ts-expect-error cancel may exist at runtime
       debouncedSaveSlowRef.current?.cancel?.();
     };
   }, [performAutoSave, debounceMs]);

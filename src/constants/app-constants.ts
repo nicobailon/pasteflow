@@ -248,6 +248,20 @@ export const UI = {
     CHEVRON_SIZE: 16,
   },
 
+  /** Instructions input typing & autocomplete */
+  INSTRUCTIONS_INPUT: {
+    /** Debounce for local draft → global sync (ms) */
+    DRAFT_DEBOUNCE_MS: 280,
+    /** Debounce for autocomplete query filtering (ms) */
+    QUERY_DEBOUNCE_MS: 50,
+    /** Debounce for typing-only autosave (ms) */
+    AUTOSAVE_TYPING_DEBOUNCE_MS: 4000,
+    /** Approximate character width multiplier from font size */
+    CHAR_WIDTH_FACTOR: 0.55,
+    /** Max dropdown height (px) */
+    DROPDOWN_MAX_HEIGHT: 200,
+  },
+
   /** Preview streaming housekeeping */
   PREVIEW: {
     /** Maximum entries to retain in tracking sets to prevent memory growth */
