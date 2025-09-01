@@ -151,7 +151,7 @@
   font-size: 0.875rem;
   line-height: 1.5;
   resize: none;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   box-shadow: 0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.05);
   outline: none;
 }
@@ -195,6 +195,12 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   z-index: 5;
   animation: autocomplete-appear 0.15s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .autocomplete-dropdown {
+    animation: none;
+  }
 }
 
 .autocomplete-dropdown::-webkit-scrollbar {

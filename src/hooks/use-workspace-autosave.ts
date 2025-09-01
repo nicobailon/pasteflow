@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { UI } from '@constants';
 
 import { debounce } from '../utils/debounce';
 
@@ -64,9 +65,9 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
 
   // Build signature data using helper
   const signatureData = buildSignatureData(options);
-
-  // Compute current signature
+  // Compute current signature (full) and signature excluding userInstructions
   const currentSignature = computeWorkspaceSignature(signatureData);
+  const nonInstrSignature = computeWorkspaceSignature({ ...signatureData, userInstructions: '' });
 
   // Stable refs for lifetime event handlers (prevents listener re-registration)
   const autoSaveEnabledRef = useRef(autoSaveEnabled);
@@ -74,6 +75,9 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
 
   const currentSignatureRef = useRef(currentSignature);
   useEffect(() => { currentSignatureRef.current = currentSignature; }, [currentSignature]);
+
+  const nonInstrSignatureRef = useRef(nonInstrSignature);
+  useEffect(() => { nonInstrSignatureRef.current = nonInstrSignature; }, [nonInstrSignature]);
 
   const currentWorkspaceRef = useRef(currentWorkspace);
   useEffect(() => { currentWorkspaceRef.current = currentWorkspace; }, [currentWorkspace]);
@@ -91,15 +95,19 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   useEffect(() => {
     if (currentWorkspace !== prevWorkspaceRef.current && !isApplyingWorkspaceData) {
       lastSignatureRef.current = currentSignature;
+      nonInstrSignatureRef.current = nonInstrSignature;
       prevWorkspaceRef.current = currentWorkspace;
       // Clear any trailing timers from previous workspace
       if (minIntervalTimerRef.current) {
         clearTimeout(minIntervalTimerRef.current);
         minIntervalTimerRef.current = null;
       }
+      // Cancel any pending debounced saves when switching workspaces
+      debouncedSaveFastRef.current?.cancel?.();
+      debouncedSaveSlowRef.current?.cancel?.();
       pendingSignatureRef.current = null;
     }
-  }, [currentWorkspace, isApplyingWorkspaceData, currentSignature]);
+  }, [currentWorkspace, isApplyingWorkspaceData, currentSignature, nonInstrSignature]);
 
   // Helper to check if auto-save should proceed
   const canAutoSaveNow = useCallback(() => {
@@ -144,15 +152,17 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   ]);
 
   // Create debounced save function
-  const debouncedSaveRef = useRef<ReturnType<typeof debounce>>();
-  
+  const debouncedSaveFastRef = useRef<ReturnType<typeof debounce>>();
+  const debouncedSaveSlowRef = useRef<ReturnType<typeof debounce>>();
+
   useEffect(() => {
-    debouncedSaveRef.current = debounce(performAutoSave, debounceMs);
+    // Fast debounce for general changes (preferences-controlled)
+    debouncedSaveFastRef.current = debounce(performAutoSave, debounceMs);
+    // Slow debounce specifically for typing-driven userInstructions changes
+    debouncedSaveSlowRef.current = debounce(performAutoSave, UI.INSTRUCTIONS_INPUT.AUTOSAVE_TYPING_DEBOUNCE_MS);
     return () => {
-      // If your debounce supports cancel, call it here.
-      // (No-op otherwise; safe.)
-      // @ts-expect-error: cancel method exists at runtime but is not in debounce type definition
-      debouncedSaveRef.current?.cancel?.();
+      debouncedSaveFastRef.current?.cancel?.();
+      debouncedSaveSlowRef.current?.cancel?.();
     };
   }, [performAutoSave, debounceMs]);
 
@@ -160,6 +170,7 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   useEffect(() => {
     if (!hasInitializedRef.current) {
       lastSignatureRef.current = currentSignature;
+      nonInstrSignatureRef.current = nonInstrSignature;
       hasInitializedRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -210,14 +221,24 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
     
     // Only trigger if signature has changed
     if (currentSignature !== lastSignatureRef.current) {
-      debouncedSaveRef.current?.();
+      // Determine if only userInstructions changed (non-instruction signature unchanged)
+      if (nonInstrSignature === nonInstrSignatureRef.current) {
+        // Only instructions changed -> use slow debounce (~4s after typing)
+        debouncedSaveSlowRef.current?.();
+      } else {
+        // Other state changed -> use fast debounce
+        debouncedSaveFastRef.current?.();
+        // Update last seen non-instruction signature baseline immediately
+        nonInstrSignatureRef.current = nonInstrSignature;
+      }
     }
   }, [
     autoSaveEnabled,
     currentWorkspace,
     isApplyingWorkspaceData,
     isProcessing,
-    currentSignature
+    currentSignature,
+    nonInstrSignature
   ]);
 
   return {
