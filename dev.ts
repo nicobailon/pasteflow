@@ -3,13 +3,16 @@ import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { platform as osPlatform } from 'node:os';
 import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
+// Local require that works in both ESM (via createRequire) and CJS
+const nodeRequire = (typeof module !== 'undefined' && (module as any).require)
+  ? (module as any).require.bind(module)
+  : createRequire(typeof __filename !== 'undefined' ? __filename : import.meta.url as unknown as string);
 
 // Check for required dependencies
 try {
   // Test loading key dependencies
-  require('ignore');
-  require('tiktoken');
+  nodeRequire('ignore');
+  nodeRequire('tiktoken');
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`\n❌ Missing dependency: ${message}`);
@@ -34,7 +37,7 @@ const viteProcess = spawn('npm', ['run', 'dev'], {
 
 // Flag to track if Vite has started
 let viteStarted = false;
-let mainWatch: ChildProcess | null = null;
+let mainWatchEsm: ChildProcess | null = null;
 
 // Listen for Vite server ready message
 viteProcess.stdout?.on('data', (data: Buffer) => {
@@ -83,16 +86,16 @@ function startElectron(): void {
   try {
 
     // Compile main once, then start a watcher for incremental rebuilds
-    console.log('🛠️ Building main (once)...');
-    execSync('npm run build:main', { stdio: 'inherit' });
+    console.log('🛠️ Building main (ESM + preload/worker) once via tsup...');
+    execSync('npm run build:main:esm', { stdio: 'inherit' });
 
-    console.log('🔁 Starting main build watcher...');
-    mainWatch = spawn('npm', ['run', 'build:main:watch'], {
+    console.log('🔁 Starting tsup watcher (ESM main + CJS preload/worker)...');
+    mainWatchEsm = spawn('npm', ['run', 'build:main:esm:watch'], {
       stdio: 'inherit',
       shell: osPlatform() === 'win32',
     });
 
-    // Start Electron
+    // Start Electron via package.json (ensures proper app metadata/userData path)
     const electronProcess = spawn('npm', ['start'], {
       stdio: 'inherit',
       shell: osPlatform() === 'win32', // Use shell on Windows
@@ -106,9 +109,9 @@ function startElectron(): void {
 
     electronProcess.on('close', (code) => {
       console.log(`Electron process exited with code ${code}`);
-      if (mainWatch) {
+      if (mainWatchEsm) {
         try {
-          mainWatch.kill();
+          mainWatchEsm.kill();
         } catch {
           // Intentionally empty - process may already be dead
         }
@@ -127,9 +130,9 @@ function startElectron(): void {
 // Handle process termination gracefully
 process.on('SIGINT', () => {
   console.log('\n⏹️  Shutting down development environment...');
-  if (mainWatch) {
+  if (mainWatchEsm) {
     try {
-      mainWatch.kill();
+      mainWatchEsm.kill();
     } catch {
       // Intentionally empty - process may already be dead
     }
@@ -140,9 +143,9 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   console.log('\n⏹️  Terminating development environment...');
-  if (mainWatch) {
+  if (mainWatchEsm) {
     try {
-      mainWatch.kill();
+      mainWatchEsm.kill();
     } catch {
       // Intentionally empty - process may already be dead
     }

@@ -1,15 +1,13 @@
 {
   "name": "pasteflow",
   "version": "1.0.0",
-  "main": "build/main/main.js",
+  "main": "build/main/main.mjs",
   "bin": {
-    "pasteflow": "cli/bin/pf.cjs",
-    "pf": "cli/bin/pf.cjs"
+    "pasteflow": "cli/dist/index.mjs",
+    "pf": "cli/dist/index.mjs"
   },
   "scripts": {
     "start": "electron .",
-    "build:main": "tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
-    "build:main:watch": "tsc -p tsconfig.main.json --watch & tsc-alias -p tsconfig.main.json --watch",
     "build:scripts": "tsc -p tsconfig.scripts.json",
     "dev": "vite",
     "dev:electron": "tsx dev.ts",
@@ -24,12 +22,16 @@
     "test-build:win": "tsx scripts/test-local-build.ts win",
     "test-build:linux": "tsx scripts/test-local-build.ts linux",
     "debug-gh-release": "git tag debug-v$(date +'%Y%m%d%H%M%S') && git push origin --tags",
-    "package": "vite build && npm run build:main && npm run build:scripts && electron-builder --publish=never",
-    "package:mac": "vite build && npm run build:main && npm run build:scripts && electron-builder --mac --publish=never",
-    "package:win": "vite build && npm run build:main && npm run build:scripts && electron-builder --win --publish=never",
-    "package:linux": "vite build && npm run build:main && npm run build:scripts && electron-builder --linux --publish=never",
-    "package:all": "vite build && npm run build:main && npm run build:scripts && electron-builder -mwl --publish=never",
-    "release": "vite build && npm run build:main && npm run build:scripts && electron-builder --publish=onTagOrDraft",
+    "package": "vite build && npm run build:main:esm && npm run build:scripts && electron-builder --publish=never",
+    "build:main:esm": "tsup --config tsup.config.ts",
+    "build:main:esm:watch": "tsup --config tsup.config.ts --watch",
+    "start:esm": "npm run build:main:esm && electron build/main/main.mjs",
+    "package:esm": "vite build && npm run build:main:esm && npm run build:scripts && electron-builder --publish=never",
+    "package:mac": "vite build && npm run build:main:esm && npm run build:scripts && electron-builder --mac --publish=never",
+    "package:win": "vite build && npm run build:main:esm && npm run build:scripts && electron-builder --win --publish=never",
+    "package:linux": "vite build && npm run build:main:esm && npm run build:scripts && electron-builder --linux --publish=never",
+    "package:all": "vite build && npm run build:main:esm && npm run build:scripts && electron-builder -mwl --publish=never",
+    "release": "vite build && npm run build:main:esm && npm run build:scripts && electron-builder --publish=onTagOrDraft",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "lint:strict": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:filenames": "eslint . --ext ts,tsx --rule \"filenames/match-regex: error\" --rule \"filenames/match-exported: error\" --rule \"filenames/no-index: off\"",
@@ -45,8 +47,10 @@
     "test:mock-check": "npx tsx scripts/test-quality/mock-count-checker.ts",
     "test:assertion-check": "npx tsx scripts/test-quality/assertion-density-checker.ts",
     "test:quality-full": "npm run test:mock-check && npm run test:assertion-check && npm test",
-    "build:cli": "tsc -p cli/tsconfig.json",
-    "build:cli:watch": "tsc -p cli/tsconfig.json --watch"
+    "build:cli": "tsup --config tsup.config.ts",
+    "build:cli:watch": "tsup --config tsup.config.ts --watch",
+    "cli:dev": "tsx cli/src/index.ts",
+    "link:cli": "npm run build:cli && npm link"
   },
   "keywords": [
     "clipboard",
@@ -148,6 +152,7 @@
     "prettier": "^2.8.8",
     "ts-jest": "^29.1.2",
     "tsc-alias": "^1.8.16",
+    "tsup": "^8.5.0",
     "tsx": "^4.20.4",
     "typescript": "^5.3.3",
     "vite": "^5.0.8",
@@ -161,7 +166,9 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/react-window": "^1.8.8",
     "@xmldom/xmldom": "^0.9.6",
+    "axios": "^1.7.2",
     "better-sqlite3": "^11.7.0",
+    "commander": "^11.1.0",
     "express": "^4.19.2",
     "ignore": "^7.0.3",
     "lucide-react": "^0.477.0",
@@ -172,8 +179,6 @@
     "react-window": "^1.8.11",
     "tiktoken": "^1.0.20",
     "uuid": "^11.1.0",
-    "zod": "^4.0.14",
-    "axios": "^1.7.2",
-    "commander": "^11.1.0"
+    "zod": "^4.0.14"
   }
 }

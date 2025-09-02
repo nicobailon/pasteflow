@@ -82,7 +82,8 @@ npm run dev:electron     # Start Electron in development mode
 
 # Building
 npm run build           # Build React app with Vite
-npm run build-electron  # Build and prepare for Electron
+npm run build:main:esm  # Build Electron main (ESM) + preload/worker (CJS) via tsup
+npm run build-electron  # Build and package using electron-builder wrapper
 npm run package         # Create distributable packages
 npm run verify-build    # Verify build integrity
 npm run test-build      # Test local build
@@ -103,7 +104,7 @@ npx tsc --noEmit       # Run TypeScript compiler to check for type errors
 
 ### Build Process
 1. **Vite Build** - Compiles React/TypeScript to `dist/`
-2. **Main/Preload Compile** - Compiles Electron main/preload TypeScript to CommonJS (`build/main`)
+2. **Main Build** - tsup emits Electron main as ESM (`build/main/main.mjs`) and compiles preload + worker as ESM (`build/main/preload.mjs`, `build/main/db/database-worker.mjs`)
 3. **Electron Builder** - Packages for multiple platforms; packaging hooks are compiled TS in `build/scripts`
 
 ## First‑Party CLI (Commander + Axios)
@@ -454,7 +455,7 @@ const estimate = estimateTokenCount(text); // Fallback estimation
 
 3. **IPC Communication Failures**
    - Verify security validation isn't blocking requests
-   - Check that all IPC handlers are properly registered in `main.js`
+   - Check that all IPC handlers are properly registered in `src/main/main.ts`
    - Rate limiting may throttle excessive requests
 
 4. **Test Failures**

@@ -15,7 +15,7 @@
 - `npm run dev:electron`: starts Vite + Electron for full local dev.
 - `npm run dev`: Vite-only UI server (usually use `dev:electron`).
 - `npm run build`: Vite production build to `dist/`.
-- `npm run build:main`: compile Electron main/preload to `build/main/`.
+- `npm run build:main:esm`: build Electron main (ESM) + preload/worker (CJS) to `build/main/` via tsup.
 - `npm run package[:mac|:win|:linux|:all]`: build + electron‑builder packaging.
 - `npm test` | `npm run test:watch`: run Jest suite (ts-jest).
 - `npm run lint` | `npm run lint:strict`: lint codebase.
@@ -44,4 +44,3 @@
 - Electron target/version pinned in `.npmrc`; native deps (e.g., `better-sqlite3`) rebuild on install.
 - Packaging uses `electron-builder` with notarization hook compiled to `build/scripts/notarize.js`.
 - Avoid committing secrets; use env/CI secrets. Validate paths and inputs in main/IPC layers.
-

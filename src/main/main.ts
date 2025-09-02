@@ -174,7 +174,7 @@ function createWindow(): void {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      // Important: at runtime compiled preload is co-located under build/main/preload.js
+      // Load preload built alongside main (CJS)
       preload: path.join(__dirname, 'preload.js')
     }
   });
@@ -781,6 +781,51 @@ ipcMain.handle('/workspace/load', async (_e, params: unknown) => {
          
         console.warn('Failed to sync allowed paths for loaded workspace:', syncErr);
       }
+      const shaped = mapWorkspaceDbToIpc(ws);
+      return { success: true, data: shaped };
+    }
+
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+// Activate a workspace by id or name without broadcasting folder-selected
+ipcMain.handle('/workspace/activate', async (_e, params: unknown) => {
+  try {
+    // Accept either { id: string } or a raw string id
+    let idParam: string | undefined;
+    if (typeof params === 'string') {
+      idParam = params;
+    } else if (params && typeof params === 'object' && 'id' in (params as Record<string, unknown>)) {
+      idParam = String((params as { id?: string }).id);
+    }
+    if (!idParam) {
+      return { success: false, error: 'INVALID_PARAMS' };
+    }
+
+    if (database && (database as unknown as { initialized?: boolean }).initialized) {
+       
+      const db: any = database as unknown as any;
+      const ws: any | null = await db.getWorkspace(idParam);
+      if (!ws) return { success: false, error: 'Workspace not found' };
+
+      // Mark as active and sync allowed paths for API/CLI silently
+      try {
+        await db.setPreference('workspace.active', String(ws.id));
+      } catch (prefErr) {
+         
+        console.warn('Failed to set active workspace preference:', prefErr);
+      }
+      try {
+        setAllowedWorkspacePaths([ws.folder_path]);
+        getPathValidator([ws.folder_path]);
+      } catch (syncErr) {
+         
+        console.warn('Failed to sync allowed paths for activated workspace:', syncErr);
+      }
+
       const shaped = mapWorkspaceDbToIpc(ws);
       return { success: true, data: shaped };
     }

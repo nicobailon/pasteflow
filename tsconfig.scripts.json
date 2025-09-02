@@ -12,6 +12,7 @@
   },
   "include": ["scripts/**/*.ts"],
   "exclude": [
-    "scripts/test-quality/**"
+    "scripts/test-quality/**",
+    "scripts/release-checklist.ts"
   ]
 }

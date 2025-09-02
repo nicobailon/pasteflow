@@ -81,11 +81,12 @@ export class AsyncDatabase extends EventEmitter {
 
   private createWorker(): void {
     try {
+      // Load the compiled ESM worker via URL with type: 'module'
       this.worker = new Worker(
-        // eslint-disable-next-line unicorn/prefer-module
-        path.join(__dirname, 'database-worker.ts'),
+        new URL('../db/database-worker.mjs', import.meta.url),
         {
-          workerData: { dbPath: this.dbPath, ...this.options }
+          workerData: { dbPath: this.dbPath, ...this.options },
+          type: 'module'
         }
       );
       this.setupWorkerHandlers();

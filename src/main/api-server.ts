@@ -3,6 +3,12 @@ import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 
 import express, { Express, Request, Response, NextFunction } from 'express';
+import { createRequire } from 'node:module';
+
+// Local require compatible with CJS and ESM builds
+const nodeRequire: NodeJS.Require = (typeof module !== 'undefined' && (module as any).require)
+  ? (module as any).require.bind(module)
+  : createRequire(import.meta.url);
 
 import { getMainTokenService } from '../services/token-service-main';
 import type { FileTreeMode, SystemPrompt, RolePrompt, Instruction } from '../types/file-types';
@@ -311,7 +317,7 @@ export class PasteFlowAPIServer {
       if (mode === 'selected') {
         items = pruned.map((s) => ({ path: s.path, isFile: true }));
       } else if (mode === 'selected-with-roots') {
-        const { getAllDirectories } = require('../file-ops/path');
+      const { getAllDirectories } = nodeRequire('../file-ops/path');
         const dirs: string[] = getAllDirectories(pruned, root);
         items = [
           ...dirs.map((d) => ({ path: d, isFile: false })),
@@ -322,7 +328,7 @@ export class PasteFlowAPIServer {
         items = all.map((p) => ({ path: p, isFile: true }));
       }
 
-      const { generateAsciiFileTree } = require('../file-ops/ascii-tree');
+      const { generateAsciiFileTree } = nodeRequire('../file-ops/ascii-tree');
       const tree: string = generateAsciiFileTree(items, root);
 
       return res.json(ok({ mode, root, tree }));
@@ -461,7 +467,7 @@ export class PasteFlowAPIServer {
         // Extract selected content if ranges provided
         const selected = { path: st.data.path, lines: s.lines } as { path: string; lines?: { start: number; end: number }[] };
         // Lazy import to avoid circular deps issues
-        const { processFileContent } = require('../utils/content-formatter');
+      const { processFileContent } = nodeRequire('../utils/content-formatter');
         const { content, partial } = processFileContent(r.content, {
           path: selected.path,
           lines: selected.lines,
@@ -559,7 +565,7 @@ export class PasteFlowAPIServer {
 
   private toRelativePath(root: string, p: string): string {
     try {
-      const path = require('node:path');
+      const path = nodeRequire('node:path');
       return path.relative(root, p) || p;
     } catch {
       return p;
