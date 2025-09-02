@@ -37,8 +37,6 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
 
   // Local attachment state (message-scoped)
   const [pendingAttachments, setPendingAttachments] = useState<Map<string, AgentAttachment>>(new Map());
-  const [pinnedAttachments, setPinnedAttachments] = useState<Map<string, AgentAttachment>>(new Map());
-  const [pinEnabled, setPinEnabled] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -60,7 +58,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
     headers: { Authorization: authToken ? `Bearer ${authToken}` : undefined },
     // Attach structured envelope without changing user text embeddings
     prepareSendMessagesRequest: ({ messages, requestBody }: any) => {
-      const dynamic = buildDynamicFromAttachments(pendingAttachments, pinnedAttachments);
+      const dynamic = buildDynamicFromAttachments(pendingAttachments);
       const envelope = {
         version: 1 as const,
         initial: lastInitialRef.current || undefined,
@@ -70,9 +68,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       return { ...requestBody, messages, context: envelope };
     },
     onFinish: () => {
-      // Clear one-shot attachments and respect pin state
+      // Clear one-shot attachments
       setPendingAttachments(new Map());
-      if (!pinEnabled) setPinnedAttachments(new Map());
       setErrorStatus(null);
     },
     onError: (err: any) => {
@@ -162,12 +159,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       const userText = composer.trim();
       if (!userText) return;
 
-      // Merge pending + pinned (dedupe by path)
-      const byPath = new Map<string, AgentAttachment>([
-        ...pinnedAttachments,
-        ...pendingAttachments
-      ]);
-      const attachments = Array.from(byPath.values());
+      // Use current pending attachments
+      const attachments = Array.from(pendingAttachments.values());
 
       // Prepare LLM payload blocks and UI condensed blocks
       const llmBlocks: string[] = [];
@@ -197,7 +190,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       // Clear local composer
       setComposer("");
     },
-    [composer, pendingAttachments, pinnedAttachments, detectLanguage, ensureAttachmentContent, sendMessage]
+    [composer, pendingAttachments, detectLanguage, ensureAttachmentContent, sendMessage]
   );
 
   const tokenHint = useMemo(() => {
@@ -227,14 +220,6 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
               Clear
             </button>
           )}
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={pinEnabled}
-              onChange={(e) => setPinEnabled(e.target.checked)}
-            />
-            Pin
-          </label>
         </div>
       </div>
 
@@ -247,32 +232,10 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
         )}
         <AgentAttachmentList
           pending={pendingAttachments}
-          pinned={pinnedAttachments}
-          pinEnabled={pinEnabled}
           onRemove={(absPath) => {
             setPendingAttachments((prev) => {
               const n = new Map(prev);
               n.delete(absPath);
-              return n;
-            });
-            setPinnedAttachments((prev) => {
-              const n = new Map(prev);
-              n.delete(absPath);
-              return n;
-            });
-          }}
-          onPinToggle={(absPath, on) => {
-            setPinnedAttachments((prev) => {
-              const n = new Map(prev);
-              if (on) {
-                const item =
-                  pendingAttachments.get(absPath) ||
-                  prev.get(absPath) ||
-                  ({ path: absPath, lines: null } as any);
-                n.set(absPath, item as any);
-              } else {
-                n.delete(absPath);
-              }
               return n;
             });
           }}
@@ -352,12 +315,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
 
 export default AgentPanel;
 
-function buildDynamicFromAttachments(
-  pending: Map<string, AgentAttachment>,
-  pinned: Map<string, AgentAttachment>
-) {
-  const all = new Map<string, AgentAttachment>([...pinned, ...pending]);
-  const files = Array.from(all.values()).map((v) => ({ path: v.path, lines: v.lines ?? null, tokenCount: v.tokenCount }));
+function buildDynamicFromAttachments(pending: Map<string, AgentAttachment>) {
+  const files = Array.from(pending.values()).map((v) => ({ path: v.path, lines: v.lines ?? null, tokenCount: v.tokenCount }));
   return { files };
 }
 
