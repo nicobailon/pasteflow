@@ -42,12 +42,42 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // Bridge provided by preload/IPC (fallback for tests/dev)
+  function useApiInfo() {
+    const info = (window as any).__PF_API_INFO || {};
+    const apiBase = typeof info.apiBase === "string" ? info.apiBase : "http://127.0.0.1:5839";
+    const authToken = typeof info.authToken === "string" ? info.authToken : "";
+    return { apiBase, authToken };
+  }
+
+  // Initial context from Content Area hand-off
+  const lastInitialRef = useRef<any | null>(null);
+  const { apiBase, authToken } = useApiInfo();
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
+
   const { messages, sendMessage, status, stop } = useChat({
-    api: "/api/v1/chat",
+    api: `${apiBase}/api/v1/chat`,
+    headers: { Authorization: authToken ? `Bearer ${authToken}` : undefined },
+    // Attach structured envelope without changing user text embeddings
+    prepareSendMessagesRequest: ({ messages, requestBody }: any) => {
+      const dynamic = buildDynamicFromAttachments(pendingAttachments, pinnedAttachments);
+      const envelope = {
+        version: 1 as const,
+        initial: lastInitialRef.current || undefined,
+        dynamic,
+        workspace: selectedFolder || null,
+      };
+      return { ...requestBody, messages, context: envelope };
+    },
     onFinish: () => {
       // Clear one-shot attachments and respect pin state
       setPendingAttachments(new Map());
       if (!pinEnabled) setPinnedAttachments(new Map());
+      setErrorStatus(null);
+    },
+    onError: (err: any) => {
+      const code = typeof err?.status === "number" ? err.status : (typeof err?.code === "number" ? err.code : null);
+      if (code === 429) setErrorStatus(429);
     }
   } as any);
 
@@ -57,9 +87,20 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
   // Receive "Send to Agent" event from other parts of the UI
   useEffect(() => {
     const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ text: string; meta?: Record<string, unknown> }>;
+      const ce = e as CustomEvent<any>;
       if (!ce?.detail) return;
-      sendMessage({ text: ce.detail.text, metadata: ce.detail.meta as any } as any);
+      // Support legacy { text } shape
+      if (typeof ce.detail.text === "string" && ce.detail.text.length > 0) {
+        sendMessage({ text: ce.detail.text } as any);
+        return;
+      }
+      // Structured hand-off with context envelope
+      if (ce.detail.context && ce.detail.context.version === 1) {
+        lastInitialRef.current = ce.detail.context.initial || null;
+        const summary: string = buildInitialSummaryMessage(ce.detail.context);
+        // Auto-submit a summary message (no content embedding)
+        sendMessage({ text: summary } as any);
+      }
     };
     window.addEventListener("pasteflow:send-to-agent", handler as EventListener);
     return () => window.removeEventListener("pasteflow:send-to-agent", handler as EventListener);
@@ -198,6 +239,12 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       </div>
 
       <div className="agent-panel-body">
+        {errorStatus === 429 && (
+          <div role="alert" style={{ background: "#ffefef", color: "#a00", padding: 8, border: "1px solid #eaa", margin: "6px 8px", borderRadius: 4 }}>
+            Rate limited (429). Please wait and try again.
+            <button onClick={() => setErrorStatus(null)} style={{ marginLeft: 8 }}>Dismiss</button>
+          </div>
+        )}
         <AgentAttachmentList
           pending={pendingAttachments}
           pinned={pinnedAttachments}
@@ -282,7 +329,11 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
           />
           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
             <div style={{ fontSize: 11, color: "var(--text-secondary)", flex: 1 }}>{tokenHint}</div>
-            <button className="primary" type="submit" disabled={status !== "ready" || !composer.trim()}>
+            <button
+              className="primary"
+              type="submit"
+              disabled={(status === "streaming" || status === "submitted") || !composer.trim()}
+            >
               Send
             </button>
           </div>
@@ -300,3 +351,35 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
 };
 
 export default AgentPanel;
+
+function buildDynamicFromAttachments(
+  pending: Map<string, AgentAttachment>,
+  pinned: Map<string, AgentAttachment>
+) {
+  const all = new Map<string, AgentAttachment>([...pinned, ...pending]);
+  const files = Array.from(all.values()).map((v) => ({ path: v.path, lines: v.lines ?? null, tokenCount: v.tokenCount }));
+  return { files };
+}
+
+function buildInitialSummaryMessage(envelope: any): string {
+  try {
+    const i = envelope?.initial;
+    const ws = envelope?.workspace || "(unknown)";
+    const files = Array.isArray(i?.files) ? i.files : [];
+    const prompts = i?.prompts;
+    const totalTokens = i?.metadata?.totalTokens ?? 0;
+    const header = `Initial context from PasteFlow — Workspace: ${ws}`;
+    const fList = files.slice(0, 20).map((f: any) => `- ${f.relativePath || f.path}${f?.lines ? ` (lines ${f.lines.start}-${f.lines.end})` : ''}`).join("\n");
+    const truncated = files.length > 20 ? `\n(…${files.length - 20} more)` : "";
+    const promptSummary = `System=${prompts?.system?.length ?? 0}, Roles=${prompts?.roles?.length ?? 0}, Instructions=${prompts?.instructions?.length ?? 0}`;
+    return [
+      header,
+      `Files: ${files.length} (est. tokens: ${totalTokens})`,
+      fList || "(none)",
+      truncated,
+      `Prompts: ${promptSummary}`,
+    ].filter(Boolean).join("\n");
+  } catch {
+    return "Initial context received.";
+  }
+}

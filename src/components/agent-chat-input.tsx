@@ -33,6 +33,7 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [anchor, setAnchor] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const [orientation, setOrientation] = useState<'up' | 'down'>('down');
 
   // Build searchable items from allFiles prop
   const items: AgentAutocompleteItem[] = useMemo(() => {
@@ -103,15 +104,24 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
     const wouldOverflow = yPosition + dropdownHeight > textarea.offsetHeight;
     const finalY = wouldOverflow ? Math.max(5, currentLineY - dropdownHeight - dropdownOffset + padding) : yPosition;
 
+    // Clamp X within collision padding
+    const paddingX = 8;
+    const maxLeft = Math.max(paddingX, textarea.offsetWidth - 250 - paddingX);
+    const clampedLeft = Math.min(Math.max(paddingX, xPosition), maxLeft);
+
+    // Update orientation state
+    setOrientation(wouldOverflow ? 'up' : 'down');
+
     return {
-      left: Math.min(xPosition, textarea.offsetWidth - 250),
+      left: clampedLeft,
       top: finalY,
     };
   }, []);
 
   // Maintain a local filtered copy for keyboard acceptance
   const filteredItems: AgentAutocompleteItem[] = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const qRaw = query.trim().toLowerCase();
+    const q = qRaw.replace(/:\d+-\d+$/, "");
     if (!open) return [];
     if (!q) return items.slice(0, 12);
     // Light ranking: shortest rel first, then lexicographic
@@ -150,9 +160,14 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
     const match = before.match(/@(\S*)$/);
     if (!match || match.index === undefined) return;
     const insertionStart = match.index; // where "@" starts
-    const newValue = before.slice(0, insertionStart) + "@" + file.rel + value.slice(caret);
+    // Preserve any typed range suffix like :10-20
+    const typed = match[1] || "";
+    const rangeMatch = typed.match(/:(\d+)-(\d+)$/);
+    const suffix = rangeMatch ? `:${rangeMatch[1]}-${rangeMatch[2]}` : '';
+    const newValue = before.slice(0, insertionStart) + "@" + file.rel + suffix + value.slice(caret);
     onChange(newValue);
-    onFileMention(file.abs, null);
+    const lines = rangeMatch ? { start: Number(rangeMatch[1]), end: Number(rangeMatch[2]) } : null;
+    onFileMention(file.abs, lines);
     // restore focus
     setTimeout(() => el.focus(), 0);
     setOpen(false);
@@ -210,6 +225,7 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
           query={query}
           items={items}
           position={anchor}
+          orientation={orientation}
           onSelect={(it) => replaceMentionToken(it)}
           onClose={() => setOpen(false)}
         />

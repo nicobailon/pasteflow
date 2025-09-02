@@ -12,6 +12,7 @@ interface AgentFileAutocompleteProps {
   query: string;
   items: AgentAutocompleteItem[];
   position: { left: number; top: number };
+  orientation?: 'up' | 'down';
   onSelect: (item: AgentAutocompleteItem) => void;
   onClose: () => void;
 }
@@ -26,6 +27,7 @@ const AgentFileAutocomplete = memo(function AgentFileAutocomplete({
   query,
   items,
   position,
+  orientation = 'down',
   onSelect,
   onClose,
 }: AgentFileAutocompleteProps) {
@@ -74,7 +76,7 @@ const AgentFileAutocomplete = memo(function AgentFileAutocomplete({
 
       <div
         ref={containerRef}
-        className="autocomplete-dropdown"
+        className={`autocomplete-dropdown autocomplete-dropdown--${orientation}`}
         style={{ left: position.left, top: position.top, position: "absolute" }}
         id={listId}
         role="listbox"

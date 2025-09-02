@@ -196,6 +196,14 @@
   animation: autocomplete-appear 0.15s ease-out;
 }
 
+/* Orientation variants */
+.autocomplete-dropdown--up {
+  margin-bottom: 8px;
+}
+.autocomplete-dropdown--down {
+  margin-top: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .autocomplete-dropdown {
     animation: none;

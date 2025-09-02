@@ -14,6 +14,7 @@ import Dropdown from './dropdown';
 import FileList from './file-list';
 import ClipboardPreviewModal from './clipboard-preview-modal';
 import './content-area.css';
+import SendToAgentButton from './send-to-agent-button';
 
 // Helper: find @mention span preceding caret
 const computeQueryFromValue = (text: string, caret: number) => {
@@ -1049,6 +1050,17 @@ const ContentArea = ({
                       <Eye size={16} />
                       <span>Preview</span>
                     </button>
+                    <SendToAgentButton
+                      status={packState.status}
+                      selectedFolder={selectedFolder}
+                      selectedFiles={selectedFiles}
+                      selectedSystemPrompts={selectedSystemPrompts}
+                      selectedRolePrompts={selectedRolePrompts}
+                      selectedInstructions={selectedInstructions}
+                      userInstructions={userInstructions}
+                      tokenEstimate={packState.tokenEstimate}
+                      signature={packState.signature}
+                    />
                     <CopyButton
                       text={() => packState.fullContent || streamingPreview?.fullContent || ''}
                       className="primary copy-selected-files-btn"

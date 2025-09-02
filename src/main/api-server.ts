@@ -147,6 +147,9 @@ export class PasteFlowAPIServer {
 
     // Logs (dev-only optional)
     this.app.get('/api/v1/logs', (req, res) => this.handleLogs(req, res));
+
+    // Chat (Phase 2)
+    this.app.post('/api/v1/chat', (req, res) => this.routeHandlers.handleChat(req, res));
   }
 
   // File selection handlers

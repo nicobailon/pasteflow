@@ -20,6 +20,11 @@ import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
 import { broadcastToRenderers, broadcastWorkspaceUpdated } from './broadcast-helper';
+import { AgentContextEnvelopeSchema } from "../shared-types/agent-context";
+import { streamText, convertToModelMessages } from "ai";
+import { openai } from "@ai-sdk/openai";
+import type { Request, Response } from "express";
+import { buildSystemPrompt } from "./agent/system-prompt";
 
 // Schema definitions
 export const idParam = z.object({ id: z.string().min(1) });
@@ -179,6 +184,110 @@ export class APIRouteHandlers {
       return res.json(ok(true));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  // Chat streaming (Phase 2 prerequisite)
+  async handleChat(req: Request, res: Response) {
+    try {
+      const ChatBodySchema = z.object({
+        messages: z.array(z.any()),
+        context: AgentContextEnvelopeSchema.optional(),
+      });
+      const parsed = ChatBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+      }
+
+      const uiMessages = parsed.data.messages as any[];
+      const modelMessages = convertToModelMessages(uiMessages);
+
+      // Sanitize/normalize context
+      const envelope = parsed.data.context;
+      const allowed = getAllowedWorkspacePaths();
+      const safeEnvelope = envelope ? this.sanitizeContextEnvelope(envelope as any, allowed) : undefined;
+
+      const system = buildSystemPrompt({
+        initial: safeEnvelope?.initial,
+        dynamic: safeEnvelope?.dynamic ?? { files: [] },
+        workspace: safeEnvelope?.workspace ?? null,
+      });
+
+      const result = streamText({
+        model: openai('gpt-4o-mini'),
+        system,
+        messages: modelMessages,
+      });
+
+      // Pipe to Express response with UI_MESSAGE_STREAM headers
+      result.pipeUIMessageStreamToResponse(res);
+    } catch (error) {
+      const message = (error as Error)?.message || 'Unknown error';
+      return res.status(500).json(toApiError('SERVER_ERROR', message));
+    }
+  }
+
+  // Helper: sanitize context envelope
+  private sanitizeContextEnvelope(envelope: any, allowed: string[]) {
+    try {
+      if (!envelope || !Array.isArray(allowed) || allowed.length === 0) return envelope;
+      const nodePath = require('node:path') as typeof import('node:path');
+      const safeFiles = (files: any[]) => {
+        const out: any[] = [];
+        for (const f of Array.isArray(files) ? files : []) {
+          const p = String(f?.path || '');
+          // Ensure under allowed roots
+          const isAllowed = allowed.some((root) => {
+            try {
+              const rel = nodePath.relative(root, p);
+              return rel && !rel.startsWith('..') && !nodePath.isAbsolute(rel);
+            } catch { return false; }
+          });
+          if (!isAllowed) continue;
+          const rel = (() => {
+            for (const root of allowed) {
+              try {
+                const r = nodePath.relative(root, p);
+                if (r && !r.startsWith('..') && !nodePath.isAbsolute(r)) return r;
+              } catch { /* noop */ }
+            }
+            return undefined;
+          })();
+          out.push({
+            path: p,
+            lines: f?.lines ?? null,
+            tokenCount: typeof f?.tokenCount === 'number' ? f.tokenCount : undefined,
+            bytes: typeof f?.bytes === 'number' ? f.bytes : undefined,
+            relativePath: rel,
+          });
+          if (out.length >= 50) break;
+        }
+        return out;
+      };
+
+      const initial = envelope.initial ? {
+        files: safeFiles(envelope.initial.files || []),
+        prompts: {
+          system: Array.isArray(envelope.initial.prompts?.system) ? envelope.initial.prompts.system.slice(0, 50) : [],
+          roles: Array.isArray(envelope.initial.prompts?.roles) ? envelope.initial.prompts.roles.slice(0, 50) : [],
+          instructions: Array.isArray(envelope.initial.prompts?.instructions) ? envelope.initial.prompts.instructions.slice(0, 50) : [],
+        },
+        user: envelope.initial.user && typeof envelope.initial.user.tokenCount === 'number'
+          ? { present: Boolean(envelope.initial.user.present), tokenCount: envelope.initial.user.tokenCount }
+          : undefined,
+        metadata: {
+          totalTokens: typeof envelope.initial.metadata?.totalTokens === 'number' ? envelope.initial.metadata.totalTokens : 0,
+          signature: envelope.initial.metadata?.signature,
+          timestamp: envelope.initial.metadata?.timestamp,
+        },
+      } : undefined;
+
+      const dynamic = { files: safeFiles(envelope.dynamic?.files || []) };
+      const workspace = typeof envelope.workspace === 'string' ? envelope.workspace : null;
+
+      return { version: 1 as const, initial, dynamic, workspace };
+    } catch {
+      return envelope;
     }
   }
 
