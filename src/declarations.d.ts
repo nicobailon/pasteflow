@@ -2,6 +2,9 @@
 declare module "electron";
 declare module "tiktoken";
 declare module "ignore";
+declare module "ai";
+declare module "@ai-sdk/openai";
+declare module "@ai-sdk/react";
 
 // Allow importing CSS files
 declare module "*.css" {

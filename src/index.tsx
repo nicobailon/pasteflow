@@ -17,6 +17,7 @@ import useAppState from "./hooks/use-app-state";
 import { initializeCacheRegistry } from "./utils/cache-registry";
 import { useMemoryMonitoring } from "./hooks/use-memory-monitoring";
 import { getGlobalPerformanceMonitor } from "./utils/performance-monitor";
+import { AgentPanel } from "./components/agent-panel";
 
 const App = () => {
   // Use our main app state hook
@@ -75,7 +76,7 @@ const App = () => {
 
   return (
     <ThemeProvider>
-      <div className="app-container">
+      <div className="app-container with-left-agent">
         <AppHeader 
           selectedFolder={appState.selectedFolder}
           fileTreeMode={appState.fileTreeMode}
@@ -107,30 +108,8 @@ const App = () => {
         )}
 
         <div className="main-content">
-          <Sidebar
-            ref={sidebarRef}
-            selectedFolder={appState.selectedFolder}
-            openFolder={appState.openFolder}
-            allFiles={appState.allFiles}
-            selectedFiles={appState.selectedFiles}
-            toggleFileSelection={appState.toggleFileSelection}
-            toggleFolderSelection={appState.toggleFolderSelection}
-            searchTerm={appState.searchTerm}
-            onSearchChange={appState.handleSearchChange}
-            selectAllFiles={() => appState.selectAllFiles(appState.displayedFiles)}
-            deselectAllFiles={() => appState.deselectAllFiles(appState.displayedFiles)}
-            expandedNodes={appState.expandedNodes}
-            toggleExpanded={appState.toggleExpanded}
-            resetFolderState={appState.handleResetFolderState}
-            onFileTreeSortChange={appState.handleFileTreeSortChange}
-            toggleFilterModal={appState.toggleFilterModal}
-            refreshFileTree={appState.handleRefreshFileTree}
-            onViewFile={appState.openFileViewModal}
-            processingStatus={appState.processingStatus}
-            loadFileContent={appState.loadFileContent}
-            folderSelectionCache={appState.folderSelectionCache}
-          />
-          
+          {/* Left-docked Agent panel */}
+          <AgentPanel allFiles={appState.allFiles} selectedFolder={appState.selectedFolder} />
           <ContentArea
             selectedFiles={appState.selectedFiles}
             allFiles={appState.allFiles}
@@ -177,6 +156,30 @@ const App = () => {
             toggleExpanded={appState.toggleExpanded}
             fileTreeMode={appState.fileTreeMode}
             clearAllSelections={appState.clearAllSelections}
+          />
+
+          <Sidebar
+            ref={sidebarRef}
+            selectedFolder={appState.selectedFolder}
+            openFolder={appState.openFolder}
+            allFiles={appState.allFiles}
+            selectedFiles={appState.selectedFiles}
+            toggleFileSelection={appState.toggleFileSelection}
+            toggleFolderSelection={appState.toggleFolderSelection}
+            searchTerm={appState.searchTerm}
+            onSearchChange={appState.handleSearchChange}
+            selectAllFiles={() => appState.selectAllFiles(appState.displayedFiles)}
+            deselectAllFiles={() => appState.deselectAllFiles(appState.displayedFiles)}
+            expandedNodes={appState.expandedNodes}
+            toggleExpanded={appState.toggleExpanded}
+            resetFolderState={appState.handleResetFolderState}
+            onFileTreeSortChange={appState.handleFileTreeSortChange}
+            toggleFilterModal={appState.toggleFilterModal}
+            refreshFileTree={appState.handleRefreshFileTree}
+            onViewFile={appState.openFileViewModal}
+            processingStatus={appState.processingStatus}
+            loadFileContent={appState.loadFileContent}
+            folderSelectionCache={appState.folderSelectionCache}
           />
         </div>
         

@@ -11,6 +11,7 @@ const nodeRequire: NodeJS.Require = (typeof module !== 'undefined' && (module as
   : createRequire(import.meta.url);
 
 import { getMainTokenService } from '../services/token-service-main';
+import { z } from 'zod';
 import type { FileTreeMode, SystemPrompt, RolePrompt, Instruction } from '../types/file-types';
 
 import { DatabaseBridge } from './db/database-bridge';
@@ -55,6 +56,8 @@ export class PasteFlowAPIServer {
   private readonly previewProxy = new RendererPreviewProxy();
   private readonly previewController = new PreviewController(this.previewProxy, { timeoutMs: 120_000 });
   private readonly routeHandlers: APIRouteHandlers;
+  // Tiny in-memory rate limiter for chat route
+  private readonly chatRate: Map<string, { count: number; windowStart: number }> = new Map();
 
   constructor(private readonly db: DatabaseBridge, private readonly port = 5839) {
     this.app = express();
@@ -147,6 +150,9 @@ export class PasteFlowAPIServer {
 
     // Logs (dev-only optional)
     this.app.get('/api/v1/logs', (req, res) => this.handleLogs(req, res));
+
+    // Chat (Vercel AI SDK v5)
+    this.app.post('/api/v1/chat', (req, res) => this.handleChat(req, res));
   }
 
   // File selection handlers
@@ -860,5 +866,181 @@ export class PasteFlowAPIServer {
 
   getAuthToken(): string {
     return this.auth.getToken();
+  }
+
+  // Minimal Phase 1 chat handler with tool stubs
+  private async handleChat(req: Request, res: Response) {
+    // Lazy import of AI SDK to avoid hard dependency during tests without network install
+    let streamText: any;
+    let convertToModelMessages: any;
+    let tool: any;
+    let openaiProvider: any;
+    try {
+      ({ streamText, convertToModelMessages, tool } = (await import('ai')) as any);
+      ({ openai: openaiProvider } = (await import('@ai-sdk/openai')) as any);
+    } catch (e) {
+      return res.status(500).json(toApiError('DEPENDENCY_MISSING', 'AI provider not available'));
+    }
+
+    try {
+      // Basic rate limiting (per auth token, 10 requests/10s sliding window)
+      const token = String(req.headers.authorization || '');
+      const now = Date.now();
+      const rl = this.chatRate.get(token) || { count: 0, windowStart: now };
+      if (now - rl.windowStart > 10_000) { rl.windowStart = now; rl.count = 0; }
+      rl.count += 1;
+      this.chatRate.set(token, rl);
+      if (rl.count > 10) {
+        return res.status(429).json(toApiError('RATE_LIMITED', 'Too many requests'));
+      }
+
+      const body = (req.body ?? {}) as {
+        messages?: unknown[];
+        context?: unknown;
+      };
+
+      if (!Array.isArray(body.messages)) {
+        return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body: messages[] required'));
+      }
+
+      // Load API key from preferences or environment
+      let apiKey: string | null = null;
+      try {
+        apiKey = (await this.db.getPreference('agent.openai.apiKey')) as unknown as string | null;
+      } catch {
+        // ignore db read error; fallback to env
+      }
+      const envKey = process.env.OPENAI_API_KEY;
+      const effectiveKey = (apiKey && String(apiKey)) || (envKey && String(envKey)) || '';
+      if (effectiveKey && !process.env.OPENAI_API_KEY) {
+        // Set process env for provider if not already set
+        process.env.OPENAI_API_KEY = effectiveKey;
+      }
+
+      const model = openaiProvider('gpt-5-mini');
+
+      // Tool: file (read/info)
+      const fileTool = tool({
+        description: 'File operations: read, info',
+        inputSchema: z.object({
+          action: z.enum(['read', 'info']),
+          path: z.string(),
+        }),
+        execute: async (input: { action: 'read' | 'info'; path: string }) => {
+          const validation = validateAndResolvePath(input.path);
+          if (!validation.ok) {
+            return { error: 'PATH_DENIED', message: validation.message };
+          }
+
+          if (input.action === 'info') {
+            const st = await fileServiceStatFile(validation.absolutePath);
+            if (!st.ok) return { error: st.code, message: st.message };
+
+            const info: Record<string, unknown> = {
+              name: st.data.name,
+              path: st.data.path,
+              size: st.data.size,
+              isDirectory: st.data.isDirectory,
+              isBinary: st.data.isBinary,
+              mtimeMs: st.data.mtimeMs,
+              fileType: st.data.fileType,
+            };
+
+            if (!st.data.isDirectory && !st.data.isBinary) {
+              const r = await readTextFile(st.data.path);
+              if (r.ok && !r.isLikelyBinary) {
+                const { count } = await getMainTokenService().countTokens(r.content);
+                (info as any).tokenCount = count;
+              }
+            }
+            return info;
+          }
+
+          const r = await readTextFile(validation.absolutePath);
+          if (!r.ok) return { error: r.code, message: r.message };
+          if (r.isLikelyBinary) return { error: 'BINARY_FILE', message: 'Binary file not supported' };
+
+          const tokenService = getMainTokenService();
+          const { count } = await tokenService.countTokens(r.content);
+          return { path: validation.absolutePath, content: r.content, tokenCount: count };
+        },
+      });
+
+      // Tool: filename search (bounded)
+      const searchTool = tool({
+        description: 'Filename search within workspace',
+        inputSchema: z.object({
+          action: z.literal('files'),
+          query: z.string(),
+          path: z.string().optional(),
+          maxResults: z.number().optional(),
+        }),
+        execute: async (input: { action: 'files'; query: string; path?: string; maxResults?: number }) => {
+          const maxResults = typeof input.maxResults === 'number' ? Math.max(1, Math.min(500, input.maxResults)) : 200;
+          const base = input.path && validateAndResolvePath(input.path).ok
+            ? (validateAndResolvePath(input.path) as { ok: true; absolutePath: string }).absolutePath
+            : (getAllowedWorkspacePaths()[0] ?? process.cwd());
+
+          const results: { path: string; name: string }[] = [];
+          const fs = nodeRequire('node:fs');
+          const pathMod = nodeRequire('node:path');
+
+          const walk = (dir: string) => {
+            if (results.length >= maxResults) return;
+            let entries: string[] = [];
+            try { entries = fs.readdirSync(dir); } catch { return; }
+            for (const name of entries) {
+              if (results.length >= maxResults) break;
+              const abs = pathMod.join(dir, name);
+              let st: any;
+              try { st = fs.statSync(abs); } catch { continue; }
+              if (st.isDirectory()) {
+                walk(abs);
+              } else if (name.toLowerCase().includes(input.query.toLowerCase())) {
+                results.push({ path: abs, name });
+              }
+            }
+          };
+
+          walk(base);
+          return { query: input.query, results };
+        },
+      });
+
+      // Tool: summarize provided dynamic context
+      const contextTool = tool({
+        description: 'Summarize provided dynamic context',
+        inputSchema: z.object({ action: z.literal('summary') }),
+        execute: async () => {
+          const ctx = (req.body as any)?.context;
+          if (!Array.isArray(ctx)) return { files: 0, tokens: 0 };
+          let tokens = 0;
+          for (const item of ctx) {
+            if (item && typeof item.content === 'string') {
+              try { tokens += (await getMainTokenService().countTokens(item.content)).count; } catch {}
+            }
+          }
+          return { files: ctx.length, tokens };
+        },
+      });
+
+      const result = await streamText({
+        model,
+        messages: convertToModelMessages(body.messages as any[]),
+        system: 'You are a coding assistant integrated with PasteFlow.',
+        maxOutputTokens: 2048,
+        temperature: 0.2,
+        tools: { file: fileTool, search: searchTool, context: contextTool },
+      });
+
+      // Prefer SDK responder helper
+      // Set SSE headers just in case (the helper may do this as well)
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      return (result as any).pipeDataStreamToResponse(res);
+    } catch (error) {
+      return res.status(500).json(toApiError('CHAT_ERROR', (error as Error).message));
+    }
   }
 }

@@ -14,6 +14,7 @@ import Dropdown from './dropdown';
 import FileList from './file-list';
 import ClipboardPreviewModal from './clipboard-preview-modal';
 import './content-area.css';
+import { SendToAgentButton } from './send-to-agent-button';
 
 // Helper: find @mention span preceding caret
 const computeQueryFromValue = (text: string, caret: number) => {
@@ -1055,6 +1056,14 @@ const ContentArea = ({
                     >
                       <span>Copy</span>
                     </CopyButton>
+                    <SendToAgentButton
+                      enabled={Boolean(packState.fullContent)}
+                      packed={{
+                        content: packState.fullContent || '',
+                        tokenEstimate: packState.tokenEstimate || 0,
+                        files: selectedFiles?.length || 0,
+                      }}
+                    />
                   </>
                 );
               }

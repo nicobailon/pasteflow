@@ -169,7 +169,86 @@ input[type="search"]:focus {
   flex: 1;
   overflow: hidden;
   height: 100%;
-  flex-direction: row-reverse;
+  /* With left-docked agent, use normal row so order is Left→Center→Right */
+  flex-direction: row;
+}
+
+/* Left-docked Agent Panel */
+.agent-panel.left-dock {
+  width: 20rem; /* 320px default */
+  min-width: 16rem;
+  max-width: 28rem;
+  flex: 0 0 auto;
+  background-color: var(--background-secondary);
+  border-right: 0.0625rem solid var(--border-color);
+  padding: 0.75rem; /* appropriate padding around contents */
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agent-panel .agent-header strong {
+  font-size: 0.875rem;
+}
+
+.agent-panel .agent-messages {
+  background: var(--background-primary);
+}
+
+/* Agent @-Mention Autocomplete Styling */
+.file-autocomplete-dropdown {
+  position: absolute;
+  /* top is set dynamically by the input; do not set bottom here */
+  left: 0;
+  width: 25rem; /* 400px */
+  max-height: 18.75rem; /* 300px */
+  background: var(--background-secondary);
+  border: 0.0625rem solid var(--border-color);
+  border-radius: 0.5rem;
+  box-shadow: 0 -0.25rem 0.75rem rgba(0, 0, 0, 0.15);
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.autocomplete-item.selected {
+  background: var(--accent-blue-dim);
+}
+
+.autocomplete-item:hover {
+  background: var(--hover-background);
+}
+
+.file-info { flex: 1; margin-left: 0.5rem; }
+.file-path { font-size: 0.875rem; color: var(--text-primary); }
+.file-meta { font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.125rem; }
+.highlight-match { font-weight: 600; color: var(--accent-blue); }
+
+.file-preview-pane {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  width: 25rem;
+  max-height: 18.75rem;
+  margin-left: 0.5rem;
+  padding: 0.75rem;
+  background: var(--background-primary);
+  border: 0.0625rem solid var(--border-color);
+  border-radius: 0.5rem;
+  overflow: auto;
+}
+
+.file-preview-pane pre {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
 }
 
 .sidebar {
