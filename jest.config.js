@@ -20,6 +20,8 @@ module.exports = {
     // Mock react-syntax-highlighter
     'react-syntax-highlighter/dist/esm/styles/prism': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.ts',
     'react-syntax-highlighter': '<rootDir>/src/__tests__/__mocks__/react-syntax-highlighter.ts',
+    // Mock @ai-sdk/react useChat to avoid ESM/node differences in Jest
+    '@ai-sdk/react': '<rootDir>/src/__tests__/__mocks__/ai-sdk-react.ts',
     // Mock worker factories to avoid import.meta.url issues during tests
     '^.*/worker-factories$': '<rootDir>/src/__tests__/__mocks__/worker-factories.ts',
     // Handle worker imports

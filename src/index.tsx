@@ -4,6 +4,7 @@ import { SORT_OPTIONS } from "@constants";
 
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
+import AgentPanel from "./components/agent-panel";
 import InstructionsModal from "./components/instructions-modal";
 import FileViewModal from "./components/file-view-modal";
 import FilterModal from "./components/filter-modal";
@@ -177,6 +178,12 @@ const App = () => {
             toggleExpanded={appState.toggleExpanded}
             fileTreeMode={appState.fileTreeMode}
             clearAllSelections={appState.clearAllSelections}
+          />
+          {/* Left-docked Agent Panel: mounted by default (row-reverse layout -> last = leftmost) */}
+          <AgentPanel
+            allFiles={appState.allFiles}
+            selectedFolder={appState.selectedFolder}
+            loadFileContent={appState.loadFileContent}
           />
         </div>
         
