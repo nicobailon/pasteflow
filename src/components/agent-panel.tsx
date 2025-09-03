@@ -9,6 +9,7 @@ import AgentAlertBanner from "./agent-alert-banner";
 import type { FileData } from "../types/file-types";
 import { extname } from "../file-ops/path";
 import "./agent-panel.css";
+import { requestFileContent } from "../handlers/electron-handlers";
 
 type AgentAttachment = {
   path: string;
@@ -276,7 +277,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
     }
   }, []);
 
-  // Ensure we have content for each attachment path (best-effort)
+  // Ensure we have content for each attachment path (direct IPC fetch if needed)
   const ensureAttachmentContent = useCallback(async (path: string): Promise<string> => {
     // Try from attachments first
     const fromPending = pendingAttachments.get(path)?.content;
@@ -288,23 +289,29 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       return fd.content;
     }
 
-    // Attempt to load via bridge if available
-    if (loadFileContent) {
-      try {
-        await loadFileContent(path);
-        // After load, try to find again (note: parent state updates asynchronously; this is best-effort)
-        const fd2 = allFiles.find((f) => f.path === path);
-        if (fd2 && fd2.isContentLoaded && typeof fd2.content === "string") {
-          return fd2.content;
-        }
-      } catch {
-        // ignore load errors here; fall through to placeholder
+    // Directly request content via IPC to avoid stale prop re-reads
+    try {
+      const res = await requestFileContent(path);
+      if (res?.success && typeof res.content === "string") {
+        // Cache on pending attachments to avoid duplicate fetches within this turn
+        setPendingAttachments((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(path) || { path } as AgentAttachment;
+          next.set(path, { ...existing, content: res.content });
+          return next;
+        });
+        return res.content;
       }
+    } catch {
+      // ignore and fall through
     }
 
-    // As a last resort, return empty string (will produce 0 lines and empty code fence)
+    // Optionally prime parent state (no synchronous value expected)
+    try { await loadFileContent?.(path); } catch { /* noop */ }
+
+    // Fallback: empty content
     return "";
-  }, [allFiles, loadFileContent, pendingAttachments]);
+  }, [allFiles, pendingAttachments, setPendingAttachments, loadFileContent]);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
