@@ -3,6 +3,7 @@ import { useChat } from "@ai-sdk/react";
 import useAgentPanelResize from "../hooks/use-agent-panel-resize";
 import AgentChatInputWithMention from "./agent-chat-input";
 import AgentAttachmentList from "./agent-attachment-list";
+import AgentToolCalls from "./agent-tool-calls";
 import type { FileData } from "../types/file-types";
 import { extname } from "../file-ops/path";
 import "./agent-panel.css";
@@ -56,6 +57,22 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
   const { messages, sendMessage, status, stop } = useChat({
     api: `${apiBase}/api/v1/chat`,
     headers: { Authorization: authToken ? `Bearer ${authToken}` : undefined },
+    // Override fetch to ensure we always target the local API and include auth
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+      try {
+        const info = (window as any).__PF_API_INFO || {};
+        const base = typeof info.apiBase === "string" ? info.apiBase : apiBase;
+        const token = typeof info.authToken === "string" ? info.authToken : authToken;
+        const url = `${base}/api/v1/chat`;
+        const headers: Record<string, string> = {
+          ...(init?.headers as any),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        };
+        return fetch(url, { ...init, headers });
+      } catch {
+        return fetch(input, init);
+      }
+    },
     // Attach structured envelope without changing user text embeddings
     prepareSendMessagesRequest: ({ messages, requestBody }: any) => {
       const dynamic = buildDynamicFromAttachments(pendingAttachments);
@@ -269,6 +286,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
                 <div key={idx} style={{ marginBottom: 10 }}>
                   <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{m.role}</div>
                   <div style={{ whiteSpace: "pre-wrap" }}>{displayText}</div>
+                  {/* Minimal tool-call visualization beneath assistant messages */}
+                  {m?.role === "assistant" && <AgentToolCalls message={m} />}
                 </div>
               );
             })

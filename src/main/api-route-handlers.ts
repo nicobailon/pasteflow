@@ -23,8 +23,8 @@ import { broadcastToRenderers, broadcastWorkspaceUpdated } from './broadcast-hel
 import { AgentContextEnvelopeSchema } from "../shared-types/agent-context";
 import { streamText, convertToModelMessages } from "ai";
 import { openai } from "@ai-sdk/openai";
-import type { Request, Response } from "express";
 import { buildSystemPrompt } from "./agent/system-prompt";
+import { getAgentTools } from "./agent/tools";
 
 // Schema definitions
 export const idParam = z.object({ id: z.string().min(1) });
@@ -213,10 +213,12 @@ export class APIRouteHandlers {
         workspace: safeEnvelope?.workspace ?? null,
       });
 
+      const tools = getAgentTools();
       const result = streamText({
         model: openai('gpt-4o-mini'),
         system,
         messages: modelMessages,
+        tools,
       });
 
       // Pipe to Express response with UI_MESSAGE_STREAM headers

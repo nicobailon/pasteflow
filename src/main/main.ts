@@ -299,6 +299,32 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+
+  // After the window is created, inject API info for the renderer (auth token + base URL)
+  try {
+    const port = apiServer?.getPort() ?? 5839;
+    const token = apiServer?.getAuthToken() ?? '';
+    const inject = () => {
+      try {
+        const payload = {
+          apiBase: `http://127.0.0.1:${port}`,
+          authToken: token,
+        };
+        // Attach to a well-known global for the renderer (read by AgentPanel)
+        mainWindow?.webContents.executeJavaScript(
+          `window.__PF_API_INFO = ${JSON.stringify(payload)};`,
+          true
+        ).catch(() => {/* ignore */});
+      } catch {
+        // ignore
+      }
+    };
+    // Attempt immediate injection and also on dom-ready for robustness
+    inject();
+    mainWindow?.webContents.on('dom-ready', inject);
+  } catch {
+    // ignore injection errors
+  }
 });
 
 app.on('activate', () => {

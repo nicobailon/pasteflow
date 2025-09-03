@@ -16,10 +16,13 @@ import WorkspaceModal from "./components/workspace-modal";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
 import { initializeCacheRegistry } from "./utils/cache-registry";
+import { installAgentAuthInterceptor } from "./utils/install-agent-auth";
 import { useMemoryMonitoring } from "./hooks/use-memory-monitoring";
 import { getGlobalPerformanceMonitor } from "./utils/performance-monitor";
 
 const App = () => {
+  // Ensure Authorization headers are attached to API calls in dev/runtime
+  installAgentAuthInterceptor();
   // Use our main app state hook
   const appState = useAppState();
 
