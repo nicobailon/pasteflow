@@ -14,7 +14,10 @@ export type ApiErrorCode =
   | 'AI_PROVIDER_CONFIG'
   // Phase 4 additions
   | 'PREVIEW_NOT_FOUND'
-  | 'PREVIEW_TIMEOUT';
+  | 'PREVIEW_TIMEOUT'
+  // Phase 4+ agent additions
+  | 'RATE_LIMITED'
+  | 'NOT_FOUND';
 
 export interface ApiError {
   error: {

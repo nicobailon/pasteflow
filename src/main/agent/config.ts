@@ -1,4 +1,3 @@
-import { z } from "zod";
 
 // Minimal, central Agent configuration with env + preferences precedence.
 // When a DatabaseBridge is provided, preferences override env; otherwise env-only.
@@ -111,12 +110,4 @@ export function getEnvAgentConfig(): AgentConfig {
 }
 
 // Renderer-facing feature hints (read-only). Kept narrow to avoid leaking config surface.
-export function toRendererFeatureFlags(cfg: AgentConfig) {
-  return {
-    AGENT_TOOL_CALLS_UI: true,
-    AGENT_ALLOW_FILE_WRITE: Boolean(cfg.ENABLE_FILE_WRITE),
-    AGENT_REQUIRE_APPROVAL: Boolean(cfg.REQUIRE_APPROVAL),
-    AGENT_ALLOW_TERMINAL: Boolean(cfg.ENABLE_CODE_EXECUTION),
-  } as const;
-}
-
+// Renderer feature flags removed; renderer reads direct config via API if needed.

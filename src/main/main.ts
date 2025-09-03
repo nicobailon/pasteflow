@@ -300,16 +300,31 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // Schedule telemetry pruning (on start and weekly)
+  try {
+    const retentionDays = Number(process.env.PF_AGENT_TELEMETRY_RETENTION_DAYS ?? 90);
+    const cutoff = () => Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const prune = async () => {
+      try {
+        await database!.pruneToolExecutions(cutoff());
+      } catch { /* ignore */ }
+      try {
+        await database!.pruneUsageSummary(cutoff());
+      } catch { /* ignore */ }
+    };
+    void prune();
+    setInterval(prune, 7 * 24 * 60 * 60 * 1000);
+  } catch { /* ignore scheduling errors */ }
+
   // After the window is created, inject API info for the renderer (auth token + base URL)
   try {
     const port = apiServer?.getPort() ?? 5839;
     const token = apiServer?.getAuthToken() ?? '';
     const inject = async () => {
       try {
-        // Resolve agent feature flags (env + preferences)
-        const { resolveAgentConfig, toRendererFeatureFlags } = await import('./agent/config');
-        const cfg = await resolveAgentConfig(database as unknown as { getPreference: (k: string) => Promise<unknown> });
-        const features = toRendererFeatureFlags(cfg);
+        // Resolve agent config (env + preferences) — feature flags injection removed
+        const { resolveAgentConfig } = await import('./agent/config');
+        await resolveAgentConfig(database as unknown as { getPreference: (k: string) => Promise<unknown> });
         const payload = {
           apiBase: `http://127.0.0.1:${port}`,
           authToken: token,
@@ -317,11 +332,6 @@ app.whenReady().then(async () => {
         // Attach to a well-known global for the renderer (read by AgentPanel)
         mainWindow?.webContents.executeJavaScript(
           `window.__PF_API_INFO = ${JSON.stringify(payload)};`,
-          true
-        ).catch(() => {/* ignore */});
-        // Also expose read-only feature flags for renderer hints
-        mainWindow?.webContents.executeJavaScript(
-          `window.__PF_FEATURES = Object.assign({}, window.__PF_FEATURES || {}, ${JSON.stringify(features)});`,
           true
         ).catch(() => {/* ignore */});
       } catch {
@@ -986,7 +996,25 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
     const { getAgentTools } = await import('./agent/tools');
     const cfg = await resolveAgentConfig(database as any);
     const security = await AgentSecurityManager.create({ db: database as any });
-    const tools = getAgentTools({ security, config: cfg, sessionId: parsed.data.sessionId });
+    const tools = getAgentTools({
+      security,
+      config: cfg,
+      sessionId: parsed.data.sessionId,
+      onToolExecute: async (name, args, result, meta) => {
+        try {
+          await database!.insertToolExecution({
+            sessionId: parsed.data.sessionId,
+            toolName: String(name),
+            args,
+            result,
+            status: 'ok',
+            error: null,
+            startedAt: (meta as any)?.startedAt ?? null,
+            durationMs: (meta as any)?.durationMs ?? null,
+          });
+        } catch { /* ignore logging errors */ }
+      }
+    });
     const toolDef = (tools as any)[parsed.data.tool];
     if (!toolDef || typeof toolDef.execute !== 'function') return { success: false, error: 'TOOL_NOT_FOUND' };
     const result = await toolDef.execute(parsed.data.args);
@@ -1005,12 +1033,22 @@ ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: s
       const tools = await database!.listToolExecutions(sessionId);
       const usage = await database!.listUsageSummaries(sessionId);
       const payload = { session: row, toolExecutions: tools, usage };
+      const fs = await import('node:fs');
+      const p = await import('node:path');
+      const { app } = await import('electron');
+      const { validateAndResolvePath } = await import('./file-service');
       if (outPath && typeof outPath === 'string' && outPath.trim().length > 0) {
-        const fs = await import('node:fs');
-        await fs.promises.writeFile(outPath, JSON.stringify(payload, null, 2), 'utf8');
-        return { success: true, data: { file: outPath } };
+        const val = validateAndResolvePath(outPath);
+        if (!val.ok) return { success: false, error: `PATH_DENIED:${val.reason || val.message}` };
+        await fs.promises.writeFile(val.absolutePath, JSON.stringify(payload, null, 2), 'utf8');
+        return { success: true, data: { file: val.absolutePath } };
       }
-      return { success: true, data: payload };
+      // Default: write to Downloads folder with a safe filename
+      const downloads = app.getPath('downloads');
+      const safeName = `pasteflow-session-${sessionId}.json`;
+      const filePath = p.join(downloads, safeName);
+      await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
+      return { success: true, data: { file: filePath } };
     }
     return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {

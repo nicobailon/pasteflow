@@ -30,9 +30,7 @@ export function getAgentTools(deps?: {
     .refine((v) => v.end >= v.start, { message: "end must be >= start" });
 
   const fileParams = z.union([
-    // Back-compat: read without action
-    z.object({ path: z.string(), lines: lineRange.optional() }),
-    // Explicit read
+    // Explicit actions only
     z.object({ action: z.literal("read"), path: z.string(), lines: lineRange.optional() }),
     z.object({ action: z.literal("info"), path: z.string() }),
     z.object({ action: z.literal("list"), directory: z.string(), recursive: z.boolean().optional(), maxResults: z.number().int().min(1).max(10_000).optional() }),
@@ -46,7 +44,7 @@ export function getAgentTools(deps?: {
     description: "File operations within the workspace (read/info/list; write/move/delete gated)",
     parameters: fileParams,
     execute: async (params: any) => {
-      const action: string = typeof params?.action === "string" ? params.action : "read";
+      const action: string = String(params?.action || "");
       const security = deps?.security || null;
       const cfg = deps?.config || null;
 
@@ -60,7 +58,7 @@ export function getAgentTools(deps?: {
       if (deps?.security && deps.sessionId && !deps.security.allowToolExecution(deps.sessionId)) {
         return record({ type: "error" as const, code: 'RATE_LIMITED', message: 'Tool execution rate limited' });
       }
-      if (action === "read" || !("action" in params)) {
+      if (action === "read") {
         const path = params.path as string;
         const lines = (params.lines ?? null) as { start: number; end: number } | null;
         const val = validateAndResolvePath(path);
@@ -143,8 +141,6 @@ export function getAgentTools(deps?: {
     parameters: z.union([
       z.object({ action: z.literal("code"), query: z.string().min(1).max(256), directory: z.string().optional(), maxResults: z.number().int().min(1).max(50_000).optional() }),
       z.object({ action: z.literal("files"), pattern: z.string().min(1).max(256), directory: z.string().optional(), maxResults: z.number().int().min(1).max(10_000).optional(), recursive: z.boolean().optional() }),
-      // Back-compat: plain code search without action
-      z.object({ query: z.string().min(1).max(256), directory: z.string().optional(), maxResults: z.number().int().min(1).max(50_000).optional() }),
     ]),
     execute: async (params: any) => {
       const cfg = deps?.config || null;
@@ -157,7 +153,7 @@ export function getAgentTools(deps?: {
       if (deps?.security && deps.sessionId && !deps.security.allowToolExecution(deps.sessionId)) {
         return record({ type: "error" as const, code: 'RATE_LIMITED', message: 'Tool execution rate limited' });
       }
-      const isCode = typeof params?.action !== "string" || params.action === "code";
+      const isCode = params.action === "code";
       if (isCode) {
         const max = Math.min(Number(params?.maxResults || 0) || (cfg?.MAX_SEARCH_MATCHES ?? 500), cfg?.MAX_SEARCH_MATCHES ?? 500);
         const r = await runRipgrepJson({ query: params.query, directory: params.directory, maxResults: max, signal: deps?.signal });

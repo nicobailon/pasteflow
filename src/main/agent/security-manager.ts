@@ -63,5 +63,17 @@ export class AgentSecurityManager {
     entry.count += 1;
     return true;
   }
-}
 
+  /**
+   * Probe-only check for whether a session is currently rate limited.
+   * Does not increment counters.
+   */
+  isRateLimited(sessionId: string): boolean {
+    const now = Date.now();
+    const entry = this.toolUsageBySession.get(sessionId);
+    const windowMs = 60_000;
+    const cap = Math.max(1, Math.min(1000, this.cfg.MAX_TOOLS_PER_TURN));
+    if (!entry || now - entry.windowStart > windowMs) return false;
+    return entry.count >= cap;
+  }
+}

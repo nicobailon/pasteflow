@@ -470,16 +470,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
                 <div key={idx} style={{ marginBottom: 10, border: assistantInterrupted ? '1px dashed #d99' : undefined, borderRadius: assistantInterrupted ? 4 : undefined, background: assistantInterrupted ? 'rgba(255,0,0,0.03)' : undefined }}>
                   <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{m.role}</div>
                   <div style={{ whiteSpace: "pre-wrap" }}>{displayText}</div>
-                  {/* Minimal tool-call visualization beneath assistant messages (feature-gated) */}
-                  {(() => {
-                    try {
-                      const ff = (window as any).__PF_FEATURES || {};
-                      const show = ff.AGENT_TOOL_CALLS_UI !== false;
-                      return m?.role === "assistant" && show ? <AgentToolCalls message={m} /> : null;
-                    } catch {
-                      return null;
-                    }
-                  })()}
+                  {/* Minimal tool-call visualization beneath assistant messages */}
+                  {m?.role === "assistant" ? <AgentToolCalls message={m} /> : null}
                   {/* Interruption indicator */}
                   {it && (
                     <div style={{ marginTop: 4, fontStyle: 'italic', color: '#a00' }}>User interrupted</div>

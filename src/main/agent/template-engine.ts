@@ -12,7 +12,11 @@ export async function generateFromTemplate(name: string, type: TemplateType, opt
       case 'component': return generateComponent(String(name), { withCss: true, withTest: false });
       case 'hook': return generateHook(String(name));
       case 'api-route': return generateApiRoute(String(name));
-      case 'test': return generateTest('component', String(name));
+      case 'test': {
+        const n = String(name);
+        const kind: 'component' | 'hook' = n.trim().toLowerCase().startsWith('use') ? 'hook' : 'component';
+        return generateTest(kind, n);
+      }
       default: return [] as Array<{ path: string; content: string }>;
     }
   })();
@@ -28,4 +32,3 @@ export async function generateFromTemplate(name: string, type: TemplateType, opt
   const preview = files.map((f) => `- ${f.path} (${Buffer.byteLength(f.content, 'utf8')} bytes)`).join('\n');
   return { files, preview, tokenCount: totalTokens } as const;
 }
-

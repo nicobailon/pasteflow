@@ -179,7 +179,7 @@ export const AgentStartSessionSchema = z.object({
 
 export const AgentExecuteToolSchema = z.object({
   sessionId: z.string().min(1),
-  tool: z.enum(['file', 'search', 'edit', 'context', 'terminal']),
+  tool: z.enum(['file', 'search', 'edit', 'context', 'terminal', 'generateFromTemplate']),
   args: z.unknown(),
 });
 

@@ -4,7 +4,7 @@ export function generateComponent(name: string, opts?: { withCss?: boolean; with
   const files: Array<{ path: string; content: string }> = [];
   const componentPath = `src/components/${kebab}.tsx`;
   const cssPath = `src/components/${kebab}.css`;
-  const testPath = `src/__tests__/${kebab}-test.tsx`;
+  const testPath = `src/__tests__/${kebab}.test.tsx`;
 
   const tsx = `import React from "react";
 import "./${kebab}.css";
@@ -50,4 +50,3 @@ export function toKebabCase(input: string) {
     .replace(/^-+|-+$/g, '')
     .toLowerCase();
 }
-

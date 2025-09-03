@@ -253,6 +253,13 @@ export class APIRouteHandlers {
         },
       });
 
+      // Backpressure guard: if session is currently rate-limited, return 429
+      try {
+        if (typeof (security as any)?.isRateLimited === 'function' && (security as any).isRateLimited(sessionId)) {
+          return res.status(429).json(toApiError('RATE_LIMITED', 'Too many tool calls in the last minute'));
+        }
+      } catch { /* ignore guard errors */ }
+
       // Resolve provider API key from preferences if configured (encrypted at rest)
       try {
         const stored = await this.db.getPreference('integrations.openai.apiKey');
@@ -284,9 +291,10 @@ export class APIRouteHandlers {
         consumeSseStream: consumeStream,
       });
 
-      // Persist/refresh session shell with last known messages snapshot
+      // Persist/refresh session shell with last known messages snapshot (cap messages)
       try {
-        const msgJson = JSON.stringify(uiMessages);
+        const maxMsgs = Number(process.env.PF_AGENT_MAX_SESSION_MESSAGES ?? 50);
+        const msgJson = JSON.stringify(Array.isArray(uiMessages) ? uiMessages.slice(-Math.max(1, maxMsgs)) : uiMessages);
         const activeId = await this.db.getPreference('workspace.active');
         const ws = activeId ? await this.db.getWorkspace(String(activeId)) : null;
         await this.db.upsertChatSession(sessionId, msgJson, ws ? String(ws.id) : null);
@@ -638,17 +646,26 @@ export class APIRouteHandlers {
       const usage = await this.db.listUsageSummaries(id);
       const payload = { session: row, toolExecutions: tools, usage };
       const outPath = parsed.data.outPath;
+      // If caller wants JSON directly, return without writing
+      if (parsed.data.download === true) {
+        return res.json(ok(payload));
+      }
       if (outPath && outPath.trim().length > 0) {
         const val = validateAndResolvePath(outPath);
-        if (!val.ok) return this.handlePathError(val, res);
+        if (!val.ok) return this.handlePathValidationError(val, res);
         await fs.promises.writeFile(val.absolutePath, JSON.stringify(payload, null, 2), 'utf8');
         return res.json(ok({ file: val.absolutePath }));
       }
-      if (parsed.data.download === false) {
+      // Default: write to Downloads folder
+      try {
+        const { app } = require('electron') as typeof import('electron');
+        const file = path.join(app.getPath('downloads'), `pasteflow-session-${id}.json`);
+        await fs.promises.writeFile(file, JSON.stringify(payload, null, 2), 'utf8');
+        return res.json(ok({ file }));
+      } catch {
+        // Fallback to returning JSON if electron path resolution fails in unusual environments
         return res.json(ok(payload));
       }
-      // Default: return json payload
-      return res.json(ok(payload));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
     }
