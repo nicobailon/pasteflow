@@ -34,7 +34,21 @@ export default function AgentToolCalls({ message }: AgentToolCallsProps) {
   const [open, setOpen] = useState<boolean>(false);
   if (!invocations || invocations.length === 0) return null;
 
-  const summary = invocations.map((i) => i.toolName || i.name || "tool").join(", ");
+  const toSummary = (i: ToolInvocation): string => {
+    const name = (i.toolName || i.name || "tool").toLowerCase();
+    if (name === "search") {
+      try {
+        const r = i.result as any;
+        const parts: string[] = ["search"];
+        if (typeof r?.totalMatches === "number") parts.push(String(r.totalMatches));
+        if (r?.truncated) parts.push("truncated");
+        return parts.join(": ");
+      } catch { /* ignore */ }
+    }
+    return i.toolName || i.name || "tool";
+  };
+
+  const summary = invocations.map((i) => toSummary(i)).join(", ");
 
   return (
     <div style={{ marginTop: 6, border: "1px solid var(--border-color, #ddd)", borderRadius: 4 }}>
@@ -79,4 +93,3 @@ function safeJson(v: unknown): string {
     return String(v);
   }
 }
-

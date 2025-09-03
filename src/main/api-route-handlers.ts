@@ -21,7 +21,7 @@ import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
 import { broadcastToRenderers, broadcastWorkspaceUpdated } from './broadcast-helper';
 import { AgentContextEnvelopeSchema } from "../shared-types/agent-context";
-import { streamText, convertToModelMessages } from "ai";
+import { streamText, convertToModelMessages, consumeStream } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { buildSystemPrompt } from "./agent/system-prompt";
 import { getAgentTools } from "./agent/tools";
@@ -213,16 +213,28 @@ export class APIRouteHandlers {
         workspace: safeEnvelope?.workspace ?? null,
       });
 
-      const tools = getAgentTools();
+      // Cancellation wiring: abort tools on client disconnect
+      const controller = new AbortController();
+      const onAbort = () => { try { controller.abort(); } catch {} };
+      req.on('aborted', onAbort);
+      res.on('close', onAbort);
+
+      const tools = getAgentTools({ signal: controller.signal });
       const result = streamText({
         model: openai('gpt-4o-mini'),
         system,
         messages: modelMessages,
         tools,
+        abortSignal: controller.signal,
+        onAbort: () => {
+          // Best-effort: nothing to persist yet; hook kept for future telemetry
+        },
       });
 
-      // Pipe to Express response with UI_MESSAGE_STREAM headers
-      result.pipeUIMessageStreamToResponse(res);
+      // Pipe to Express response with UI_MESSAGE_STREAM headers and consume stream on abort to avoid hangs
+      result.pipeUIMessageStreamToResponse(res, {
+        consumeSseStream: consumeStream,
+      });
     } catch (error) {
       const message = (error as Error)?.message || 'Unknown error';
       return res.status(500).json(toApiError('SERVER_ERROR', message));

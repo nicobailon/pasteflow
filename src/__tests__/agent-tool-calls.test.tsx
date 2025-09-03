@@ -14,8 +14,21 @@ describe("AgentToolCalls", () => {
     expect(screen.getByText(/Tool calls:/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Tool calls:/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Tool calls:/ }));
-    expect(screen.getByText(/search/)).toBeInTheDocument();
-    expect(screen.getByText(/file/)).toBeInTheDocument();
+    expect(screen.getAllByText(/search/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/file/).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows truncated indicator for search results in summary", () => {
+    const msg: any = {
+      role: "assistant",
+      toolInvocations: [
+        { toolName: "search", args: { query: "TODO" }, result: { totalMatches: 100, truncated: true } },
+      ],
+    };
+    render(<AgentToolCalls message={msg} />);
+    // Summary button should include 'search: 100, truncated' semantics
+    const btn = screen.getByRole("button", { name: /Tool calls:/ });
+    expect(btn.textContent || '').toMatch(/search: 100/);
+    expect(btn.textContent || '').toMatch(/truncated/);
   });
 });
-

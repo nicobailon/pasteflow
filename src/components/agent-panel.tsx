@@ -95,6 +95,63 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
     }
   } as any);
 
+  // Interruption markers persist in the thread to indicate aborted turns
+  const [interruptions, setInterruptions] = useState<Map<number, { target: 'pre-assistant' | 'assistant'; ts: number }>>(new Map());
+
+  const computeInterruptionTarget = useCallback((): { index: number; target: 'pre-assistant' | 'assistant' } | null => {
+    try {
+      if (!Array.isArray(messages) || messages.length === 0) return null;
+      const lastIdx = messages.length - 1;
+      const last = messages[lastIdx];
+      if ((status === 'streaming') && last?.role === 'assistant') {
+        return { index: lastIdx, target: 'assistant' };
+      }
+      for (let i = lastIdx; i >= 0; i--) {
+        if (messages[i]?.role === 'user') return { index: i, target: 'pre-assistant' };
+      }
+      return { index: lastIdx, target: 'pre-assistant' };
+    } catch {
+      return null;
+    }
+  }, [messages, status]);
+
+  const interruptNow = useCallback(() => {
+    const pos = computeInterruptionTarget();
+    if (pos) {
+      setInterruptions((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(pos.index);
+        if (!existing || existing.target !== pos.target) {
+          next.set(pos.index, { target: pos.target, ts: Date.now() });
+        }
+        return next;
+      });
+    }
+    try { stop(); } catch { /* noop */ }
+  }, [computeInterruptionTarget, stop]);
+
+  // Esc key to interrupt while submitted/streaming
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && (status === 'streaming' || status === 'submitted')) {
+        interruptNow();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [status, interruptNow]);
+
+  // Global Esc cancels streaming
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && (status === 'streaming' || status === 'submitted')) {
+        try { stop(); } catch { /* noop */ }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [status, stop]);
+
   // Local input state for composer (since useChat v2 doesn't expose input/setInput)
   const [composer, setComposer] = useState("");
 
@@ -224,7 +281,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
         <div className="agent-banner">{status === "streaming" || status === "submitted" ? "Streaming…" : "Ready"}</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {status === "streaming" || status === "submitted" ? (
-            <button onClick={() => stop()} title="Stop" aria-label="Stop generation">Stop</button>
+            <button onClick={interruptNow} title="Stop" aria-label="Stop generation">Stop</button>
           ) : (
             <button
               onClick={() => {
@@ -282,12 +339,27 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
                   ? condenseUserMessageForDisplay(rawText)
                   : rawText;
 
+              const it = interruptions.get(idx);
+              const assistantInterrupted = Boolean(it && it.target === 'assistant' && m?.role === 'assistant');
+
               return (
-                <div key={idx} style={{ marginBottom: 10 }}>
+                <div key={idx} style={{ marginBottom: 10, border: assistantInterrupted ? '1px dashed #d99' : undefined, borderRadius: assistantInterrupted ? 4 : undefined, background: assistantInterrupted ? 'rgba(255,0,0,0.03)' : undefined }}>
                   <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{m.role}</div>
                   <div style={{ whiteSpace: "pre-wrap" }}>{displayText}</div>
-                  {/* Minimal tool-call visualization beneath assistant messages */}
-                  {m?.role === "assistant" && <AgentToolCalls message={m} />}
+                  {/* Minimal tool-call visualization beneath assistant messages (feature-gated) */}
+                  {(() => {
+                    try {
+                      const ff = (window as any).__PF_FEATURES || {};
+                      const show = ff.AGENT_TOOL_CALLS_UI !== false;
+                      return m?.role === "assistant" && show ? <AgentToolCalls message={m} /> : null;
+                    } catch {
+                      return null;
+                    }
+                  })()}
+                  {/* Interruption indicator */}
+                  {it && (
+                    <div style={{ marginTop: 4, fontStyle: 'italic', color: '#a00' }}>User interrupted</div>
+                  )}
                 </div>
               );
             })

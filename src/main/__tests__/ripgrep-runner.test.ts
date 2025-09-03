@@ -82,5 +82,37 @@ describe("runRipgrepJson", () => {
 
     await expect(run({ query: "x" })).rejects.toThrow(/ripgrep not found/i);
   });
-});
 
+  it("sets truncated when caps are hit", async () => {
+    jest.resetModules();
+    jest.spyOn(workspace, "getAllowedWorkspacePaths").mockReturnValue(["/repo"]);
+
+    const events: Record<string, Function[]> = {};
+    const stdoutHandlers: Function[] = [];
+    const mockChild: any = {
+      stdout: { on: (_: string, fn: Function) => stdoutHandlers.push(fn) },
+      on: (ev: string, fn: Function) => { (events[ev] = events[ev] || []).push(fn); },
+      kill: jest.fn(),
+    };
+
+    jest.doMock("node:child_process", () => ({ spawn: () => mockChild }));
+    const { runRipgrepJson: run } = await import("../../main/tools/ripgrep");
+
+    const p = run({ query: "TODO", maxResults: 1 });
+
+    const line1 = JSON.stringify({
+      type: "match",
+      data: { path: { text: "/repo/a.ts" }, line_number: 1, lines: { text: "a" }, submatches: [] },
+    });
+    const line2 = JSON.stringify({
+      type: "match",
+      data: { path: { text: "/repo/b.ts" }, line_number: 2, lines: { text: "b" }, submatches: [] },
+    });
+    stdoutHandlers.forEach((fn) => fn(Buffer.from(line1 + "\n" + line2 + "\n")));
+    (events["close"] || []).forEach((fn) => fn());
+
+    const out = await p;
+    expect(out.totalMatches).toBeGreaterThanOrEqual(1);
+    expect(out.truncated).toBe(true);
+  });
+});
