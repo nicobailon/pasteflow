@@ -369,7 +369,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
   }, [open, results, activeIndex]);
 
   return (
-    <div ref={containerRef} className="autocomplete-container">
+    <div ref={containerRef} className="autocomplete-container main-content-area-input-container">
       {/* ARIA for autocomplete accessibility */}
       <div id={descIdRef.current} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(1px, 1px, 1px, 1px)' }}>
         Use Up and Down arrow keys to navigate suggestions, Enter to insert the selected path, and Escape to close the list.

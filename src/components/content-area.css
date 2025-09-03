@@ -139,6 +139,10 @@
   text-align: right;
 }
 
+.main-content-area-input-container {
+  height: 100%;
+}
+
 .user-instructions-input {
   width: 100%;
   height: 100%;

@@ -34,6 +34,8 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
   const [query, setQuery] = useState("");
   const [anchor, setAnchor] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
   const [orientation, setOrientation] = useState<'up' | 'down'>('down');
+  const [dropdownWidth, setDropdownWidth] = useState<number | undefined>(undefined);
+  const [dropdownMaxHeight, setDropdownMaxHeight] = useState<number | undefined>(undefined);
 
   // Build searchable items from allFiles prop
   const items: AgentAutocompleteItem[] = useMemo(() => {
@@ -94,28 +96,61 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
     const atPosition = atMatch ? currentLine.length - atMatch[0].length : currentLine.length;
 
     const { lineHeight, paddingLeft: padding, charWidth } = metricsRef.current;
-    const xPosition = padding + atPosition * charWidth;
+    const xWithin = padding + atPosition * charWidth; // within textarea content box
+    const lineIndex = textLines.length - 1;
+    const baselineWithin = lineIndex * lineHeight; // y within textarea from padding top
 
-    const currentLineY = (textLines.length - 1) * lineHeight;
-    const dropdownOffset = 8;
-    const yPosition = currentLineY + lineHeight + dropdownOffset + padding;
+    // Convert to viewport coordinates using bounding rect
+    const rect = textarea.getBoundingClientRect();
+    const caretX = rect.left + xWithin;
+    const caretBaselineY = rect.top + baselineWithin + padding;
 
-    const dropdownHeight = UI?.INSTRUCTIONS_INPUT?.DROPDOWN_MAX_HEIGHT ?? 200;
-    const wouldOverflow = yPosition + dropdownHeight > textarea.offsetHeight;
-    const finalY = wouldOverflow ? Math.max(5, currentLineY - dropdownHeight - dropdownOffset + padding) : yPosition;
+    const gap = 8; // visual separation from text
+    const viewportPadding = 8;
+    const viewportW = window.innerWidth || document.documentElement.clientWidth || 1024;
+    const viewportH = window.innerHeight || document.documentElement.clientHeight || 768;
 
-    // Clamp X within collision padding
-    const paddingX = 8;
-    const maxLeft = Math.max(paddingX, textarea.offsetWidth - 250 - paddingX);
-    const clampedLeft = Math.min(Math.max(paddingX, xPosition), maxLeft);
+    // Estimate dropdown width based on textarea width
+    const idealWidth = Math.min(Math.max(200, rect.width * 0.9), 360);
+    const maxHeightBase = UI?.INSTRUCTIONS_INPUT?.DROPDOWN_MAX_HEIGHT ?? 200;
 
-    // Update orientation state
-    setOrientation(wouldOverflow ? 'up' : 'down');
+    const leftClamped = Math.min(
+      Math.max(viewportPadding, caretX),
+      viewportW - idealWidth - viewportPadding
+    );
 
-    return {
-      left: clampedLeft,
-      top: finalY,
-    };
+    // Available space calculations around the caret baseline
+    const availableBelow = Math.max(0, viewportH - (caretBaselineY + lineHeight + gap) - viewportPadding);
+    const availableAbove = Math.max(0, (caretBaselineY) - viewportPadding);
+
+    // Decide orientation: prefer down if there is enough space; otherwise up
+    const minUsable = 96; // px; enough to show header + some items
+    let orient: 'up' | 'down' = 'down';
+    if (availableBelow < minUsable && availableAbove > availableBelow) {
+      orient = 'up';
+    }
+
+    // Choose height based on chosen side, but clamp to base
+    const chosenSpace = orient === 'down' ? availableBelow : availableAbove;
+    const maxHeight = Math.max(Math.min(maxHeightBase, chosenSpace), Math.min(minUsable, maxHeightBase));
+
+    // Compute top such that dropdown remains fully visible
+    let top: number;
+    if (orient === 'down') {
+      const desiredTop = caretBaselineY + lineHeight + gap;
+      // Clamp bottom within viewport
+      top = Math.min(desiredTop, viewportH - viewportPadding - maxHeight);
+    } else {
+      const desiredTop = caretBaselineY - gap - maxHeight;
+      // Clamp top within viewport
+      top = Math.max(viewportPadding, desiredTop);
+    }
+
+    setOrientation(orient);
+    setDropdownWidth(idealWidth);
+    setDropdownMaxHeight(maxHeight);
+
+    return { left: leftClamped, top };
   }, []);
 
   // Maintain a local filtered copy for keyboard acceptance
@@ -195,17 +230,47 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
     }
   }, [open, filteredItems, replaceMentionToken]);
 
-  // Click outside container closes dropdown
+  // Click outside container closes dropdown, but ignore clicks inside the portal dropdown
   useEffect(() => {
     const onDocMouseDown = (ev: MouseEvent) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(ev.target as Node)) {
+      const target = ev.target as Node;
+      const container = containerRef.current;
+      if (!container) return;
+      const dropdownEl = document.querySelector('.autocomplete-dropdown');
+      const clickInDropdown = dropdownEl ? dropdownEl.contains(target) : false;
+      if (!container.contains(target) && !clickInDropdown) {
         setOpen(false);
       }
     };
     document.addEventListener("mousedown", onDocMouseDown);
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, []);
+
+  // Recompute on window resize/scroll and textarea resize
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const recompute = () => {
+      if (!open) return;
+      const caret = el.selectionStart ?? (el.value?.length ?? 0);
+      updateAnchorDeferred(el, caret);
+    };
+    let ro: ResizeObserver | null = null;
+    try {
+      const RO = (window as any).ResizeObserver;
+      if (typeof RO === 'function') {
+        ro = new RO(() => recompute());
+        try { ro.observe(el); } catch { /* noop */ }
+      }
+    } catch { /* noop */ }
+    window.addEventListener('resize', recompute);
+    window.addEventListener('scroll', recompute, { passive: true } as any);
+    return () => {
+      try { ro?.disconnect?.(); } catch { /* noop */ }
+      window.removeEventListener('resize', recompute);
+      window.removeEventListener('scroll', recompute as any);
+    };
+  }, [open, updateAnchorDeferred]);
 
   return (
     <div ref={containerRef} className="autocomplete-container" style={{ position: "relative" }}>
@@ -226,6 +291,10 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
           items={items}
           position={anchor}
           orientation={orientation}
+          fixed
+          width={dropdownWidth}
+          maxHeight={dropdownMaxHeight}
+          zIndex={2000}
           onSelect={(it) => replaceMentionToken(it)}
           onClose={() => setOpen(false)}
         />

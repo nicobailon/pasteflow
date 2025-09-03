@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export interface AgentAutocompleteItem {
   abs: string;
@@ -13,6 +14,12 @@ interface AgentFileAutocompleteProps {
   items: AgentAutocompleteItem[];
   position: { left: number; top: number };
   orientation?: 'up' | 'down';
+  /** When true, interpret left/top as viewport coords and render via portal */
+  fixed?: boolean;
+  /** Optional explicit sizing for viewport-fixed rendering */
+  width?: number;
+  maxHeight?: number;
+  zIndex?: number;
   onSelect: (item: AgentAutocompleteItem) => void;
   onClose: () => void;
 }
@@ -28,6 +35,10 @@ const AgentFileAutocomplete = memo(function AgentFileAutocomplete({
   items,
   position,
   orientation = 'down',
+  fixed = false,
+  width,
+  maxHeight,
+  zIndex,
   onSelect,
   onClose,
 }: AgentFileAutocompleteProps) {
@@ -67,7 +78,7 @@ const AgentFileAutocomplete = memo(function AgentFileAutocomplete({
   const listId = useMemo(() => "agent-ac-" + Math.random().toString(36).slice(2), []);
   const descId = listId + "-desc";
 
-  return (
+  const dropdown = (
     <>
       {/* Description for screen readers */}
       <div id={descId} style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(1px, 1px, 1px, 1px)" }}>
@@ -77,7 +88,14 @@ const AgentFileAutocomplete = memo(function AgentFileAutocomplete({
       <div
         ref={containerRef}
         className={`autocomplete-dropdown autocomplete-dropdown--${orientation}`}
-        style={{ left: position.left, top: position.top, position: "absolute" }}
+        style={{
+          left: position.left,
+          top: position.top,
+          position: fixed ? "fixed" : "absolute",
+          maxHeight: typeof maxHeight === 'number' ? maxHeight : undefined,
+          width: typeof width === 'number' ? width : undefined,
+          zIndex: typeof zIndex === 'number' ? zIndex : undefined,
+        }}
         id={listId}
         role="listbox"
         aria-label="Agent file suggestions"
@@ -109,6 +127,8 @@ const AgentFileAutocomplete = memo(function AgentFileAutocomplete({
       </div>
     </>
   );
+
+  return fixed ? createPortal(dropdown, document.body) : dropdown;
 });
 
 export default AgentFileAutocomplete;
