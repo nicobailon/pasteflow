@@ -150,6 +150,9 @@ export class PasteFlowAPIServer {
 
     // Chat (Phase 2)
     this.app.post('/api/v1/chat', (req, res) => this.routeHandlers.handleChat(req, res));
+
+    // Agent (Phase 4)
+    this.app.post('/api/v1/agent/export-session', (req, res) => this.routeHandlers.handleAgentExportSession(req, res));
   }
 
   // File selection handlers

@@ -60,6 +60,20 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
 
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  // Start a durable session on mount
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:start-session', {});
+        const id = (res && typeof res === 'object' && 'success' in res) ? (res as any).data?.sessionId : res?.data?.sessionId;
+        if (mounted && typeof id === 'string') setSessionId(id);
+      } catch { /* noop */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const { messages, sendMessage, status, stop } = useChat({
     api: `${apiBase}/api/v1/chat`,
     headers: { Authorization: authToken ? `Bearer ${authToken}` : undefined },
@@ -73,6 +87,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
         const headers: Record<string, string> = {
           ...(init?.headers as any),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(sessionId ? { 'X-Pasteflow-Session': sessionId } : {}),
         };
         return fetch(url, { ...init, headers });
       } catch {
@@ -366,6 +381,30 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
         <div className="agent-panel-title">Agent</div>
         <div className="agent-banner">{status === "streaming" || status === "submitted" ? "Streaming…" : "Ready"}</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button
+            className="secondary"
+            onClick={async () => {
+              if (!sessionId) return;
+              try {
+                const result: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:export-session', sessionId);
+                const file = (result && typeof result === 'object' && result.success && result.data?.file) ? result.data.file : null;
+                if (file) {
+                  alert(`Session exported to: ${file}`);
+                } else {
+                  const payload = (result && typeof result === 'object' && result.success) ? result.data : null;
+                  const size = payload ? JSON.stringify(payload).length : 0;
+                  alert(`Session export available (${size} bytes)`);
+                }
+              } catch (err) {
+                alert(`Export failed: ${String((err as Error)?.message || err)}`);
+              }
+            }}
+            title="Export Session"
+            aria-label="Export Session"
+            disabled={!sessionId}
+          >
+            Export Session
+          </button>
           {status === "streaming" || status === "submitted" ? (
             <button className="cancel-button" onClick={interruptNow} title="Stop" aria-label="Stop generation">Stop</button>
           ) : ((hasOpenAIKey === false || errorStatus === 503) ? (

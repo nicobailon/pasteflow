@@ -242,6 +242,56 @@ export class DatabaseBridge {
     return this.db.getWorkspaceNames();
   }
 
+  // Phase 4: Sessions & telemetry
+  async upsertChatSession(sessionId: string, messagesJson: string, workspaceId: string | null = null) {
+    if (!this.db) throw new Error('Database not initialized');
+    return (this.db as any).upsertChatSession(sessionId, messagesJson, workspaceId);
+  }
+
+  async getChatSession(sessionId: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return (this.db as any).getChatSession(sessionId);
+  }
+
+  async insertToolExecution(entry: {
+    sessionId: string;
+    toolName: string;
+    args?: unknown;
+    result?: unknown;
+    status?: string;
+    error?: string | null;
+    startedAt?: number | null;
+    durationMs?: number | null;
+  }) {
+    if (!this.db) throw new Error('Database not initialized');
+    return (this.db as any).insertToolExecution(entry);
+  }
+
+  async listToolExecutions(sessionId: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return (this.db as any).listToolExecutions(sessionId);
+  }
+
+  async insertUsageSummary(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null) {
+    if (!this.db) throw new Error('Database not initialized');
+    return (this.db as any).insertUsageSummary(sessionId, inputTokens, outputTokens, totalTokens);
+  }
+
+  async listUsageSummaries(sessionId: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return (this.db as any).listUsageSummaries(sessionId);
+  }
+
+  async pruneToolExecutions(olderThanTs: number) {
+    if (!this.db) throw new Error('Database not initialized');
+    return (this.db as any).pruneToolExecutions(olderThanTs);
+  }
+
+  async pruneUsageSummary(olderThanTs: number) {
+    if (!this.db) throw new Error('Database not initialized');
+    return (this.db as any).pruneUsageSummary(olderThanTs);
+  }
+
   // Atomic operations
   /**
    * Performs atomic workspace update with state merging.

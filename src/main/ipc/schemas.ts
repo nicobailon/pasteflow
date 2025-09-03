@@ -172,6 +172,25 @@ export const AuditLogEntrySchema = z.object({
   timestamp: z.number()
 });
 
+// Agent IPC schemas (Phase 4)
+export const AgentStartSessionSchema = z.object({
+  seedId: z.string().optional(),
+});
+
+export const AgentExecuteToolSchema = z.object({
+  sessionId: z.string().min(1),
+  tool: z.enum(['file', 'search', 'edit', 'context', 'terminal']),
+  args: z.unknown(),
+});
+
+export const AgentGetHistorySchema = z.object({ sessionId: z.string().min(1) });
+export const AgentExportSessionSchema = z.object({ sessionId: z.string().min(1), outPath: z.string().optional() });
+
+export type AgentStartSessionType = z.infer<typeof AgentStartSessionSchema>;
+export type AgentExecuteToolType = z.infer<typeof AgentExecuteToolSchema>;
+export type AgentGetHistoryType = z.infer<typeof AgentGetHistorySchema>;
+export type AgentExportSessionType = z.infer<typeof AgentExportSessionSchema>;
+
 // Type exports for TypeScript usage
 export type WorkspaceType = z.infer<typeof WorkspaceSchema>;
 export type WorkspaceCreateType = z.infer<typeof WorkspaceCreateSchema>;

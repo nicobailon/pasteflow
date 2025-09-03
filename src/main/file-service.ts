@@ -157,3 +157,21 @@ export async function readTextFile(absolutePath: string): Promise<ReadTextFileRe
     return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (error as Error)?.message || String(error) };
   }
 }
+
+export type WriteTextFileResult =
+  | { ok: true; bytes: number }
+  | { ok: false; code: ApiErrorCode; message: string };
+
+/**
+ * Safely write UTF-8 text to a file, creating parent directories as needed.
+ */
+export async function writeTextFile(absolutePath: string, content: string): Promise<WriteTextFileResult> {
+  try {
+    const dir = path.dirname(absolutePath);
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(absolutePath, content, 'utf8');
+    return { ok: true, bytes: Buffer.byteLength(content, 'utf8') };
+  } catch (error: unknown) {
+    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (error as Error)?.message || String(error) };
+  }
+}

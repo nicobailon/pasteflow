@@ -36,8 +36,11 @@ describe("handleChat tools wiring", () => {
     const arg = (streamText as jest.Mock).mock.calls[0][0];
     expect(arg).toHaveProperty("tools");
     const tools = arg.tools || {};
-    // Ensure expected tool names are present
-    expect(Object.keys(tools).sort()).toEqual(["context", "edit", "file", "search", "terminal"].sort());
+    // Ensure expected tool names are present (allow additional Phase 4 tools)
+    const keys = Object.keys(tools);
+    for (const k of ["context", "edit", "file", "search", "terminal"]) {
+      expect(keys).toContain(k);
+    }
   });
 });
 

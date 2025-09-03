@@ -194,6 +194,7 @@ export class APIRouteHandlers {
       const ChatBodySchema = z.object({
         messages: z.array(z.any()),
         context: AgentContextEnvelopeSchema.optional(),
+        sessionId: z.string().min(1).optional(),
       });
       const parsed = ChatBodySchema.safeParse(req.body);
       if (!parsed.success) {
@@ -202,6 +203,10 @@ export class APIRouteHandlers {
 
       const uiMessages = parsed.data.messages as any[];
       const modelMessages = convertToModelMessages(uiMessages);
+
+      // Derive or generate session id
+      const headerSession = String((req.headers['x-pasteflow-session'] || req.headers['x-pf-session-id'] || '')).trim();
+      const sessionId = parsed.data.sessionId || (headerSession || randomUUID());
 
       // Sanitize/normalize context
       const envelope = parsed.data.context;
@@ -220,7 +225,33 @@ export class APIRouteHandlers {
       req.on('aborted', onAbort);
       res.on('close', onAbort);
 
-      const tools = getAgentTools({ signal: controller.signal });
+      // Resolve config + security manager and wrap tools with execution logger
+      const { resolveAgentConfig } = await import('./agent/config');
+      const cfg = await resolveAgentConfig(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+      const { AgentSecurityManager } = await import('./agent/security-manager');
+      const security = await AgentSecurityManager.create({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> } });
+      const tools = getAgentTools({
+        signal: controller.signal,
+        security,
+        config: cfg,
+        sessionId,
+        onToolExecute: async (name, args, result, meta) => {
+          try {
+            await this.db.insertToolExecution({
+              sessionId,
+              toolName: String(name),
+              args,
+              result,
+              status: 'ok',
+              error: null,
+              startedAt: (meta as any)?.startedAt ?? null,
+              durationMs: (meta as any)?.durationMs ?? null,
+            });
+          } catch {
+            // ignore logging errors
+          }
+        },
+      });
 
       // Resolve provider API key from preferences if configured (encrypted at rest)
       try {
@@ -252,6 +283,19 @@ export class APIRouteHandlers {
       result.pipeUIMessageStreamToResponse(res, {
         consumeSseStream: consumeStream,
       });
+
+      // Persist/refresh session shell with last known messages snapshot
+      try {
+        const msgJson = JSON.stringify(uiMessages);
+        const activeId = await this.db.getPreference('workspace.active');
+        const ws = activeId ? await this.db.getWorkspace(String(activeId)) : null;
+        await this.db.upsertChatSession(sessionId, msgJson, ws ? String(ws.id) : null);
+      } catch { /* ignore */ }
+
+      // Best-effort write a usage row (token metrics TBD)
+      try {
+        await this.db.insertUsageSummary(sessionId, null, null, null);
+      } catch { /* noop */ }
     } catch (error) {
       if (this.isProviderConfigError(error)) {
         try {
@@ -576,6 +620,35 @@ export class APIRouteHandlers {
         name: data.name, 
         folderPath: data.folder_path 
       }));
+    } catch (error) {
+      return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  // Agent: export session (Phase 4)
+  async handleAgentExportSession(req: Request, res: Response) {
+    const Body = z.object({ id: z.string().min(1), outPath: z.string().optional(), download: z.boolean().optional() });
+    const parsed = Body.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+    try {
+      const id = parsed.data.id;
+      const row = await this.db.getChatSession(id);
+      if (!row) return res.status(404).json(toApiError('NOT_FOUND', 'Session not found'));
+      const tools = await this.db.listToolExecutions(id);
+      const usage = await this.db.listUsageSummaries(id);
+      const payload = { session: row, toolExecutions: tools, usage };
+      const outPath = parsed.data.outPath;
+      if (outPath && outPath.trim().length > 0) {
+        const val = validateAndResolvePath(outPath);
+        if (!val.ok) return this.handlePathError(val, res);
+        await fs.promises.writeFile(val.absolutePath, JSON.stringify(payload, null, 2), 'utf8');
+        return res.json(ok({ file: val.absolutePath }));
+      }
+      if (parsed.data.download === false) {
+        return res.json(ok(payload));
+      }
+      // Default: return json payload
+      return res.json(ok(payload));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
     }

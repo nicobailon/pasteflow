@@ -304,8 +304,12 @@ app.whenReady().then(async () => {
   try {
     const port = apiServer?.getPort() ?? 5839;
     const token = apiServer?.getAuthToken() ?? '';
-    const inject = () => {
+    const inject = async () => {
       try {
+        // Resolve agent feature flags (env + preferences)
+        const { resolveAgentConfig, toRendererFeatureFlags } = await import('./agent/config');
+        const cfg = await resolveAgentConfig(database as unknown as { getPreference: (k: string) => Promise<unknown> });
+        const features = toRendererFeatureFlags(cfg);
         const payload = {
           apiBase: `http://127.0.0.1:${port}`,
           authToken: token,
@@ -315,13 +319,18 @@ app.whenReady().then(async () => {
           `window.__PF_API_INFO = ${JSON.stringify(payload)};`,
           true
         ).catch(() => {/* ignore */});
+        // Also expose read-only feature flags for renderer hints
+        mainWindow?.webContents.executeJavaScript(
+          `window.__PF_FEATURES = Object.assign({}, window.__PF_FEATURES || {}, ${JSON.stringify(features)});`,
+          true
+        ).catch(() => {/* ignore */});
       } catch {
         // ignore
       }
     };
     // Attempt immediate injection and also on dom-ready for robustness
-    inject();
-    mainWindow?.webContents.on('dom-ready', inject);
+    void inject();
+    mainWindow?.webContents.on('dom-ready', () => { void inject(); });
   } catch {
     // ignore injection errors
   }
@@ -927,6 +936,82 @@ ipcMain.handle('/workspace/rename', async (_e, params: unknown) => {
       return { success: true, data: null };
     }
 
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+/**
+ * Agent IPC channels (Phase 4)
+ */
+ipcMain.handle('agent:start-session', async (_e, params: unknown) => {
+  try {
+    const { AgentStartSessionSchema } = await import('./ipc/schemas');
+    const { randomUUID } = await import('node:crypto');
+    const parsed = AgentStartSessionSchema.safeParse(params || {});
+    const sessionId = parsed.success && parsed.data.seedId ? parsed.data.seedId : randomUUID();
+    if (database && (database as any).initialized) {
+      try { await database!.upsertChatSession(sessionId, JSON.stringify([]), null); } catch { /* ignore */ }
+      return { success: true, data: { sessionId } };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:get-history', async (_e, params: unknown) => {
+  try {
+    const { AgentGetHistorySchema } = await import('./ipc/schemas');
+    const parsed = AgentGetHistorySchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    if (database && (database as any).initialized) {
+      const row = await database!.getChatSession(parsed.data.sessionId);
+      return { success: true, data: row ? { sessionId: row.id, messages: row.messages } : null };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
+  try {
+    const { AgentExecuteToolSchema } = await import('./ipc/schemas');
+    const parsed = AgentExecuteToolSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { resolveAgentConfig } = await import('./agent/config');
+    const { AgentSecurityManager } = await import('./agent/security-manager');
+    const { getAgentTools } = await import('./agent/tools');
+    const cfg = await resolveAgentConfig(database as any);
+    const security = await AgentSecurityManager.create({ db: database as any });
+    const tools = getAgentTools({ security, config: cfg, sessionId: parsed.data.sessionId });
+    const toolDef = (tools as any)[parsed.data.tool];
+    if (!toolDef || typeof toolDef.execute !== 'function') return { success: false, error: 'TOOL_NOT_FOUND' };
+    const result = await toolDef.execute(parsed.data.args);
+    return { success: true, data: result };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: string) => {
+  try {
+    if (!sessionId || typeof sessionId !== 'string') return { success: false, error: 'INVALID_SESSION_ID' };
+    if (database && (database as any).initialized) {
+      const row = await database!.getChatSession(sessionId);
+      if (!row) return { success: false, error: 'NOT_FOUND' };
+      const tools = await database!.listToolExecutions(sessionId);
+      const usage = await database!.listUsageSummaries(sessionId);
+      const payload = { session: row, toolExecutions: tools, usage };
+      if (outPath && typeof outPath === 'string' && outPath.trim().length > 0) {
+        const fs = await import('node:fs');
+        await fs.promises.writeFile(outPath, JSON.stringify(payload, null, 2), 'utf8');
+        return { success: true, data: { file: outPath } };
+      }
+      return { success: true, data: payload };
+    }
     return { success: false, error: 'DB_NOT_INITIALIZED' };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
