@@ -25,6 +25,7 @@ import { streamText, convertToModelMessages, consumeStream } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { buildSystemPrompt } from "./agent/system-prompt";
 import { getAgentTools } from "./agent/tools";
+import { decryptSecret, isSecretBlob } from "./secret-prefs";
 
 // Schema definitions
 export const idParam = z.object({ id: z.string().min(1) });
@@ -43,7 +44,7 @@ export const instructionBody = z.object({
   content: z.string(),
 });
 export const keyParam = z.object({ key: z.string().min(1) });
-export const prefSetBody = z.object({ value: z.unknown().optional() });
+export const prefSetBody = z.object({ value: z.unknown().optional(), encrypted: z.boolean().optional() });
 export const filePathQuery = z.object({ path: z.string().min(1) });
 export const tokensCountBody = z.object({ text: z.string().min(0) });
 export const foldersOpenBody = z.object({
@@ -220,6 +221,22 @@ export class APIRouteHandlers {
       res.on('close', onAbort);
 
       const tools = getAgentTools({ signal: controller.signal });
+
+      // Resolve provider API key from preferences if configured (encrypted at rest)
+      try {
+        const stored = await this.db.getPreference('integrations.openai.apiKey');
+        let key: string | null = null;
+        if (isSecretBlob(stored)) {
+          try { key = decryptSecret(stored); } catch { key = null; }
+        } else if (typeof stored === 'string' && stored.trim().length > 0) {
+          key = stored.trim();
+        }
+        if (key) {
+          process.env.OPENAI_API_KEY = key;
+        }
+      } catch {
+        // Ignore preference load failures; fallback to environment
+      }
       const result = streamText({
         model: openai('gpt-4o-mini'),
         system,
@@ -236,13 +253,28 @@ export class APIRouteHandlers {
         consumeSseStream: consumeStream,
       });
     } catch (error) {
+      if (this.isProviderConfigError(error)) {
+        try {
+          // Concise, non-sensitive log
+          // eslint-disable-next-line no-console
+          console.warn('AI provider config error: missing OPENAI_API_KEY');
+        } catch { /* noop */ }
+        return res
+          .status(503)
+          .json(
+            toApiError('AI_PROVIDER_CONFIG', 'OpenAI API key missing', {
+              provider: 'openai',
+              reason: 'api-key-missing',
+            })
+          );
+      }
       const message = (error as Error)?.message || 'Unknown error';
       return res.status(500).json(toApiError('SERVER_ERROR', message));
     }
   }
 
   // Helper: sanitize context envelope
-  private sanitizeContextEnvelope(envelope: any, allowed: string[]) {
+  private sanitizeContextEnvelope(envelope: any, allowed: readonly string[]) {
     try {
       if (!envelope || !Array.isArray(allowed) || allowed.length === 0) return envelope;
       const nodePath = require('node:path') as typeof import('node:path');
@@ -421,7 +453,15 @@ export class APIRouteHandlers {
       return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request'));
     }
     try {
-      await this.db.setPreference(params.data.key, (body.data.value ?? null) as PreferenceValue);
+      const val = body.data.value ?? null;
+      const enc = body.data.encrypted === true;
+      let toStore: PreferenceValue = val as PreferenceValue;
+      if (enc && typeof val === 'string' && val.trim().length > 0) {
+        // Store as encrypted secret blob
+        const { encryptSecret } = await import('./secret-prefs');
+        toStore = encryptSecret(val);
+      }
+      await this.db.setPreference(params.data.key, toStore as PreferenceValue);
       // Notify renderers to refresh cached preferences
       broadcastToRenderers('/prefs/get:update');
       return res.json(ok(true));
@@ -643,5 +683,20 @@ export class APIRouteHandlers {
     await this.db.setPreference('workspace.active', String(workspace.id));
     setAllowedWorkspacePaths([workspace.folder_path]);
     getPathValidator([workspace.folder_path]);
+  }
+
+  // Detect provider configuration errors (e.g., missing API key)
+  private isProviderConfigError(err: unknown): boolean {
+    try {
+      const anyErr = err as any;
+      const name = String(anyErr?.name || '');
+      const msg = String(anyErr?.message || '').toLowerCase();
+      if (name === 'AI_LoadAPIKeyError') return true;
+      if (name.includes('LoadAPIKeyError')) return true;
+      if (msg.includes('api key is missing')) return true;
+      return false;
+    } catch {
+      return false;
+    }
   }
 }

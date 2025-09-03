@@ -1208,14 +1208,15 @@ input[type="search"]:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.25rem;
+  padding: 12px 16px;
   border-bottom: 0.0625rem solid var(--border-color);
 }
 
 .modal-header h2 {
-  margin: 0;
-  font-size: 1.25rem;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text-primary);
+  margin: 0;
 }
 
 .close-button {
@@ -1783,13 +1784,6 @@ input[type="search"]:focus {
   background-color: var(--background-secondary);
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
-}
-
-.notes-app-layout .modal-header h2 {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin: 0;
 }
 
 .system-prompts-list,

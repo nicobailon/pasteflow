@@ -1,0 +1,37 @@
+.agent-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background-color: var(--background-elevated);
+  border: 1px solid var(--border-color);
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 6px 8px;
+}
+
+.agent-alert-banner.error {
+  border-left-color: var(--error-color);
+}
+
+.agent-alert-banner.warning {
+  border-left-color: var(--warning-color);
+}
+
+.agent-alert-banner.info {
+  border-left-color: var(--accent-blue);
+}
+
+.agent-alert-banner .agent-alert-message {
+  flex: 1;
+}
+
+/* Compact action styling inside the banner */
+.agent-alert-banner .agent-alert-dismiss {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+

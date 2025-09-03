@@ -4,6 +4,8 @@ import useAgentPanelResize from "../hooks/use-agent-panel-resize";
 import AgentChatInputWithMention from "./agent-chat-input";
 import AgentAttachmentList from "./agent-attachment-list";
 import AgentToolCalls from "./agent-tool-calls";
+import IntegrationsModal from "./integrations-modal";
+import AgentAlertBanner from "./agent-alert-banner";
 import type { FileData } from "../types/file-types";
 import { extname } from "../file-ops/path";
 import "./agent-panel.css";
@@ -53,6 +55,9 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
   const lastInitialRef = useRef<any | null>(null);
   const { apiBase, authToken } = useApiInfo();
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
+  const hadErrorRef = useRef(false);
+  const [showIntegrations, setShowIntegrations] = useState(false);
+  const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
 
   const { messages, sendMessage, status, stop } = useChat({
     api: `${apiBase}/api/v1/chat`,
@@ -87,11 +92,49 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
     onFinish: () => {
       // Clear one-shot attachments
       setPendingAttachments(new Map());
-      setErrorStatus(null);
+      // Only clear error if there wasn't an error signaled in this turn
+      if (!hadErrorRef.current) {
+        setErrorStatus(null);
+      }
+      hadErrorRef.current = false;
     },
     onError: (err: any) => {
       const code = typeof err?.status === "number" ? err.status : (typeof err?.code === "number" ? err.code : null);
-      if (code === 429) setErrorStatus(429);
+      hadErrorRef.current = true;
+      if (code === 429) {
+        setErrorStatus(429);
+        return;
+      }
+      // Prefer explicit 503 from server
+      if (code === 503) {
+        setErrorStatus(503);
+        return;
+      }
+      // Heuristics: detect provider config errors by name/message
+      try {
+        const name = String(err?.name || "");
+        const msg = String(err?.message || "").toLowerCase();
+        if (name.includes("LoadAPIKeyError") || msg.includes("api key is missing") || msg.includes("api-key is missing") || code === 401 || code === 403) {
+          setErrorStatus(503);
+          return;
+        }
+      } catch { /* noop */ }
+      // Fallback: if no stored key, surface Configure banner
+      try {
+        void (async () => {
+          try {
+            const res: any = await window.electron.ipcRenderer.invoke('/prefs/get', { key: 'integrations.openai.apiKey' });
+            const value = (res && typeof res === 'object' && 'success' in res) ? (res as any).data : res;
+            const hasKey = Boolean(value && (
+              (typeof value === 'string' && value.trim().length > 0) ||
+              (value && typeof value === 'object' && (value as any).__type === 'secret' && (value as any).v === 1)
+            ));
+            if (!hasKey) setErrorStatus(503);
+          } catch {
+            // If we cannot check, leave as-is
+          }
+        })();
+      } catch { /* noop */ }
     }
   } as any);
 
@@ -154,6 +197,42 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
 
   // Local input state for composer (since useChat v2 doesn't expose input/setInput)
   const [composer, setComposer] = useState("");
+
+  // Global event to open Integrations modal from header/menu
+  useEffect(() => {
+    const handler = () => setShowIntegrations(true);
+    window.addEventListener('pasteflow:open-integrations', handler as EventListener);
+    return () => window.removeEventListener('pasteflow:open-integrations', handler as EventListener);
+  }, []);
+
+  // Clear provider-config error when preferences update (e.g., after saving API key)
+  useEffect(() => {
+    try {
+      const checkPresence = async () => {
+        try {
+          const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' });
+          const value = (res && typeof res === 'object' && 'success' in res) ? (res as any).data : res;
+          const has = Boolean(value && (
+            (typeof value === 'string' && value.trim().length > 0) ||
+            (value && typeof value === 'object' && (value as any).__type === 'secret' && (value as any).v === 1)
+          ));
+          setHasOpenAIKey(has);
+          if (has) setErrorStatus(null);
+        } catch {
+          // leave as-is on failure
+        }
+      };
+
+      // Initial presence check
+      checkPresence();
+
+      const cb = (_: unknown) => { checkPresence(); };
+      (window as any).electron?.receive?.('/prefs/get:update', cb as any);
+      return () => {
+        try { (window as any).electron?.ipcRenderer?.removeListener?.('/prefs/get:update', cb as any); } catch { /* noop */ }
+      };
+    } catch { /* noop */ }
+  }, []);
 
   // Receive "Send to Agent" event from other parts of the UI
   useEffect(() => {
@@ -281,28 +360,27 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
         <div className="agent-banner">{status === "streaming" || status === "submitted" ? "Streaming…" : "Ready"}</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {status === "streaming" || status === "submitted" ? (
-            <button onClick={interruptNow} title="Stop" aria-label="Stop generation">Stop</button>
-          ) : (
-            <button
-              onClick={() => {
-                setComposer("");
-                setPendingAttachments(new Map());
-              }}
-              title="Clear"
-              aria-label="Clear"
-            >
-              Clear
-            </button>
-          )}
+            <button className="cancel-button" onClick={interruptNow} title="Stop" aria-label="Stop generation">Stop</button>
+          ) : ((hasOpenAIKey === false || errorStatus === 503) ? (
+              <button className="primary" onClick={() => setShowIntegrations(true)} title="Configure AI Provider" aria-label="Configure AI Provider">Configure</button>
+            ) : null)}
         </div>
       </div>
 
       <div className="agent-panel-body">
+        {errorStatus === 503 && (
+          <AgentAlertBanner
+            variant="error"
+            message="OpenAI API key is missing. Click Configure in the header to add it."
+            onDismiss={() => setErrorStatus(null)}
+          />
+        )}
         {errorStatus === 429 && (
-          <div role="alert" style={{ background: "#ffefef", color: "#a00", padding: 8, border: "1px solid #eaa", margin: "6px 8px", borderRadius: 4 }}>
-            Rate limited (429). Please wait and try again.
-            <button onClick={() => setErrorStatus(null)} style={{ marginLeft: 8 }}>Dismiss</button>
-          </div>
+          <AgentAlertBanner
+            variant="warning"
+            message="Rate limited (429). Please wait a moment and try again."
+            onDismiss={() => setErrorStatus(null)}
+          />
         )}
         <AgentAttachmentList
           pending={pendingAttachments}
@@ -400,6 +478,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
         aria-label="Resize agent panel"
         title="Drag to resize agent panel"
       />
+
+      <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
     </div>
   );
 };

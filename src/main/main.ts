@@ -1014,7 +1014,6 @@ ipcMain.handle('/prefs/get', async (_e, params: unknown) => {
     }
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-       
       const value: any = await (database as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference(key);
       return { success: true, data: value ?? null };
     }
@@ -1031,14 +1030,18 @@ ipcMain.handle('/prefs/set', async (_e, params: unknown) => {
     if (!params || typeof params !== 'object') {
       throw new Error('Invalid parameters: object with key and value required');
     }
-    const { key, value } = params as { key?: string; value?: unknown };
+    const { key, value, encrypted } = params as { key?: string; value?: unknown; encrypted?: boolean };
     if (!key || typeof key !== 'string') {
       throw new Error('Invalid key provided');
     }
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-       
-      await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference(key, value);
+      let toStore: unknown = value;
+      if (encrypted === true && typeof value === 'string' && value.trim().length > 0) {
+        const { encryptSecret } = await import('./secret-prefs');
+        toStore = encryptSecret(value);
+      }
+      await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference(key, toStore);
       broadcastUpdate('/prefs/get:update');
       return { success: true, data: true };
     }
