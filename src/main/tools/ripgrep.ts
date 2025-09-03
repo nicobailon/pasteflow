@@ -30,7 +30,7 @@ export async function runRipgrepJson({
       const isAllowed = roots.some((root) => {
         try {
           const rel = path.relative(root, directory);
-          return rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+          return !rel.startsWith("..") && !path.isAbsolute(rel);
         } catch {
           return false;
         }
@@ -95,37 +95,49 @@ export async function runRipgrepJson({
       }
     });
 
-    child.stdout.on("data", (buf: Buffer) => {
-      const lines = buf.toString("utf8").split("\n");
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const obj = JSON.parse(line);
-          if (obj.type === "match") {
-            const file = obj.data.path.text as string;
-            const ln = obj.data.line_number as number;
-            const text = obj.data.lines.text as string;
-            const sub = (obj.data.submatches || []).map((m: any) => ({ start: m.start, end: m.end }));
-            let bucket = files[file];
-            if (!bucket) {
-              if (uniqueFiles >= maxFiles) { truncated = true; try { child.kill("SIGKILL"); } catch {} break; }
-              bucket = files[file] = { path: file, matches: [] };
-              uniqueFiles++;
-            }
-            bucket.matches.push({ line: ln, text, ranges: sub });
-            totalBytes += Buffer.byteLength(text, "utf8");
-            if (++count >= maxResults || totalBytes >= maxBytes) {
-              try { child.kill("SIGKILL"); } catch {}
-              truncated = true;
-            }
+    let stdoutBuf = "";
+    const processLine = (line: string) => {
+      if (!line.trim()) return;
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type === "match") {
+          const file = obj.data.path.text as string;
+          const ln = obj.data.line_number as number;
+          const text = obj.data.lines.text as string;
+          const sub = (obj.data.submatches || []).map((m: any) => ({ start: m.start, end: m.end }));
+          let bucket = files[file];
+          if (!bucket) {
+            if (uniqueFiles >= maxFiles) { truncated = true; try { child.kill("SIGKILL"); } catch {} return; }
+            bucket = files[file] = { path: file, matches: [] };
+            uniqueFiles++;
           }
-        } catch {
-          // ignore invalid lines
+          bucket.matches.push({ line: ln, text, ranges: sub });
+          totalBytes += Buffer.byteLength(text, "utf8");
+          if (++count >= maxResults || totalBytes >= maxBytes) {
+            try { child.kill("SIGKILL"); } catch {}
+            truncated = true;
+          }
         }
+      } catch {
+        // ignore invalid lines (will be completed by next chunk if partial)
       }
+    };
+
+    child.stdout.on("data", (buf: Buffer) => {
+      stdoutBuf += buf.toString("utf8");
+      const lastNL = stdoutBuf.lastIndexOf("\n");
+      if (lastNL === -1) return; // no full line yet
+      const complete = stdoutBuf.slice(0, lastNL);
+      stdoutBuf = stdoutBuf.slice(lastNL + 1);
+      const lines = complete.split("\n");
+      for (const line of lines) processLine(line);
     });
 
-    child.on("close", handleClose);
+    child.on("close", () => {
+      // attempt to parse any trailing data without newline
+      if (stdoutBuf && stdoutBuf.trim()) processLine(stdoutBuf);
+      handleClose();
+    });
   });
 
   return { files: Object.values(files), totalMatches: count, truncated } as const;
@@ -143,7 +155,7 @@ function findNearestGitignore(startDir: string, allowedRoots: readonly string[])
       const withinAllowed = [...rootSet].some((r) => {
         try {
           const rel = path.relative(r, parent);
-          return rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+          return !rel.startsWith("..") && !path.isAbsolute(rel);
         } catch { return false; }
       });
       if (!withinAllowed) break;

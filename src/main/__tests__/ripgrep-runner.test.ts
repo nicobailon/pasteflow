@@ -115,4 +115,115 @@ describe("runRipgrepJson", () => {
     expect(out.totalMatches).toBeGreaterThanOrEqual(1);
     expect(out.truncated).toBe(true);
   });
+
+  it("parses JSON lines split across chunks", async () => {
+    jest.resetModules();
+    jest.spyOn(workspace, "getAllowedWorkspacePaths").mockReturnValue(["/repo"]);
+
+    const events: Record<string, Function[]> = {};
+    const stdoutHandlers: Function[] = [];
+    const mockChild: any = {
+      stdout: { on: (_: string, fn: Function) => stdoutHandlers.push(fn) },
+      on: (ev: string, fn: Function) => { (events[ev] = events[ev] || []).push(fn); },
+      kill: jest.fn(),
+    };
+
+    jest.doMock("node:child_process", () => ({ spawn: () => mockChild }));
+    const { runRipgrepJson: run } = await import("../../main/tools/ripgrep");
+
+    const p = run({ query: "TODO", maxResults: 10 });
+
+    // Create a single JSON line and split it across two chunks mid-string
+    const full = JSON.stringify({
+      type: "match",
+      data: {
+        path: { text: "/repo/src/split.ts" },
+        line_number: 42,
+        lines: { text: "// TODO: split across chunks" },
+        submatches: [{ start: 3, end: 7 }],
+      },
+    });
+    const cut = Math.floor(full.length / 2);
+    const part1 = full.slice(0, cut);
+    const part2 = full.slice(cut) + "\n";
+
+    stdoutHandlers.forEach((fn) => fn(Buffer.from(part1)));
+    stdoutHandlers.forEach((fn) => fn(Buffer.from(part2)));
+    (events["close"] || []).forEach((fn) => fn());
+
+    const out = await p;
+    expect(out.totalMatches).toBe(1);
+    expect(out.files[0].path).toContain("split.ts");
+    expect(out.files[0].matches[0].line).toBe(42);
+  });
+
+  it("allows searches in a secondary workspace root", async () => {
+    jest.resetModules();
+    const roots = ["/rootA", "/rootB"];
+
+    // Mock workspace in the module that ripgrep.ts will import
+    jest.doMock("../../main/workspace-context", () => ({
+      getAllowedWorkspacePaths: () => roots,
+    }));
+
+    const events: Record<string, Function[]> = {};
+    const mockChild: any = {
+      stdout: { on: () => {} },
+      on: (ev: string, fn: Function) => { (events[ev] = events[ev] || []).push(fn); },
+      kill: jest.fn(),
+    };
+
+    const spawn = jest.fn(() => {
+      // immediately close so the promise resolves
+      setTimeout(() => { (events["close"] || []).forEach((fn) => fn()); }, 0);
+      return mockChild;
+    });
+    jest.doMock("node:child_process", () => ({ spawn }));
+
+    const { runRipgrepJson: run } = await import("../../main/tools/ripgrep");
+    await run({ query: "x", directory: "/rootB" }).catch(() => {});
+
+    expect(spawn).toHaveBeenCalled();
+    const call = spawn.mock.calls[0] as unknown as [string, string[], any];
+    const args = call[1];
+    // last arg is the chosen cwd passed to ripgrep
+    expect(args[args.length - 1]).toBe("/rootB");
+  });
+
+  it("includes .gitignore at workspace root", async () => {
+    jest.resetModules();
+
+    jest.doMock("../../main/workspace-context", () => ({
+      getAllowedWorkspacePaths: () => ["/repo"],
+    }));
+
+    const events: Record<string, Function[]> = {};
+    const mockChild: any = {
+      stdout: { on: () => {} },
+      on: (ev: string, fn: Function) => { (events[ev] = events[ev] || []).push(fn); },
+      kill: jest.fn(),
+    };
+
+    const spawn = jest.fn(() => {
+      setTimeout(() => { (events["close"] || []).forEach((fn) => fn()); }, 0);
+      return mockChild;
+    });
+    jest.doMock("node:child_process", () => ({ spawn }));
+
+    // Mock fs.existsSync for .gitignore discovery
+    jest.doMock("node:fs", () => {
+      const existsSync = (p: any) => p === "/repo/.gitignore";
+      return { __esModule: true, default: { existsSync }, existsSync };
+    });
+
+    const { runRipgrepJson: run } = await import("../../main/tools/ripgrep");
+    await run({ query: "x", directory: "/repo" }).catch(() => {});
+
+    expect(spawn).toHaveBeenCalled();
+    const call = spawn.mock.calls[0] as unknown as [string, string[], any];
+    const args = call[1];
+    const idx = args.indexOf("--ignore-file");
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe("/repo/.gitignore");
+  });
 });
