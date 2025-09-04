@@ -22,10 +22,9 @@ import { PreviewController } from './preview-controller';
 import { broadcastToRenderers, broadcastWorkspaceUpdated } from './broadcast-helper';
 import { AgentContextEnvelopeSchema } from "../shared-types/agent-context";
 import { streamText, convertToModelMessages, consumeStream } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { buildSystemPrompt } from "./agent/system-prompt";
 import { getAgentTools } from "./agent/tools";
-import { decryptSecret, isSecretBlob } from "./secret-prefs";
+// secrets handled in provider-specific resolvers
 
 // Schema definitions
 export const idParam = z.object({ id: z.string().min(1) });
@@ -64,6 +63,15 @@ export const previewStartBody = z.object({
   prompt: z.string().max(100_000).optional()
 });
 export const previewIdParam = z.object({ id: z.string().min(1) });
+export const listModelsQuery = z.object({ provider: z.string().optional() });
+export const validateModelBody = z.object({
+  provider: z.enum(["openai", "anthropic", "openrouter"] as const),
+  model: z.string().min(1),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxOutputTokens: z.number().int().min(1).max(128_000).optional(),
+});
 
 export function mapWorkspaceDbToJson(w: ParsedWorkspace) {
   return {
@@ -118,6 +126,61 @@ export class APIRouteHandlers {
       return res.json(ok(data));
     } catch (error) {
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
+    }
+  }
+
+  // Models: list available models (static catalog with optional dynamic in future)
+  async handleListModels(req: Request, res: Response) {
+    try {
+      const parsed = listModelsQuery.safeParse(req.query);
+      const { resolveAgentConfig } = await import('./agent/config');
+      const cfg = await resolveAgentConfig(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+      const providerParam = parsed.success && typeof parsed.data.provider === 'string' ? parsed.data.provider.toLowerCase() : null;
+      const provider = (providerParam === 'openai' || providerParam === 'anthropic' || providerParam === 'openrouter') ? providerParam : (cfg as any).PROVIDER || 'openai';
+      const { getStaticModels } = await import('./agent/models-catalog');
+      const models = getStaticModels(provider as any);
+      return res.json(ok({ provider, models }));
+    } catch (error) {
+      return res.status(500).json(toApiError('SERVER_ERROR', (error as Error)?.message || 'Failed to list models'));
+    }
+  }
+
+  // Models: validate a provider+model by issuing a tiny call
+  async handleValidateModel(req: Request, res: Response) {
+    const body = validateModelBody.safeParse(req.body);
+    if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request body'));
+    const { provider, model, apiKey, baseUrl, temperature, maxOutputTokens } = body.data;
+    try {
+      // Resolve model with provided overrides when present
+      const { createOpenAI } = await import('@ai-sdk/openai');
+      const { createAnthropic } = await import('@ai-sdk/anthropic');
+      const { generateText } = await import('ai');
+
+      let lm: any;
+      if (provider === 'openai') {
+        const client = createOpenAI({ apiKey: apiKey || undefined });
+        lm = client(model);
+      } else if (provider === 'anthropic') {
+        const client = createAnthropic({ apiKey: apiKey || undefined });
+        lm = client(model);
+      } else {
+        // openrouter uses OpenAI-compatible client with baseURL
+        const client = createOpenAI({ apiKey: apiKey || undefined, baseURL: baseUrl || 'https://openrouter.ai/api/v1' });
+        lm = client(model);
+      }
+
+      // Minimal cost validation: 1 token output, tiny prompt
+      await generateText({
+        model: lm,
+        prompt: 'ping',
+        maxOutputTokens: Math.max(1, Math.min(10, Number(maxOutputTokens || 1))),
+        temperature: typeof temperature === 'number' ? temperature : 0,
+      });
+
+      return res.json(ok({ ok: true }));
+    } catch (error) {
+      const msg = (error as Error)?.message || 'Validation failed';
+      return res.json(ok({ ok: false, error: msg }));
     }
   }
 
@@ -260,26 +323,18 @@ export class APIRouteHandlers {
         }
       } catch { /* ignore guard errors */ }
 
-      // Resolve provider API key from preferences if configured (encrypted at rest)
-      try {
-        const stored = await this.db.getPreference('integrations.openai.apiKey');
-        let key: string | null = null;
-        if (isSecretBlob(stored)) {
-          try { key = decryptSecret(stored); } catch { key = null; }
-        } else if (typeof stored === 'string' && stored.trim().length > 0) {
-          key = stored.trim();
-        }
-        if (key) {
-          process.env.OPENAI_API_KEY = key;
-        }
-      } catch {
-        // Ignore preference load failures; fallback to environment
-      }
+      // Resolve model for current provider + model id
+      const { resolveModelForRequest } = await import('./agent/model-resolver');
+      const provider = (cfg as any).PROVIDER || 'openai';
+      const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider: provider as any, modelId: cfg.DEFAULT_MODEL });
+
       const result = streamText({
-        model: openai('gpt-4o-mini'),
+        model,
         system,
         messages: modelMessages,
         tools,
+        temperature: (cfg as any).TEMPERATURE ?? undefined,
+        maxOutputTokens: (cfg as any).MAX_OUTPUT_TOKENS ?? undefined,
         abortSignal: controller.signal,
         onAbort: () => {
           // Best-effort: nothing to persist yet; hook kept for future telemetry
@@ -309,14 +364,14 @@ export class APIRouteHandlers {
         try {
           // Concise, non-sensitive log
           // eslint-disable-next-line no-console
-          console.warn('AI provider config error: missing OPENAI_API_KEY');
+          console.warn('AI provider config error: missing credentials');
         } catch { /* noop */ }
         return res
           .status(503)
           .json(
-            toApiError('AI_PROVIDER_CONFIG', 'OpenAI API key missing', {
-              provider: 'openai',
-              reason: 'api-key-missing',
+            toApiError('AI_PROVIDER_CONFIG', 'AI provider credentials missing', {
+              provider: (cfg as any).PROVIDER || 'openai',
+              reason: 'credentials-missing',
             })
           );
       }

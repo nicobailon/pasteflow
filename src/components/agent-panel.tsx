@@ -5,6 +5,8 @@ import AgentChatInputWithMention from "./agent-chat-input";
 import AgentAttachmentList from "./agent-attachment-list";
 import AgentToolCalls from "./agent-tool-calls";
 import IntegrationsModal from "./integrations-modal";
+import ModelSelector from "./model-selector";
+import ModelSettingsModal from "./model-settings-modal";
 import AgentAlertBanner from "./agent-alert-banner";
 import type { FileData } from "../types/file-types";
 import { extname } from "../file-ops/path";
@@ -58,6 +60,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const hadErrorRef = useRef(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
+  const [showModelSettings, setShowModelSettings] = useState(false);
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -84,12 +87,11 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
         const base = typeof info.apiBase === "string" ? info.apiBase : apiBase;
         const token = typeof info.authToken === "string" ? info.authToken : authToken;
         const url = `${base}/api/v1/chat`;
-        const headers: Record<string, string> = {
-          ...(init?.headers as any),
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          ...(sessionId ? { 'X-Pasteflow-Session': sessionId } : {}),
-        };
-        return fetch(url, { ...init, headers });
+        // Preserve all headers provided by useChat (e.g., Content-Type, Accept) and add ours
+        const merged = new Headers(init?.headers as HeadersInit | undefined);
+        if (token) merged.set('Authorization', `Bearer ${token}`);
+        if (sessionId) merged.set('X-Pasteflow-Session', sessionId);
+        return fetch(url, { ...init, headers: merged });
       } catch {
         return fetch(input, init);
       }
@@ -151,6 +153,14 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
           }
         })();
       } catch { /* noop */ }
+
+      // Generic banner for other HTTP errors
+      if (typeof code === 'number' && code >= 400 && code <= 599) {
+        setErrorStatus(code);
+        return;
+      }
+      // Fallback unknown error
+      setErrorStatus(500);
     }
   } as any);
 
@@ -379,7 +389,6 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
     <div className="agent-panel" style={{ width: `${agentWidth}px` }} data-testid="agent-panel">
       <div className="agent-panel-header">
         <div className="agent-panel-title">Agent</div>
-        <div className="agent-banner">{status === "streaming" || status === "submitted" ? "Streaming…" : "Ready"}</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button
             className="secondary"
@@ -405,6 +414,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
           >
             Export Session
           </button>
+          <button className="secondary" onClick={() => setShowModelSettings(true)} title="Model Settings" aria-label="Model Settings">Settings</button>
           {status === "streaming" || status === "submitted" ? (
             <button className="cancel-button" onClick={interruptNow} title="Stop" aria-label="Stop generation">Stop</button>
           ) : ((hasOpenAIKey === false || errorStatus === 503) ? (
@@ -425,6 +435,13 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
           <AgentAlertBanner
             variant="warning"
             message="Rate limited (429). Please wait a moment and try again."
+            onDismiss={() => setErrorStatus(null)}
+          />
+        )}
+        {errorStatus !== null && errorStatus !== 503 && errorStatus !== 429 && (
+          <AgentAlertBanner
+            variant="error"
+            message={`Request failed (${errorStatus}). Please check logs or try again.`}
             onDismiss={() => setErrorStatus(null)}
           />
         )}
@@ -480,6 +497,10 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
               );
             })
           )}
+          {/* Sticky status banner at the bottom of the messages pane */}
+          <div className="agent-status-banner">
+            {status === "streaming" || status === "submitted" ? "Streaming…" : "Ready"}
+          </div>
         </div>
 
         <form className="agent-input-container" onSubmit={handleSubmit}>
@@ -497,8 +518,11 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
               })
             }
           />
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", flex: 1 }}>{tokenHint}</div>
+          <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <ModelSelector onOpenSettings={() => setShowModelSettings(true)} />
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{tokenHint}</div>
             <button
               className="primary"
               type="submit"
@@ -518,6 +542,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       />
 
       <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
+      <ModelSettingsModal isOpen={showModelSettings} onClose={() => setShowModelSettings(false)} />
     </div>
   );
 };

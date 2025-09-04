@@ -119,6 +119,10 @@ export class PasteFlowAPIServer {
     this.app.post('/api/v1/tokens/count', (req, res) => this.routeHandlers.handleCountTokens(req, res));
     this.app.get('/api/v1/tokens/backend', (req, res) => this.routeHandlers.handleGetTokenBackend(req, res));
 
+    // Models
+    this.app.get('/api/v1/models', (req, res) => this.routeHandlers.handleListModels(req, res));
+    this.app.post('/api/v1/models/validate', (req, res) => this.routeHandlers.handleValidateModel(req, res));
+
     // Folders
     this.app.get('/api/v1/folders/current', (req, res) => this.routeHandlers.handleGetCurrentFolder(req, res));
     this.app.post('/api/v1/folders/open', (req, res) => this.routeHandlers.handleOpenFolder(req, res));

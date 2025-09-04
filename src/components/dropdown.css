@@ -97,6 +97,13 @@
   z-index: 1000;
 }
 
+/* Dropup variant: place menu above the button */
+.dropdown-menu.dropup {
+  top: auto;
+  bottom: calc(100% + 4px);
+  transform-origin: bottom left;
+}
+
 /* Ensure workspace dropdown menu appears above other dropdowns */
 .workspace-dropdown .dropdown-menu {
   z-index: 1100;
