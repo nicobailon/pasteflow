@@ -1124,6 +1124,17 @@ const useAppState = () => {
       return;
     }
 
+    // If the folder did not change but there are no files loaded (e.g., after a reset),
+    // kick off a file list request to populate the tree.
+    if (!folderChanged && !isProcessing) {
+      const hasNoFiles = (allFilesRef.current?.length ?? 0) === 0;
+      if (workspaceFolder && hasNoFiles) {
+        handleFolderChange(workspaceName, workspaceFolder, workspaceData);
+        isApplyingWorkspaceDataRef.current = false;
+        return;
+      }
+    }
+
     setCurrentWorkspace(workspaceName);
     setPendingWorkspaceData(null);
 

@@ -1,5 +1,21 @@
 /* Sidebar Styling */
 
+/* Ensure the file tree area uses the full available height */
+.sidebar .file-tree {
+  display: flex;
+  flex-direction: column;
+  /* Allow inner flex children to shrink and scroll correctly */
+  min-height: 0;
+}
+
+/* Let the tree view occupy remaining space within .file-tree */
+.sidebar .tree-view {
+  flex: 1;
+  /* Avoid creating a second scroll container; the List handles scrolling */
+  overflow: hidden;
+  min-height: 0;
+}
+
 .tree-view .no-results {
   font-size: 0.875rem;
   padding: 0 0.375rem;

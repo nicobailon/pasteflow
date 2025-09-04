@@ -2,10 +2,12 @@ import { useMemo } from "react";
 import { FolderOpen } from "lucide-react";
 
 import { FileData, FileListProps, LineRange, SelectedFileWithLines } from "../types/file-types";
+import { buildFolderIndex, getFilesInFolder } from "../utils/folder-selection-index";
 import { tokenCountCache } from "../utils/token-cache-adapter";
 import { estimateTokenCount } from "../utils/token-utils";
 
 import FileCard from "./file-card";
+import FolderCard from "./folder-card";
 import InstructionCard from "./instruction-card";
 import RolePromptCard from "./role-prompt-card";
 import SystemPromptCard from "./system-prompt-card";
@@ -42,6 +44,7 @@ const FileList = ({
   openFolder,
   onViewFile,
   processingStatus,
+  folderSelectionCache,
   selectedSystemPrompts = [],
   toggleSystemPromptSelection,
   onViewSystemPrompt,
@@ -76,10 +79,45 @@ const FileList = ({
         .map((f: FileData) => [f.path, f] as const)
     ).values()];
 
+  // Build folder index once for grouping and counts
+  const folderIndex = useMemo(() => buildFolderIndex(files), [files]);
+
+  // Determine top-most fully selected directories using folderSelectionCache
+  const fullDirs = useMemo(() => {
+    if (!folderSelectionCache) return [] as string[];
+    const allDirs = Array.from((folderIndex as Map<string, string[]>).keys());
+    const candidates = allDirs.filter((dir) => folderSelectionCache.get(dir) === 'full');
+    // Deduplicate by removing dirs whose ancestor is already 'full'
+    candidates.sort((a, b) => a.length - b.length); // ancestors first
+    const kept: string[] = [];
+    for (const dir of candidates) {
+      const isCovered = kept.some((p) => p === '/' ? dir !== '/' : (dir === p || dir.startsWith(p + '/')));
+      if (!isCovered) kept.push(dir);
+    }
+    return kept;
+  }, [folderSelectionCache, folderIndex]);
+
+  // Paths to exclude from per-file cards (covered by folder cards)
+  const excludedFilePaths = useMemo(() => {
+    if (!folderSelectionCache || fullDirs.length === 0) return new Set<string>();
+    const set = new Set<string>();
+    for (const dir of fullDirs) {
+      const filesInDir = getFilesInFolder(folderIndex, dir);
+      for (const p of filesInDir) set.add(p);
+    }
+    return set;
+  }, [folderSelectionCache, fullDirs, folderIndex]);
+
+  // Prepare folder cards with counts
+  const folderCards = useMemo(() => {
+    return fullDirs.map((dir) => ({ dir, count: getFilesInFolder(folderIndex, dir).length }));
+  }, [fullDirs, folderIndex]);
+
   // Create expanded cards - one card per line range for files with multiple line ranges
   const expandedCards: ExpandedFileCard[] = [];
   
   for (const file of displayableFiles) {
+    if (excludedFilePaths.has(file.path)) continue; // skip files covered by folder cards
     const selectedFileRef = selectedFilesMap.get(file.path);
     
     if (!selectedFileRef) continue;
@@ -147,6 +185,10 @@ const FileList = ({
     <div className="file-list-container">
       {hasItemsToDisplay ? (
         <div className="file-list">
+          {/* Display selected folders (aggregated) */}
+          {folderCards.map(({ dir, count }) => (
+            <FolderCard key={`folder-card-${dir}`} folderPath={dir} fileCount={count} />
+          ))}
           {/* Display system prompts at the top */}
           {selectedSystemPrompts.map((prompt) => (
             <SystemPromptCard

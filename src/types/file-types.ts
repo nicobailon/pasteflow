@@ -90,6 +90,7 @@ export interface FileListProps {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
   };
+  folderSelectionCache?: DirectorySelectionCache;
   selectedSystemPrompts?: SystemPrompt[];
   toggleSystemPromptSelection?: (prompt: SystemPrompt) => void;
   onViewSystemPrompt?: (prompt: SystemPrompt) => void;

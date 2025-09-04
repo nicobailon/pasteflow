@@ -388,11 +388,27 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
     return false;
   }
   
-  // Check if folderSelectionCache changed for directories
-  // CRITICAL: Do NOT call .get(...) here — it reads current global state for both prev/next and can mask changes.
-  // Rely solely on wrapper identity to detect updates (wrapper identity is recreated when optimistic/progressive versions change).
-  return !(prevProps.node.type === 'directory' && prevProps.folderSelectionCache !== nextProps.folderSelectionCache);
+  // Re-render when folderSelectionCache wrapper identity changes, because files may derive
+  // optimistic visual state from ancestor directories, and directories derive their own state.
+  if (prevProps.folderSelectionCache !== nextProps.folderSelectionCache) return false;
+
+  return true;
 };
+
+// Helper: check if any ancestor directory of a file is optimistically marked 'full'
+function isSelectedByAncestor(path: string, cache?: DirectorySelectionCache): boolean {
+  if (!cache) return false;
+  if (!path || path === '/') return false;
+  const isAbsolute = path.startsWith('/');
+  const parts = path.split('/').filter(Boolean);
+  // Walk ancestors, excluding the file name itself
+  for (let i = 0; i < Math.max(0, parts.length - 1); i++) {
+    const dirPath = isAbsolute ? '/' + parts.slice(0, i + 1).join('/') : parts.slice(0, i + 1).join('/');
+    if (!dirPath) continue;
+    if (cache.get(dirPath) === 'full') return true;
+  }
+  return false;
+}
 
 // Helper function to get tree item state
 const getTreeItemState = (
@@ -407,6 +423,10 @@ const getTreeItemState = (
   const isSelected = !!selectedFile;
   const isPartiallySelected = isSelected && !!selectedFile?.lines?.length;
   const isDisabled = fileData ? fileData.isBinary || fileData.isSkipped : false;
+  // For files, allow ancestor 'full' state to render the checkbox as checked optimistically
+  const isOptimisticallySelectedByAncestor = type === 'file' && !isDisabled
+    ? isSelectedByAncestor(path, folderSelectionCache)
+    : false;
   // Use cache for directory selection state if available
   let isDirectorySelected = false;
   let isDirectoryPartiallySelected = false;
@@ -430,6 +450,7 @@ const getTreeItemState = (
     isSelected,
     isPartiallySelected,
     isDisabled,
+    isOptimisticallySelectedByAncestor,
     isDirectorySelected,
     isDirectoryPartiallySelected,
     isExcludedByDefault
@@ -506,7 +527,8 @@ const TreeItem = memo(({
     handleTreeItemActions.handleFileNameClick(e, type, state.isDisabled, onViewFile, path);
   };
 
-  const checkboxChecked = type === "file" ? state.isSelected : state.isDirectorySelected;
+  // For files, show checked if actually selected OR optimistically selected via an ancestor folder marked 'full'
+  const checkboxChecked = type === "file" ? (state.isSelected || state.isOptimisticallySelectedByAncestor) : state.isDirectorySelected;
   // Ensure checked takes precedence over indeterminate to avoid visual ambiguity
   const checkboxIndeterminate = type === "directory" ? (state.isDirectoryPartiallySelected && !checkboxChecked) : false;
   const shouldShowToggle = type === "directory";

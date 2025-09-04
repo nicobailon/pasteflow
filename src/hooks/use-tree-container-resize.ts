@@ -41,5 +41,24 @@ export const useTreeContainerResize = (containerRef: RefObject<HTMLDivElement>) 
     };
   }, [containerRef]);
 
+  // Fallback: also respond to window resizes (e.g., Electron maximize)
+  useEffect(() => {
+    const handleWindowResize = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const next = el.clientHeight;
+      if (next > 0) setTreeHeight(next);
+    };
+
+    // Invoke once to capture post-layout sizing changes
+    const raf = requestAnimationFrame(handleWindowResize);
+    window.addEventListener('resize', handleWindowResize);
+    
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', handleWindowResize);
+    };
+  }, [containerRef]);
+
   return treeHeight;
 };

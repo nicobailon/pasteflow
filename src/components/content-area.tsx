@@ -452,6 +452,8 @@ interface ContentAreaProps {
   selectedInstructions: Instruction[];
   toggleInstructionSelection: (instruction: Instruction) => void;
   onViewInstruction?: (instruction: Instruction) => void;
+  // Folder selection cache for UI aggregation in selected files view
+  folderSelectionCache?: import('../types/file-types').DirectorySelectionCache;
   sortOrder: string;
   handleSortChange: (newSort: string) => void;
   sortDropdownOpen: boolean;
@@ -493,6 +495,7 @@ const ContentArea = ({
   openFolder,
   onViewFile,
   processingStatus,
+  folderSelectionCache,
   selectedSystemPrompts,
   toggleSystemPromptSelection,
   onViewSystemPrompt,
@@ -909,6 +912,7 @@ const ContentArea = ({
           openFolder={openFolder}
           onViewFile={onViewFile}
           processingStatus={processingStatus}
+          folderSelectionCache={folderSelectionCache}
           selectedSystemPrompts={selectedSystemPrompts}
           toggleSystemPromptSelection={toggleSystemPromptSelection}
           onViewSystemPrompt={onViewSystemPrompt}

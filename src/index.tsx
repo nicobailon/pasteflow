@@ -142,8 +142,9 @@ const App = () => {
             toggleSelection={appState.toggleSelection}
             openFolder={appState.openFolder}
             onViewFile={appState.openFileViewModal}
-            processingStatus={appState.processingStatus}
-            selectedSystemPrompts={appState.selectedSystemPrompts}
+          processingStatus={appState.processingStatus}
+          folderSelectionCache={appState.folderSelectionCache}
+          selectedSystemPrompts={appState.selectedSystemPrompts}
             toggleSystemPromptSelection={appState.toggleSystemPromptSelection}
             onViewSystemPrompt={appState.openSystemPromptsModalForEdit}
             selectedRolePrompts={appState.selectedRolePrompts}
