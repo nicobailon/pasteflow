@@ -1,5 +1,4 @@
-import { tool } from "ai";
-import { z } from "zod";
+import { tool, jsonSchema } from "ai";
 
 import { getMainTokenService } from "../../services/token-service-main";
 import { validateAndResolvePath, readTextFile, statFile as statFileFs, writeTextFile } from "../file-service";
@@ -25,24 +24,38 @@ export function getAgentTools(deps?: {
 }) {
   const tokenService = getMainTokenService();
 
-  const lineRange = z
-    .object({ start: z.number().int().min(1), end: z.number().int().min(1) })
-    .refine((v) => v.end >= v.start, { message: "end must be >= start" });
+  // Define JSON Schemas explicitly (avoid zod-to-JSON-schema pitfalls)
+  const lineRangeSchema: any = {
+    type: "object",
+    properties: {
+      start: { type: "integer", minimum: 1 },
+      end: { type: "integer", minimum: 1 },
+    },
+    required: ["start", "end"],
+    additionalProperties: false,
+  };
 
-  const fileParams = z.union([
-    // Explicit actions only
-    z.object({ action: z.literal("read"), path: z.string(), lines: lineRange.optional() }),
-    z.object({ action: z.literal("info"), path: z.string() }),
-    z.object({ action: z.literal("list"), directory: z.string(), recursive: z.boolean().optional(), maxResults: z.number().int().min(1).max(10_000).optional() }),
-    // Destructive actions are Phase 4 gated
-    z.object({ action: z.literal("write"), path: z.string(), content: z.string(), apply: z.boolean().optional().default(true) }),
-    z.object({ action: z.literal("move"), from: z.string(), to: z.string() }),
-    z.object({ action: z.literal("delete"), path: z.string() }),
-  ]);
+  const fileParamsSchema: any = {
+    type: "object",
+    properties: {
+      action: { type: "string", enum: ["read", "info", "list", "write", "move", "delete"] },
+      path: { type: "string" },
+      lines: lineRangeSchema,
+      directory: { type: "string" },
+      recursive: { type: "boolean" },
+      maxResults: { type: "integer", minimum: 1, maximum: 10000 },
+      content: { type: "string" },
+      apply: { type: "boolean" },
+      from: { type: "string" },
+      to: { type: "string" },
+    },
+    required: ["action"],
+    additionalProperties: false,
+  };
 
   const file = (tool as any)({
     description: "File operations within the workspace (read/info/list; write/move/delete gated)",
-    parameters: fileParams,
+    inputSchema: jsonSchema(fileParamsSchema),
     execute: async (params: any) => {
       const action: string = String(params?.action || "");
       const security = deps?.security || null;
@@ -59,6 +72,9 @@ export function getAgentTools(deps?: {
         return record({ type: "error" as const, code: 'RATE_LIMITED', message: 'Tool execution rate limited' });
       }
       if (action === "read") {
+        if (typeof params.path !== "string" || params.path.trim() === "") {
+          return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'path' is required for action=read" });
+        }
         const path = params.path as string;
         const lines = (params.lines ?? null) as { start: number; end: number } | null;
         const val = validateAndResolvePath(path);
@@ -85,6 +101,9 @@ export function getAgentTools(deps?: {
       }
 
       if (action === "info") {
+        if (typeof params.path !== "string" || params.path.trim() === "") {
+          return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'path' is required for action=info" });
+        }
         const v = validateAndResolvePath(params.path);
         if (!v.ok) throw new Error(v.message);
         const s = await statFileFs(v.absolutePath);
@@ -93,6 +112,9 @@ export function getAgentTools(deps?: {
       }
 
       if (action === "list") {
+        if (typeof params.directory !== "string" || params.directory.trim() === "") {
+          return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'directory' is required for action=list" });
+        }
         const dirVal = validateAndResolvePath(params.directory);
         if (!dirVal.ok) throw new Error(dirVal.message);
         const fs = await import("node:fs");
@@ -138,10 +160,19 @@ export function getAgentTools(deps?: {
 
   const search = (tool as any)({
     description: "Search operations (code search via ripgrep; file glob)",
-    parameters: z.union([
-      z.object({ action: z.literal("code"), query: z.string().min(1).max(256), directory: z.string().optional(), maxResults: z.number().int().min(1).max(50_000).optional() }),
-      z.object({ action: z.literal("files"), pattern: z.string().min(1).max(256), directory: z.string().optional(), maxResults: z.number().int().min(1).max(10_000).optional(), recursive: z.boolean().optional() }),
-    ]),
+    inputSchema: jsonSchema({
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["code", "files"] },
+        query: { type: "string" },
+        directory: { type: "string" },
+        maxResults: { type: "integer", minimum: 1, maximum: 50000 },
+        pattern: { type: "string" },
+        recursive: { type: "boolean" },
+      },
+      required: ["action"],
+      additionalProperties: false,
+    } as any),
     execute: async (params: any) => {
       const cfg = deps?.config || null;
       const t0 = Date.now();
@@ -155,11 +186,17 @@ export function getAgentTools(deps?: {
       }
       const isCode = params.action === "code";
       if (isCode) {
+        if (typeof params.query !== "string" || params.query.trim() === "") {
+          return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'query' is required for action=code" });
+        }
         const max = Math.min(Number(params?.maxResults || 0) || (cfg?.MAX_SEARCH_MATCHES ?? 500), cfg?.MAX_SEARCH_MATCHES ?? 500);
         const r = await runRipgrepJson({ query: params.query, directory: params.directory, maxResults: max, signal: deps?.signal });
         return record({ ...r, clipped: !!(r as any).truncated });
       }
       if (params.action === "files") {
+        if (typeof params.pattern !== "string" || params.pattern.trim() === "") {
+          return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'pattern' is required for action=files" });
+        }
         // Simple file name contains filter within a directory (non-recursive by default)
         const fs = await import("node:fs");
         const p = await import("node:path");
@@ -190,7 +227,16 @@ export function getAgentTools(deps?: {
 
   const edit = (tool as any)({
     description: "Preview or apply a unified diff to a file",
-    parameters: z.object({ path: z.string(), diff: z.string(), apply: z.boolean().default(false) }),
+    inputSchema: jsonSchema({
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        diff: { type: "string" },
+        apply: { type: "boolean", default: false },
+      },
+      required: ["path", "diff"],
+      additionalProperties: false,
+    } as any),
     execute: async ({ path, diff, apply }: { path: string; diff: string; apply: boolean }) => {
       const onExec = deps?.onToolExecute;
       const t0 = Date.now();
@@ -258,7 +304,14 @@ export function getAgentTools(deps?: {
 
   const context = (tool as any)({
     description: "Summarize provided dual-context (initial + dynamic) envelope",
-    parameters: z.object({ envelope: z.any() }),
+    inputSchema: jsonSchema({
+      type: "object",
+      properties: {
+        envelope: {},
+      },
+      required: ["envelope"],
+      additionalProperties: true,
+    } as any),
     execute: async ({ envelope }: { envelope: any }) => {
       const initFiles = envelope?.initial?.files?.length || 0;
       const dynFiles = envelope?.dynamic?.files?.length || 0;
@@ -268,13 +321,29 @@ export function getAgentTools(deps?: {
 
   const terminal = (tool as any)({
     description: "Terminal execution (stubbed in Phase 3)",
-    parameters: z.object({ command: z.string(), cwd: z.string().optional() }),
+    inputSchema: jsonSchema({
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        cwd: { type: "string" },
+      },
+      required: ["command"],
+      additionalProperties: false,
+    } as any),
     execute: async () => ({ notImplemented: true }),
   });
 
   const generateFromTemplate = (tool as any)({
     description: "Generate file previews from a template (no writes)",
-    parameters: z.object({ type: z.enum(["component", "hook", "api-route", "test"]), name: z.string().min(1).max(200) }),
+    inputSchema: jsonSchema({
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["component", "hook", "api-route", "test"] },
+        name: { type: "string", minLength: 1, maxLength: 200 },
+      },
+      required: ["type", "name"],
+      additionalProperties: false,
+    } as any),
     execute: async ({ type, name }: { type: 'component'|'hook'|'api-route'|'test'; name: string }) => {
       const result = await genFromTemplate(name, type as any);
       // Clip overly large content blobs for safety

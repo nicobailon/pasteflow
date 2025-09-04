@@ -12,6 +12,7 @@ export type ApiErrorCode =
   | 'SERVER_ERROR'
   | 'FILE_SYSTEM_ERROR'
   | 'AI_PROVIDER_CONFIG'
+  | 'AI_INVALID_MODEL'
   // Phase 4 additions
   | 'PREVIEW_NOT_FOUND'
   | 'PREVIEW_TIMEOUT'

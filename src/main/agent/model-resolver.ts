@@ -51,7 +51,8 @@ export type ResolveModelInput = {
 
 export async function resolveModelForRequest(input: ResolveModelInput): Promise<{ model: LanguageModelV1 }>
 {
-  const { db, provider, modelId } = input;
+  const { db, provider } = input;
+  const modelId = canonicalizeModelId(provider, input.modelId);
   const creds = await loadProviderCredentials(db);
 
   if (provider === "openai") {
@@ -98,3 +99,41 @@ export function pickSafeDefaultModel(provider: ProviderId, cfg: AgentConfig): st
   return cat[0]?.id || "gpt-4o-mini";
 }
 
+/**
+ * Canonicalize a user-provided model value to a known provider model id when possible.
+ * Matches against both id and label in the static catalog, case- and punctuation-insensitive.
+ */
+function canonicalizeModelId(provider: ProviderId, id: string): string {
+  try {
+    const raw = String(id || "").trim();
+    if (!raw) return provider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-4o-mini";
+
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const target = norm(raw);
+    const cat = getStaticModels(provider);
+
+    // 1) Exact id match first
+    const exact = cat.find(m => m.id === raw);
+    if (exact) return exact.id;
+
+    // 2) Case-insensitive id match
+    const caseInsensitive = cat.find(m => m.id.toLowerCase() === raw.toLowerCase());
+    if (caseInsensitive) return caseInsensitive.id;
+
+    // 3) Normalized id or label match (remove dashes/spaces/slashes)
+    for (const m of cat) {
+      if (norm(m.id) === target || norm(m.label || m.id) === target) return m.id;
+    }
+
+    // 4) OpenRouter special-case: allow bare OpenAI ids
+    if (provider === "openrouter") {
+      const prefixed = `openai/${raw}`;
+      const pr = cat.find(m => m.id.toLowerCase() === prefixed.toLowerCase());
+      if (pr) return pr.id;
+    }
+
+    return raw; // pass through; provider will validate
+  } catch {
+    return provider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-4o-mini";
+  }
+}

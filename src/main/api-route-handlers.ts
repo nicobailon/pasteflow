@@ -269,7 +269,12 @@ export class APIRouteHandlers {
       }
 
       const uiMessages = parsed.data.messages as any[];
-      const modelMessages = convertToModelMessages(uiMessages);
+      let modelMessages: any[];
+      try {
+        modelMessages = convertToModelMessages(uiMessages);
+      } catch (e) {
+        return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
+      }
 
       // Derive or generate session id
       const headerSession = String((req.headers['x-pasteflow-session'] || req.headers['x-pf-session-id'] || '')).trim();
@@ -332,11 +337,29 @@ export class APIRouteHandlers {
       const provider = (cfg as any).PROVIDER || 'openai';
       const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider: provider as any, modelId: cfg.DEFAULT_MODEL });
 
+      // Dev-only: log tool param kinds to ensure proper schema wiring
+      try {
+        if (process.env.NODE_ENV === 'development') {
+          const snap: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(tools as any)) {
+            // Prefer inputSchema (AI SDK v5), fallback to legacy parameters for dev insight only
+            const schema: any = (v as any)?.inputSchema || (v as any)?.parameters;
+            const tag = schema && typeof schema === 'object'
+              ? (schema?.jsonSchema?.type || schema?._def?.typeName || schema?.type || Object.prototype.toString.call(schema))
+              : typeof schema;
+            snap[k] = tag;
+          }
+          // eslint-disable-next-line no-console
+          console.log('[AI] tool parameter kinds:', snap);
+        }
+      } catch { /* noop */ }
+
+      const disableTools = String(process.env.PF_AGENT_DISABLE_TOOLS || '').toLowerCase() === 'true';
       const result = streamText({
         model,
         system,
         messages: modelMessages,
-        tools,
+        tools: disableTools ? undefined : tools,
         temperature: (cfg as any).TEMPERATURE ?? undefined,
         maxOutputTokens: (cfg as any).MAX_OUTPUT_TOKENS ?? undefined,
         abortSignal: controller.signal,
@@ -364,21 +387,121 @@ export class APIRouteHandlers {
         await this.db.insertUsageSummary(sessionId, null, null, null);
       } catch { /* noop */ }
     } catch (error) {
-      if (this.isProviderConfigError(error)) {
+      // Graceful fallback: invalid tool parameter schema → retry once without tools
+      if (this.isInvalidToolParametersError(error)) {
         try {
-          // Concise, non-sensitive log
           // eslint-disable-next-line no-console
-          console.warn('AI provider config error: missing credentials');
+          console.warn("[AI] Tool schema invalid; retrying without tools");
+
+          // Re-parse request and rebuild minimal call params
+          const ChatBodySchema = z.object({
+            messages: z.array(z.any()),
+            context: AgentContextEnvelopeSchema.optional(),
+            sessionId: z.string().min(1).optional(),
+          });
+          const parsed = ChatBodySchema.safeParse(req.body);
+          if (!parsed.success) {
+            return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
+          }
+
+          let modelMessages: any[];
+          try {
+            modelMessages = convertToModelMessages(parsed.data.messages as any[]);
+          } catch {
+            return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
+          }
+
+          const headerSession = String((req.headers['x-pasteflow-session'] || req.headers['x-pf-session-id'] || '')).trim();
+          const sessionId = parsed.data.sessionId || (headerSession || randomUUID());
+
+          const envelope = parsed.data.context;
+          const allowed = getAllowedWorkspacePaths();
+          const safeEnvelope = envelope ? this.sanitizeContextEnvelope(envelope as any, allowed) : undefined;
+          const system = buildSystemPrompt({
+            initial: safeEnvelope?.initial,
+            dynamic: safeEnvelope?.dynamic ?? { files: [] },
+            workspace: safeEnvelope?.workspace ?? null,
+          });
+
+          const controller = new AbortController();
+          const onAbort = () => { try { controller.abort(); } catch {} };
+          req.on('aborted', onAbort);
+          res.on('close', onAbort);
+
+          const { resolveAgentConfig } = await import('./agent/config');
+          const cfg = await resolveAgentConfig(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+
+          const { resolveModelForRequest } = await import('./agent/model-resolver');
+          const provider = (cfg as any).PROVIDER || 'openai';
+          const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider: provider as any, modelId: cfg.DEFAULT_MODEL });
+
+          const result = streamText({
+            model,
+            system,
+            messages: modelMessages,
+            tools: undefined, // retry without tools
+            temperature: (cfg as any).TEMPERATURE ?? undefined,
+            maxOutputTokens: (cfg as any).MAX_OUTPUT_TOKENS ?? undefined,
+            abortSignal: controller.signal,
+            onAbort: () => {},
+          });
+
+          result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
+
+          try {
+            const maxMsgs = Number(process.env.PF_AGENT_MAX_SESSION_MESSAGES ?? 50);
+            const msgJson = JSON.stringify(Array.isArray(parsed.data.messages) ? parsed.data.messages.slice(-Math.max(1, maxMsgs)) : parsed.data.messages);
+            const activeId = await this.db.getPreference('workspace.active');
+            const ws = activeId ? await this.db.getWorkspace(String(activeId)) : null;
+            await this.db.upsertChatSession(sessionId, msgJson, ws ? String(ws.id) : null);
+          } catch { /* ignore */ }
+
+          try {
+            await this.db.insertUsageSummary(sessionId, null, null, null);
+          } catch { /* noop */ }
+
+          return; // streamed response
+        } catch (fallbackError) {
+          // If fallback fails, continue with existing error mapping below
+          error = fallbackError;
+        }
+      }
+      // Classify provider config issues (missing/invalid keys)
+      if (this.isProviderConfigError(error) || this.isAuthError(error)) {
+        try { console.warn('AI provider config error or auth failure'); } catch { /* noop */ }
+        let providerName = 'openai';
+        try {
+          const { resolveAgentConfig } = await import('./agent/config');
+          const cfg2 = await resolveAgentConfig(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+          providerName = (cfg2 as any).PROVIDER || 'openai';
         } catch { /* noop */ }
         return res
           .status(503)
           .json(
-            toApiError('AI_PROVIDER_CONFIG', 'AI provider credentials missing', {
-              provider: (cfg as any).PROVIDER || 'openai',
-              reason: 'credentials-missing',
+            toApiError('AI_PROVIDER_CONFIG', 'AI provider credentials missing or invalid', {
+              provider: providerName,
+              reason: this.isProviderConfigError(error) ? 'credentials-missing' : 'unauthorized',
             })
           );
       }
+
+      // Invalid/unknown model id → 400 surfaced to UI as user-fixable
+      if (this.isInvalidModelError(error)) {
+        const modelId = (await import('./agent/config')).resolveAgentConfig(this.db as any).then(c => (c as any).DEFAULT_MODEL).catch(() => undefined);
+        const resolved = await Promise.resolve(modelId).catch(() => undefined);
+        return res.status(400).json(
+          toApiError('AI_INVALID_MODEL', 'Selected model is not available', {
+            model: resolved || undefined,
+          })
+        );
+      }
+
+      // If provider exposes an HTTP status, forward when sensible (e.g., 429)
+      const status = this.getStatusFromAIError(error);
+      if (status && status >= 400 && status <= 599) {
+        return res.status(status).json(toApiError(status === 429 ? 'RATE_LIMITED' : 'SERVER_ERROR', (error as Error)?.message || 'Request failed'));
+      }
+
       const message = (error as Error)?.message || 'Unknown error';
       return res.status(500).json(toApiError('SERVER_ERROR', message));
     }
@@ -847,5 +970,56 @@ export class APIRouteHandlers {
     } catch {
       return false;
     }
+  }
+
+  // Treat 401/403 as auth/provider config issues to surface a Configure banner
+  private isAuthError(err: unknown): boolean {
+    try {
+      const anyErr = err as any;
+      const status = Number(anyErr?.status ?? anyErr?.statusCode ?? anyErr?.response?.status ?? anyErr?.cause?.status);
+      if (status === 401 || status === 403) return true;
+      const msg = String(anyErr?.message || '').toLowerCase();
+      return msg.includes('unauthorized') || msg.includes('invalid api key');
+    } catch { return false; }
+  }
+
+  // Detect invalid/unknown model errors across providers
+  private isInvalidModelError(err: unknown): boolean {
+    try {
+      const anyErr = err as any;
+      const status = Number(anyErr?.status ?? anyErr?.statusCode ?? anyErr?.response?.status ?? anyErr?.cause?.status);
+      if (status === 404) return true;
+      const msg = String(anyErr?.message || '').toLowerCase();
+      if (msg.includes('model_not_found')) return true;
+      if (msg.includes('model') && msg.includes('does not exist')) return true;
+      if (msg.includes('unknown model') || msg.includes('invalid model')) return true;
+      return false;
+    } catch { return false; }
+  }
+
+  // Extract a provider-supplied HTTP status, if any
+  private getStatusFromAIError(err: unknown): number | null {
+    try {
+      const anyErr = err as any;
+      const status = Number(anyErr?.status ?? anyErr?.statusCode ?? anyErr?.response?.status ?? anyErr?.cause?.status);
+      if (Number.isFinite(status)) return status;
+      const msg = String(anyErr?.message || '').toLowerCase();
+      if (/(?:^|\b)(429|too many requests)(?:\b|$)/.test(msg)) return 429;
+      return null;
+    } catch { return null; }
+  }
+
+  // Detect invalid tool schema/parameters errors (e.g., OpenAI Responses API)
+  private isInvalidToolParametersError(err: unknown): boolean {
+    try {
+      const anyErr = err as any;
+      const msg = String(anyErr?.message || '').toLowerCase();
+      const code = String(anyErr?.code || anyErr?.data?.error?.code || '').toLowerCase();
+      const param = String(anyErr?.param || anyErr?.data?.error?.param || '').toLowerCase();
+      if (code.includes('invalid_function_parameters')) return true;
+      if (msg.includes('invalid_function_parameters')) return true;
+      if (msg.includes('parameters must be json schema type') && (param.includes('tools') || msg.includes('tools'))) return true;
+      return false;
+    } catch { return false; }
   }
 }

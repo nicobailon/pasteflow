@@ -21,7 +21,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
   // API info from preload
   function useApiInfo() {
     const info = (window as any).__PF_API_INFO || {};
-    const apiBase = typeof info.apiBase === "string" ? info.apiBase : "http://127.0.0.1:5839";
+    const apiBase = typeof info.apiBase === "string" ? info.apiBase : "http://localhost:5839";
     const authToken = typeof info.authToken === "string" ? info.authToken : "";
     return { apiBase, authToken };
   }

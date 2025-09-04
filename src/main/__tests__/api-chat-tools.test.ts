@@ -17,7 +17,8 @@ jest.mock("ai", () => {
       pipeUIMessageStreamToResponse: (res: any) => res.status(200).end(),
     })),
     convertToModelMessages: jest.fn((msgs: any) => msgs),
-    tool: (def: any) => def, // pass-through for shape intropsection only
+    tool: (def: any) => def, // pass-through for shape introspection only
+    jsonSchema: (schema: any) => ({ jsonSchema: schema, validate: async (v: any) => ({ success: true, value: v }) }),
   };
 });
 
@@ -43,4 +44,3 @@ describe("handleChat tools wiring", () => {
     }
   });
 });
-

@@ -51,7 +51,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
   // Bridge provided by preload/IPC (fallback for tests/dev)
   function useApiInfo() {
     const info = (window as any).__PF_API_INFO || {};
-    const apiBase = typeof info.apiBase === "string" ? info.apiBase : "http://127.0.0.1:5839";
+    const apiBase = typeof info.apiBase === "string" ? info.apiBase : "http://localhost:5839";
     const authToken = typeof info.authToken === "string" ? info.authToken : "";
     return { apiBase, authToken };
   }

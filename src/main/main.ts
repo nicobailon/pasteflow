@@ -185,14 +185,14 @@ function createWindow(): void {
       ? "default-src 'self';" +
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: http://localhost:*;" +
         "worker-src 'self' blob:;" +
-        "connect-src 'self' http://localhost:* ws://localhost:*;" +
+        "connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*;" +
         "style-src 'self' 'unsafe-inline';" +
         "img-src 'self' data: blob:;" +
         "font-src 'self' data:;"
       : "default-src 'self';" +
         "script-src 'self' 'wasm-unsafe-eval' blob:;" +
         "worker-src 'self' blob:;" +
-        "connect-src 'self';" +
+        "connect-src 'self' http://localhost:* http://127.0.0.1:*;" +
         "style-src 'self' 'unsafe-inline';" +
         "img-src 'self' data: blob:;" +
         "font-src 'self' data:;";
@@ -326,7 +326,7 @@ app.whenReady().then(async () => {
         const { resolveAgentConfig } = await import('./agent/config');
         await resolveAgentConfig(database as unknown as { getPreference: (k: string) => Promise<unknown> });
         const payload = {
-          apiBase: `http://127.0.0.1:${port}`,
+          apiBase: `http://localhost:${port}`,
           authToken: token,
         };
         // Attach to a well-known global for the renderer (read by AgentPanel)

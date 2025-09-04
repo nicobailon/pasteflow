@@ -64,6 +64,26 @@ export class PasteFlowAPIServer {
   }
 
   private setupMiddleware(): void {
+    // Dev-only CORS to allow Vite renderer to call local API on a different port
+    this.app.use((req: Request, res: Response, next: NextFunction) => {
+      try {
+        const isDev = process.env.NODE_ENV === 'development';
+        const origin = String(req.headers.origin || '');
+        // Allow localhost origins during dev for cross-port requests (e.g., 5173 -> 5839)
+        if (isDev && /^http:\/\/localhost:\d+$/.test(origin)) {
+          res.header('Access-Control-Allow-Origin', origin);
+          res.header('Vary', 'Origin');
+          res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+          res.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,Accept');
+          res.header('Access-Control-Allow-Credentials', 'true');
+          if (req.method === 'OPTIONS') {
+            return res.status(204).end();
+          }
+        }
+      } catch { /* noop */ }
+      return next();
+    });
+
     // Authorization first to minimize processing on unauthorized requests
     this.app.use((req: Request, res: Response, next: NextFunction) => {
       if (this.auth.validate(req.headers.authorization)) {

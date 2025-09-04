@@ -7,6 +7,21 @@ export function installAgentAuthInterceptor(): void {
     if (w.__PF_FETCH_AUTH_INSTALLED) return;
     const originalFetch: typeof window.fetch = window.fetch.bind(window);
 
+    // Small helper: wait briefly for main to inject { apiBase, authToken }
+    const waitForAuthInfo = async (timeoutMs = 800): Promise<{ apiBase?: string; authToken?: string }> => {
+      const start = Date.now();
+      // quick path
+      let info = (window as any).__PF_API_INFO || {};
+      if (info && typeof info.authToken === 'string' && info.authToken) return info;
+      // poll up to timeout
+      while (Date.now() - start < timeoutMs) {
+        await new Promise((r) => setTimeout(r, 50));
+        info = (window as any).__PF_API_INFO || {};
+        if (info && typeof info.authToken === 'string' && info.authToken) return info;
+      }
+      return info || {};
+    };
+
     window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
       try {
         const toUrl = (inp: RequestInfo | URL): URL => {
@@ -20,19 +35,23 @@ export function installAgentAuthInterceptor(): void {
 
         // Attach Authorization for API calls
         if (url.pathname.startsWith('/api/')) {
-          const info = (window as any).__PF_API_INFO || {};
-          const token = typeof info.authToken === 'string' ? info.authToken : '';
-          if (token) {
-            const hdrs = new Headers(init?.headers || (input as any)?.headers || undefined);
-            hdrs.set('Authorization', `Bearer ${token}`);
-            init = { ...(init || {}), headers: hdrs };
-          }
+          const p = waitForAuthInfo();
+          return p.then((info) => {
+            const token = typeof info.authToken === 'string' ? info.authToken : '';
+            if (token) {
+              const hdrs = new Headers(init?.headers || (input as any)?.headers || undefined);
+              hdrs.set('Authorization', `Bearer ${token}`);
+              init = { ...(init || {}), headers: hdrs };
+            }
 
-          // Normalize /api/chat -> /api/v1/chat (dev convenience)
-          if (url.pathname === '/api/chat') {
-            url.pathname = '/api/v1/chat';
-            input = url.toString();
-          }
+            // Normalize /api/chat -> /api/v1/chat (dev convenience)
+            if (url.pathname === '/api/chat') {
+              url.pathname = '/api/v1/chat';
+              input = url.toString();
+            }
+
+            return originalFetch(input as any, init);
+          });
         }
       } catch {
         // ignore and fall back to original fetch
@@ -45,4 +64,3 @@ export function installAgentAuthInterceptor(): void {
     // If anything goes wrong, do nothing
   }
 }
-
