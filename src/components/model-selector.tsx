@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Dropdown from "./dropdown";
+import "./model-selector.css";
 
 type ProviderId = "openai" | "anthropic" | "openrouter";
 
@@ -26,6 +27,26 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
   }
   const { apiBase, authToken } = useApiInfo();
 
+  // Minimal static fallback catalog to ensure models are selectable even if the API list fails (e.g., auth race on startup)
+  const STATIC_FALLBACK: Record<ProviderId, CatalogModel[]> = {
+    openai: [
+      { id: "gpt-5", label: "GPT-5", supportsTools: true },
+      { id: "gpt-5-mini", label: "GPT-5 Mini", supportsTools: true },
+      { id: "gpt-5-nano", label: "GPT-5 Nano", supportsTools: true },
+      { id: "gpt-4o-mini", label: "GPT-4o Mini (fallback)", supportsTools: true },
+      { id: "gpt-5-chat-latest", label: "GPT-5 Chat (router)", supportsTools: true },
+    ],
+    anthropic: [
+      { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4 (2025-05-14)", supportsTools: true },
+      { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku (2024-10-22)", supportsTools: true },
+    ],
+    openrouter: [
+      { id: "openai/gpt-5", label: "OpenRouter • OpenAI GPT-5", supportsTools: true },
+      { id: "openai/gpt-4o-mini", label: "OpenRouter • OpenAI GPT-4o Mini", supportsTools: true },
+      { id: "anthropic/claude-sonnet-4-20250514", label: "OpenRouter • Claude Sonnet 4", supportsTools: true },
+    ],
+  };
+
   // Load current provider/model from prefs
   useEffect(() => {
     let mounted = true;
@@ -49,12 +70,16 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
     try {
       const url = `${apiBase}/api/v1/models?provider=${encodeURIComponent(prov)}`;
       const res = await fetch(url, { headers: { Authorization: authToken ? `Bearer ${authToken}` : '' } });
+      if (!res.ok) {
+        setModels(STATIC_FALLBACK[prov] || []);
+        return;
+      }
       const json = await res.json();
       const data = json?.data || json; // server returns ok({ ... })
       const list = Array.isArray(data?.models) ? data.models : [];
-      setModels(list);
+      setModels(list.length > 0 ? list : (STATIC_FALLBACK[prov] || []));
     } catch {
-      setModels([]);
+      setModels(STATIC_FALLBACK[prov] || []);
     } finally {
       setLoading(false);
     }
@@ -89,7 +114,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
   }
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div className="model-selector-compact" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
       <div style={{ minWidth: 130 }}>
         <Dropdown
           options={providerOptions}
@@ -98,6 +123,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
           buttonLabel={`Provider: ${providerOptions.find(o => o.value === provider)?.label ?? provider}`}
           position="left"
           placement="top"
+          variant="minimal"
         />
       </div>
       <div style={{ minWidth: 220 }}>
@@ -108,9 +134,9 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
           buttonLabel={loading ? 'Loading models…' : (modelOptions.find(o => o.value === model)?.label ?? 'Select Model')}
           position="left"
           placement="top"
+          variant="minimal"
         />
       </div>
-      <button className="secondary" onClick={() => onOpenSettings?.()} title="Model settings">Settings</button>
     </div>
   );
 }

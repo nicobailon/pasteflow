@@ -155,17 +155,21 @@ export class APIRouteHandlers {
       const { createOpenAI } = await import('@ai-sdk/openai');
       const { createAnthropic } = await import('@ai-sdk/anthropic');
       const { generateText } = await import('ai');
+      const { loadProviderCredentials } = await import('./agent/model-resolver');
+
+      // Load stored credentials when not provided explicitly
+      const creds = await loadProviderCredentials(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
 
       let lm: any;
       if (provider === 'openai') {
-        const client = createOpenAI({ apiKey: apiKey || undefined });
+        const client = createOpenAI({ apiKey: apiKey || creds.openai?.apiKey || undefined });
         lm = client(model);
       } else if (provider === 'anthropic') {
-        const client = createAnthropic({ apiKey: apiKey || undefined });
+        const client = createAnthropic({ apiKey: apiKey || creds.anthropic?.apiKey || undefined });
         lm = client(model);
       } else {
         // openrouter uses OpenAI-compatible client with baseURL
-        const client = createOpenAI({ apiKey: apiKey || undefined, baseURL: baseUrl || 'https://openrouter.ai/api/v1' });
+        const client = createOpenAI({ apiKey: apiKey || creds.openrouter?.apiKey || undefined, baseURL: baseUrl || creds.openrouter?.baseUrl || 'https://openrouter.ai/api/v1' });
         lm = client(model);
       }
 

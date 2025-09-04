@@ -11,6 +11,7 @@ interface AgentChatInputWithMentionProps {
   allFiles?: FileData[];
   selectedFolder?: string | null;
   onFileMention: (absPath: string, lines?: { start: number; end: number } | null) => void;
+  overlay?: React.ReactNode;
 }
 
 /**
@@ -26,6 +27,7 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
   allFiles = [],
   selectedFolder = null,
   onFileMention,
+  overlay,
 }: AgentChatInputWithMentionProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -80,6 +82,17 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
       const paddingLeft = Number.parseInt(computed.paddingLeft) || 12;
       const charWidth = fontSize * (UI?.INSTRUCTIONS_INPUT?.CHAR_WIDTH_FACTOR ?? 0.55);
       metricsRef.current = { lineHeight, fontSize, paddingLeft, charWidth };
+      // Clamp textarea height to 3–6 lines on mount/resize
+      try {
+        const padTop = Number.parseInt(computed.paddingTop) || 8;
+        const padBottom = Number.parseInt(computed.paddingBottom) || 8;
+        const minH = lineHeight * 3 + padTop + padBottom;
+        const maxH = lineHeight * 6 + padTop + padBottom;
+        el.style.height = 'auto';
+        const next = Math.max(minH, Math.min(maxH, el.scrollHeight));
+        el.style.height = `${next}px`;
+        el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
+      } catch { /* noop */ }
     };
     recompute();
     window.addEventListener("resize", recompute);
@@ -175,6 +188,20 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     onChange(text);
+    // Auto-resize between ~3 and 6 lines
+    try {
+      const ta = e.target;
+      const computed = window.getComputedStyle(ta);
+      const lineHeight = Number.parseInt(computed.lineHeight) || 20;
+      const padTop = Number.parseInt(computed.paddingTop) || 8;
+      const padBottom = Number.parseInt(computed.paddingBottom) || 8;
+      const minH = lineHeight * 3 + padTop + padBottom;
+      const maxH = lineHeight * 6 + padTop + padBottom;
+      ta.style.height = 'auto';
+      const next = Math.max(minH, Math.min(maxH, ta.scrollHeight));
+      ta.style.height = `${next}px`;
+      ta.style.overflowY = ta.scrollHeight > maxH ? 'auto' : 'hidden';
+    } catch { /* noop */ }
     const caret = e.target.selectionStart ?? text.length;
     const q = computeQueryFromValue(text, caret);
     if (q === null) {
@@ -285,6 +312,11 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
         aria-haspopup="listbox"
         aria-expanded={open}
       />
+      {overlay ? (
+        <div className="agent-input-overlay">
+          {overlay}
+        </div>
+      ) : null}
       {open && (
         <AgentFileAutocomplete
           query={query}

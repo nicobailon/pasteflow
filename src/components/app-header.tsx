@@ -1,4 +1,4 @@
-import { Archive, Check, Folder, Loader2, Save, Settings as SettingsIcon } from 'lucide-react';
+import { Archive, Check, Folder, Loader2, Save } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { FileTreeMode } from '../types/file-types';
@@ -11,7 +11,7 @@ import ThemeToggle from './theme-toggle';
 import AutoSaveToggle from './auto-save-toggle';
 import WorkspaceDropdown, { WorkspaceDropdownRef } from './workspace-dropdown';
 import WorkspaceModal from './workspace-modal';
-import Dropdown, { DropdownOption } from './dropdown';
+// Removed app-level settings dropdown for a cleaner header
 
 interface AppHeaderProps {
   selectedFolder: string | null;
@@ -123,24 +123,7 @@ const AppHeader = ({
             onChange={setAutoSaveEnabled} 
           />
         )}
-        {/* Settings menu */}
-        <Dropdown
-          options={[
-            { value: 'integrations', label: 'Integrations' } as DropdownOption,
-          ]}
-          value={''}
-          onChange={(value: string) => {
-            if (value === 'integrations') {
-              window.dispatchEvent(new CustomEvent('pasteflow:open-integrations'));
-            }
-          }}
-          buttonLabel={''}
-          buttonIcon={<SettingsIcon size={18} />}
-          containerClassName={"settings-dropdown"}
-          buttonClassName={"dropdown-header"}
-          closeOnChange={true}
-          position="right"
-        />
+        {/* Settings dropdown removed */}
         <ThemeToggle />
       </div>
       {!toggleWorkspaceModal && appState && (

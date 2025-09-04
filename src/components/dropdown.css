@@ -46,6 +46,18 @@
   outline-offset: 2px;
 }
 
+/* Minimal variant: borderless, tight, subtle hover */
+.dropdown-minimal {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 6px !important;
+}
+
+.dropdown-minimal:hover {
+  background: var(--background-primary) !important;
+}
+
 .dropdown-button svg,
 .dropdown-header svg {
   width: 14px;

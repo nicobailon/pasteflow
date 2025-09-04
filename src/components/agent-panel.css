@@ -45,14 +45,63 @@
 
 .agent-input {
   width: 100%;
-  resize: vertical;
-  min-height: 2.25rem;
-  max-height: 8rem;
+  resize: none; /* do not allow manual resize */
+  min-height: 3.25rem; /* ~3 lines baseline */
   padding: 0.5rem 0.6rem;
+  padding-bottom: 48px; /* reserve space for inline submit icon */
   border-radius: 0.25rem;
   border: 0.0625rem solid var(--border-color);
   background: var(--background-primary);
   color: var(--text-primary);
+  overflow-y: auto; /* internal scroll when exceeding max */
+}
+
+.agent-input-overlay {
+  position: absolute;
+  left: 10px;
+  right: 8px;
+  bottom: 13px; /* equal spacing to right/bottom */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none; /* let children opt-in */
+}
+
+.agent-input-overlay > * {
+  pointer-events: auto;
+}
+
+.agent-input-submit {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--background-secondary);
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.agent-input-submit:hover {
+  background: var(--hover-color);
+  color: var(--text-primary);
+}
+
+.agent-input-submit svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.agent-input-underbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
 }
 
 .agent-panel-resize-handle {

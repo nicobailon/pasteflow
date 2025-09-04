@@ -6,7 +6,9 @@ import AgentAttachmentList from "./agent-attachment-list";
 import AgentToolCalls from "./agent-tool-calls";
 import IntegrationsModal from "./integrations-modal";
 import ModelSelector from "./model-selector";
+import { ArrowUp } from "lucide-react";
 import ModelSettingsModal from "./model-settings-modal";
+import { Settings as SettingsIcon } from "lucide-react";
 import AgentAlertBanner from "./agent-alert-banner";
 import type { FileData } from "../types/file-types";
 import { extname } from "../file-ops/path";
@@ -390,31 +392,9 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       <div className="agent-panel-header">
         <div className="agent-panel-title">Agent</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button
-            className="secondary"
-            onClick={async () => {
-              if (!sessionId) return;
-              try {
-                const result: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:export-session', sessionId);
-                const file = (result && typeof result === 'object' && result.success && result.data?.file) ? result.data.file : null;
-                if (file) {
-                  alert(`Session exported to: ${file}`);
-                } else {
-                  const payload = (result && typeof result === 'object' && result.success) ? result.data : null;
-                  const size = payload ? JSON.stringify(payload).length : 0;
-                  alert(`Session export available (${size} bytes)`);
-                }
-              } catch (err) {
-                alert(`Export failed: ${String((err as Error)?.message || err)}`);
-              }
-            }}
-            title="Export Session"
-            aria-label="Export Session"
-            disabled={!sessionId}
-          >
-            Export Session
+          <button className="secondary" onClick={() => setShowModelSettings(true)} title="Agent Settings" aria-label="Agent Settings">
+            <SettingsIcon size={16} />
           </button>
-          <button className="secondary" onClick={() => setShowModelSettings(true)} title="Model Settings" aria-label="Model Settings">Settings</button>
           {status === "streaming" || status === "submitted" ? (
             <button className="cancel-button" onClick={interruptNow} title="Stop" aria-label="Stop generation">Stop</button>
           ) : ((hasOpenAIKey === false || errorStatus === 503) ? (
@@ -517,19 +497,22 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
                 return next;
               })
             }
+            overlay={
+              <>
+                <button
+                  className="agent-input-submit"
+                  type="submit"
+                  title="Send"
+                  aria-label="Send"
+                  disabled={(status === "streaming" || status === "submitted") || !composer.trim()}
+                >
+                  <ArrowUp size={14} />
+                </button>
+              </>
+            }
           />
-          <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: 'center' }}>
-            <div style={{ flex: 1 }}>
-              <ModelSelector onOpenSettings={() => setShowModelSettings(true)} />
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{tokenHint}</div>
-            <button
-              className="primary"
-              type="submit"
-              disabled={(status === "streaming" || status === "submitted") || !composer.trim()}
-            >
-              Send
-            </button>
+          <div className="agent-input-underbar">
+            <ModelSelector onOpenSettings={() => setShowModelSettings(true)} />
           </div>
         </form>
       </div>
@@ -542,7 +525,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       />
 
       <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
-      <ModelSettingsModal isOpen={showModelSettings} onClose={() => setShowModelSettings(false)} />
+      <ModelSettingsModal isOpen={showModelSettings} onClose={() => setShowModelSettings(false)} sessionId={sessionId} />
     </div>
   );
 };

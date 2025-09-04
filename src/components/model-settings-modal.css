@@ -1,0 +1,114 @@
+.model-settings-modal .modal-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.model-settings-modal .integrations-note {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.model-settings-modal .integration-field {
+  margin-top: 10px;
+}
+
+.model-settings-modal .integration-input {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.model-settings-modal .integration-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.model-settings-modal .integration-label {
+  font-size: 12px;
+}
+
+.model-settings-modal .configured-indicator {
+  font-size: 11px;
+}
+
+/* New cleaner layout */
+.model-settings-modal .settings-tabs {
+  display: inline-flex;
+  gap: 8px;
+  margin: 8px 0 10px 0;
+}
+
+.model-settings-modal .tab-button {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--background-secondary);
+  color: var(--text-primary);
+}
+
+.model-settings-modal .tab-button.active {
+  background: var(--background-primary);
+  border-color: var(--accent-blue);
+}
+
+.model-settings-modal .settings-section {
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.model-settings-modal .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.model-settings-modal .field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.model-settings-modal input[type="text"],
+.model-settings-modal input[type="password"],
+.model-settings-modal input[type="number"] {
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-primary);
+}
+
+.model-settings-modal .actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-settings-modal .actions.right {
+  justify-content: flex-end;
+}
+
+.model-settings-modal .export-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.model-settings-modal .settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 540px) {
+  .model-settings-modal .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}

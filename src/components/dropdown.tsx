@@ -35,7 +35,7 @@ interface DropdownProps {
   showCheckmark?: boolean;
   closeOnChange?: boolean;
   glassEffect?: boolean;
-  variant?: "default" | "primary" | "secondary";
+  variant?: "default" | "primary" | "secondary" | "minimal";
   /**
    * Animation type for dropdown menu appearance.
    * Changed from default "scale" to "fade" for better visual consistency
