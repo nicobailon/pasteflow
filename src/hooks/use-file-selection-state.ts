@@ -251,8 +251,40 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           if (optAlt !== undefined) return optAlt;
         }
 
+        // Fallback: if any ancestor directory is optimistically marked, inherit that state.
+        // This ensures newly-appearing descendants reflect parent toggles immediately
+        // even if they weren't present in the folder index/cache at click time.
+        if (path && path !== '/') {
+          const isAbs = path.startsWith('/');
+          const parts = path.split('/').filter(Boolean);
+          for (let i = parts.length - 1; i >= 1; i--) {
+            const ancestor = (isAbs ? '/' : '') + parts.slice(0, i).join('/');
+            const altAncestor = ancestor.startsWith('/') ? ancestor.slice(1) : ('/' + ancestor);
+            const state = optimisticFolderStatesRef.current.get(ancestor);
+            if (state !== undefined) return state;
+            const altState = optimisticFolderStatesRef.current.get(altAncestor);
+            if (altState !== undefined) return altState;
+          }
+        }
+
         // Fall back to base cache (which already mirrors variants internally)
-        return cache.get(path);
+        const baseState = cache.get(path);
+        // If base resolved to a concrete state (full or partial), use it
+        if (baseState !== 'none') return baseState;
+
+        // As a final fallback, inherit from any ancestor already computed in base cache.
+        // This fills in transient gaps where parent is resolved but child hasn't been recomputed yet.
+        if (path && path !== '/') {
+          const isAbs2 = path.startsWith('/');
+          const parts2 = path.split('/').filter(Boolean);
+          for (let i = parts2.length - 1; i >= 1; i--) {
+            const anc2 = (isAbs2 ? '/' : '') + parts2.slice(0, i).join('/');
+            const ancState = cache.get(anc2);
+            if (ancState === 'full') return 'full';
+          }
+        }
+
+        return baseState;
       },
       set: cache.set.bind(cache),
       bulkUpdate: cache.bulkUpdate.bind(cache),
@@ -437,6 +469,16 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
         }
         if (updates.size > 0) {
           cache.bulkUpdate?.(updates);
+          // Mirror cascaded states into optimistic map as well to guarantee immediate UI reflection
+          // even if overlay recompute or cleanup timing causes gaps.
+          let applied = 0;
+          for (const dir of updates.keys()) {
+            optimisticFolderStatesRef.current.set(dir, newState);
+            const alt = dir.startsWith('/') ? dir.slice(1) : ('/' + dir);
+            optimisticFolderStatesRef.current.set(alt, newState);
+            applied++;
+            if (applied > 400) break; // stay bounded
+          }
         }
       } catch {}
       const paths = new Set<string>(selectedFiles.map(f => f.path));
@@ -508,19 +550,27 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     let index = 0;
     const CHUNK = BULK.REMOVE_CHUNK;
     const kept: SelectedFileReference[] = [];
+    // Maintain an accurate live set of selected paths during removals to avoid transient "none" states for siblings
+    const liveSelectedSet = new Set<string>(snapshot.map(f => f.path));
     const endMeasureChunksTotal = perf.startMeasure('selection.apply.remove.chunked.total.ms');
     const buildNext = () => {
       const start = index;
       const end = Math.min(index + CHUNK, total);
+      const removedThisChunk: string[] = [];
       for (let i = start; i < end; i++) {
         const f = snapshot[i];
-        if (!toRemove.has(f.path)) kept.push(f);
+        if (!toRemove.has(f.path)) {
+          kept.push(f);
+        } else {
+          removedThisChunk.push(f.path);
+        }
       }
       index = end;
-      // Keep overlay progressing
+      // Update live selected set by subtracting just-removed items, then drive overlay progressively
       const cache = baseFolderSelectionCacheRef.current;
       if (cache) {
-        const paths = new Set<string>(kept.map(f => f.path));
+        for (const p of removedThisChunk) liveSelectedSet.delete(p);
+        const paths = new Set<string>(liveSelectedSet);
         cache.setSelectedPaths?.(paths);
         cache.startProgressiveRecompute?.({ selectedPaths: paths });
       }

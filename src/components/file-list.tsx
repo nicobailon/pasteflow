@@ -178,8 +178,14 @@ const FileList = ({
     }
   }
 
-  // Calculate if we have any items to display (files, system prompts, role prompts, or instructions)
-  const hasItemsToDisplay = expandedCards.length > 0 || selectedSystemPrompts.length > 0 || selectedRolePrompts.length > 0 || selectedInstructions.length > 0;
+  // Calculate if we have any items to display (folders, files, system prompts, role prompts, or instructions)
+  // Include folderCards so aggregated folder selections render even before per-file refs are materialized
+  const hasItemsToDisplay =
+    folderCards.length > 0 ||
+    expandedCards.length > 0 ||
+    selectedSystemPrompts.length > 0 ||
+    selectedRolePrompts.length > 0 ||
+    selectedInstructions.length > 0;
 
   return (
     <div className="file-list-container">

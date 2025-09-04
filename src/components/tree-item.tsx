@@ -387,10 +387,33 @@ const areEqual = (prevProps: TreeItemProps, nextProps: TreeItemProps) => {
       hasFileDataChanged(prevProps.node.fileData, nextProps.node.fileData)) {
     return false;
   }
-  
+
   // Re-render when folderSelectionCache wrapper identity changes, because files may derive
   // optimistic visual state from ancestor directories, and directories derive their own state.
   if (prevProps.folderSelectionCache !== nextProps.folderSelectionCache) return false;
+
+  // Additionally, detect changes in overlay-driven state even when the cache identity is stable.
+  // - For directories: checkbox state is derived from folderSelectionCache.get(dirPath).
+  // - For files: checkbox may be checked optimistically if any ancestor is marked 'full'.
+  try {
+    const prevCache = prevProps.folderSelectionCache;
+    const nextCache = nextProps.folderSelectionCache;
+    if (prevCache && nextCache) {
+      const path = nextProps.node.path;
+      if (nextProps.node.type === 'directory') {
+        const prevState = prevCache.get(path);
+        const nextState = nextCache.get(path);
+        if (prevState !== nextState) return false;
+      } else if (nextProps.node.type === 'file') {
+        const prevAnc = isSelectedByAncestor(path, prevCache);
+        const nextAnc = isSelectedByAncestor(path, nextCache);
+        if (prevAnc !== nextAnc) return false;
+      }
+    }
+  } catch {
+    // If anything goes wrong during overlay checks, fall back to allowing re-render
+    return false;
+  }
 
   return true;
 };

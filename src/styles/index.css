@@ -170,6 +170,8 @@ input[type="search"]:focus {
   overflow: hidden;
   height: 100%;
   flex-direction: row-reverse;
+  /* Allow flex children to calculate height correctly in nested layouts */
+  min-height: 0;
 }
 
 .sidebar {
@@ -184,6 +186,8 @@ input[type="search"]:focus {
   background-color: var(--background-secondary);
   position: relative;
   transition: width 0.1s ease;
+  /* Important for nested flex: let children measure available space */
+  min-height: 0;
 }
 
 .sidebar-header {
