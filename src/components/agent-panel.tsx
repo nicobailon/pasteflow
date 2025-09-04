@@ -60,6 +60,13 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
   const lastInitialRef = useRef<any | null>(null);
   const { apiBase, authToken } = useApiInfo();
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
+  const [errorInfo, setErrorInfo] = useState<null | {
+    status: number;
+    code?: string;
+    message?: string;
+    details?: any;
+  }>(null);
+  const [notices, setNotices] = useState<{ id: string; variant: 'warning' | 'info'; message: string }[]>([]);
   const hadErrorRef = useRef(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
@@ -93,7 +100,36 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
         const merged = new Headers(init?.headers as HeadersInit | undefined);
         if (token) merged.set('Authorization', `Bearer ${token}`);
         if (sessionId) merged.set('X-Pasteflow-Session', sessionId);
-        return fetch(url, { ...init, headers: merged });
+        return fetch(url, { ...init, headers: merged }).then(async (res) => {
+          // Surface server advisories as UI banners
+          try {
+            const warn = res.headers.get('x-pasteflow-warning');
+            if (warn) {
+              const msg = res.headers.get('x-pasteflow-warning-message')
+                || (warn === 'temperature-ignored' ? 'The temperature setting is not supported for this reasoning model and was ignored.' : String(warn));
+              setNotices((prev) => {
+                // de-duplicate by id
+                if (prev.some((n) => n.id === warn)) return prev;
+                return [...prev, { id: warn, variant: 'warning', message: msg }];
+              });
+            }
+          } catch { /* noop */ }
+          if (!res.ok) {
+            let parsed: any = null;
+            let text: string | null = null;
+            try { parsed = await res.clone().json(); } catch { /* not json */ }
+            if (!parsed) { try { text = await res.text(); } catch { /* ignore */ } }
+            const apiErr = parsed && typeof parsed === 'object' && parsed.error ? parsed.error : null;
+            const err: any = new Error(
+              (apiErr?.message as string) || res.statusText || 'Request failed'
+            );
+            err.status = res.status;
+            err.code = (apiErr?.code as string) || undefined;
+            err.body = parsed || text || null;
+            throw err;
+          }
+          return res;
+        });
       } catch {
         return fetch(input, init);
       }
@@ -115,12 +151,25 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       // Only clear error if there wasn't an error signaled in this turn
       if (!hadErrorRef.current) {
         setErrorStatus(null);
+        setErrorInfo(null);
       }
       hadErrorRef.current = false;
     },
     onError: (err: any) => {
       const code = typeof err?.status === "number" ? err.status : (typeof err?.code === "number" ? err.code : null);
       hadErrorRef.current = true;
+      // Capture any structured error returned by backend
+      try {
+        const payload = (err?.body && typeof err.body === 'object') ? err.body : null;
+        const e = payload?.error || null;
+        if (code && e && typeof e === 'object') {
+          setErrorInfo({ status: code, code: String(e.code || ''), message: String(e.message || ''), details: e.details });
+        } else if (code) {
+          const msg = (typeof err?.message === 'string' && err.message) ? err.message : undefined;
+          const c = (typeof err?.code === 'string' && err.code) ? err.code : undefined;
+          setErrorInfo({ status: code, code: c, message: msg });
+        }
+      } catch { /* noop */ }
       if (code === 429) {
         setErrorStatus(429);
         return;
@@ -404,27 +453,64 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       </div>
 
       <div className="agent-panel-body">
-        {errorStatus === 503 && (
+        {/* Error and notice banners with specific, user-friendly messages */}
+        {notices.map((n) => (
           <AgentAlertBanner
-            variant="error"
-            message="OpenAI API key is missing. Click Configure in the header to add it."
-            onDismiss={() => setErrorStatus(null)}
+            key={n.id}
+            variant={n.variant}
+            message={n.message}
+            onDismiss={() => setNotices((prev) => prev.filter((x) => x.id !== n.id))}
           />
-        )}
-        {errorStatus === 429 && (
-          <AgentAlertBanner
-            variant="warning"
-            message="Rate limited (429). Please wait a moment and try again."
-            onDismiss={() => setErrorStatus(null)}
-          />
-        )}
-        {errorStatus !== null && errorStatus !== 503 && errorStatus !== 429 && (
-          <AgentAlertBanner
-            variant="error"
-            message={`Request failed (${errorStatus}). Please check logs or try again.`}
-            onDismiss={() => setErrorStatus(null)}
-          />
-        )}
+        ))}
+        {(() => {
+          if (errorStatus === 503) {
+            // Prefer structured info when available (e.g., unauthorized vs missing)
+            const reason = String(errorInfo?.details?.reason || '').toLowerCase();
+            const isUnauthorized = reason === 'unauthorized';
+            const msg = isUnauthorized
+              ? 'AI provider rejected the API key. Click Configure to update credentials.'
+              : 'OpenAI API key is missing. Click Configure in the header to add it.';
+            return (
+              <AgentAlertBanner
+                variant="error"
+                message={msg}
+                onDismiss={() => { setErrorStatus(null); setErrorInfo(null); }}
+              />
+            );
+          }
+          if (errorStatus === 429) {
+            const msg = String(errorInfo?.message || '').toLowerCase();
+            const quota = msg.includes('insufficient_quota') || msg.includes('exceeded your current quota') || msg.includes('quota');
+            const display = quota
+              ? (
+                  <span>
+                    OpenAI quota exceeded. Update your billing plan or switch provider. See provider dashboard for details.
+                  </span>
+                )
+              : 'Rate limited (429). Please wait a moment and try again.';
+            return (
+              <AgentAlertBanner
+                variant={quota ? 'error' : 'warning'}
+                message={display}
+                onDismiss={() => { setErrorStatus(null); setErrorInfo(null); }}
+              />
+            );
+          }
+          if (errorStatus !== null) {
+            const baseMsg = errorInfo?.message && errorInfo.message.trim().length > 0
+              ? errorInfo.message
+              : 'Please check logs or try again.';
+            const codeTxt = errorInfo?.code ? ` [${errorInfo.code}]` : '';
+            return (
+              <AgentAlertBanner
+                variant="error"
+                message={`Request failed (${errorStatus})${codeTxt}. ${baseMsg}`}
+                onDismiss={() => { setErrorStatus(null); setErrorInfo(null); }}
+              />
+            );
+          }
+          return null;
+        })()}
         <AgentAttachmentList
           pending={pendingAttachments}
           onRemove={(absPath) => {
@@ -440,19 +526,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
             <div className="agent-banner">Start a conversation or send packed content.</div>
           ) : (
             messages.map((m: any, idx) => {
-              // Extract plain text from message
-              const rawText = (() => {
-                const parts = m?.parts;
-                if (Array.isArray(parts)) {
-                  const text = parts
-                    .filter((p: any) => p?.type === "text" && typeof p.text === "string")
-                    .map((p: any) => p.text)
-                    .join("");
-                  return text || JSON.stringify(m);
-                }
-                if (typeof m?.content === "string") return m.content;
-                return JSON.stringify(m);
-              })();
+              // Extract user-visible text from SDK UI message shape
+              const rawText = extractVisibleTextFromMessage(m);
 
               // Condense user messages that embed file code blocks
               const displayText =
@@ -531,6 +606,31 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
 };
 
 export default AgentPanel;
+
+// Extract a human-readable string from a UI message produced by @ai-sdk/react streams
+function extractVisibleTextFromMessage(m: any): string {
+  try {
+    const parts = m?.parts;
+    if (Array.isArray(parts)) {
+      // Prefer explicit output text parts; fall back to plain text parts
+      const collect = (types: string[]) => parts
+        .filter((p: any) => types.includes(String(p?.type)) && typeof p?.text === "string")
+        .map((p: any) => String(p.text))
+        .join("");
+
+      const outText = collect(["output_text", "output-text", "message", "text"]);
+      if (outText && outText.trim().length > 0) return outText;
+
+      // If assistant message has no user-visible text yet (e.g., only reasoning/step parts), render nothing
+      if (m?.role === "assistant") return "";
+    }
+    if (typeof m?.content === "string") return m.content;
+    // Avoid dumping raw JSON objects in the UI; keep empty string for unknown shapes
+    return "";
+  } catch {
+    return "";
+  }
+}
 
 function buildDynamicFromAttachments(pending: Map<string, AgentAttachment>) {
   const files = Array.from(pending.values()).map((v) => ({ path: v.path, lines: v.lines ?? null, tokenCount: v.tokenCount }));

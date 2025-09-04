@@ -355,12 +355,33 @@ export class APIRouteHandlers {
       } catch { /* noop */ }
 
       const disableTools = String(process.env.PF_AGENT_DISABLE_TOOLS || '').toLowerCase() === 'true';
+      // Determine whether to include temperature based on model capabilities
+      const modelIdStr = String((cfg as any).DEFAULT_MODEL || "");
+      const isReasoningModel = (() => {
+        try {
+          const s = modelIdStr.toLowerCase();
+          if (!s) return false;
+          // Heuristic: GPT-5 family are reasoning models; exclude router/chat variants
+          if (s.includes("gpt-5") && !s.includes("chat")) return true;
+          return false;
+        } catch { return false; }
+      })();
+
+      const cfgTemperature = (cfg as any).TEMPERATURE;
+      const shouldOmitTemperature = isReasoningModel && typeof cfgTemperature === 'number';
+      if (shouldOmitTemperature) {
+        try {
+          res.setHeader('X-Pasteflow-Warning', 'temperature-ignored');
+          res.setHeader('X-Pasteflow-Warning-Message', 'The temperature setting is not supported for this reasoning model and was ignored.');
+        } catch { /* noop */ }
+      }
+
       const result = streamText({
         model,
         system,
         messages: modelMessages,
         tools: disableTools ? undefined : tools,
-        temperature: (cfg as any).TEMPERATURE ?? undefined,
+        temperature: shouldOmitTemperature ? undefined : ((typeof cfgTemperature === 'number') ? cfgTemperature : undefined),
         maxOutputTokens: (cfg as any).MAX_OUTPUT_TOKENS ?? undefined,
         abortSignal: controller.signal,
         onAbort: () => {
