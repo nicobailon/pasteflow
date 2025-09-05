@@ -14,6 +14,7 @@ import Dropdown from './dropdown';
 import FileList from './file-list';
 import ClipboardPreviewModal from './clipboard-preview-modal';
 import './content-area.css';
+import SendToAgentButton from './send-to-agent-button';
 
 // Helper: find @mention span preceding caret
 const computeQueryFromValue = (text: string, caret: number) => {
@@ -368,7 +369,7 @@ const InstructionsTextareaWithPathAutocomplete = memo(({
   }, [open, results, activeIndex]);
 
   return (
-    <div ref={containerRef} className="autocomplete-container">
+    <div ref={containerRef} className="autocomplete-container main-content-area-input-container">
       {/* ARIA for autocomplete accessibility */}
       <div id={descIdRef.current} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(1px, 1px, 1px, 1px)' }}>
         Use Up and Down arrow keys to navigate suggestions, Enter to insert the selected path, and Escape to close the list.
@@ -451,6 +452,8 @@ interface ContentAreaProps {
   selectedInstructions: Instruction[];
   toggleInstructionSelection: (instruction: Instruction) => void;
   onViewInstruction?: (instruction: Instruction) => void;
+  // Folder selection cache for UI aggregation in selected files view
+  folderSelectionCache?: import('../types/file-types').DirectorySelectionCache;
   sortOrder: string;
   handleSortChange: (newSort: string) => void;
   sortDropdownOpen: boolean;
@@ -492,6 +495,7 @@ const ContentArea = ({
   openFolder,
   onViewFile,
   processingStatus,
+  folderSelectionCache,
   selectedSystemPrompts,
   toggleSystemPromptSelection,
   onViewSystemPrompt,
@@ -908,6 +912,7 @@ const ContentArea = ({
           openFolder={openFolder}
           onViewFile={onViewFile}
           processingStatus={processingStatus}
+          folderSelectionCache={folderSelectionCache}
           selectedSystemPrompts={selectedSystemPrompts}
           toggleSystemPromptSelection={toggleSystemPromptSelection}
           onViewSystemPrompt={onViewSystemPrompt}
@@ -1049,6 +1054,17 @@ const ContentArea = ({
                       <Eye size={16} />
                       <span>Preview</span>
                     </button>
+                    <SendToAgentButton
+                      status={packState.status}
+                      selectedFolder={selectedFolder}
+                      selectedFiles={selectedFiles}
+                      selectedSystemPrompts={selectedSystemPrompts}
+                      selectedRolePrompts={selectedRolePrompts}
+                      selectedInstructions={selectedInstructions}
+                      userInstructions={userInstructions}
+                      tokenEstimate={packState.tokenEstimate}
+                      signature={packState.signature}
+                    />
                     <CopyButton
                       text={() => packState.fullContent || streamingPreview?.fullContent || ''}
                       className="primary copy-selected-files-btn"

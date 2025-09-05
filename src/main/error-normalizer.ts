@@ -9,10 +9,16 @@ export type ApiErrorCode =
   | 'BINARY_FILE'
   | 'NO_ACTIVE_WORKSPACE'
   | 'INTERNAL_ERROR'
+  | 'SERVER_ERROR'
   | 'FILE_SYSTEM_ERROR'
+  | 'AI_PROVIDER_CONFIG'
+  | 'AI_INVALID_MODEL'
   // Phase 4 additions
   | 'PREVIEW_NOT_FOUND'
-  | 'PREVIEW_TIMEOUT';
+  | 'PREVIEW_TIMEOUT'
+  // Phase 4+ agent additions
+  | 'RATE_LIMITED'
+  | 'NOT_FOUND';
 
 export interface ApiError {
   error: {

@@ -222,6 +222,37 @@ export class PasteFlowDatabase {
           updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
         );
 
+        -- Phase 4: Durable agent chat sessions and telemetry
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT,
+          messages TEXT NOT NULL, -- JSON array of messages (capped)
+          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+          updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        );
+
+        CREATE TABLE IF NOT EXISTS tool_executions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          tool_name TEXT NOT NULL,
+          args TEXT,
+          result TEXT,
+          status TEXT,
+          error TEXT,
+          started_at INTEGER,
+          duration_ms INTEGER,
+          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        );
+
+        CREATE TABLE IF NOT EXISTS usage_summary (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          input_tokens INTEGER,
+          output_tokens INTEGER,
+          total_tokens INTEGER,
+          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        );
+
         -- Create indexes
         CREATE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(name);
         CREATE INDEX IF NOT EXISTS idx_workspaces_last_accessed ON workspaces(last_accessed DESC);
@@ -230,6 +261,12 @@ export class PasteFlowDatabase {
         CREATE INDEX IF NOT EXISTS idx_preferences_updated_at ON preferences(updated_at);
         CREATE INDEX IF NOT EXISTS idx_instructions_name ON instructions(name);
         CREATE INDEX IF NOT EXISTS idx_instructions_updated_at ON instructions(updated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at ON chat_sessions(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tool_executions_session ON tool_executions(session_id);
+        CREATE INDEX IF NOT EXISTS idx_tool_executions_started ON tool_executions(started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_usage_summary_session ON usage_summary(session_id);
+        CREATE INDEX IF NOT EXISTS idx_usage_summary_created ON usage_summary(created_at DESC);
       `);
     }, {
       operation: 'create_database_schema',
@@ -331,6 +368,66 @@ export class PasteFlowDatabase {
       operation: 'prepare_statements',
       maxRetries: 3
     });
+  }
+
+  // Phase 4 prepared statements and helpers (inline for simplicity)
+  private stmtUpsertChatSession(): BetterSqlite3.Statement<[string, string, string | null]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      INSERT INTO chat_sessions (id, workspace_id, messages)
+      VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        workspace_id = excluded.workspace_id,
+        messages = excluded.messages,
+        updated_at = strftime('%s', 'now') * 1000
+    `);
+  }
+
+  private stmtGetChatSession(): BetterSqlite3.Statement<[string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`SELECT id, workspace_id, messages, created_at, updated_at FROM chat_sessions WHERE id = ?`);
+  }
+
+  private stmtInsertToolExecution(): BetterSqlite3.Statement<[string, string, string | null, string | null, string | null, string | null, number | null, number | null]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      INSERT INTO tool_executions (session_id, tool_name, args, result, status, error, started_at, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+  }
+
+  private stmtListToolExecutions(): BetterSqlite3.Statement<[string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      SELECT id, session_id, tool_name, args, result, status, error, started_at, duration_ms, created_at
+      FROM tool_executions WHERE session_id = ? ORDER BY created_at ASC
+    `);
+  }
+
+  private stmtInsertUsageSummary(): BetterSqlite3.Statement<[string, number | null, number | null, number | null]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      INSERT INTO usage_summary (session_id, input_tokens, output_tokens, total_tokens)
+      VALUES (?, ?, ?, ?)
+    `);
+  }
+
+  private stmtListUsageSummaries(): BetterSqlite3.Statement<[string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      SELECT id, session_id, input_tokens, output_tokens, total_tokens, created_at
+      FROM usage_summary WHERE session_id = ? ORDER BY created_at ASC
+    `);
+  }
+
+  private stmtPruneToolExecutions(): BetterSqlite3.Statement<[number]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`DELETE FROM tool_executions WHERE created_at < ?`);
+  }
+
+  private stmtPruneUsageSummary(): BetterSqlite3.Statement<[number]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`DELETE FROM usage_summary WHERE created_at < ?`);
   }
 
   // Workspace operations
@@ -472,6 +569,93 @@ export class PasteFlowDatabase {
       operation: 'get_workspace_names'
     });
     return result.result as string[];
+  }
+
+  // Phase 4: Sessions & telemetry
+  async upsertChatSession(sessionId: string, messagesJson: string, workspaceId: string | null = null): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.stmtUpsertChatSession().run(sessionId, workspaceId, messagesJson);
+    }, { operation: 'upsert_chat_session' });
+  }
+
+  async getChatSession(sessionId: string): Promise<{ id: string; workspace_id: string | null; messages: string; created_at: number; updated_at: number } | null> {
+    this.ensureInitialized();
+    const result = await executeWithRetry(async () => {
+      const row = this.stmtGetChatSession().get(sessionId) as any | undefined;
+      return row ?? null;
+    }, { operation: 'get_chat_session' });
+    return result.result as any;
+  }
+
+  async insertToolExecution(entry: {
+    sessionId: string;
+    toolName: string;
+    args?: unknown;
+    result?: unknown;
+    status?: string;
+    error?: string | null;
+    startedAt?: number | null;
+    durationMs?: number | null;
+  }): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.stmtInsertToolExecution().run(
+        entry.sessionId,
+        entry.toolName,
+        entry.args === undefined ? null : JSON.stringify(entry.args),
+        entry.result === undefined ? null : JSON.stringify(entry.result),
+        entry.status ?? null,
+        entry.error ?? null,
+        entry.startedAt ?? null,
+        entry.durationMs ?? null,
+      );
+    }, { operation: 'insert_tool_execution' });
+  }
+
+  async listToolExecutions(sessionId: string): Promise<Array<{
+    id: number; session_id: string; tool_name: string; args: string | null; result: string | null; status: string | null; error: string | null; started_at: number | null; duration_ms: number | null; created_at: number;
+  }>> {
+    this.ensureInitialized();
+    const result = await executeWithRetry(async () => {
+      const rows = this.stmtListToolExecutions().all(sessionId) as any[];
+      return rows;
+    }, { operation: 'list_tool_executions' });
+    return result.result as any[];
+  }
+
+  async insertUsageSummary(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.stmtInsertUsageSummary().run(sessionId, inputTokens ?? null, outputTokens ?? null, totalTokens ?? null);
+    }, { operation: 'insert_usage_summary' });
+  }
+
+  async listUsageSummaries(sessionId: string): Promise<Array<{ id: number; session_id: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; created_at: number }>> {
+    this.ensureInitialized();
+    const result = await executeWithRetry(async () => {
+      const rows = this.stmtListUsageSummaries().all(sessionId) as any[];
+      return rows;
+    }, { operation: 'list_usage_summaries' });
+    return result.result as any[];
+  }
+
+  async pruneToolExecutions(olderThanTs: number): Promise<number> {
+    this.ensureInitialized();
+    const result = await executeWithRetry(async () => {
+      const r = this.stmtPruneToolExecutions().run(olderThanTs);
+      return r.changes || 0;
+    }, { operation: 'prune_tool_executions' });
+    return (result.result as number) ?? 0;
+  }
+
+  async pruneUsageSummary(olderThanTs: number): Promise<number> {
+    this.ensureInitialized();
+    const result = await executeWithRetry(async () => {
+      const r = this.stmtPruneUsageSummary().run(olderThanTs);
+      return r.changes || 0;
+    }, { operation: 'prune_usage_summary' });
+    return (result.result as number) ?? 0;
   }
 
   // Atomic operations

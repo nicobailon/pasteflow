@@ -4,6 +4,7 @@ import { SORT_OPTIONS } from "@constants";
 
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
+import AgentPanel from "./components/agent-panel";
 import InstructionsModal from "./components/instructions-modal";
 import FileViewModal from "./components/file-view-modal";
 import FilterModal from "./components/filter-modal";
@@ -15,10 +16,13 @@ import WorkspaceModal from "./components/workspace-modal";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
 import { initializeCacheRegistry } from "./utils/cache-registry";
+import { installAgentAuthInterceptor } from "./utils/install-agent-auth";
 import { useMemoryMonitoring } from "./hooks/use-memory-monitoring";
 import { getGlobalPerformanceMonitor } from "./utils/performance-monitor";
 
 const App = () => {
+  // Ensure Authorization headers are attached to API calls in dev/runtime
+  installAgentAuthInterceptor();
   // Use our main app state hook
   const appState = useAppState();
 
@@ -32,6 +36,13 @@ const App = () => {
   useEffect(() => {
     // Cleanup function to stop monitoring on unmount
     return initializeCacheRegistry();
+  }, []);
+
+  // Allow other components to open the workspace modal via a simple event
+  useEffect(() => {
+    const open = () => setIsWorkspaceModalOpen(true);
+    window.addEventListener('pasteflow:open-workspaces', open);
+    return () => window.removeEventListener('pasteflow:open-workspaces', open);
   }, []);
 
   // Dev-only: expose performance report helpers on window
@@ -138,8 +149,9 @@ const App = () => {
             toggleSelection={appState.toggleSelection}
             openFolder={appState.openFolder}
             onViewFile={appState.openFileViewModal}
-            processingStatus={appState.processingStatus}
-            selectedSystemPrompts={appState.selectedSystemPrompts}
+          processingStatus={appState.processingStatus}
+          folderSelectionCache={appState.folderSelectionCache}
+          selectedSystemPrompts={appState.selectedSystemPrompts}
             toggleSystemPromptSelection={appState.toggleSystemPromptSelection}
             onViewSystemPrompt={appState.openSystemPromptsModalForEdit}
             selectedRolePrompts={appState.selectedRolePrompts}
@@ -177,6 +189,13 @@ const App = () => {
             toggleExpanded={appState.toggleExpanded}
             fileTreeMode={appState.fileTreeMode}
             clearAllSelections={appState.clearAllSelections}
+          />
+          {/* Left-docked Agent Panel: mounted by default (row-reverse layout -> last = leftmost) */}
+          <AgentPanel
+            allFiles={appState.allFiles}
+            selectedFolder={appState.selectedFolder}
+            currentWorkspace={appState.currentWorkspace}
+            loadFileContent={appState.loadFileContent}
           />
         </div>
         

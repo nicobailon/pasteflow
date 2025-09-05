@@ -11,6 +11,7 @@ import ThemeToggle from './theme-toggle';
 import AutoSaveToggle from './auto-save-toggle';
 import WorkspaceDropdown, { WorkspaceDropdownRef } from './workspace-dropdown';
 import WorkspaceModal from './workspace-modal';
+// Removed app-level settings dropdown for a cleaner header
 
 interface AppHeaderProps {
   selectedFolder: string | null;
@@ -122,6 +123,7 @@ const AppHeader = ({
             onChange={setAutoSaveEnabled} 
           />
         )}
+        {/* Settings dropdown removed */}
         <ThemeToggle />
       </div>
       {!toggleWorkspaceModal && appState && (

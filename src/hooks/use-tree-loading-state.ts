@@ -11,10 +11,17 @@ export const useTreeLoadingState = (
 ) => {
   const [isTreeLoading, setIsTreeLoading] = useState(false);
   const loadingTimerRef = useRef<number | null>(null);
+  const hasEverCompletedRef = useRef<boolean>(false);
 
   useEffect(() => {
+    // Track if we've seen at least one completed tree build
+    if (isTreeBuildingComplete) {
+      hasEverCompletedRef.current = true;
+    }
+
     const isProcessing = processingStatus?.status === "processing";
-    const shouldShowLoading = isProcessing || !isTreeBuildingComplete;
+    // Only show loading if actively processing, or if we've never completed the initial build yet
+    const shouldShowLoading = isProcessing || (!hasEverCompletedRef.current && !isTreeBuildingComplete);
 
     if (shouldShowLoading) {
       setIsTreeLoading(true);
@@ -41,7 +48,8 @@ export const useTreeLoadingState = (
     };
   }, [processingStatus, isTreeLoading, isTreeBuildingComplete]);
 
-  const showLoadingIndicator = isTreeLoading || !isTreeBuildingComplete;
+  // After first completion, keep the tree visible; only show loading UI when actively processing
+  const showLoadingIndicator = isTreeLoading || (!hasEverCompletedRef.current && !isTreeBuildingComplete);
 
   return { showLoadingIndicator, isTreeLoading };
 };

@@ -1,0 +1,202 @@
+.agent-panel {
+  width: 20rem;
+  min-width: 15rem;
+  max-width: 35rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--background-secondary);
+  border-right: 0.0625rem solid var(--border-color);
+  position: relative;
+}
+
+.agent-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 0.0625rem solid var(--border-color);
+}
+
+.agent-panel-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.agent-panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Disabled overlay when no workspace is active */
+.agent-panel-disabled-overlay {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  text-align: center;
+  pointer-events: auto;
+  z-index: 2;
+  top: 49px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  padding: 24px;
+}
+
+.agent-disabled-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.agent-disabled-subtitle {
+  font-size: 12px;
+}
+
+.agent-messages {
+  flex: 1;
+  overflow: auto;
+  padding: 0.5rem 0.75rem;
+  position: relative;
+}
+
+.agent-input-container {
+  padding: 0.5rem;
+  border-top: 0.0625rem solid var(--border-color);
+  background-color: var(--background-secondary);
+}
+
+.agent-input {
+  width: 100%;
+  resize: none; /* do not allow manual resize */
+  min-height: 3.25rem; /* ~3 lines baseline */
+  padding: 0.5rem 0.6rem;
+  padding-bottom: 48px; /* reserve space for inline submit icon */
+  border-radius: 0.25rem;
+  border: 0.0625rem solid var(--border-color);
+  background: var(--background-primary);
+  color: var(--text-primary);
+  overflow-y: auto; /* internal scroll when exceeding max */
+}
+
+.agent-input-overlay {
+  position: absolute;
+  left: 10px;
+  right: 8px;
+  bottom: 13px; /* equal spacing to right/bottom */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none; /* let children opt-in */
+}
+
+.agent-input-overlay > * {
+  pointer-events: auto;
+}
+
+.agent-input-submit {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--background-secondary);
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.agent-input-submit:hover {
+  background: var(--hover-color);
+  color: var(--text-primary);
+}
+
+.agent-input-submit svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.agent-input-underbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+/* Inline, unobtrusive starting indicator in the composer overlay */
+.agent-starting-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px dashed var(--border-color);
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.06));
+  color: var(--text-secondary);
+  font-size: 12px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.agent-starting-chip .agent-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--text-secondary);
+  animation: agent-spin 0.9s linear infinite;
+}
+
+@keyframes agent-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.agent-panel-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -0.3125rem;
+  width: 0.625rem;
+  height: 100%;
+  cursor: col-resize;
+  padding: 0;
+  border: 0;
+  width: 6px;
+  z-index: 10;
+  opacity: 0;
+}
+
+.agent-panel-resize-handle:hover,
+.agent-panel-resize-handle:active {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.agent-banner {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding: 0.25rem 0.75rem;
+}
+
+/* Sticky status banner that stays at the bottom of the scroll area */
+.agent-status-banner {
+  position: sticky;
+  bottom: 0;
+  margin-top: 8px;
+  background: var(--background-secondary);
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  padding: 6px 12px;
+  z-index: 1;
+}

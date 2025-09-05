@@ -198,6 +198,8 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const [optimisticStateVersion, setOptimisticStateVersion] = useState(0);
   const optimisticTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const pendingOperationsRef = useRef<Set<string>>(new Set());
+  // Track folder toggles that computed a noop due to incomplete folder index
+  const pendingFolderTogglesRef = useRef<Map<string, { action: 'add' | 'remove'; ts: number }>>(new Map());
 
   // Performance monitor singleton
   const perf = useMemo(() => getGlobalPerformanceMonitor(), []);
@@ -249,8 +251,40 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           if (optAlt !== undefined) return optAlt;
         }
 
+        // Fallback: if any ancestor directory is optimistically marked, inherit that state.
+        // This ensures newly-appearing descendants reflect parent toggles immediately
+        // even if they weren't present in the folder index/cache at click time.
+        if (path && path !== '/') {
+          const isAbs = path.startsWith('/');
+          const parts = path.split('/').filter(Boolean);
+          for (let i = parts.length - 1; i >= 1; i--) {
+            const ancestor = (isAbs ? '/' : '') + parts.slice(0, i).join('/');
+            const altAncestor = ancestor.startsWith('/') ? ancestor.slice(1) : ('/' + ancestor);
+            const state = optimisticFolderStatesRef.current.get(ancestor);
+            if (state !== undefined) return state;
+            const altState = optimisticFolderStatesRef.current.get(altAncestor);
+            if (altState !== undefined) return altState;
+          }
+        }
+
         // Fall back to base cache (which already mirrors variants internally)
-        return cache.get(path);
+        const baseState = cache.get(path);
+        // If base resolved to a concrete state (full or partial), use it
+        if (baseState !== 'none') return baseState;
+
+        // As a final fallback, inherit from any ancestor already computed in base cache.
+        // This fills in transient gaps where parent is resolved but child hasn't been recomputed yet.
+        if (path && path !== '/') {
+          const isAbs2 = path.startsWith('/');
+          const parts2 = path.split('/').filter(Boolean);
+          for (let i = parts2.length - 1; i >= 1; i--) {
+            const anc2 = (isAbs2 ? '/' : '') + parts2.slice(0, i).join('/');
+            const ancState = cache.get(anc2);
+            if (ancState === 'full') return 'full';
+          }
+        }
+
+        return baseState;
       },
       set: cache.set.bind(cache),
       bulkUpdate: cache.bulkUpdate.bind(cache),
@@ -407,6 +441,215 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     );
   }, [setSelectedFiles, allFilesMap]);
 
+  // Helper to optimistically update folder state and base cache
+  const applyOptimisticFolderState = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => {
+    if (opts?.optimistic === false) return;
+    const newState: 'full' | 'none' = isSelected ? 'full' : 'none';
+    const altPath = folderPath === '/' ? null : (folderPath.startsWith('/') ? folderPath.slice(1) : ('/' + folderPath));
+    const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
+    if (existingTimeout) clearTimeout(existingTimeout);
+    pendingOperationsRef.current.add(folderPath);
+    optimisticFolderStatesRef.current.set(folderPath, newState);
+    if (altPath) optimisticFolderStatesRef.current.set(altPath, newState);
+    const cache = baseFolderSelectionCacheRef.current;
+    if (cache) {
+      // 1) Update the clicked folder
+      cache.set?.(folderPath, newState);
+      // 2) Cascade to descendant directories for immediate visual consistency
+      try {
+        // Collect descendant directories from folderIndex keys (directories with selectable files)
+        const updates = new Map<string, 'full' | 'none'>();
+        for (const dir of folderIndex ? (folderIndex as Map<string, string[]>).keys() : []) {
+          if (dir === folderPath) continue;
+          // Normalize prefix match (ensure proper boundary: '/a' should not match '/ab')
+          const isDescendant = folderPath === '/' ? dir.startsWith('/') : (dir.startsWith(folderPath + '/'));
+          if (isDescendant) {
+            updates.set(dir, newState);
+          }
+        }
+        if (updates.size > 0) {
+          cache.bulkUpdate?.(updates);
+          // Mirror cascaded states into optimistic map as well to guarantee immediate UI reflection
+          // even if overlay recompute or cleanup timing causes gaps.
+          let applied = 0;
+          for (const dir of updates.keys()) {
+            optimisticFolderStatesRef.current.set(dir, newState);
+            const alt = dir.startsWith('/') ? dir.slice(1) : ('/' + dir);
+            optimisticFolderStatesRef.current.set(alt, newState);
+            applied++;
+            if (applied > 400) break; // stay bounded
+          }
+        }
+      } catch {}
+      const paths = new Set<string>(selectedFiles.map(f => f.path));
+      cache.setSelectedPaths?.(paths);
+      setManualCacheVersion(v => v + 1);
+    }
+    setOptimisticStateVersion(v => v + 1);
+    const timeout = setTimeout(() => {
+      if (!pendingOperationsRef.current.has(folderPath)) {
+        optimisticFolderStatesRef.current.delete(folderPath);
+        if (altPath) optimisticFolderStatesRef.current.delete(altPath);
+        setOptimisticStateVersion(v => v + 1);
+        optimisticTimeoutsRef.current.delete(folderPath);
+      }
+    }, FILE_PROCESSING.OPTIMISTIC_UPDATE_CLEANUP_MS);
+    optimisticTimeoutsRef.current.set(folderPath, timeout);
+  }, [selectedFiles]);
+
+  // Run chunked additions for a folder
+  const runAdditionsChunked = useCallback((folderPath: string, additions: string[], onDone?: () => void) => {
+    const endMeasureChunksTotal = perf.startMeasure('selection.apply.add.chunked.total.ms');
+    const total = additions.length;
+    if (total === 0) {
+      pendingOperationsRef.current.delete(folderPath);
+      endMeasureChunksTotal();
+      onDone?.();
+      return;
+    }
+    let index = 0;
+    let chunks = 0;
+    const runChunk = () => {
+      const start = index;
+      const end = Math.min(index + BULK.ADD_CHUNK, total);
+      const slice = additions.slice(start, end);
+      startTransition(() => {
+        setSelectedFiles((prev: SelectedFileReference[]) => {
+          const set = new Set<string>(prev.map(f => f.path));
+          if (slice.every(p => set.has(p))) return prev;
+          const next = [...prev];
+          for (const p of slice) if (!set.has(p)) { set.add(p); next.push({ path: p }); }
+          return next;
+        });
+      });
+      index = end;
+      chunks++;
+      // Keep overlay progressing while applying chunks
+      const cache = baseFolderSelectionCacheRef.current;
+      if (cache) {
+        const paths = new Set<string>([...selectedFiles.map(f => f.path), ...slice]);
+        cache.setSelectedPaths?.(paths);
+        cache.startProgressiveRecompute?.({ selectedPaths: paths });
+      }
+      if (index < total) {
+        Promise.resolve().then(runChunk);
+      } else {
+        endMeasureChunksTotal();
+        perf.recordMetric('selection.apply.chunks', chunks);
+        pendingOperationsRef.current.delete(folderPath);
+        onDone?.();
+      }
+    };
+    runChunk();
+  }, [BULK, perf, selectedFiles, setSelectedFiles]);
+
+  // Run chunked removals for a folder
+  const runRemovalsChunked = useCallback((folderPath: string, toRemove: Set<string>, onDone?: () => void) => {
+    const snapshot = [...selectedFiles];
+    const total = snapshot.length;
+    let index = 0;
+    const CHUNK = BULK.REMOVE_CHUNK;
+    const kept: SelectedFileReference[] = [];
+    // Maintain an accurate live set of selected paths during removals to avoid transient "none" states for siblings
+    const liveSelectedSet = new Set<string>(snapshot.map(f => f.path));
+    const endMeasureChunksTotal = perf.startMeasure('selection.apply.remove.chunked.total.ms');
+    const buildNext = () => {
+      const start = index;
+      const end = Math.min(index + CHUNK, total);
+      const removedThisChunk: string[] = [];
+      for (let i = start; i < end; i++) {
+        const f = snapshot[i];
+        if (!toRemove.has(f.path)) {
+          kept.push(f);
+        } else {
+          removedThisChunk.push(f.path);
+        }
+      }
+      index = end;
+      // Update live selected set by subtracting just-removed items, then drive overlay progressively
+      const cache = baseFolderSelectionCacheRef.current;
+      if (cache) {
+        for (const p of removedThisChunk) liveSelectedSet.delete(p);
+        const paths = new Set<string>(liveSelectedSet);
+        cache.setSelectedPaths?.(paths);
+        cache.startProgressiveRecompute?.({ selectedPaths: paths });
+      }
+      if (index < total) {
+        setTimeout(buildNext, 0);
+      } else {
+        startTransition(() => setSelectedFiles(kept));
+        endMeasureChunksTotal();
+        pendingOperationsRef.current.delete(folderPath);
+        onDone?.();
+      }
+    };
+    buildNext();
+  }, [BULK, perf, selectedFiles, setSelectedFiles]);
+
+  // Try to reconcile any pending folder toggles when file list updates stream in
+  const reconcilePendingFolderToggles = useCallback(() => {
+    if (pendingFolderTogglesRef.current.size === 0) return;
+    const now = Date.now();
+    const TIMEOUT_MS = 5000; // avoid infinite retries
+    for (const [folderPath, info] of [...pendingFolderTogglesRef.current.entries()]) {
+      // Timeout handling
+      if (now - info.ts > TIMEOUT_MS) {
+        pendingFolderTogglesRef.current.delete(folderPath);
+        pendingOperationsRef.current.delete(folderPath);
+        // Clear optimistic state if still present
+        optimisticFolderStatesRef.current.delete(folderPath);
+        const altPath = folderPath === '/' ? null : (folderPath.startsWith('/') ? folderPath.slice(1) : ('/' + folderPath));
+        if (altPath) optimisticFolderStatesRef.current.delete(altPath);
+        setOptimisticStateVersion(v => v + 1);
+        continue;
+      }
+
+      const selectableFiles = getSelectableFolderFiles(allFilesMap, folderIndex, folderPath);
+      const desiredSelected = info.action === 'add';
+      const plan = computeFolderTogglePlan(selectableFiles, selectedFiles, desiredSelected);
+
+      if (plan.kind === 'noop') {
+        // If the directory now exists but the plan is noop, clear pending & optimistic
+        if (selectableFiles.length > 0) {
+          pendingFolderTogglesRef.current.delete(folderPath);
+          pendingOperationsRef.current.delete(folderPath);
+          optimisticFolderStatesRef.current.delete(folderPath);
+          const altPath = folderPath === '/' ? null : (folderPath.startsWith('/') ? folderPath.slice(1) : ('/' + folderPath));
+          if (altPath) optimisticFolderStatesRef.current.delete(altPath);
+          setOptimisticStateVersion(v => v + 1);
+        }
+        continue;
+      }
+
+      // Apply actual changes now
+      pendingFolderTogglesRef.current.delete(folderPath);
+      if (plan.kind === 'add') {
+        runAdditionsChunked(folderPath, plan.additions);
+      } else {
+        runRemovalsChunked(folderPath, plan.toRemove);
+      }
+    }
+  }, [allFilesMap, folderIndex, selectedFiles, runAdditionsChunked, runRemovalsChunked]);
+
+  // Listen for file list updates to reconcile pending folder toggles
+  useEffect(() => {
+    const handler = () => {
+      // Slightly debounce to coalesce bursts
+      setTimeout(() => {
+        reconcilePendingFolderToggles();
+      }, 50);
+    };
+    window.addEventListener('file-list-updated', handler as EventListener);
+    return () => window.removeEventListener('file-list-updated', handler as EventListener);
+  }, [reconcilePendingFolderToggles]);
+
+  // Also attempt reconciliation when the allFiles list length changes significantly
+  useEffect(() => {
+    if (pendingFolderTogglesRef.current.size === 0) return;
+    const t = setTimeout(() => reconcilePendingFolderToggles(), 200);
+    return () => clearTimeout(t);
+  }, [allFiles.length, reconcilePendingFolderToggles]);
+
   // Toggle folder selection (select/deselect all files in folder) with chunking and coalescing
   const toggleFolderSelection = useCallback((folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }): void => {
     // Coalesce very rapid toggles to avoid bursty rebuilds
@@ -421,115 +664,25 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     // Compute folder plan
     const selectableFiles = getSelectableFolderFiles(allFilesMap, folderIndex, folderPath);
     const plan = computeFolderTogglePlan(selectableFiles, selectedFiles, isSelected);
-    if (plan.kind === 'noop') { endMeasureToggle(); return; }
+    if (plan.kind === 'noop') {
+      // Early folder toggles may noop if folder index not ready; apply optimistic and queue reconciliation
+      applyOptimisticFolderState(folderPath, isSelected, opts);
+      pendingFolderTogglesRef.current.set(folderPath, { action: isSelected ? 'add' : 'remove', ts: Date.now() });
+      endMeasureToggle();
+      return;
+    }
 
     // Optimistically update the cache if requested
-    const updateOptimistic = () => {
-      if (opts?.optimistic === false) return;
-      const newState = isSelected ? 'full' : 'none';
-      const altPath = folderPath === '/' ? null : (folderPath.startsWith('/') ? folderPath.slice(1) : ('/' + folderPath));
-      const existingTimeout = optimisticTimeoutsRef.current.get(folderPath);
-      if (existingTimeout) clearTimeout(existingTimeout);
-      pendingOperationsRef.current.add(folderPath);
-      optimisticFolderStatesRef.current.set(folderPath, newState);
-      if (altPath) optimisticFolderStatesRef.current.set(altPath, newState);
-      const cache = baseFolderSelectionCacheRef.current;
-      if (cache && cache.set) {
-        cache.set(folderPath, newState);
-        const paths = new Set<string>(selectedFiles.map(f => f.path));
-        cache.setSelectedPaths?.(paths);
-        setManualCacheVersion(v => v + 1);
-      }
-      setOptimisticStateVersion(v => v + 1);
-      const timeout = setTimeout(() => {
-        if (!pendingOperationsRef.current.has(folderPath)) {
-          optimisticFolderStatesRef.current.delete(folderPath);
-          if (altPath) optimisticFolderStatesRef.current.delete(altPath);
-          setOptimisticStateVersion(v => v + 1);
-          optimisticTimeoutsRef.current.delete(folderPath);
-        }
-      }, FILE_PROCESSING.OPTIMISTIC_UPDATE_CLEANUP_MS);
-      optimisticTimeoutsRef.current.set(folderPath, timeout);
-    };
+    const updateOptimistic = () => applyOptimisticFolderState(folderPath, isSelected, opts);
 
-    const kickOverlay = () => {
-      const cache = baseFolderSelectionCacheRef.current;
-      if (!cache) return;
-      const paths = new Set<string>(selectedFiles.map(f => f.path));
-      cache.setSelectedPaths?.(paths);
-      cache.startProgressiveRecompute?.({ selectedPaths: paths });
-    };
-
-    const runAdditionsChunked = (additions: string[]) => {
-      const total = additions.length;
-      if (total === 0) {
-        if (opts?.optimistic !== false) pendingOperationsRef.current.delete(folderPath);
-        endMeasureToggle();
-        return;
-      }
-      const endMeasureChunks = perf.startMeasure('selection.apply.add.chunked.total.ms');
-      let index = 0;
-      let chunks = 0;
-      const runChunk = () => {
-        const start = index;
-        const end = Math.min(index + BULK.ADD_CHUNK, total);
-        const slice = additions.slice(start, end);
-        startTransition(() => {
-          setSelectedFiles((prev: SelectedFileReference[]) => {
-            const set = new Set<string>(prev.map(f => f.path));
-            if (slice.every(p => set.has(p))) return prev;
-            const next = [...prev];
-            for (const p of slice) if (!set.has(p)) { set.add(p); next.push({ path: p }); }
-            return next;
-          });
-        });
-        index = end;
-        chunks++;
-        kickOverlay();
-        if (index < total) {
-          Promise.resolve().then(runChunk);
-        } else {
-          endMeasureChunks();
-          perf.recordMetric('selection.apply.chunks', chunks);
-          if (opts?.optimistic !== false) pendingOperationsRef.current.delete(folderPath);
-          endMeasureToggle();
-        }
-      };
-      runChunk();
-    };
-
-    const runRemovalsChunked = (toRemove: Set<string>) => {
-      const snapshot = [...selectedFiles];
-      const total = snapshot.length;
-      let index = 0;
-      const CHUNK = BULK.REMOVE_CHUNK;
-      const kept: SelectedFileReference[] = [];
-      const endMeasureChunks = perf.startMeasure('selection.apply.remove.chunked.total.ms');
-      const buildNext = () => {
-        const start = index;
-        const end = Math.min(index + CHUNK, total);
-        for (let i = start; i < end; i++) {
-          const f = snapshot[i];
-          if (!toRemove.has(f.path)) kept.push(f);
-        }
-        index = end;
-        kickOverlay();
-        if (index < total) {
-          setTimeout(buildNext, 0);
-        } else {
-          startTransition(() => setSelectedFiles(kept));
-          endMeasureChunks();
-          if (opts?.optimistic !== false) pendingOperationsRef.current.delete(folderPath);
-          endMeasureToggle();
-        }
-      };
-      buildNext();
-    };
+    // Wrapper to include the original timing measure end
+    const runAdditionsThenEnd = (additions: string[]) => runAdditionsChunked(folderPath, additions, endMeasureToggle);
+    const runRemovalsThenEnd = (toRemove: Set<string>) => runRemovalsChunked(folderPath, toRemove, endMeasureToggle);
 
     updateOptimistic();
 
-    if (plan.kind === 'add') { runAdditionsChunked(plan.additions); }
-    else { runRemovalsChunked(plan.toRemove); }
+    if (plan.kind === 'add') { runAdditionsThenEnd(plan.additions); }
+    else { runRemovalsThenEnd(plan.toRemove); }
   }, [allFilesMap, selectedFiles, setSelectedFiles, folderIndex, perf, BULK]);
 
   // Handle select all files (chunked to maintain responsiveness)

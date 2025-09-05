@@ -64,6 +64,26 @@ export class PasteFlowAPIServer {
   }
 
   private setupMiddleware(): void {
+    // Dev-only CORS to allow Vite renderer to call local API on a different port
+    this.app.use((req: Request, res: Response, next: NextFunction) => {
+      try {
+        const isDev = process.env.NODE_ENV === 'development';
+        const origin = String(req.headers.origin || '');
+        // Allow localhost origins during dev for cross-port requests (e.g., 5173 -> 5839)
+        if (isDev && /^http:\/\/localhost:\d+$/.test(origin)) {
+          res.header('Access-Control-Allow-Origin', origin);
+          res.header('Vary', 'Origin');
+          res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+          res.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,Accept');
+          res.header('Access-Control-Allow-Credentials', 'true');
+          if (req.method === 'OPTIONS') {
+            return res.status(204).end();
+          }
+        }
+      } catch { /* noop */ }
+      return next();
+    });
+
     // Authorization first to minimize processing on unauthorized requests
     this.app.use((req: Request, res: Response, next: NextFunction) => {
       if (this.auth.validate(req.headers.authorization)) {
@@ -119,6 +139,10 @@ export class PasteFlowAPIServer {
     this.app.post('/api/v1/tokens/count', (req, res) => this.routeHandlers.handleCountTokens(req, res));
     this.app.get('/api/v1/tokens/backend', (req, res) => this.routeHandlers.handleGetTokenBackend(req, res));
 
+    // Models
+    this.app.get('/api/v1/models', (req, res) => this.routeHandlers.handleListModels(req, res));
+    this.app.post('/api/v1/models/validate', (req, res) => this.routeHandlers.handleValidateModel(req, res));
+
     // Folders
     this.app.get('/api/v1/folders/current', (req, res) => this.routeHandlers.handleGetCurrentFolder(req, res));
     this.app.post('/api/v1/folders/open', (req, res) => this.routeHandlers.handleOpenFolder(req, res));
@@ -147,6 +171,12 @@ export class PasteFlowAPIServer {
 
     // Logs (dev-only optional)
     this.app.get('/api/v1/logs', (req, res) => this.handleLogs(req, res));
+
+    // Chat (Phase 2)
+    this.app.post('/api/v1/chat', (req, res) => this.routeHandlers.handleChat(req, res));
+
+    // Agent (Phase 4)
+    this.app.post('/api/v1/agent/export-session', (req, res) => this.routeHandlers.handleAgentExportSession(req, res));
   }
 
   // File selection handlers

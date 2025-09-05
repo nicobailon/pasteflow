@@ -30,11 +30,12 @@ interface DropdownProps {
   itemClassName?: string;
   activeItemClassName?: string;
   position?: "left" | "right";
+  placement?: "bottom" | "top";
   renderCustomOption?: (option: DropdownOption, isActive: boolean) => JSX.Element;
   showCheckmark?: boolean;
   closeOnChange?: boolean;
   glassEffect?: boolean;
-  variant?: "default" | "primary" | "secondary";
+  variant?: "default" | "primary" | "secondary" | "minimal";
   /**
    * Animation type for dropdown menu appearance.
    * Changed from default "scale" to "fade" for better visual consistency
@@ -222,6 +223,7 @@ interface DropdownMenuProps {
   options: DropdownOption[];
   value: string;
   position: "left" | "right";
+  placement: "bottom" | "top";
   menuClassName: string;
   animationClass: string;
   onSelect: (value: string) => void;
@@ -236,6 +238,7 @@ const DropdownMenu = forwardRef<HTMLDivElement, DropdownMenuProps>(
     options,
     value,
     position,
+    placement,
     menuClassName,
     animationClass,
     onSelect,
@@ -247,7 +250,7 @@ const DropdownMenu = forwardRef<HTMLDivElement, DropdownMenuProps>(
     return (
       <div 
         ref={ref}
-        className={`dropdown-menu ${animationClass} ${menuClassName}`}
+        className={`dropdown-menu ${placement === 'top' ? 'dropup' : ''} ${animationClass} ${menuClassName}`}
         style={position === "right" ? { right: 0, left: "auto" } : {}}
         role="menu"
       >
@@ -287,6 +290,7 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(
       itemClassName = "",
       activeItemClassName = "",
       position = "left",
+      placement = "bottom",
       renderCustomOption,
       showCheckmark = false,
       closeOnChange = true,
@@ -344,6 +348,7 @@ const Dropdown = forwardRef<DropdownRef, DropdownProps>(
             options={options}
             value={value}
             position={position}
+            placement={placement}
             menuClassName={menuClassName}
             animationClass={classNameGetters.getAnimationClass()}
             onSelect={handlers.handleSelect}

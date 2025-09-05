@@ -38,6 +38,7 @@ Build precise, token-efficient context from any codebase. Select exact files and
 - **File Tree Navigation**: Browse and select files/folders from your codebase
 - **Line Range Selection**: Copy specific line ranges (e.g., lines 45-120)
 - **Dark Mode**: Light and dark themes for comfortable viewing
+- **Agent Model Switcher (WIP)**: Change AI provider/model at runtime from the Agent Panel; configure API keys in a Model Settings modal. Keys are stored locally, encrypted.
 
 ## Installation
 
@@ -69,6 +70,24 @@ npm run dev
 npm test
 npm run test:watch
 ```
+
+### Configuration (Agent)
+- PF_AGENT_PROVIDER: default provider id (default: openai)
+- PF_AGENT_DEFAULT_MODEL: default model id (default: gpt-4o-mini)
+- PF_AGENT_MAX_CONTEXT_TOKENS: max context size (default: 120000)
+- PF_AGENT_MAX_OUTPUT_TOKENS: max output tokens (default: 4000)
+- PF_AGENT_TEMPERATURE: default generation temperature (default: 0.3)
+- PF_AGENT_MAX_TOOLS_PER_TURN: per-session tool cap per 60s (default: 8)
+- PF_AGENT_MAX_RESULTS_PER_TOOL: list/search max results (default: 200)
+- PF_AGENT_MAX_SEARCH_MATCHES: code search match cap (default: 500)
+- PF_AGENT_ENABLE_FILE_WRITE: enable file writes for edit.apply (default: false)
+- PF_AGENT_ENABLE_CODE_EXECUTION: enable terminal execution (stubbed) (default: false)
+- PF_AGENT_REQUIRE_APPROVAL: require approval for destructive actions (default: true)
+- PF_AGENT_MAX_SESSION_MESSAGES: persist last N chat messages per session (default: 50)
+- PF_AGENT_TELEMETRY_RETENTION_DAYS: days to retain tool/usage telemetry (default: 90)
+
+Notes
+- Preferences override env. Relevant preference keys: `agent.provider`, `agent.defaultModel`, `agent.temperature`, `agent.maxOutputTokens`.
 
 ## Build and Packaging
 
@@ -321,8 +340,20 @@ API: Selection token breakdown
   pasteflow preview cancel <id>
   ```
 
+- Agent Sessions (Phase 4)
+  ```bash
+  # Export an agent chat session via HTTP API
+  pasteflow export-session --id <SESSION_ID> [--out "/abs/path/session.json"] [--stdout]
+  # Behavior:
+  # - When --out is provided, server validates the path is within the active workspace and writes the file.
+  # - When --out is omitted, the server writes to the OS Downloads folder as
+  #   "pasteflow-session-<SESSION_ID>.json" and returns the file path.
+  # - When --stdout is used, JSON is returned directly without writing.
+  ```
+
 Notes
 - Only files and select commands enforce absolute paths in the CLI; the server validates paths.
+- Agent tools require explicit action values for file/search calls (e.g., `{ action: "read", path }`, `{ action: "code", query }`). Legacy shapes without `action` are not accepted.
 - If you see NO_ACTIVE_WORKSPACE, initialize one:
   ```bash
   pasteflow folders open --folder "/your/repo"
@@ -332,6 +363,24 @@ Notes
 
 Implementation
 - CLI code lives under cli/src; see entry [cli/src/index.ts](cli/src/index.ts), HTTP client and discovery [cli/src/client.ts](cli/src/client.ts), and command implementations under [cli/src/commands/](cli/src/commands/).
+
+## Agent Runtime Notes
+
+- Rate limiting: Per-session tool executions are capped within a 60s window (PF_AGENT_MAX_TOOLS_PER_TURN). When exceeded, the chat route responds 429 with code RATE_LIMITED.
+- Session retention: Only the last PF_AGENT_MAX_SESSION_MESSAGES (default 50) chat messages are persisted per session.
+- Telemetry pruning: Tool executions and usage summaries older than PF_AGENT_TELEMETRY_RETENTION_DAYS (default 90) are pruned on startup and weekly.
+- Export behavior: Session export via HTTP or IPC defaults to writing in the OS Downloads folder when no outPath is provided; custom outPath is validated against the active workspace. `--stdout` (download=true) returns JSON without writing.
+- Tool schemas: Agent tools require explicit action for file/search (e.g., `{ action: "read" }`, `{ action: "code" }`). Legacy shapes without action are not accepted.
+- Renderer flags: Renderer feature-flag injection has been removed; the Agent panel displays tool-call details based on message content without feature gating.
+
+### Agent Model Management (WIP)
+- Providers: OpenAI, Anthropic, OpenRouter. Configure in the Model Settings modal (header → Settings). Secrets are stored encrypted and used only locally.
+- Runtime switching: Use the Model Switcher under the Agent input to select provider and model. Changes apply to the next turn.
+- Defaults: If no preference is set, provider defaults to `openai` and the model to `PF_AGENT_DEFAULT_MODEL` (fallback `gpt-4o-mini`).
+- OpenRouter: Optional custom `baseUrl` is supported; model ids are namespaced (e.g., `openai/gpt-5`).
+- API (local):
+  - `GET /api/v1/models?provider=openai|anthropic|openrouter` → `{ provider, models: [{ id, label, ...}] }` (static catalog; best-effort).
+  - `POST /api/v1/models/validate` → `{ ok: true } | { ok: false, error }` using a tiny generation to verify credentials/model.
 
 ## Workspaces and the Database
 

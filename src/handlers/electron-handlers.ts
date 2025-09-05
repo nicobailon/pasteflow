@@ -105,6 +105,34 @@ const validateFolderPath = (
   return { isValid: true, sanitizedPath: validation.sanitizedPath || folderPath };
 };
 
+// Helper to fetch an existing workspace by folder path via IPC (renderer -> main)
+async function findWorkspaceByFolderPath(folderPath: string): Promise<{ id: string; name: string; folderPath: string } | null> {
+  try {
+    if (!window.electron?.ipcRenderer?.invoke) return null;
+    // Ask main for the full workspace list and locate by exact folder path
+    const res = await window.electron.ipcRenderer.invoke('/workspace/list', {});
+    const list: Array<{ id: string; name: string; folderPath: string }> =
+      res && typeof res === 'object' && 'success' in (res as any) && (res as any).success === true
+        ? ((res as any).data as Array<{ id: string; name: string; folderPath: string }>)
+        : (res as Array<{ id: string; name: string; folderPath: string }>);
+
+    if (!Array.isArray(list)) return null;
+
+    // Normalize input path against validator to improve matching robustness
+    const validator = getPathValidator();
+    const val = validator.validatePath(folderPath);
+    const target = (val.valid ? (val.sanitizedPath || folderPath) : folderPath);
+
+    // Find exact match first, then fallback to case-insensitive match (Windows)
+    const exact = list.find(w => w.folderPath === target);
+    if (exact) return exact;
+    const lower = target.toLowerCase();
+    return list.find(w => w.folderPath.toLowerCase?.() === lower) || null;
+  } catch {
+    return null; // best-effort lookup; never throw from helpers in renderer
+  }
+}
+
 // Helper function to handle workspace creation/selection
 const handleWorkspaceUpdate = async (
   newPath: string,
@@ -119,6 +147,14 @@ const handleWorkspaceUpdate = async (
     return currentWorkspace;
   }
 
+  // Prefer reusing an existing workspace that points to this folder
+  const existingByPath = await findWorkspaceByFolderPath(newPath);
+  if (existingByPath) {
+    setCurrentWorkspace(existingByPath.name);
+    return existingByPath.name;
+  }
+
+  // Otherwise, create a new workspace with a unique name derived from the folder
   const existingWorkspaceNames = await getWorkspaceNames();
   const newWorkspaceName = generateUniqueWorkspaceName(existingWorkspaceNames, newPath);
 

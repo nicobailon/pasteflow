@@ -185,14 +185,14 @@ function createWindow(): void {
       ? "default-src 'self';" +
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: http://localhost:*;" +
         "worker-src 'self' blob:;" +
-        "connect-src 'self' http://localhost:* ws://localhost:*;" +
+        "connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*;" +
         "style-src 'self' 'unsafe-inline';" +
         "img-src 'self' data: blob:;" +
         "font-src 'self' data:;"
       : "default-src 'self';" +
         "script-src 'self' 'wasm-unsafe-eval' blob:;" +
         "worker-src 'self' blob:;" +
-        "connect-src 'self';" +
+        "connect-src 'self' http://localhost:* http://127.0.0.1:*;" +
         "style-src 'self' 'unsafe-inline';" +
         "img-src 'self' data: blob:;" +
         "font-src 'self' data:;";
@@ -299,6 +299,51 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+
+  // Schedule telemetry pruning (on start and weekly)
+  try {
+    const retentionDays = Number(process.env.PF_AGENT_TELEMETRY_RETENTION_DAYS ?? 90);
+    const cutoff = () => Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const prune = async () => {
+      try {
+        await database!.pruneToolExecutions(cutoff());
+      } catch { /* ignore */ }
+      try {
+        await database!.pruneUsageSummary(cutoff());
+      } catch { /* ignore */ }
+    };
+    void prune();
+    setInterval(prune, 7 * 24 * 60 * 60 * 1000);
+  } catch { /* ignore scheduling errors */ }
+
+  // After the window is created, inject API info for the renderer (auth token + base URL)
+  try {
+    const port = apiServer?.getPort() ?? 5839;
+    const token = apiServer?.getAuthToken() ?? '';
+    const inject = async () => {
+      try {
+        // Resolve agent config (env + preferences) — feature flags injection removed
+        const { resolveAgentConfig } = await import('./agent/config');
+        await resolveAgentConfig(database as unknown as { getPreference: (k: string) => Promise<unknown> });
+        const payload = {
+          apiBase: `http://localhost:${port}`,
+          authToken: token,
+        };
+        // Attach to a well-known global for the renderer (read by AgentPanel)
+        mainWindow?.webContents.executeJavaScript(
+          `window.__PF_API_INFO = ${JSON.stringify(payload)};`,
+          true
+        ).catch(() => {/* ignore */});
+      } catch {
+        // ignore
+      }
+    };
+    // Attempt immediate injection and also on dom-ready for robustness
+    void inject();
+    mainWindow?.webContents.on('dom-ready', () => { void inject(); });
+  } catch {
+    // ignore injection errors
+  }
 });
 
 app.on('activate', () => {
@@ -907,6 +952,205 @@ ipcMain.handle('/workspace/rename', async (_e, params: unknown) => {
   }
 });
 
+/**
+ * Agent IPC channels (Phase 4)
+ */
+ipcMain.handle('agent:start-session', async (_e, params: unknown) => {
+  try {
+    const { AgentStartSessionSchema } = await import('./ipc/schemas');
+    const { randomUUID } = await import('node:crypto');
+    const parsed = AgentStartSessionSchema.safeParse(params || {});
+    const sessionId = parsed.success && parsed.data.seedId ? parsed.data.seedId : randomUUID();
+    if (database && (database as any).initialized) {
+      try { await database!.upsertChatSession(sessionId, JSON.stringify([]), null); } catch { /* ignore */ }
+      return { success: true, data: { sessionId } };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:get-history', async (_e, params: unknown) => {
+  try {
+    const { AgentGetHistorySchema } = await import('./ipc/schemas');
+    const parsed = AgentGetHistorySchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    if (database && (database as any).initialized) {
+      const row = await database!.getChatSession(parsed.data.sessionId);
+      return { success: true, data: row ? { sessionId: row.id, messages: row.messages } : null };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
+  try {
+    const { AgentExecuteToolSchema } = await import('./ipc/schemas');
+    const parsed = AgentExecuteToolSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { resolveAgentConfig } = await import('./agent/config');
+    const { AgentSecurityManager } = await import('./agent/security-manager');
+    const { getAgentTools } = await import('./agent/tools');
+    const cfg = await resolveAgentConfig(database as any);
+    const security = await AgentSecurityManager.create({ db: database as any });
+    const tools = getAgentTools({
+      security,
+      config: cfg,
+      sessionId: parsed.data.sessionId,
+      onToolExecute: async (name, args, result, meta) => {
+        try {
+          await database!.insertToolExecution({
+            sessionId: parsed.data.sessionId,
+            toolName: String(name),
+            args,
+            result,
+            status: 'ok',
+            error: null,
+            startedAt: (meta as any)?.startedAt ?? null,
+            durationMs: (meta as any)?.durationMs ?? null,
+          });
+        } catch { /* ignore logging errors */ }
+      }
+    });
+    const toolDef = (tools as any)[parsed.data.tool];
+    if (!toolDef || typeof toolDef.execute !== 'function') return { success: false, error: 'TOOL_NOT_FOUND' };
+    const result = await toolDef.execute(parsed.data.args);
+    return { success: true, data: result };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: string) => {
+  try {
+    if (!sessionId || typeof sessionId !== 'string') return { success: false, error: 'INVALID_SESSION_ID' };
+    if (database && (database as any).initialized) {
+      const row = await database!.getChatSession(sessionId);
+      if (!row) return { success: false, error: 'NOT_FOUND' };
+      const tools = await database!.listToolExecutions(sessionId);
+      const usage = await database!.listUsageSummaries(sessionId);
+      const payload = { session: row, toolExecutions: tools, usage };
+      const fs = await import('node:fs');
+      const p = await import('node:path');
+      const { app } = await import('electron');
+      const { validateAndResolvePath } = await import('./file-service');
+      if (outPath && typeof outPath === 'string' && outPath.trim().length > 0) {
+        const val = validateAndResolvePath(outPath);
+        if (!val.ok) return { success: false, error: `PATH_DENIED:${val.reason || val.message}` };
+        await fs.promises.writeFile(val.absolutePath, JSON.stringify(payload, null, 2), 'utf8');
+        return { success: true, data: { file: val.absolutePath } };
+      }
+      // Default: write to Downloads folder with a safe filename
+      const downloads = app.getPath('downloads');
+      const safeName = `pasteflow-session-${sessionId}.json`;
+      const filePath = p.join(downloads, safeName);
+      await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
+      return { success: true, data: { file: filePath } };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+/**
+ * Agent threads IPC (Phase 1)
+ * JSON-backed per-workspace chat threads
+ */
+ipcMain.handle('agent:threads:list', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsListSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsListSchema.safeParse(params || {});
+    const wsIdParam = parsed.success ? parsed.data.workspaceId : undefined;
+    if (!database || !(database as any).initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
+    const db: any = database as unknown as any;
+    let wsId: string | null = wsIdParam ?? null;
+    if (!wsId) {
+      const active = await db.getPreference('workspace.active');
+      wsId = (typeof active === 'string' && active.trim().length > 0) ? active : null;
+    }
+    if (!wsId) return { success: true, data: { threads: [] } };
+    const ws = await db.getWorkspace(wsId);
+    if (!ws) return { success: true, data: { threads: [] } };
+    const { listThreads } = await import('./agent/chat-storage');
+    const items = await listThreads({ id: String(ws.id), name: ws.name, folderPath: ws.folderPath });
+    return { success: true, data: { threads: items } };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:threads:load', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsLoadSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsLoadSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { loadThread } = await import('./agent/chat-storage');
+    const data = await loadThread(parsed.data.sessionId);
+    return { success: true, data };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:threads:saveSnapshot', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsSaveSnapshotSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsSaveSnapshotSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    if (!database || !(database as any).initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
+    const db: any = database as unknown as any;
+    let wsId: string | null = parsed.data.workspaceId ?? null;
+    if (!wsId) {
+      const active = await db.getPreference('workspace.active');
+      wsId = (typeof active === 'string' && active.trim().length > 0) ? active : null;
+    }
+    if (!wsId) return { success: false, error: 'WORKSPACE_NOT_SELECTED' };
+    const ws = await db.getWorkspace(wsId);
+    if (!ws) return { success: false, error: 'WORKSPACE_NOT_FOUND' };
+    const { saveSnapshot } = await import('./agent/chat-storage');
+    const result = await saveSnapshot({
+      sessionId: parsed.data.sessionId,
+      workspace: { id: String(ws.id), name: ws.name, folderPath: ws.folderPath },
+      messages: parsed.data.messages as any[],
+      meta: parsed.data.meta as any,
+    });
+    if ('ok' in result && result.ok) return { success: true, data: result };
+    return { success: false, error: (result as any)?.error || 'SAVE_FAILED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:threads:delete', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsDeleteSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsDeleteSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { deleteThread } = await import('./agent/chat-storage');
+    const ok = await deleteThread(parsed.data.sessionId);
+    return { success: true, data: { ok } };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:threads:rename', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsRenameSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsRenameSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { renameThread } = await import('./agent/chat-storage');
+    const ok = await renameThread(parsed.data.sessionId, parsed.data.title);
+    return { success: true, data: { ok } };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
 /** Instructions (envelope) */
 function mapInstructionDbToIpc(i: any) {
   return {
@@ -988,7 +1232,6 @@ ipcMain.handle('/prefs/get', async (_e, params: unknown) => {
     }
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-       
       const value: any = await (database as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference(key);
       return { success: true, data: value ?? null };
     }
@@ -1005,14 +1248,18 @@ ipcMain.handle('/prefs/set', async (_e, params: unknown) => {
     if (!params || typeof params !== 'object') {
       throw new Error('Invalid parameters: object with key and value required');
     }
-    const { key, value } = params as { key?: string; value?: unknown };
+    const { key, value, encrypted } = params as { key?: string; value?: unknown; encrypted?: boolean };
     if (!key || typeof key !== 'string') {
       throw new Error('Invalid key provided');
     }
 
     if (database && (database as unknown as { initialized?: boolean }).initialized) {
-       
-      await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference(key, value);
+      let toStore: unknown = value;
+      if (encrypted === true && typeof value === 'string' && value.trim().length > 0) {
+        const { encryptSecret } = await import('./secret-prefs');
+        toStore = encryptSecret(value);
+      }
+      await (database as unknown as { setPreference: (k: string, v: unknown) => Promise<void> }).setPreference(key, toStore);
       broadcastUpdate('/prefs/get:update');
       return { success: true, data: true };
     }

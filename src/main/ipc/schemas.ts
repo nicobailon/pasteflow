@@ -172,6 +172,60 @@ export const AuditLogEntrySchema = z.object({
   timestamp: z.number()
 });
 
+// Agent IPC schemas (Phase 4)
+export const AgentStartSessionSchema = z.object({
+  seedId: z.string().optional(),
+});
+
+export const AgentExecuteToolSchema = z.object({
+  sessionId: z.string().min(1),
+  tool: z.enum(['file', 'search', 'edit', 'context', 'terminal', 'generateFromTemplate']),
+  args: z.unknown(),
+});
+
+export const AgentGetHistorySchema = z.object({ sessionId: z.string().min(1) });
+export const AgentExportSessionSchema = z.object({ sessionId: z.string().min(1), outPath: z.string().optional() });
+
+export type AgentStartSessionType = z.infer<typeof AgentStartSessionSchema>;
+export type AgentExecuteToolType = z.infer<typeof AgentExecuteToolSchema>;
+export type AgentGetHistoryType = z.infer<typeof AgentGetHistorySchema>;
+export type AgentExportSessionType = z.infer<typeof AgentExportSessionSchema>;
+
+// Agent threads IPC schemas (Phase 1)
+export const AgentThreadsListSchema = z.object({
+  workspaceId: z.string().optional(),
+});
+
+export const AgentThreadsLoadSchema = z.object({
+  sessionId: z.string().min(1),
+});
+
+export const AgentThreadsSaveSnapshotSchema = z.object({
+  sessionId: z.string().min(1),
+  workspaceId: z.string().optional(),
+  messages: z.array(z.unknown()),
+  meta: z.object({
+    title: z.string().optional(),
+    model: z.string().optional(),
+    provider: z.string().optional(),
+  }).optional(),
+});
+
+export const AgentThreadsDeleteSchema = z.object({
+  sessionId: z.string().min(1),
+});
+
+export const AgentThreadsRenameSchema = z.object({
+  sessionId: z.string().min(1),
+  title: z.string().min(1),
+});
+
+export type AgentThreadsListType = z.infer<typeof AgentThreadsListSchema>;
+export type AgentThreadsLoadType = z.infer<typeof AgentThreadsLoadSchema>;
+export type AgentThreadsSaveSnapshotType = z.infer<typeof AgentThreadsSaveSnapshotSchema>;
+export type AgentThreadsDeleteType = z.infer<typeof AgentThreadsDeleteSchema>;
+export type AgentThreadsRenameType = z.infer<typeof AgentThreadsRenameSchema>;
+
 // Type exports for TypeScript usage
 export type WorkspaceType = z.infer<typeof WorkspaceSchema>;
 export type WorkspaceCreateType = z.infer<typeof WorkspaceCreateSchema>;

@@ -39,4 +39,20 @@ export default defineConfig({
       }
     }
   }
+  ,
+  server: {
+    proxy: {
+      // Pass through /api/v1 to Electron's local HTTP server during dev
+      '/api/v1': {
+        target: 'http://127.0.0.1:5839',
+        changeOrigin: true,
+      },
+      // Map the SDK default /api/chat -> backend /api/v1/chat for convenience
+      '/api/chat': {
+        target: 'http://127.0.0.1:5839',
+        changeOrigin: true,
+        rewrite: (p: string) => p.replace(/^\/api\/chat(.*)$/i, '/api/v1/chat$1'),
+      },
+    },
+  }
 });
