@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FolderOpen } from "lucide-react";
 
 import { FileData, FileListProps, LineRange, SelectedFileWithLines } from "../types/file-types";
@@ -55,6 +55,7 @@ const FileList = ({
   toggleInstructionSelection,
   onViewInstruction,
   loadFileContent,
+  toggleFolderSelection,
 }: FileListProps) => {
   // Create a Map for faster lookups - now just references
   const selectedFilesMap = useMemo(
@@ -82,6 +83,23 @@ const FileList = ({
   // Build folder index once for grouping and counts
   const folderIndex = useMemo(() => buildFolderIndex(files), [files]);
 
+  // Track which folder cards are expanded in the content list
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
+  // Prune expanded folders when they are no longer fully selected
+  useEffect(() => {
+    if (!folderSelectionCache) return;
+    setExpandedFolders((prev) => {
+      const next = new Set<string>();
+      for (const dir of prev) {
+        if (folderSelectionCache.get(dir) === 'full') {
+          next.add(dir);
+        }
+      }
+      return next;
+    });
+  }, [folderSelectionCache, files.length, selectedFiles.length]);
+
   // Determine top-most fully selected directories using folderSelectionCache
   const fullDirs = useMemo(() => {
     if (!folderSelectionCache) return [] as string[];
@@ -102,16 +120,19 @@ const FileList = ({
     if (!folderSelectionCache || fullDirs.length === 0) return new Set<string>();
     const set = new Set<string>();
     for (const dir of fullDirs) {
+      // Do not exclude files for folders that are expanded in the content list
+      if (expandedFolders.has(dir)) continue;
       const filesInDir = getFilesInFolder(folderIndex, dir);
       for (const p of filesInDir) set.add(p);
     }
     return set;
-  }, [folderSelectionCache, fullDirs, folderIndex]);
+  }, [folderSelectionCache, fullDirs, folderIndex, expandedFolders]);
 
-  // Prepare folder cards with counts
+  // Prepare folder cards with counts (only for collapsed folders)
   const folderCards = useMemo(() => {
-    return fullDirs.map((dir) => ({ dir, count: getFilesInFolder(folderIndex, dir).length }));
-  }, [fullDirs, folderIndex]);
+    const collapsed = fullDirs.filter((dir) => !expandedFolders.has(dir));
+    return collapsed.map((dir) => ({ dir, count: getFilesInFolder(folderIndex, dir).length }));
+  }, [fullDirs, folderIndex, expandedFolders]);
 
   // Create expanded cards - one card per line range for files with multiple line ranges
   const expandedCards: ExpandedFileCard[] = [];
@@ -187,13 +208,112 @@ const FileList = ({
     selectedRolePrompts.length > 0 ||
     selectedInstructions.length > 0;
 
+  // Simple language inference from filename extension for better code fences
+  const inferLang = useCallback((path: string) => {
+    const lower = path.toLowerCase();
+    const ext = lower.split('.').pop() || '';
+    if (lower.endsWith('dockerfile')) return 'dockerfile';
+    switch (ext) {
+      case 'ts': return 'ts';
+      case 'tsx': return 'tsx';
+      case 'js': return 'js';
+      case 'jsx': return 'jsx';
+      case 'py': return 'python';
+      case 'go': return 'go';
+      case 'rs': return 'rust';
+      case 'rb': return 'ruby';
+      case 'java': return 'java';
+      case 'c': return 'c';
+      case 'cpp':
+      case 'cc':
+      case 'cxx': return 'cpp';
+      case 'cs': return 'csharp';
+      case 'php': return 'php';
+      case 'swift': return 'swift';
+      case 'kt': return 'kotlin';
+      case 'sh':
+      case 'bash':
+      case 'zsh': return 'bash';
+      case 'yaml':
+      case 'yml': return 'yaml';
+      case 'json': return 'json';
+      case 'md': return 'md';
+      case 'html': return 'html';
+      case 'css': return 'css';
+      case 'scss': return 'scss';
+      case 'less': return 'less';
+      case 'xml': return 'xml';
+      case 'toml': return 'toml';
+      default: return '';
+    }
+  }, []);
+
+  // Build aggregated text for a folder; loads missing contents on demand
+  const getFolderCopyText = useCallback(async (dir: string): Promise<string> => {
+    const filesInDir = getFilesInFolder(folderIndex, dir);
+    if (!filesInDir || filesInDir.length === 0) return '';
+
+    // Build a map for quick lookup
+    const byPath = allFilesMap;
+
+    // Load any missing contents in parallel (best-effort)
+    const loadPromises: Promise<void>[] = [];
+    for (const p of filesInDir) {
+      const fd = byPath.get(p);
+      if (!fd) continue;
+      if (fd.isBinary || fd.isSkipped || fd.isDirectory) continue;
+      if (!fd.isContentLoaded && typeof loadFileContent === 'function') {
+        loadPromises.push(
+          loadFileContent(p).catch(() => Promise.resolve())
+        );
+      }
+    }
+    if (loadPromises.length > 0) {
+      try { await Promise.all(loadPromises); } catch { /* ignore */ }
+    }
+
+    // Assemble content blocks in a deterministic order (by path)
+    const sortedPaths = [...filesInDir].sort((a, b) => a.localeCompare(b));
+    const chunks: string[] = [];
+    for (const p of sortedPaths) {
+      const fd = byPath.get(p);
+      if (!fd) continue;
+      if (fd.isBinary || fd.isSkipped || fd.isDirectory) continue;
+      const header = `===== ${p} =====`;
+      if (!fd.isContentLoaded || typeof fd.content !== 'string') {
+        const msg = fd?.error ? String(fd.error) : 'Content not available';
+        chunks.push(`${header}\n[ERROR: ${msg}]\n`);
+        continue;
+      }
+      const lang = inferLang(p);
+      const fence = lang ? `\n\n\`\`\`${lang}\n` : `\n\n\`\`\`\n`;
+      chunks.push(`${header}${fence}${fd.content}\n\`\`\`\n`);
+    }
+
+    return chunks.join('\n');
+  }, [folderIndex, allFilesMap, loadFileContent, inferLang]);
+
   return (
     <div className="file-list-container">
       {hasItemsToDisplay ? (
         <div className="file-list">
           {/* Display selected folders (aggregated) */}
           {folderCards.map(({ dir, count }) => (
-            <FolderCard key={`folder-card-${dir}`} folderPath={dir} fileCount={count} />
+            <FolderCard
+              key={`folder-card-${dir}`}
+              folderPath={dir}
+              fileCount={count}
+              onExpand={() => setExpandedFolders((prev) => new Set(prev).add(dir))}
+              onRemove={() => {
+                toggleFolderSelection?.(dir, false, { optimistic: true });
+                setExpandedFolders((prev) => {
+                  const next = new Set(prev);
+                  next.delete(dir);
+                  return next;
+                });
+              }}
+              copyText={() => getFolderCopyText(dir)}
+            />
           ))}
           {/* Display system prompts at the top */}
           {selectedSystemPrompts.map((prompt) => (

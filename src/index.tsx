@@ -189,6 +189,7 @@ const App = () => {
             toggleExpanded={appState.toggleExpanded}
             fileTreeMode={appState.fileTreeMode}
             clearAllSelections={appState.clearAllSelections}
+            toggleFolderSelection={appState.toggleFolderSelection}
           />
           {/* Left-docked Agent Panel: mounted by default (row-reverse layout -> last = leftmost) */}
           <AgentPanel
