@@ -30,6 +30,35 @@
   overflow: hidden;
 }
 
+/* Disabled overlay when no workspace is active */
+.agent-panel-disabled-overlay {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  text-align: center;
+  pointer-events: auto;
+  z-index: 2;
+  top: 49px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  padding: 24px;
+}
+
+.agent-disabled-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.agent-disabled-subtitle {
+  font-size: 12px;
+}
+
 .agent-messages {
   flex: 1;
   overflow: auto;
@@ -102,6 +131,35 @@
   align-items: center;
   gap: 8px;
   padding-top: 6px;
+}
+
+/* Inline, unobtrusive starting indicator in the composer overlay */
+.agent-starting-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px dashed var(--border-color);
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.06));
+  color: var(--text-secondary);
+  font-size: 12px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.agent-starting-chip .agent-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--text-secondary);
+  animation: agent-spin 0.9s linear infinite;
+}
+
+@keyframes agent-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .agent-panel-resize-handle {

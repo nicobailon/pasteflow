@@ -6,7 +6,7 @@ import AgentAttachmentList from "./agent-attachment-list";
 import AgentToolCalls from "./agent-tool-calls";
 import IntegrationsModal from "./integrations-modal";
 import ModelSelector from "./model-selector";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, List as ListIcon, Plus as PlusIcon } from "lucide-react";
 import ModelSettingsModal from "./model-settings-modal";
 import { Settings as SettingsIcon } from "lucide-react";
 import AgentAlertBanner from "./agent-alert-banner";
@@ -14,6 +14,22 @@ import type { FileData } from "../types/file-types";
 import { extname } from "../file-ops/path";
 import "./agent-panel.css";
 import { requestFileContent } from "../handlers/electron-handlers";
+import AgentThreadList from "./agent-thread-list";
+
+// Strict helper types for IPC and preferences
+type PrefsGetResponse<T> = { success: true; data: T } | { success: false; error?: string };
+type ThreadsListItem = {
+  sessionId: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+  filePath: string;
+};
+type ThreadsListResponse = { success: true; data: { threads: ThreadsListItem[] } } | { success: false; error?: string };
+type ThreadLoadResponse = { success: true; data: { sessionId: string; messages: unknown[] } | null } | { success: false; error?: string } | { data?: { sessionId?: string; messages?: unknown[] } };
+type WorkspaceListItem = { id: string; name: string; folderPath: string };
+type WorkspaceListResponse = { success: true; data: WorkspaceListItem[] } | { success: false; error?: string } | WorkspaceListItem[];
 
 type AgentAttachment = {
   path: string;
@@ -28,6 +44,8 @@ export type AgentPanelProps = {
   /** Agent autocomplete data (read-only) */
   allFiles?: FileData[];
   selectedFolder?: string | null;
+  /** Current workspace name (truthy when a workspace is active) */
+  currentWorkspace?: string | null;
   /** Load file content for a given absolute path (renderer bridge) */
   loadFileContent?: (path: string) => Promise<void>;
 };
@@ -40,7 +58,7 @@ export type AgentPanelProps = {
  *
  * This is intentionally slim for Phase 1; richer UI comes in follow-ups.
  */
-const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileContent }: AgentPanelProps) => {
+const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorkspace = null, loadFileContent }: AgentPanelProps) => {
   const { agentWidth, handleResizeStart } = useAgentPanelResize(320);
 
   // Local attachment state (message-scoped)
@@ -73,22 +91,177 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
-  // Start a durable session on mount
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:start-session', {});
-        const id = (res && typeof res === 'object' && 'success' in res) ? (res as any).data?.sessionId : res?.data?.sessionId;
-        if (mounted && typeof id === 'string') setSessionId(id);
-      } catch { /* noop */ }
-    })();
-    return () => { mounted = false; };
+  const [hydratedMessages, setHydratedMessages] = useState<any[]>([]);
+  const [showThreads, setShowThreads] = useState(false);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [threadsRefreshKey, setThreadsRefreshKey] = useState(0);
+  const [isStartingChat, setIsStartingChat] = useState(false);
+  const [isSwitchingThread, setIsSwitchingThread] = useState(false);
+  const [awaitingBind, setAwaitingBind] = useState(false);
+  const [queuedFirstSend, setQueuedFirstSend] = useState<string | null>(null);
+
+  // Panel enabled only when a workspace is active and a folder is selected
+  const panelEnabled = useMemo<boolean>(() => {
+    // Gate visually by app-level workspace presence + folder; use id for thread operations
+    return Boolean(currentWorkspace && selectedFolder);
+  }, [currentWorkspace, selectedFolder]);
+
+  // Helper to refresh the active workspace from preferences
+  const refreshActiveWorkspace = useCallback(async () => {
+    try {
+      const res = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown>; on?: (ch: string, fn: (...a: unknown[]) => void) => unknown; removeListener?: (ch: string, fn: (...a: unknown[]) => void) => void }}}).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'workspace.active' });
+      const parsed = res as PrefsGetResponse<string> | undefined;
+      const wsId = parsed && parsed.success && typeof parsed.data === 'string' ? parsed.data : null;
+      setActiveWorkspaceId(wsId || null);
+    } catch {
+      setActiveWorkspaceId(null);
+    }
   }, []);
+
+  // Fallback: resolve workspace id by listing and matching against name or folder
+  const resolveWorkspaceId = useCallback(async (): Promise<string | null> => {
+    if (activeWorkspaceId) return activeWorkspaceId;
+    try {
+      // Try preference first
+      const prefRaw = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'workspace.active' });
+      const pref = prefRaw as PrefsGetResponse<string> | undefined;
+      const wsPref = pref && pref.success ? String(pref.data || '') : '';
+      if (wsPref) {
+        setActiveWorkspaceId(wsPref);
+        return wsPref;
+      }
+    } catch { /* ignore */ }
+    try {
+      const listRaw = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('/workspace/list', {});
+      const listRes = listRaw as WorkspaceListResponse | undefined;
+      const arr: WorkspaceListItem[] = Array.isArray(listRes) ? listRes as WorkspaceListItem[] : (listRes && 'success' in (listRes as any) && (listRes as any).success ? (listRes as any).data : []) as WorkspaceListItem[];
+      let found: WorkspaceListItem | undefined;
+      if (currentWorkspace) {
+        found = arr.find((w) => w.name === currentWorkspace);
+      }
+      if (!found && selectedFolder) {
+        found = arr.find((w) => w.folderPath === selectedFolder);
+      }
+      if (found) {
+        setActiveWorkspaceId(found.id);
+        return found.id;
+      }
+    } catch { /* ignore */ }
+    return null;
+  }, [activeWorkspaceId, currentWorkspace, selectedFolder]);
+
+  // Keep activeWorkspaceId in sync with app folder/workspace changes
+  useEffect(() => {
+    let cancelled = false;
+    // If folder is cleared, disable panel immediately
+    if (!selectedFolder) {
+      setActiveWorkspaceId(null);
+      setSessionId(null);
+      setHydratedMessages([]);
+      return () => { cancelled = true; };
+    }
+    void refreshActiveWorkspace();
+    return () => { cancelled = true; };
+  }, [selectedFolder, refreshActiveWorkspace]);
+
+  // When the app-level workspace changes, refresh id from preferences
+  useEffect(() => {
+    if (currentWorkspace) {
+      void refreshActiveWorkspace();
+    }
+  }, [currentWorkspace, refreshActiveWorkspace]);
+
+  // Also listen for workspace load/open events and preference updates to stay in sync
+  useEffect(() => {
+    const onWsLoaded = () => { void refreshActiveWorkspace(); };
+    const onDirectOpen = () => { void refreshActiveWorkspace(); };
+    window.addEventListener('workspaceLoaded', onWsLoaded as unknown as EventListener);
+    window.addEventListener('directFolderOpened', onDirectOpen as unknown as EventListener);
+    let prefUpdateHandler: ((...args: unknown[]) => void) | null = null;
+    try {
+      const ipc = (window as unknown as { electron?: { ipcRenderer?: { on?: (ch: string, fn: (...a: unknown[]) => void) => unknown; removeListener?: (ch: string, fn: (...a: unknown[]) => void) => void }}}).electron?.ipcRenderer;
+      if (ipc?.on) {
+        prefUpdateHandler = () => { void refreshActiveWorkspace(); };
+        ipc.on('/prefs/get:update', prefUpdateHandler);
+      }
+    } catch { /* ignore */ }
+    return () => {
+      window.removeEventListener('workspaceLoaded', onWsLoaded as unknown as EventListener);
+      window.removeEventListener('directFolderOpened', onDirectOpen as unknown as EventListener);
+      try {
+        const ipc = (window as unknown as { electron?: { ipcRenderer?: { removeListener?: (ch: string, fn: (...a: unknown[]) => void) => void }}}).electron?.ipcRenderer;
+        if (ipc?.removeListener && prefUpdateHandler) ipc.removeListener('/prefs/get:update', prefUpdateHandler);
+      } catch { /* ignore */ }
+    };
+  }, [refreshActiveWorkspace]);
+
+  // Note: workspace bootstrap is done after useChat definition (below) to avoid TDZ on status
+
+  // Prevent concurrent session creation and provide an explicit ensure API
+  const creatingSessionRef = useRef<Promise<string | null> | null>(null);
+  // Minimal session creation used by auto/first-send; snapshotting happens onFinish
+  async function startSessionBasic(): Promise<string | null> {
+    try {
+      const res: unknown = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('agent:start-session', {});
+      const id = (res && (res as { success?: boolean; data?: { sessionId?: string } }).success)
+        ? (res as { data?: { sessionId?: string } }).data?.sessionId
+        : ((res as { data?: { sessionId?: string } } | undefined)?.data?.sessionId ?? (res as { sessionId?: string } | undefined)?.sessionId);
+      if (typeof id !== 'string' || id.trim().length === 0) return null;
+      setSessionId(id);
+      setHydratedMessages([]);
+      return id;
+    } catch {
+      return null;
+    }
+  }
+  const ensureSession = useCallback(async (): Promise<string | null> => {
+    if (sessionId) return sessionId;
+    if (creatingSessionRef.current) return creatingSessionRef.current;
+    const p = startSessionBasic();
+    creatingSessionRef.current = p.then((id) => { creatingSessionRef.current = null; return id; });
+    return creatingSessionRef.current;
+  }, [sessionId]);
+
+  // Auto-initialize a new chat session when the panel becomes enabled and no session exists
+  const hasAutoInitializedRef = useRef(false);
+  const autoInitAttemptsRef = useRef(0);
+  useEffect(() => {
+    if (!panelEnabled) {
+      hasAutoInitializedRef.current = false;
+      autoInitAttemptsRef.current = 0;
+      return;
+    }
+    if (sessionId) return; // already active
+    if (hasAutoInitializedRef.current) return; // guard
+    // Try to create a new chat session automatically
+    (async () => {
+      const id = await ensureSession();
+      if (id) {
+        hasAutoInitializedRef.current = true;
+        autoInitAttemptsRef.current = 0;
+      } else {
+        // Retry a few times to handle late workspace id/DB readiness
+        if (autoInitAttemptsRef.current < 5) {
+          autoInitAttemptsRef.current += 1;
+          setTimeout(async () => {
+            if (!hasAutoInitializedRef.current && panelEnabled && !sessionId) {
+              const id2 = await ensureSession();
+              if (id2) {
+                hasAutoInitializedRef.current = true;
+                autoInitAttemptsRef.current = 0;
+              }
+            }
+          }, 500);
+        }
+      }
+    })();
+  }, [panelEnabled, sessionId, ensureSession]);
 
   const { messages, sendMessage, status, stop } = useChat({
     api: `${apiBase}/api/v1/chat`,
     headers: { Authorization: authToken ? `Bearer ${authToken}` : undefined },
+    id: sessionId || undefined,
+    initialMessages: hydratedMessages,
     // Override fetch to ensure we always target the local API and include auth
     fetch: (input: RequestInfo | URL, init?: RequestInit) => {
       try {
@@ -145,7 +318,40 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       };
       return { ...requestBody, messages, context: envelope };
     },
-    onFinish: () => {
+    onFinish: async ({ messages: resultMessages }: { messages: unknown[] }) => {
+      try {
+        if (sessionId) {
+          const [p, m] = await Promise.all([
+            (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
+            (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }),
+          ]);
+          const provider = (p && p.success && typeof p.data === 'string') ? p.data : undefined;
+          const model = (m && m.success && typeof m.data === 'string') ? m.data : undefined;
+          // Retry snapshot persist a few times to tolerate DB readiness and preference races
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              const wsId = await resolveWorkspaceId();
+              const res = await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:saveSnapshot', {
+                sessionId,
+                workspaceId: wsId || undefined,
+                messages: resultMessages,
+                meta: { model, provider },
+              });
+              if (res && typeof res === 'object' && 'success' in res && (res as any).success === false) {
+                await new Promise((r) => setTimeout(r, 200));
+                continue;
+              }
+              if (wsId) {
+                try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.lastSession.${wsId}`, value: sessionId }); } catch { /* ignore */ }
+              }
+              setThreadsRefreshKey((x) => x + 1);
+              break;
+            } catch {
+              await new Promise((r) => setTimeout(r, 200));
+            }
+          }
+        }
+      } catch { /* ignore */ }
       // Clear one-shot attachments
       setPendingAttachments(new Map());
       // Only clear error if there wasn't an error signaled in this turn
@@ -214,6 +420,44 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       setErrorStatus(500);
     }
   } as any);
+
+  // Load last/open thread when workspace changes, but never clobber an active session
+  useEffect(() => {
+    let cancelled = false;
+    const bootstrapThreadsForWorkspace = async (wsId: string | null) => {
+      if (!wsId) return;
+      // Do not change threads while a session is active or a message is streaming
+      if (sessionId || status === 'streaming' || status === 'submitted') return;
+      try {
+        const listRaw = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('agent:threads:list', { workspaceId: wsId });
+        const listRes = listRaw as ThreadsListResponse | undefined;
+        const threads = listRes && listRes.success ? (listRes.data?.threads || []) : [];
+        let targetSession: string | null = null;
+        try {
+          const lastRaw = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.lastSession.${wsId}` });
+          const lastRes = lastRaw as PrefsGetResponse<string> | undefined;
+          const lastId = lastRes && lastRes.success && typeof lastRes.data === 'string' ? lastRes.data : null;
+          if (lastId && threads.some((t) => t.sessionId === lastId)) targetSession = lastId;
+        } catch { /* ignore */ }
+        if (!targetSession && threads.length > 0) targetSession = threads[0].sessionId;
+        if (cancelled || !targetSession) return;
+        const loadedRaw = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('agent:threads:load', { sessionId: targetSession });
+        const loaded = loadedRaw as ThreadLoadResponse | undefined;
+        const json = (loaded && 'success' in loaded && loaded.success) ? loaded.data : (loaded as { data?: { sessionId?: string; messages?: unknown[] } } | undefined)?.data;
+        if (json && Array.isArray(json.messages)) {
+          setSessionId(String(json.sessionId));
+          setHydratedMessages(json.messages as unknown[]);
+        } else {
+          setSessionId(targetSession);
+        }
+        try { await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.lastSession.${wsId}`, value: targetSession }); } catch { /* noop */ }
+      } catch {
+        // ignore bootstrapping errors, do not clobber active state
+      }
+    };
+    void bootstrapThreadsForWorkspace(activeWorkspaceId);
+    return () => { cancelled = true; };
+  }, [activeWorkspaceId, sessionId, status]);
 
   // Interruption markers persist in the thread to indicate aborted turns
   const [interruptions, setInterruptions] = useState<Map<number, { target: 'pre-assistant' | 'assistant'; ts: number }>>(new Map());
@@ -311,11 +555,31 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
     } catch { /* noop */ }
   }, []);
 
+  // Helper: retry ensureSession a few times before giving up
+  const ensureSessionOrRetry = useCallback(async (maxAttempts: number = 8, delayMs: number = 250): Promise<string | null> => {
+    setIsStartingChat(true);
+    try {
+      for (let i = 0; i < maxAttempts; i++) {
+        const id = await ensureSession();
+        if (id) return id;
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+      return null;
+    } finally {
+      setIsStartingChat(false);
+    }
+  }, [ensureSession]);
+
   // Receive "Send to Agent" event from other parts of the UI
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = async (e: Event) => {
       const ce = e as CustomEvent<any>;
       if (!ce?.detail) return;
+      if (!sessionId) {
+        const id = await ensureSessionOrRetry();
+        if (!id) return;
+        await new Promise((r) => setTimeout(r, 0));
+      }
       // Support legacy { text } shape
       if (typeof ce.detail.text === "string" && ce.detail.text.length > 0) {
         sendMessage({ text: ce.detail.text } as any);
@@ -331,7 +595,16 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
     };
     window.addEventListener("pasteflow:send-to-agent", handler as EventListener);
     return () => window.removeEventListener("pasteflow:send-to-agent", handler as EventListener);
-  }, [sendMessage]);
+  }, [sendMessage, ensureSessionOrRetry, sessionId]);
+
+  // Queue handling: if a send was queued during thread switching, flush it after binding
+  useEffect(() => {
+    if (!queuedFirstSend) return;
+    if (awaitingBind || isSwitchingThread || !sessionId) return;
+    // Flush the queued text now that session is ready
+    sendMessage({ text: queuedFirstSend } as any);
+    setQueuedFirstSend(null);
+  }, [queuedFirstSend, awaitingBind, isSwitchingThread, sessionId, sendMessage]);
 
   // Detect code fence language based on file extension
   const detectLanguage = useCallback((path: string) => {
@@ -395,6 +668,33 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       const userText = composer.trim();
       if (!userText) return;
 
+      // Ensure session, retrying if needed
+      if (!sessionId || isStartingChat || isSwitchingThread || awaitingBind) {
+        const id = await ensureSessionOrRetry();
+        if (!id) {
+          const nId = `chat-init-failed-${Date.now()}`;
+          setNotices((prev) => [...prev, { id: nId, variant: 'warning', message: 'Could not start chat. Please try again.' }]);
+          setTimeout(() => setNotices((prev) => prev.filter((n) => n.id !== nId)), 1800);
+          return;
+        }
+        // If still binding/switching, queue the first send and return
+        if (awaitingBind || isSwitchingThread) {
+          // Prepare payload for queued send below
+          const attachments = Array.from(pendingAttachments.values());
+          const llmBlocks: string[] = [];
+          for (const att of attachments) {
+            const content = typeof att.content === "string" && att.content.length > 0 ? att.content : await ensureAttachmentContent(att.path);
+            const lang = detectLanguage(att.path);
+            llmBlocks.push(`File: ${att.path}\n\`\`\`${lang}\n${content}\n\`\`\``);
+          }
+          const llmTextBound = [...llmBlocks, userText].filter(Boolean).join("\n\n");
+          setQueuedFirstSend(llmTextBound);
+          setComposer("");
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
       // Use current pending attachments
       const attachments = Array.from(pendingAttachments.values());
 
@@ -426,13 +726,119 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       // Clear local composer
       setComposer("");
     },
-    [composer, pendingAttachments, detectLanguage, ensureAttachmentContent, sendMessage]
+    [composer, pendingAttachments, detectLanguage, ensureAttachmentContent, sendMessage, sessionId, ensureSessionOrRetry, setNotices, isStartingChat, isSwitchingThread]
   );
 
   const tokenHint = useMemo(() => {
     const total = (composer.length || 0) + Array.from(pendingAttachments.values()).reduce((acc, a) => acc + (a.tokenCount || 0), 0);
     return `${total} chars`;
   }, [composer, pendingAttachments]);
+
+  async function handleNewChat(isAuto?: boolean): Promise<string | null> {
+    try {
+      if (status === 'streaming' || status === 'submitted') { interruptNow(); }
+    } catch { /* noop */ }
+    try {
+      if (!panelEnabled) return null;
+      setIsSwitchingThread(true);
+      setAwaitingBind(true);
+      // First, persist current thread if one exists
+      if (sessionId) {
+        try {
+          const [p, m] = await Promise.all([
+            (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
+            (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }),
+          ]);
+          const provider = (p && p.success && typeof p.data === 'string') ? p.data : undefined;
+          const model = (m && m.success && typeof m.data === 'string') ? m.data : undefined;
+          const wsId = await resolveWorkspaceId();
+          await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:saveSnapshot', {
+            sessionId,
+            workspaceId: wsId || undefined,
+            messages,
+            meta: { model, provider },
+          });
+          setThreadsRefreshKey((x) => x + 1);
+        } catch { /* ignore snapshot of previous */ }
+      }
+
+      const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:start-session', {});
+      const id = (res && res.success) ? res.data?.sessionId : res?.data?.sessionId || res?.sessionId;
+      if (typeof id !== 'string') return null;
+      setSessionId(id);
+      setHydratedMessages([]);
+      // Defer preference update (agent.lastSession) until after first assistant response (onFinish)
+      // Bind readiness handled by effect below
+
+      // Visual feedback unless auto-init
+      if (!isAuto) {
+        const nId = `new-chat-${Date.now()}`;
+        setNotices((prev) => [...prev, { id: nId, variant: 'info', message: 'New chat created' }]);
+        // Auto-dismiss after a short delay
+        setTimeout(() => {
+          setNotices((prev) => prev.filter((n) => n.id !== nId));
+        }, 2500);
+      }
+      return id;
+    } catch {
+      return null; /* noop */
+    }
+  }
+
+  // Re-enable input only after React commit with the new session id
+  useEffect(() => {
+    if (awaitingBind && sessionId) {
+      const t = setTimeout(() => {
+        setIsSwitchingThread(false);
+        setAwaitingBind(false);
+      }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [awaitingBind, sessionId]);
+
+  // Prevent concurrent session creation and provide an explicit ensure API
+  
+
+  async function openThread(session: string) {
+    try {
+      if (status === 'streaming' || status === 'submitted') { interruptNow(); }
+    } catch { /* noop */ }
+    try {
+      if (!panelEnabled) return;
+      const loaded: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:load', { sessionId: session });
+      const json = (loaded && loaded.success) ? loaded.data : loaded?.data ?? loaded;
+      setSessionId(session);
+      if (json && typeof json === 'object' && Array.isArray(json.messages)) setHydratedMessages(json.messages);
+      else setHydratedMessages([]);
+      const wsId = await resolveWorkspaceId();
+      if (wsId) { try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.lastSession.${wsId}`, value: session }); } catch { /* ignore */ } }
+      setShowThreads(false);
+    } catch { /* noop */ }
+  }
+
+  async function deleteThread(session: string) {
+    try {
+      await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:delete', { sessionId: session });
+    } catch { /* ignore */ }
+    // If deleting current session, clear it
+    if (sessionId === session) {
+      try {
+        const wsId = activeWorkspaceId;
+        const listRes: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:list', wsId ? { workspaceId: wsId } : {});
+        const threads: any[] = (listRes && listRes.success) ? (listRes.data?.threads || []) : [];
+        if (threads.length > 0) {
+          await openThread(threads[0].sessionId);
+        } else {
+          setSessionId(null);
+          setHydratedMessages([]);
+        }
+      } catch {
+        setSessionId(null);
+        setHydratedMessages([]);
+      }
+    }
+    setThreadsRefreshKey((x) => x + 1);
+  }
 
   if (hidden) return null;
 
@@ -441,18 +847,36 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
       <div className="agent-panel-header">
         <div className="agent-panel-title">Agent</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="secondary" onClick={() => setShowModelSettings(true)} title="Agent Settings" aria-label="Agent Settings">
+          <button className="secondary" onClick={async () => { const ws = await resolveWorkspaceId(); if (ws) setActiveWorkspaceId(ws); setThreadsRefreshKey((x)=>x+1); setShowThreads(true); }} title="Threads" aria-label="Threads" disabled={!panelEnabled}>
+            <ListIcon size={16} />
+          </button>
+          <button className="primary" onClick={handleNewChat} title="New Chat" aria-label="New Chat" disabled={!panelEnabled}>
+            <PlusIcon size={16} />
+          </button>
+          <button className="secondary" onClick={() => setShowModelSettings(true)} title="Agent Settings" aria-label="Agent Settings" disabled={!panelEnabled}>
             <SettingsIcon size={16} />
           </button>
           {status === "streaming" || status === "submitted" ? (
             <button className="cancel-button" onClick={interruptNow} title="Stop" aria-label="Stop generation">Stop</button>
           ) : ((hasOpenAIKey === false || errorStatus === 503) ? (
-              <button className="primary" onClick={() => setShowIntegrations(true)} title="Configure AI Provider" aria-label="Configure AI Provider">Configure</button>
+              <button className="primary" onClick={() => setShowIntegrations(true)} title="Configure AI Provider" aria-label="Configure AI Provider" disabled={!panelEnabled}>Configure</button>
             ) : null)}
         </div>
       </div>
 
       <div className="agent-panel-body">
+        {/* Disabled overlay when no workspace is active */}
+        {!panelEnabled && (
+          <div className="agent-panel-disabled-overlay" role="note">
+            <div className="agent-disabled-title">No workspace open</div>
+            <div className="agent-disabled-subtitle">Open a saved workspace or select a folder to create one.</div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button className="primary" onClick={() => window.dispatchEvent(new CustomEvent('pasteflow:open-workspaces'))}>Open Workspace</button>
+              <button className="secondary" onClick={() => { try { window.electron?.ipcRenderer?.send('open-folder'); } catch { /* noop */ } }}>Open Folder</button>
+            </div>
+          </div>
+        )}
+
         {/* Error and notice banners with specific, user-friendly messages */}
         {notices.map((n) => (
           <AgentAlertBanner
@@ -562,7 +986,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
           <AgentChatInputWithMention
             value={composer}
             onChange={setComposer}
-            disabled={status === "streaming" || status === "submitted"}
+            disabled={(!panelEnabled) || status === "streaming" || status === "submitted" || isStartingChat || isSwitchingThread}
             allFiles={allFiles}
             selectedFolder={selectedFolder}
             onFileMention={(absPath) =>
@@ -574,12 +998,18 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
             }
             overlay={
               <>
+                {(isStartingChat || isSwitchingThread) && (
+                  <div className="agent-starting-chip" aria-live="polite" aria-atomic="true">
+                    <div className="agent-spinner" />
+                    <span>Starting chat…</span>
+                  </div>
+                )}
                 <button
                   className="agent-input-submit"
                   type="submit"
                   title="Send"
                   aria-label="Send"
-                  disabled={(status === "streaming" || status === "submitted") || !composer.trim()}
+                  disabled={(!panelEnabled) || (status === "streaming" || status === "submitted") || isStartingChat || isSwitchingThread || !composer.trim()}
                 >
                   <ArrowUp size={14} />
                 </button>
@@ -601,6 +1031,15 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, loadFileCont
 
       <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
       <ModelSettingsModal isOpen={showModelSettings} onClose={() => setShowModelSettings(false)} sessionId={sessionId} />
+      <AgentThreadList
+        isOpen={showThreads}
+        onClose={() => setShowThreads(false)}
+        onOpenThread={(sid) => openThread(sid)}
+        onDeleteThread={(sid) => deleteThread(sid)}
+        currentSessionId={sessionId}
+        refreshKey={threadsRefreshKey}
+        workspaceId={activeWorkspaceId || undefined}
+      />
     </div>
   );
 };

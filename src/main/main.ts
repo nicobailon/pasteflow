@@ -1056,6 +1056,101 @@ ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: s
   }
 });
 
+/**
+ * Agent threads IPC (Phase 1)
+ * JSON-backed per-workspace chat threads
+ */
+ipcMain.handle('agent:threads:list', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsListSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsListSchema.safeParse(params || {});
+    const wsIdParam = parsed.success ? parsed.data.workspaceId : undefined;
+    if (!database || !(database as any).initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
+    const db: any = database as unknown as any;
+    let wsId: string | null = wsIdParam ?? null;
+    if (!wsId) {
+      const active = await db.getPreference('workspace.active');
+      wsId = (typeof active === 'string' && active.trim().length > 0) ? active : null;
+    }
+    if (!wsId) return { success: true, data: { threads: [] } };
+    const ws = await db.getWorkspace(wsId);
+    if (!ws) return { success: true, data: { threads: [] } };
+    const { listThreads } = await import('./agent/chat-storage');
+    const items = await listThreads({ id: String(ws.id), name: ws.name, folderPath: ws.folderPath });
+    return { success: true, data: { threads: items } };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:threads:load', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsLoadSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsLoadSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { loadThread } = await import('./agent/chat-storage');
+    const data = await loadThread(parsed.data.sessionId);
+    return { success: true, data };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:threads:saveSnapshot', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsSaveSnapshotSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsSaveSnapshotSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    if (!database || !(database as any).initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
+    const db: any = database as unknown as any;
+    let wsId: string | null = parsed.data.workspaceId ?? null;
+    if (!wsId) {
+      const active = await db.getPreference('workspace.active');
+      wsId = (typeof active === 'string' && active.trim().length > 0) ? active : null;
+    }
+    if (!wsId) return { success: false, error: 'WORKSPACE_NOT_SELECTED' };
+    const ws = await db.getWorkspace(wsId);
+    if (!ws) return { success: false, error: 'WORKSPACE_NOT_FOUND' };
+    const { saveSnapshot } = await import('./agent/chat-storage');
+    const result = await saveSnapshot({
+      sessionId: parsed.data.sessionId,
+      workspace: { id: String(ws.id), name: ws.name, folderPath: ws.folderPath },
+      messages: parsed.data.messages as any[],
+      meta: parsed.data.meta as any,
+    });
+    if ('ok' in result && result.ok) return { success: true, data: result };
+    return { success: false, error: (result as any)?.error || 'SAVE_FAILED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:threads:delete', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsDeleteSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsDeleteSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { deleteThread } = await import('./agent/chat-storage');
+    const ok = await deleteThread(parsed.data.sessionId);
+    return { success: true, data: { ok } };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('agent:threads:rename', async (_e, params: unknown) => {
+  try {
+    const { AgentThreadsRenameSchema } = await import('./ipc/schemas');
+    const parsed = AgentThreadsRenameSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { renameThread } = await import('./agent/chat-storage');
+    const ok = await renameThread(parsed.data.sessionId, parsed.data.title);
+    return { success: true, data: { ok } };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
 /** Instructions (envelope) */
 function mapInstructionDbToIpc(i: any) {
   return {

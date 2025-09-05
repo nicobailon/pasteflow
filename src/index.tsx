@@ -38,6 +38,13 @@ const App = () => {
     return initializeCacheRegistry();
   }, []);
 
+  // Allow other components to open the workspace modal via a simple event
+  useEffect(() => {
+    const open = () => setIsWorkspaceModalOpen(true);
+    window.addEventListener('pasteflow:open-workspaces', open);
+    return () => window.removeEventListener('pasteflow:open-workspaces', open);
+  }, []);
+
   // Dev-only: expose performance report helpers on window
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -187,6 +194,7 @@ const App = () => {
           <AgentPanel
             allFiles={appState.allFiles}
             selectedFolder={appState.selectedFolder}
+            currentWorkspace={appState.currentWorkspace}
             loadFileContent={appState.loadFileContent}
           />
         </div>

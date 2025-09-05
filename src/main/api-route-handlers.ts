@@ -22,8 +22,11 @@ import { PreviewController } from './preview-controller';
 import { broadcastToRenderers, broadcastWorkspaceUpdated } from './broadcast-helper';
 import { AgentContextEnvelopeSchema } from "../shared-types/agent-context";
 import { streamText, convertToModelMessages, consumeStream } from "ai";
+import type { UIMessage, ModelMessage, ToolSet, LanguageModel } from "ai";
 import { buildSystemPrompt } from "./agent/system-prompt";
 import { getAgentTools } from "./agent/tools";
+import type { AgentContextEnvelope } from "../shared-types/agent-context";
+import type { ProviderId } from "./agent/models-catalog";
 // secrets handled in provider-specific resolvers
 
 // Schema definitions
@@ -136,9 +139,9 @@ export class APIRouteHandlers {
       const { resolveAgentConfig } = await import('./agent/config');
       const cfg = await resolveAgentConfig(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
       const providerParam = parsed.success && typeof parsed.data.provider === 'string' ? parsed.data.provider.toLowerCase() : null;
-      const provider = (providerParam === 'openai' || providerParam === 'anthropic' || providerParam === 'openrouter') ? providerParam : (cfg as any).PROVIDER || 'openai';
+      const provider: ProviderId = (providerParam === 'openai' || providerParam === 'anthropic' || providerParam === 'openrouter') ? providerParam : cfg.PROVIDER;
       const { getStaticModels } = await import('./agent/models-catalog');
-      const models = getStaticModels(provider as any);
+      const models = getStaticModels(provider);
       return res.json(ok({ provider, models }));
     } catch (error) {
       return res.status(500).json(toApiError('SERVER_ERROR', (error as Error)?.message || 'Failed to list models'));
@@ -160,7 +163,7 @@ export class APIRouteHandlers {
       // Load stored credentials when not provided explicitly
       const creds = await loadProviderCredentials(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
 
-      let lm: any;
+      let lm: LanguageModel;
       if (provider === 'openai') {
         const client = createOpenAI({ apiKey: apiKey || creds.openai?.apiKey || undefined });
         lm = client(model);
@@ -268,8 +271,8 @@ export class APIRouteHandlers {
         return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
       }
 
-      const uiMessages = parsed.data.messages as any[];
-      let modelMessages: any[];
+      const uiMessages = parsed.data.messages as Array<Omit<UIMessage, "id">>;
+      let modelMessages: ModelMessage[];
       try {
         modelMessages = convertToModelMessages(uiMessages);
       } catch (e) {
@@ -283,7 +286,7 @@ export class APIRouteHandlers {
       // Sanitize/normalize context
       const envelope = parsed.data.context;
       const allowed = getAllowedWorkspacePaths();
-      const safeEnvelope = envelope ? this.sanitizeContextEnvelope(envelope as any, allowed) : undefined;
+      const safeEnvelope = envelope ? this.sanitizeContextEnvelope(envelope, allowed) : undefined;
 
       const system = buildSystemPrompt({
         initial: safeEnvelope?.initial,
@@ -316,8 +319,8 @@ export class APIRouteHandlers {
               result,
               status: 'ok',
               error: null,
-              startedAt: (meta as any)?.startedAt ?? null,
-              durationMs: (meta as any)?.durationMs ?? null,
+              startedAt: (meta as { startedAt?: number } | undefined)?.startedAt ?? null,
+              durationMs: (meta as { durationMs?: number } | undefined)?.durationMs ?? null,
             });
           } catch {
             // ignore logging errors
@@ -327,27 +330,34 @@ export class APIRouteHandlers {
 
       // Backpressure guard: if session is currently rate-limited, return 429
       try {
-        if (typeof (security as any)?.isRateLimited === 'function' && (security as any).isRateLimited(sessionId)) {
+        if (security.isRateLimited(sessionId)) {
           return res.status(429).json(toApiError('RATE_LIMITED', 'Too many tool calls in the last minute'));
         }
       } catch { /* ignore guard errors */ }
 
       // Resolve model for current provider + model id
       const { resolveModelForRequest } = await import('./agent/model-resolver');
-      const provider = (cfg as any).PROVIDER || 'openai';
-      const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider: provider as any, modelId: cfg.DEFAULT_MODEL });
+      const provider: ProviderId = cfg.PROVIDER || 'openai';
+      const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: cfg.DEFAULT_MODEL });
 
       // Dev-only: log tool param kinds to ensure proper schema wiring
       try {
         if (process.env.NODE_ENV === 'development') {
-          const snap: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(tools as any)) {
-            // Prefer inputSchema (AI SDK v5), fallback to legacy parameters for dev insight only
-            const schema: any = (v as any)?.inputSchema || (v as any)?.parameters;
-            const tag = schema && typeof schema === 'object'
-              ? (schema?.jsonSchema?.type || schema?._def?.typeName || schema?.type || Object.prototype.toString.call(schema))
+          const snap: Record<string, string> = {};
+          for (const [k, v] of Object.entries(tools as ToolSet)) {
+            type ToolIntrospect = {
+              inputSchema?: { jsonSchema?: { type?: string } };
+              parameters?: { _def?: { typeName?: string } } | { type?: string };
+            };
+            const tv = v as ToolIntrospect;
+            const schema = tv.inputSchema ?? tv.parameters;
+            const tag: string = schema && typeof schema === 'object'
+              ? ((schema as { jsonSchema?: { type?: string } }).jsonSchema?.type
+                || (schema as { _def?: { typeName?: string } })._def?.typeName
+                || (schema as { type?: string }).type
+                || Object.prototype.toString.call(schema))
               : typeof schema;
-            snap[k] = tag;
+            snap[k] = String(tag);
           }
           // eslint-disable-next-line no-console
           console.log('[AI] tool parameter kinds:', snap);
@@ -356,7 +366,7 @@ export class APIRouteHandlers {
 
       const disableTools = String(process.env.PF_AGENT_DISABLE_TOOLS || '').toLowerCase() === 'true';
       // Determine whether to include temperature based on model capabilities
-      const modelIdStr = String((cfg as any).DEFAULT_MODEL || "");
+      const modelIdStr = String(cfg.DEFAULT_MODEL || "");
       const isReasoningModel = (() => {
         try {
           const s = modelIdStr.toLowerCase();
@@ -367,7 +377,7 @@ export class APIRouteHandlers {
         } catch { return false; }
       })();
 
-      const cfgTemperature = (cfg as any).TEMPERATURE;
+      const cfgTemperature = cfg.TEMPERATURE;
       const shouldOmitTemperature = isReasoningModel && typeof cfgTemperature === 'number';
       if (shouldOmitTemperature) {
         try {
@@ -382,7 +392,7 @@ export class APIRouteHandlers {
         messages: modelMessages,
         tools: disableTools ? undefined : tools,
         temperature: shouldOmitTemperature ? undefined : ((typeof cfgTemperature === 'number') ? cfgTemperature : undefined),
-        maxOutputTokens: (cfg as any).MAX_OUTPUT_TOKENS ?? undefined,
+        maxOutputTokens: cfg.MAX_OUTPUT_TOKENS ?? undefined,
         abortSignal: controller.signal,
         onAbort: () => {
           // Best-effort: nothing to persist yet; hook kept for future telemetry
@@ -425,9 +435,9 @@ export class APIRouteHandlers {
             return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
           }
 
-          let modelMessages: any[];
+          let modelMessages: ModelMessage[];
           try {
-            modelMessages = convertToModelMessages(parsed.data.messages as any[]);
+            modelMessages = convertToModelMessages(parsed.data.messages as Array<Omit<UIMessage, "id">>);
           } catch {
             return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
           }
@@ -437,7 +447,7 @@ export class APIRouteHandlers {
 
           const envelope = parsed.data.context;
           const allowed = getAllowedWorkspacePaths();
-          const safeEnvelope = envelope ? this.sanitizeContextEnvelope(envelope as any, allowed) : undefined;
+          const safeEnvelope = envelope ? this.sanitizeContextEnvelope(envelope, allowed) : undefined;
           const system = buildSystemPrompt({
             initial: safeEnvelope?.initial,
             dynamic: safeEnvelope?.dynamic ?? { files: [] },
@@ -453,16 +463,16 @@ export class APIRouteHandlers {
           const cfg = await resolveAgentConfig(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
 
           const { resolveModelForRequest } = await import('./agent/model-resolver');
-          const provider = (cfg as any).PROVIDER || 'openai';
-          const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider: provider as any, modelId: cfg.DEFAULT_MODEL });
+          const provider: ProviderId = cfg.PROVIDER || 'openai';
+          const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: cfg.DEFAULT_MODEL });
 
           const result = streamText({
             model,
             system,
             messages: modelMessages,
             tools: undefined, // retry without tools
-            temperature: (cfg as any).TEMPERATURE ?? undefined,
-            maxOutputTokens: (cfg as any).MAX_OUTPUT_TOKENS ?? undefined,
+            temperature: cfg.TEMPERATURE ?? undefined,
+            maxOutputTokens: cfg.MAX_OUTPUT_TOKENS ?? undefined,
             abortSignal: controller.signal,
             onAbort: () => {},
           });
@@ -494,7 +504,7 @@ export class APIRouteHandlers {
         try {
           const { resolveAgentConfig } = await import('./agent/config');
           const cfg2 = await resolveAgentConfig(this.db as unknown as { getPreference: (k: string) => Promise<unknown> });
-          providerName = (cfg2 as any).PROVIDER || 'openai';
+          providerName = cfg2.PROVIDER || 'openai';
         } catch { /* noop */ }
         return res
           .status(503)
@@ -508,7 +518,7 @@ export class APIRouteHandlers {
 
       // Invalid/unknown model id → 400 surfaced to UI as user-fixable
       if (this.isInvalidModelError(error)) {
-        const modelId = (await import('./agent/config')).resolveAgentConfig(this.db as any).then(c => (c as any).DEFAULT_MODEL).catch(() => undefined);
+        const modelId = (await import('./agent/config')).resolveAgentConfig(this.db as unknown as { getPreference: (k: string) => Promise<unknown> }).then((c) => c.DEFAULT_MODEL).catch(() => undefined);
         const resolved = await Promise.resolve(modelId).catch(() => undefined);
         return res.status(400).json(
           toApiError('AI_INVALID_MODEL', 'Selected model is not available', {
@@ -529,12 +539,12 @@ export class APIRouteHandlers {
   }
 
   // Helper: sanitize context envelope
-  private sanitizeContextEnvelope(envelope: any, allowed: readonly string[]) {
+  private sanitizeContextEnvelope(envelope: AgentContextEnvelope, allowed: readonly string[]) {
     try {
       if (!envelope || !Array.isArray(allowed) || allowed.length === 0) return envelope;
       const nodePath = require('node:path') as typeof import('node:path');
-      const safeFiles = (files: any[]) => {
-        const out: any[] = [];
+      const safeFiles = (files: AgentContextEnvelope["dynamic"]["files"]) => {
+        const out: AgentContextEnvelope["dynamic"]["files"] = [];
         for (const f of Array.isArray(files) ? files : []) {
           const p = String(f?.path || '');
           // Ensure under allowed roots
@@ -583,7 +593,7 @@ export class APIRouteHandlers {
         },
       } : undefined;
 
-      const dynamic = { files: safeFiles(envelope.dynamic?.files || []) };
+      const dynamic = { files: safeFiles(envelope.dynamic?.files || []) } as AgentContextEnvelope["dynamic"];
       const workspace = typeof envelope.workspace === 'string' ? envelope.workspace : null;
 
       return { version: 1 as const, initial, dynamic, workspace };
@@ -981,9 +991,8 @@ export class APIRouteHandlers {
   // Detect provider configuration errors (e.g., missing API key)
   private isProviderConfigError(err: unknown): boolean {
     try {
-      const anyErr = err as any;
-      const name = String(anyErr?.name || '');
-      const msg = String(anyErr?.message || '').toLowerCase();
+      const name = String((err as { name?: string } | null | undefined)?.name || '');
+      const msg = String((err as { message?: string } | null | undefined)?.message || '').toLowerCase();
       if (name === 'AI_LoadAPIKeyError') return true;
       if (name.includes('LoadAPIKeyError')) return true;
       if (msg.includes('api key is missing')) return true;
@@ -996,10 +1005,14 @@ export class APIRouteHandlers {
   // Treat 401/403 as auth/provider config issues to surface a Configure banner
   private isAuthError(err: unknown): boolean {
     try {
-      const anyErr = err as any;
-      const status = Number(anyErr?.status ?? anyErr?.statusCode ?? anyErr?.response?.status ?? anyErr?.cause?.status);
+      const status = Number(
+        (err as { status?: number } | null | undefined)?.status
+        ?? (err as { statusCode?: number } | null | undefined)?.statusCode
+        ?? (err as { response?: { status?: number } } | null | undefined)?.response?.status
+        ?? (err as { cause?: { status?: number } } | null | undefined)?.cause?.status
+      );
       if (status === 401 || status === 403) return true;
-      const msg = String(anyErr?.message || '').toLowerCase();
+      const msg = String((err as { message?: string } | null | undefined)?.message || '').toLowerCase();
       return msg.includes('unauthorized') || msg.includes('invalid api key');
     } catch { return false; }
   }
@@ -1007,10 +1020,14 @@ export class APIRouteHandlers {
   // Detect invalid/unknown model errors across providers
   private isInvalidModelError(err: unknown): boolean {
     try {
-      const anyErr = err as any;
-      const status = Number(anyErr?.status ?? anyErr?.statusCode ?? anyErr?.response?.status ?? anyErr?.cause?.status);
+      const status = Number(
+        (err as { status?: number } | null | undefined)?.status
+        ?? (err as { statusCode?: number } | null | undefined)?.statusCode
+        ?? (err as { response?: { status?: number } } | null | undefined)?.response?.status
+        ?? (err as { cause?: { status?: number } } | null | undefined)?.cause?.status
+      );
       if (status === 404) return true;
-      const msg = String(anyErr?.message || '').toLowerCase();
+      const msg = String((err as { message?: string } | null | undefined)?.message || '').toLowerCase();
       if (msg.includes('model_not_found')) return true;
       if (msg.includes('model') && msg.includes('does not exist')) return true;
       if (msg.includes('unknown model') || msg.includes('invalid model')) return true;
@@ -1021,10 +1038,14 @@ export class APIRouteHandlers {
   // Extract a provider-supplied HTTP status, if any
   private getStatusFromAIError(err: unknown): number | null {
     try {
-      const anyErr = err as any;
-      const status = Number(anyErr?.status ?? anyErr?.statusCode ?? anyErr?.response?.status ?? anyErr?.cause?.status);
+      const status = Number(
+        (err as { status?: number } | null | undefined)?.status
+        ?? (err as { statusCode?: number } | null | undefined)?.statusCode
+        ?? (err as { response?: { status?: number } } | null | undefined)?.response?.status
+        ?? (err as { cause?: { status?: number } } | null | undefined)?.cause?.status
+      );
       if (Number.isFinite(status)) return status;
-      const msg = String(anyErr?.message || '').toLowerCase();
+      const msg = String((err as { message?: string } | null | undefined)?.message || '').toLowerCase();
       if (/(?:^|\b)(429|too many requests)(?:\b|$)/.test(msg)) return 429;
       return null;
     } catch { return null; }
@@ -1033,10 +1054,17 @@ export class APIRouteHandlers {
   // Detect invalid tool schema/parameters errors (e.g., OpenAI Responses API)
   private isInvalidToolParametersError(err: unknown): boolean {
     try {
-      const anyErr = err as any;
-      const msg = String(anyErr?.message || '').toLowerCase();
-      const code = String(anyErr?.code || anyErr?.data?.error?.code || '').toLowerCase();
-      const param = String(anyErr?.param || anyErr?.data?.error?.param || '').toLowerCase();
+      const msg = String((err as { message?: string } | null | undefined)?.message || '').toLowerCase();
+      const code = String(
+        (err as { code?: string } | null | undefined)?.code
+        ?? (err as { data?: { error?: { code?: string } } } | null | undefined)?.data?.error?.code
+        ?? ''
+      ).toLowerCase();
+      const param = String(
+        (err as { param?: string } | null | undefined)?.param
+        ?? (err as { data?: { error?: { param?: string } } } | null | undefined)?.data?.error?.param
+        ?? ''
+      ).toLowerCase();
       if (code.includes('invalid_function_parameters')) return true;
       if (msg.includes('invalid_function_parameters')) return true;
       if (msg.includes('parameters must be json schema type') && (param.includes('tools') || msg.includes('tools'))) return true;
