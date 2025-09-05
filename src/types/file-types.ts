@@ -101,6 +101,7 @@ export interface FileListProps {
   toggleInstructionSelection?: (instruction: Instruction) => void;
   onViewInstruction?: (instruction: Instruction) => void;
   loadFileContent: (filePath: string) => Promise<void>; // Added loadFileContent property
+  toggleFolderSelection?: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void; // New: folder toggling for folder cards
 }
 
 export interface FileCardProps {

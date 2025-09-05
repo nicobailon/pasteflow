@@ -474,6 +474,7 @@ interface ContentAreaProps {
   loadFileContent: (filePath: string) => Promise<void>;
   loadMultipleFileContents: (filePaths: string[], options?: { priority?: number }) => Promise<void>;
   clipboardPreviewModalOpen: boolean;
+  toggleFolderSelection?: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
   previewContent: string;
   previewTokenCount: number;
   openClipboardPreviewModal: (content: string, tokenCount: number) => void;
@@ -524,6 +525,7 @@ const ContentArea = ({
   loadMultipleFileContents,
   clipboardPreviewModalOpen,
   previewContent,
+  toggleFolderSelection,
   previewTokenCount,
   openClipboardPreviewModal,
   closeClipboardPreviewModal,
@@ -923,6 +925,7 @@ const ContentArea = ({
           toggleInstructionSelection={toggleInstructionSelection}
           onViewInstruction={onViewInstruction}
           loadFileContent={loadFileContent}
+          toggleFolderSelection={toggleFolderSelection}
         />
       </div>
       <div className="user-instructions-input-area">
