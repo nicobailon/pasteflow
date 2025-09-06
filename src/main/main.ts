@@ -1122,7 +1122,7 @@ ipcMain.handle('agent:threads:list', async (_e, params: unknown) => {
     const ws = await db.getWorkspace(wsId);
     if (!ws) return { success: true, data: { threads: [] } };
     const { listThreads } = await import('./agent/chat-storage');
-    const items = await listThreads({ id: String(ws.id), name: ws.name, folderPath: ws.folderPath });
+    const items = await listThreads({ id: String(ws.id), name: ws.name, folderPath: (ws as any).folder_path });
     return { success: true, data: { threads: items } };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
@@ -1160,7 +1160,7 @@ ipcMain.handle('agent:threads:saveSnapshot', async (_e, params: unknown) => {
     const { saveSnapshot } = await import('./agent/chat-storage');
     const result = await saveSnapshot({
       sessionId: parsed.data.sessionId,
-      workspace: { id: String(ws.id), name: ws.name, folderPath: ws.folderPath },
+      workspace: { id: String(ws.id), name: ws.name, folderPath: (ws as any).folder_path },
       messages: parsed.data.messages as any[],
       meta: parsed.data.meta as any,
     });
