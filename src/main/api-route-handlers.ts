@@ -280,7 +280,8 @@ export class APIRouteHandlers {
       }
 
       // Derive or generate session id
-      const headerSession = String((req.headers['x-pasteflow-session'] || req.headers['x-pf-session-id'] || '')).trim();
+      const _headers = (req.headers ?? {}) as Record<string, unknown>;
+      const headerSession = String(((_headers['x-pasteflow-session'] as unknown) || (_headers['x-pf-session-id'] as unknown) || '')).trim();
       const sessionId = parsed.data.sessionId || (headerSession || randomUUID());
 
       // Sanitize/normalize context
@@ -386,6 +387,7 @@ export class APIRouteHandlers {
         } catch { /* noop */ }
       }
 
+      const start = Date.now();
       const result = streamText({
         model,
         system,
@@ -396,6 +398,39 @@ export class APIRouteHandlers {
         abortSignal: controller.signal,
         onAbort: () => {
           // Best-effort: nothing to persist yet; hook kept for future telemetry
+        },
+        onFinish: async (info: any) => {
+          try {
+            const u = (info && typeof info === 'object' && (info as any).usage) ? (info as any).usage : (info ?? {});
+            const input = (u && typeof u.inputTokens === 'number') ? u.inputTokens : null;
+            const output = (u && typeof u.outputTokens === 'number') ? u.outputTokens : null;
+            const total = (u && typeof u.totalTokens === 'number') ? u.totalTokens : (
+              (input != null && output != null) ? (input + output) : null
+            );
+            const latency = Date.now() - start;
+            // Compute cost (best-effort) on server using simple pricing table
+            let cost: number | null = null;
+            try {
+              const { calculateCostUSD } = await import('./agent/pricing');
+              const modelIdForPricing = String(cfg.DEFAULT_MODEL || "");
+              cost = calculateCostUSD(provider, modelIdForPricing, { inputTokens: input ?? undefined, outputTokens: output ?? undefined });
+            } catch { /* noop */ }
+            // Dev log for quick verification
+            try {
+              if (process.env.NODE_ENV === 'development') {
+                // eslint-disable-next-line no-console
+                console.log('[AI][finish]', { input, output, total, latency, cost });
+              }
+            } catch { /* noop */ }
+            const bridge: any = this.db as any;
+            if (typeof bridge.insertUsageSummaryWithLatencyAndCost === 'function') {
+              await bridge.insertUsageSummaryWithLatencyAndCost(sessionId, input, output, total, latency, cost ?? null);
+            } else if (typeof bridge.insertUsageSummaryWithLatency === 'function') {
+              await bridge.insertUsageSummaryWithLatency(sessionId, input, output, total, latency);
+            } else {
+              await this.db.insertUsageSummary(sessionId, input, output, total);
+            }
+          } catch { /* ignore persistence errors */ }
         },
       });
 
@@ -413,10 +448,7 @@ export class APIRouteHandlers {
         await this.db.upsertChatSession(sessionId, msgJson, ws ? String(ws.id) : null);
       } catch { /* ignore */ }
 
-      // Best-effort write a usage row (token metrics TBD)
-      try {
-        await this.db.insertUsageSummary(sessionId, null, null, null);
-      } catch { /* noop */ }
+      // Usage persistence occurs in onFinish callback; no placeholder insert here
     } catch (error) {
       // Graceful fallback: invalid tool parameter schema → retry once without tools
       if (this.isInvalidToolParametersError(error)) {
@@ -442,7 +474,8 @@ export class APIRouteHandlers {
             return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
           }
 
-          const headerSession = String((req.headers['x-pasteflow-session'] || req.headers['x-pf-session-id'] || '')).trim();
+          const _headers = (req.headers ?? {}) as Record<string, unknown>;
+          const headerSession = String(((_headers['x-pasteflow-session'] as unknown) || (_headers['x-pf-session-id'] as unknown) || '')).trim();
           const sessionId = parsed.data.sessionId || (headerSession || randomUUID());
 
           const envelope = parsed.data.context;
@@ -466,6 +499,7 @@ export class APIRouteHandlers {
           const provider: ProviderId = cfg.PROVIDER || 'openai';
           const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: cfg.DEFAULT_MODEL });
 
+          const start = Date.now();
           const result = streamText({
             model,
             system,
@@ -475,6 +509,37 @@ export class APIRouteHandlers {
             maxOutputTokens: cfg.MAX_OUTPUT_TOKENS ?? undefined,
             abortSignal: controller.signal,
             onAbort: () => {},
+            onFinish: async (info: any) => {
+              try {
+                const u = (info && typeof info === 'object' && (info as any).usage) ? (info as any).usage : (info ?? {});
+                const input = (u && typeof u.inputTokens === 'number') ? u.inputTokens : null;
+                const output = (u && typeof u.outputTokens === 'number') ? u.outputTokens : null;
+                const total = (u && typeof u.totalTokens === 'number') ? u.totalTokens : (
+                  (input != null && output != null) ? (input + output) : null
+                );
+                const latency = Date.now() - start;
+                let cost: number | null = null;
+                try {
+                  const { calculateCostUSD } = await import('./agent/pricing');
+                  const modelIdForPricing = String(cfg.DEFAULT_MODEL || "");
+                  cost = calculateCostUSD(provider, modelIdForPricing, { inputTokens: input ?? undefined, outputTokens: output ?? undefined });
+                } catch { /* noop */ }
+                try {
+                  if (process.env.NODE_ENV === 'development') {
+                    // eslint-disable-next-line no-console
+                    console.log('[AI][finish:fallback]', { input, output, total, latency, cost });
+                  }
+                } catch { /* noop */ }
+                const bridge: any = this.db as any;
+                if (typeof bridge.insertUsageSummaryWithLatencyAndCost === 'function') {
+                  await bridge.insertUsageSummaryWithLatencyAndCost(sessionId, input, output, total, latency, cost ?? null);
+                } else if (typeof bridge.insertUsageSummaryWithLatency === 'function') {
+                  await bridge.insertUsageSummaryWithLatency(sessionId, input, output, total, latency);
+                } else {
+                  await this.db.insertUsageSummary(sessionId, input, output, total);
+                }
+              } catch { /* ignore persistence errors */ }
+            },
           });
 
           result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
@@ -487,9 +552,7 @@ export class APIRouteHandlers {
             await this.db.upsertChatSession(sessionId, msgJson, ws ? String(ws.id) : null);
           } catch { /* ignore */ }
 
-          try {
-            await this.db.insertUsageSummary(sessionId, null, null, null);
-          } catch { /* noop */ }
+          // Usage persistence occurs in onFinish callback; no placeholder insert here
 
           return; // streamed response
         } catch (fallbackError) {

@@ -6,7 +6,8 @@ import AgentAttachmentList from "./agent-attachment-list";
 import AgentToolCalls from "./agent-tool-calls";
 import IntegrationsModal from "./integrations-modal";
 import ModelSelector from "./model-selector";
-import { ArrowUp, List as ListIcon, Plus as PlusIcon } from "lucide-react";
+import { ArrowUp, List as ListIcon, Plus as PlusIcon, Info as InfoIcon } from "lucide-react";
+import { TOKEN_COUNTING } from "@constants";
 import ModelSettingsModal from "./model-settings-modal";
 import { Settings as SettingsIcon } from "lucide-react";
 import AgentAlertBanner from "./agent-alert-banner";
@@ -65,6 +66,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   const [pendingAttachments, setPendingAttachments] = useState<Map<string, AgentAttachment>>(new Map());
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Track when a turn starts to compute renderer-side latency if server usage is missing
+  const turnStartRef = useRef<number | null>(null);
 
   // Bridge provided by preload/IPC (fallback for tests/dev)
   function useApiInfo() {
@@ -99,6 +102,13 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   const [isSwitchingThread, setIsSwitchingThread] = useState(false);
   const [awaitingBind, setAwaitingBind] = useState(false);
   const [queuedFirstSend, setQueuedFirstSend] = useState<string | null>(null);
+
+  // Usage telemetry state
+  type UsageRow = { id: number; session_id: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; cost_usd: number | null; created_at: number };
+  const [usageRows, setUsageRows] = useState<UsageRow[]>([]);
+  const [lastUsage, setLastUsage] = useState<UsageRow | null>(null);
+  const [provider, setProvider] = useState<string | null>(null);
+  const [modelId, setModelId] = useState<string | null>(null);
 
   // Panel enabled only when a workspace is active and a folder is selected
   const panelEnabled = useMemo<boolean>(() => {
@@ -318,9 +328,10 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
       };
       return { ...requestBody, messages, context: envelope };
     },
-    onFinish: async ({ messages: resultMessages }: { messages: unknown[] }) => {
+    onFinish: async (finishInfo: any) => {
       try {
         if (sessionId) {
+          try { console.log('[UI][Telemetry] onFinish: snapshot + usage refresh start', { sessionId }); } catch { /* noop */ }
           const [p, m] = await Promise.all([
             (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
             (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }),
@@ -334,7 +345,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
               const res = await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:saveSnapshot', {
                 sessionId,
                 workspaceId: wsId || undefined,
-                messages: resultMessages,
+                messages: (finishInfo && finishInfo.messages) ? finishInfo.messages : undefined,
                 meta: { model, provider },
               });
               if (res && typeof res === 'object' && 'success' in res && (res as any).success === false) {
@@ -350,6 +361,23 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
               await new Promise((r) => setTimeout(r, 200));
             }
           }
+
+          // Renderer-side telemetry append (usage + latency)
+          try {
+            const uRoot = finishInfo && (finishInfo.usage || finishInfo.data?.usage) ? (finishInfo.usage || finishInfo.data?.usage) : null;
+            const input = (uRoot && typeof uRoot.inputTokens === 'number') ? uRoot.inputTokens : null;
+            const output = (uRoot && typeof uRoot.outputTokens === 'number') ? uRoot.outputTokens : null;
+            const total = (uRoot && typeof uRoot.totalTokens === 'number') ? uRoot.totalTokens : ((input != null && output != null) ? input + output : null);
+            const latency = (turnStartRef.current && typeof turnStartRef.current === 'number') ? (Date.now() - turnStartRef.current) : null;
+            if (input != null || output != null || total != null || latency != null) {
+              await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:append', { sessionId, inputTokens: input, outputTokens: output, totalTokens: total, latencyMs: latency });
+              try { console.log('[UI][Telemetry] renderer append usage', { sessionId, input, output, total, latency }); } catch { /* noop */ }
+            } else {
+              try { console.log('[UI][Telemetry] renderer append skipped (no usage payload)'); } catch { /* noop */ }
+            }
+          } catch (e) {
+            try { console.warn('[UI][Telemetry] renderer append failed', e); } catch { /* noop */ }
+          }
         }
       } catch { /* ignore */ }
       // Clear one-shot attachments
@@ -360,6 +388,17 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         setErrorInfo(null);
       }
       hadErrorRef.current = false;
+      // Refresh usage immediately after finish
+      try {
+        if (sessionId) {
+          const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:list', { sessionId });
+          if (res && res.success && Array.isArray(res.data)) {
+            setUsageRows(res.data as UsageRow[]);
+            setLastUsage((res.data as UsageRow[])[(res.data as UsageRow[]).length - 1] || null);
+            try { console.log('[UI][Telemetry] onFinish: usage refreshed', { count: (res.data as UsageRow[]).length }); } catch { /* noop */ }
+          }
+        }
+      } catch { /* ignore */ }
     },
     onError: (err: any) => {
       const code = typeof err?.status === "number" ? err.status : (typeof err?.code === "number" ? err.code : null);
@@ -420,6 +459,153 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
       setErrorStatus(500);
     }
   } as any);
+
+  // Update usage list on session change
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!sessionId) { setUsageRows([]); setLastUsage(null); return; }
+        const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:list', { sessionId });
+        if (res && res.success && Array.isArray(res.data)) {
+          setUsageRows(res.data as UsageRow[]);
+          setLastUsage((res.data as UsageRow[])[(res.data as UsageRow[]).length - 1] || null);
+          try { console.log('[UI][Telemetry] fetched usage rows', { sessionId, count: (res.data as UsageRow[]).length }); } catch { /* noop */ }
+        } else {
+          try { console.log('[UI][Telemetry] fetched usage rows: empty or error', { sessionId, result: res }); } catch { /* noop */ }
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [sessionId]);
+
+  // When streaming completes, refresh last usage quickly
+  const lastStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = lastStatusRef.current;
+    lastStatusRef.current = status as string | null;
+    const finishedNow = Boolean(prev && (prev === 'streaming' || prev === 'submitted') && !(status === 'streaming' || status === 'submitted'));
+    if (finishedNow && sessionId) {
+      setTimeout(async () => {
+        try {
+          const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:list', { sessionId });
+          if (res && res.success && Array.isArray(res.data)) {
+            setUsageRows(res.data as UsageRow[]);
+            setLastUsage((res.data as UsageRow[])[(res.data as UsageRow[]).length - 1] || null);
+            try { console.log('[UI][Telemetry] status change refresh', { prev, next: status, count: (res.data as UsageRow[]).length }); } catch { /* noop */ }
+          }
+        } catch { /* ignore */ }
+      }, 75);
+    }
+  }, [status, sessionId]);
+
+  // Fetch provider/model for cost hints
+  useEffect(() => {
+    (async () => {
+      try {
+        const [p, m] = await Promise.all([
+          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
+          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }),
+        ]);
+        const prov = p && p.success && typeof p.data === 'string' ? p.data : null;
+        const mid = m && m.success && typeof m.data === 'string' ? m.data : null;
+        setProvider(prov);
+        setModelId(mid);
+        try { console.log('[UI][Telemetry] provider/model', { provider: prov, model: mid }); } catch { /* noop */ }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  function formatLatency(ms: number | null | undefined): string {
+    if (!ms || ms <= 0) return "—";
+    if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
+    return `${ms}ms`;
+  }
+
+  function formatTokens(u?: Partial<UsageRow> | null): string {
+    if (!u) return "—";
+    const i = u.input_tokens ?? null;
+    const o = u.output_tokens ?? null;
+    const t = (typeof u.total_tokens === 'number') ? u.total_tokens : ((i != null && o != null) ? (i + o) : null);
+    if (i == null && o == null && t == null) return "—";
+    if (i != null && o != null) return `${i}/${o} · ${t}`;
+    if (t != null) return `${t}`;
+    return `${i ?? '—'}/${o ?? '—'}`;
+  }
+
+  // Very rough cost hint (optional). Extend map as needed.
+  function estimateCostUSD(u?: Partial<UsageRow> | null): string | null {
+    if (!u) return null;
+    const i = u.input_tokens ?? 0;
+    const o = u.output_tokens ?? 0;
+    const t = (typeof u.total_tokens === 'number') ? u.total_tokens : (i + o);
+    if (!t) return null;
+    const m = (modelId || '').toLowerCase();
+    // Default approximate rates per 1K tokens
+    const perK: { in: number; out: number } = m.includes('gpt-4o-mini') ? { in: 0.0005, out: 0.0015 } :
+      m.includes('gpt-5') ? { in: 0.005, out: 0.015 } :
+      m.includes('haiku') ? { in: 0.0008, out: 0.0024 } : { in: 0.001, out: 0.003 };
+    const cost = (i / 1000) * perK.in + (o / 1000) * perK.out;
+    return `$${cost.toFixed(cost < 0.01 ? 3 : 2)}`;
+  }
+
+  // Log lastUsage updates for visibility
+  useEffect(() => {
+    try { console.log('[UI][Telemetry] lastUsage updated', lastUsage); } catch { /* noop */ }
+  }, [lastUsage]);
+
+  // Estimate tokens for a message index (assistant + preceding user)
+  function estimateTokensForAssistant(idx: number): { input: number | null; output: number | null; total: number | null } {
+    try {
+      const m = messages[idx];
+      if (!m || m.role !== 'assistant') return { input: null, output: null, total: null };
+      const outText = extractVisibleTextFromMessage(m);
+      const output = outText ? Math.ceil(outText.length / TOKEN_COUNTING.CHARS_PER_TOKEN) : 0;
+      // find nearest preceding user message
+      let inputText = '';
+      for (let i = idx - 1; i >= 0; i--) {
+        if (messages[i]?.role === 'user') { inputText = extractVisibleTextFromMessage(messages[i]); break; }
+      }
+      const input = inputText ? Math.ceil(inputText.length / TOKEN_COUNTING.CHARS_PER_TOKEN) : 0;
+      const total = input + output;
+      return { input, output, total };
+    } catch { return { input: null, output: null, total: null }; }
+  }
+
+  // Aggregate session totals from persisted usage; fallback to estimate from messages when needed
+  const sessionTotals = useMemo(() => {
+    // Prefer DB rows only if they actually contain any token numbers
+    try {
+      if (Array.isArray(usageRows) && usageRows.length > 0) {
+        const hasAnyToken = usageRows.some(r => (
+          (typeof r.input_tokens === 'number' && r.input_tokens > 0) ||
+          (typeof r.output_tokens === 'number' && r.output_tokens > 0) ||
+          (typeof r.total_tokens === 'number' && r.total_tokens > 0)
+        ));
+        if (hasAnyToken) {
+          let inSum = 0, outSum = 0, totalSum = 0; let approx = false; let costSum = 0; let anyCost = false;
+          for (const r of usageRows) {
+            if (r.input_tokens == null || r.output_tokens == null || r.total_tokens == null) approx = true;
+            inSum += r.input_tokens ?? 0;
+            outSum += r.output_tokens ?? 0;
+            totalSum += (typeof r.total_tokens === 'number' ? r.total_tokens : ((r.input_tokens ?? 0) + (r.output_tokens ?? 0)));
+            if (typeof r.cost_usd === 'number' && Number.isFinite(r.cost_usd)) { costSum += r.cost_usd; anyCost = true; }
+          }
+          return { inSum, outSum, totalSum, approx, costUsd: anyCost ? costSum : null } as const;
+        }
+      }
+    } catch { /* noop */ }
+    // Fallback estimation from messages: user = input; assistant = output
+    try {
+      let inSum = 0, outSum = 0;
+      for (const m of messages as any[]) {
+        const txt = extractVisibleTextFromMessage(m);
+        const t = txt ? Math.ceil(txt.length / TOKEN_COUNTING.CHARS_PER_TOKEN) : 0;
+        if (m?.role === 'user') inSum += t; else if (m?.role === 'assistant') outSum += t;
+      }
+      return { inSum, outSum, totalSum: inSum + outSum, approx: true, costUsd: null } as const;
+    } catch {
+      return { inSum: 0, outSum: 0, totalSum: 0, approx: true, costUsd: null } as const;
+    }
+  }, [usageRows, messages]);
 
   // Load last/open thread when workspace changes, but never clobber an active session
   useEffect(() => {
@@ -720,7 +906,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
       // Build final strings — attachments first, then the user's message
       const llmText = [...llmBlocks, userText].filter(Boolean).join("\n\n");
 
-      // Send to LLM with full contents
+      // Send to LLM with full contents (mark turn start for latency)
+      try { turnStartRef.current = Date.now(); } catch { /* noop */ }
       sendMessage({ text: llmText } as any);
 
       // Clear local composer
@@ -846,6 +1033,27 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
     <div className="agent-panel" style={{ width: `${agentWidth}px` }} data-testid="agent-panel">
       <div className="agent-panel-header">
         <div className="agent-panel-title">Agent</div>
+        {/* Session totals chip */}
+        {(() => {
+          const chipInput = sessionTotals.inSum;
+          const chipOutput = sessionTotals.outSum;
+          const chipTotal = sessionTotals.totalSum;
+          const approx = sessionTotals.approx;
+          const label = `${chipTotal} ${approx ? '(approx) ' : ''}tokens (in: ${chipInput}, out: ${chipOutput})`;
+          const persistedCost = (typeof sessionTotals.costUsd === 'number' && Number.isFinite(sessionTotals.costUsd)) ? `$${sessionTotals.costUsd.toFixed(4)}` : null;
+          const estimatedCost = (!persistedCost && (chipInput > 0 || chipOutput > 0)) ? (estimateCostUSD({ input_tokens: chipInput as any, output_tokens: chipOutput as any, total_tokens: chipTotal as any } as any) || null) : null;
+          const costTxt = persistedCost || estimatedCost || null;
+          // Keep the chip visible once a conversation starts, even if totals are 0 mid-stream
+          const hasAnyMessages = Array.isArray(messages) && messages.length > 0;
+          if (!hasAnyMessages && chipTotal <= 0 && !costTxt) return null;
+          return (
+            <div className="agent-usage-chip" title={`Session totals — Input: ${chipInput}, Output: ${chipOutput}, Total: ${chipTotal}${costTxt ? `, Cost: ${costTxt}` : ''}`}>
+              <span className="dot" />
+              <span>{label}</span>
+              {costTxt && (<><span>·</span><span>{costTxt}</span></>)}
+            </div>
+          );
+        })()}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button className="secondary" onClick={async () => { const ws = await resolveWorkspaceId(); if (ws) setActiveWorkspaceId(ws); setThreadsRefreshKey((x)=>x+1); setShowThreads(true); }} title="Threads" aria-label="Threads" disabled={!panelEnabled}>
             <ListIcon size={16} />
@@ -968,6 +1176,56 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
                   <div style={{ whiteSpace: "pre-wrap" }}>{displayText}</div>
                   {/* Minimal tool-call visualization beneath assistant messages */}
                   {m?.role === "assistant" ? <AgentToolCalls message={m} /> : null}
+                  {/* User message token count (no latency) */}
+                  {m?.role === 'user' && (() => {
+                    try {
+                      const userTok = rawText ? Math.ceil(rawText.length / TOKEN_COUNTING.CHARS_PER_TOKEN) : 0;
+                      const tip = `User message tokens: ${userTok} (approx)`;
+                      return (
+                        <div className="message-usage-row">
+                          <span className="info-icon" aria-label="User token usage">
+                            <InfoIcon size={12} />
+                            <span className="tooltip-box">{tip}</span>
+                          </span>
+                          <span>{userTok} tokens</span>
+                        </div>
+                      );
+                    } catch { return null; }
+                  })()}
+                  {/* Usage info icon with tooltip */}
+                  {(() => {
+                    if (m?.role !== 'assistant') return null;
+                    let aIdx = 0;
+                    for (let i = 0; i <= idx; i++) { if (messages[i]?.role === 'assistant') aIdx += 1; }
+                    const usageInfo = usageRows[aIdx - 1] as UsageRow | undefined;
+                    if (!usageInfo) return null;
+                    try {
+                      console.log('[UI][Telemetry] assistant usage mapping', { messageIndex: idx, assistantIndex: aIdx, usage: usageInfo });
+                    } catch { /* noop */ }
+                    // Build tooltip contents with fallbacks
+                    const approxFallback = (!usageInfo.input_tokens && !usageInfo.output_tokens && !usageInfo.total_tokens);
+                    const approx = approxFallback ? estimateTokensForAssistant(idx) : null;
+                    const inTok = usageInfo.input_tokens ?? approx?.input ?? null;
+                    const outTok = usageInfo.output_tokens ?? approx?.output ?? null;
+                    const totalTok = (typeof usageInfo.total_tokens === 'number') ? usageInfo.total_tokens : ((inTok != null && outTok != null) ? (inTok + outTok) : (approx?.total ?? null));
+                    const latencyTxt = formatLatency(usageInfo.latency_ms);
+                    const costTxt = (typeof usageInfo.cost_usd === 'number' && Number.isFinite(usageInfo.cost_usd)) ? `$${usageInfo.cost_usd.toFixed(4)}` : (estimateCostUSD(usageInfo) || null);
+                    const tooltip = `Output tokens: ${outTok ?? '—'}${approx && usageInfo.output_tokens == null ? ' (approx)' : ''}\n` +
+                      `Input tokens: ${inTok ?? '—'}${approx && usageInfo.input_tokens == null ? ' (approx)' : ''}\n` +
+                      `Total tokens: ${totalTok ?? '—'}${approx && usageInfo.total_tokens == null ? ' (approx)' : ''}\n` +
+                      `Latency: ${latencyTxt}${costTxt ? `\nCost: ${costTxt}` : ''}`;
+                    const label = `${(outTok ?? '—')}${approx && usageInfo.output_tokens == null ? ' (approx)' : ''} tokens`;
+                    return (
+                      <div className="message-usage-row">
+                        <span className="info-icon" aria-label="Token usage details">
+                          <InfoIcon size={12} />
+                          <span className="tooltip-box">{tooltip}</span>
+                        </span>
+                        <span>{label}</span>
+                        <span>• {latencyTxt}</span>
+                      </div>
+                    );
+                  })()}
                   {/* Interruption indicator */}
                   {it && (
                     <div style={{ marginTop: 4, fontStyle: 'italic', color: '#a00' }}>User interrupted</div>

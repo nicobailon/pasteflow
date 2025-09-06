@@ -986,6 +986,52 @@ ipcMain.handle('agent:get-history', async (_e, params: unknown) => {
   }
 });
 
+// List usage summaries for a session (tokens + optional latency)
+ipcMain.handle('agent:usage:list', async (_e, params: unknown) => {
+  try {
+    const p = (params || {}) as { sessionId?: string };
+    const sessionId = typeof p.sessionId === 'string' && p.sessionId.trim() ? p.sessionId.trim() : null;
+    if (!sessionId) return { success: false, error: 'INVALID_PARAMS' };
+    if (!database || !(database as any).initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
+    const rows = await database!.listUsageSummaries(sessionId);
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[Main][Telemetry] agent:usage:list', { sessionId, rows: Array.isArray(rows) ? rows.length : 0 });
+    } catch { /* noop */ }
+    return { success: true, data: rows };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+// Append a usage row (renderer-provided fallback)
+ipcMain.handle('agent:usage:append', async (_e, params: unknown) => {
+  try {
+    const p = (params || {}) as { sessionId?: string; inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null; latencyMs?: number | null };
+    const sessionId = typeof p.sessionId === 'string' && p.sessionId.trim() ? p.sessionId.trim() : null;
+    if (!sessionId) return { success: false, error: 'INVALID_PARAMS' };
+    if (!database || !(database as any).initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
+    const input = (typeof p.inputTokens === 'number') ? p.inputTokens : null;
+    const output = (typeof p.outputTokens === 'number') ? p.outputTokens : null;
+    const total = (typeof p.totalTokens === 'number') ? p.totalTokens : ((input != null && output != null) ? (input + output) : null);
+    const latency = (typeof p.latencyMs === 'number') ? p.latencyMs : null;
+    try {
+      if ((database as any).insertUsageSummaryWithLatency) {
+        await (database as any).insertUsageSummaryWithLatency(sessionId, input, output, total, latency);
+      } else {
+        await (database as any).insertUsageSummary(sessionId, input, output, total);
+      }
+      // eslint-disable-next-line no-console
+      console.log('[Main][Telemetry] agent:usage:append', { sessionId, input, output, total, latency });
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as Error)?.message || 'DB_WRITE_FAILED' };
+    }
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
 ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
   try {
     const { AgentExecuteToolSchema } = await import('./ipc/schemas');

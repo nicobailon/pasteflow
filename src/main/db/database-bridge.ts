@@ -277,6 +277,27 @@ export class DatabaseBridge {
     return (this.db as any).insertUsageSummary(sessionId, inputTokens, outputTokens, totalTokens);
   }
 
+  async insertUsageSummaryWithLatency(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null, latencyMs: number | null) {
+    if (!this.db) throw new Error('Database not initialized');
+    const impl: any = this.db as any;
+    if (typeof impl.insertUsageSummaryWithLatency === 'function') {
+      return impl.insertUsageSummaryWithLatency(sessionId, inputTokens, outputTokens, totalTokens, latencyMs);
+    }
+    return impl.insertUsageSummary(sessionId, inputTokens, outputTokens, totalTokens);
+  }
+
+  async insertUsageSummaryWithLatencyAndCost(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null, latencyMs: number | null, costUsd: number | null) {
+    if (!this.db) throw new Error('Database not initialized');
+    const impl: any = this.db as any;
+    if (typeof impl.insertUsageSummaryWithLatencyAndCost === 'function') {
+      return impl.insertUsageSummaryWithLatencyAndCost(sessionId, inputTokens, outputTokens, totalTokens, latencyMs, costUsd);
+    }
+    if (typeof impl.insertUsageSummaryWithLatency === 'function') {
+      return impl.insertUsageSummaryWithLatency(sessionId, inputTokens, outputTokens, totalTokens, latencyMs);
+    }
+    return impl.insertUsageSummary(sessionId, inputTokens, outputTokens, totalTokens);
+  }
+
   async listUsageSummaries(sessionId: string) {
     if (!this.db) throw new Error('Database not initialized');
     return (this.db as any).listUsageSummaries(sessionId);

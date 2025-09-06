@@ -18,6 +18,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [exportPath, setExportPath] = useState<string | null>(null);
+  const [usageStats, setUsageStats] = useState<{ totalIn: number; totalOut: number; total: number; avgLatency: number | null; totalCost: number | null } | null>(null);
 
   // OpenAI
   const [openaiInput, setOpenaiInput] = useState("");
@@ -71,6 +72,34 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
   }, [isOpen]);
 
   const canSave = status !== 'saving' && status !== 'testing';
+
+  // Load session usage stats when opened
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!isOpen || !sessionId) { setUsageStats(null); return; }
+        const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:list', { sessionId });
+        if (res && res.success && Array.isArray(res.data)) {
+          const rows = res.data as Array<{ input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; cost_usd: number | null }>;
+          let inSum = 0, outSum = 0, totalSum = 0;
+          let latSum = 0, latCount = 0;
+          let costSum = 0, costCount = 0;
+          for (const r of rows) {
+            inSum += r.input_tokens ?? 0;
+            outSum += r.output_tokens ?? 0;
+            totalSum += (typeof r.total_tokens === 'number' ? r.total_tokens : ((r.input_tokens ?? 0) + (r.output_tokens ?? 0)));
+            if (typeof r.latency_ms === 'number') { latSum += r.latency_ms; latCount += 1; }
+            if (typeof r.cost_usd === 'number' && Number.isFinite(r.cost_usd)) { costSum += r.cost_usd; costCount += 1; }
+          }
+          setUsageStats({ totalIn: inSum, totalOut: outSum, total: totalSum, avgLatency: latCount > 0 ? Math.round(latSum / latCount) : null, totalCost: costCount > 0 ? costSum : null });
+          try { console.log('[UI][Telemetry] settings: usage stats', { sessionId, rows: rows.length, totalIn: inSum, totalOut: outSum, total: totalSum, avgLatency: latCount > 0 ? Math.round(latSum / latCount) : null }); } catch { /* noop */ }
+        } else {
+          setUsageStats(null);
+          try { console.log('[UI][Telemetry] settings: no usage stats', { sessionId, res }); } catch { /* noop */ }
+        }
+      } catch { setUsageStats(null); }
+    })();
+  }, [isOpen, sessionId]);
 
   async function saveKey(key: string, value: string | null, enc = true) {
     setStatus('saving');
@@ -238,6 +267,27 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
                 </div>
               </div>
             </section>
+
+            {usageStats && (
+              <section className="settings-section">
+                <div className="settings-grid">
+                  <div className="field">
+                    <label>Session Tokens</label>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                      Input: {usageStats.totalIn.toLocaleString()} · Output: {usageStats.totalOut.toLocaleString()} · Total: {usageStats.total.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Average Latency</label>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{usageStats.avgLatency != null ? (usageStats.avgLatency >= 1000 ? `${(usageStats.avgLatency/1000).toFixed(2)}s` : `${usageStats.avgLatency}ms`) : '—'}</div>
+                  </div>
+                  <div className="field">
+                    <label>Session Cost</label>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{usageStats.totalCost != null ? `$${usageStats.totalCost.toFixed(4)}` : '—'}</div>
+                  </div>
+                </div>
+              </section>
+            )}
 
             <section className="settings-section">
               <div className="actions">
