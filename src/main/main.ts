@@ -17,6 +17,7 @@ import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
 import { PasteFlowAPIServer } from './api-server';
 import { setAllowedWorkspacePaths } from './workspace-context';
+import type { ContextResult } from './agent/tool-types';
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
 
 // ABI/runtime diagnostics (helps verify native module compatibility)
@@ -1029,11 +1030,12 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
       sessionId: parsed.data.sessionId,
       onToolExecute: async (name, args, result, meta) => {
         try {
+          const typedResult = name === 'context' ? (result as ContextResult) : result;
           await database!.insertToolExecution({
             sessionId: parsed.data.sessionId,
             toolName: String(name),
             args,
-            result,
+            result: typedResult,
             status: 'ok',
             error: null,
             startedAt: (typeof (meta as Record<string, unknown> | null | undefined)?.['startedAt'] === 'number') ? (meta as Record<string, unknown>)['startedAt'] as number : null,

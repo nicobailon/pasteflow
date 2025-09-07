@@ -25,6 +25,7 @@ import { streamText, convertToModelMessages, consumeStream } from "ai";
 import type { UIMessage, ModelMessage, ToolSet, LanguageModel } from "ai";
 import { buildSystemPrompt } from "./agent/system-prompt";
 import { getAgentTools } from "./agent/tools";
+import type { ContextResult } from "./agent/tool-types";
 import type { AgentContextEnvelope } from "../shared-types/agent-context";
 import type { ProviderId } from "./agent/models-catalog";
 import { withRateLimitRetries } from "./utils/retry";
@@ -319,11 +320,13 @@ export class APIRouteHandlers {
         sessionId,
         onToolExecute: async (name, args, result, meta) => {
           try {
+            // Narrow context tool result for better telemetry typing
+            const typedResult = name === 'context' ? (result as ContextResult) : result;
             await this.db.insertToolExecution({
               sessionId,
               toolName: String(name),
               args,
-              result,
+              result: typedResult,
               status: 'ok',
               error: null,
               startedAt: (meta as { startedAt?: number } | undefined)?.startedAt ?? null,
