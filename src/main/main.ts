@@ -260,6 +260,22 @@ app.whenReady().then(async () => {
      
     console.log('Database initialized successfully');
 
+    // One-time migration: legacy agent.requireApproval -> agent.approvalMode
+    try {
+      const existingMode = await database.getPreference('agent.approvalMode');
+      if (!existingMode || (typeof existingMode === 'string' && existingMode.trim() === '')) {
+        const legacy = await database.getPreference('agent.requireApproval');
+        if (typeof legacy === 'boolean') {
+          const mode = legacy ? 'always' : 'never';
+          await database.setPreference('agent.approvalMode', mode as unknown as PreferenceValue);
+          await database.setPreference('agent.requireApproval', null as unknown as PreferenceValue);
+          try { console.log('[Migration] agent.requireApproval -> agent.approvalMode:', { legacy, mode }); } catch { /* noop */ }
+        }
+      }
+    } catch (e) {
+      console.warn('[Migration] approval mode migration skipped:', (e as Error)?.message || e);
+    }
+
     // On fresh app start, clear any previously persisted "active" workspace so
     // CLI status reflects the UI (no folder loaded) until the user explicitly
     // opens a folder or loads a workspace.

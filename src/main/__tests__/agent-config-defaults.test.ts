@@ -6,7 +6,6 @@ describe("Agent config defaults", () => {
     expect(typeof cfg.DEFAULT_MODEL).toBe("string");
     expect(cfg.MAX_CONTEXT_TOKENS).toBeGreaterThan(0);
     expect(typeof cfg.ENABLE_FILE_WRITE).toBe("boolean");
-    expect(typeof cfg.REQUIRE_APPROVAL).toBe("boolean");
+    expect(['never','risky','always']).toContain(cfg.APPROVAL_MODE);
   });
 });
-

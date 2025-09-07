@@ -34,13 +34,6 @@ export class AgentSecurityManager {
 
   canWriteFile(path: string): AllowResult {
     if (!this.cfg.ENABLE_FILE_WRITE) return { ok: false, reason: "FILE_WRITE_DISABLED" } as const;
-    if (this.cfg.REQUIRE_APPROVAL !== true) {
-      // Even if approval is off, still validate path
-      const val = validateAndResolvePath(path);
-      if (!val.ok) return { ok: false, reason: val.reason || val.message } as const;
-      return { ok: true, path: val.absolutePath } as const;
-    }
-    // Approval required: path must still be valid; higher-level must enforce approval UX
     const val = validateAndResolvePath(path);
     if (!val.ok) return { ok: false, reason: val.reason || val.message } as const;
     return { ok: true, path: val.absolutePath } as const;

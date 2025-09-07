@@ -36,6 +36,9 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
   // General config
   const [temperature, setTemperature] = useState<number>(0.3);
   const [maxOut, setMaxOut] = useState<number>(4000);
+  const [enableWrites, setEnableWrites] = useState<boolean>(true);
+  const [enableExec, setEnableExec] = useState<boolean>(true);
+  const [approvalMode, setApprovalMode] = useState<'never'|'risky'|'always'>('risky');
 
   function useApiInfo() {
     const info = (window as any).__PF_API_INFO || {};
@@ -49,13 +52,16 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
     let mounted = true;
     (async () => {
       try {
-        const [okey, akey, orKey, orBase, temp, max] = await Promise.all([
+        const [okey, akey, orKey, orBase, temp, max, w, x, appr] = await Promise.all([
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.anthropic.apiKey' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.apiKey' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.baseUrl' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.temperature' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxOutputTokens' }),
+          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableFileWrite' }),
+          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableCodeExecution' }),
+          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.approvalMode' }),
         ]);
         if (!mounted) return;
         setOpenaiStored(Boolean(okey?.data));
@@ -66,6 +72,10 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
         if (Number.isFinite(t)) setTemperature(Math.max(0, Math.min(2, t)));
         const m = Number(max?.data);
         if (Number.isFinite(m)) setMaxOut(Math.max(1, Math.min(128_000, m)));
+        setEnableWrites(Boolean(w?.data ?? true));
+        setEnableExec(Boolean(x?.data ?? true));
+        const am = String(appr?.data || '').toLowerCase();
+        if (am === 'never' || am === 'risky' || am === 'always') setApprovalMode(am as any);
       } catch { /* ignore */ }
     })();
     return () => { mounted = false; };
@@ -268,6 +278,49 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
               </div>
             </section>
 
+            <section className="settings-section">
+              {(() => {
+                const human = approvalMode === 'always' ? 'Always' : approvalMode === 'never' ? 'Never' : 'Risky only';
+                const desc = approvalMode === 'always'
+                  ? 'All terminal commands and apply operations require approval.'
+                  : approvalMode === 'never'
+                  ? 'No approval required for terminal commands or apply operations.'
+                  : 'Approval required for known dangerous terminal commands; safe actions run without prompts.';
+                return (
+                  <AgentAlertBanner
+                    variant="info"
+                    message={
+                      <span>
+                        <strong>Approval mode:</strong> {human}. {desc}
+                      </span>
+                    }
+                  />
+                );
+              })()}
+              <div className="settings-grid">
+                <div className="field">
+                  <label>
+                    <input type="checkbox" checked={enableWrites} onChange={(e) => setEnableWrites(e.target.checked)} />
+                    <span style={{ marginLeft: 6 }}>Enable file writes</span>
+                  </label>
+                </div>
+                <div className="field">
+                  <label>
+                    <input type="checkbox" checked={enableExec} onChange={(e) => setEnableExec(e.target.checked)} />
+                    <span style={{ marginLeft: 6 }}>Enable code execution (terminal)</span>
+                  </label>
+                </div>
+                <div className="field">
+                  <label>Approval mode</label>
+                  <select value={approvalMode} onChange={(e) => setApprovalMode(e.target.value as any)}>
+                    <option value="never">Never</option>
+                    <option value="risky">Risky only</option>
+                    <option value="always">Always</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
             {usageStats && (
               <section className="settings-section">
                 <div className="settings-grid">
@@ -328,6 +381,9 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
               try {
                 await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.temperature', value: temperature });
                 await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.maxOutputTokens', value: maxOut });
+                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableFileWrite', value: enableWrites });
+                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableCodeExecution', value: enableExec });
+                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.approvalMode', value: approvalMode });
                 setStatus('success'); setTimeout(() => setStatus('idle'), 1000);
               } catch (e) { setStatus('error'); setError((e as Error)?.message || 'Failed to save'); }
             }}>Save</button>

@@ -89,9 +89,13 @@ npm run test:watch
 - PF_AGENT_MAX_TOOLS_PER_TURN: per-session tool cap per 60s (default: 8)
 - PF_AGENT_MAX_RESULTS_PER_TOOL: list/search max results (default: 200)
 - PF_AGENT_MAX_SEARCH_MATCHES: code search match cap (default: 500)
-- PF_AGENT_ENABLE_FILE_WRITE: enable file writes for edit.apply (default: false)
-- PF_AGENT_ENABLE_CODE_EXECUTION: enable terminal execution (stubbed) (default: false)
-- PF_AGENT_REQUIRE_APPROVAL: require approval for destructive actions (default: true)
+- PF_AGENT_ENABLE_FILE_WRITE: enable file writes for edit.apply (default: true)
+- PF_AGENT_ENABLE_CODE_EXECUTION: enable terminal execution (default: true)
+- PF_AGENT_APPROVAL_MODE: approval policy for tools, values: `never`, `risky`, `always` (default: `risky`).
+  - `never`: No approval prompts. Terminal commands and apply operations run when enabled.
+  - `risky`: Approval only for known dangerous terminal commands; safe actions proceed.
+  - `always`: Approval required for all terminal commands and apply operations.
+  - Related: `PF_AGENT_ENABLE_FILE_WRITE` (default: true), `PF_AGENT_ENABLE_CODE_EXECUTION` (default: true)
 - PF_AGENT_MAX_SESSION_MESSAGES: persist last N chat messages per session (default: 50)
 - PF_AGENT_TELEMETRY_RETENTION_DAYS: days to retain tool/usage telemetry (default: 90)
 
@@ -100,7 +104,13 @@ Telemetry & cost notes
 - Some providers do not return usage tokens for every turn; in those cases the UI labels values as `(approx)` and still records latency.
 
 Notes
-- Preferences override env. Relevant preference keys: `agent.provider`, `agent.defaultModel`, `agent.temperature`, `agent.maxOutputTokens`.
+- Preferences override env. The Agent Settings modal (header → Agent Settings) persists:
+  - `agent.enableFileWrite` (default: true)
+  - `agent.enableCodeExecution` (default: true)
+  - `agent.approvalMode` (default: risky)
+  - `agent.temperature` (default: 0.3)
+  - `agent.maxOutputTokens` (default: 4000)
+  - Provider credentials and related options
 
 ## Build and Packaging
 

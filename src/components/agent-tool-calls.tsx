@@ -65,7 +65,10 @@ export default function AgentToolCalls({ message, sessionId, skipApprovals = fal
       if (dismissed[index]) return false;
       const name = String(i.toolName || i.name || '').toLowerCase();
       const res = i.result as any;
-      return name === 'terminal' && res && typeof res === 'object' && (res.code === 'APPROVAL_REQUIRED' || res?.error === 'APPROVAL_REQUIRED');
+      return name === 'terminal' && res && typeof res === 'object' && (
+        res.code === 'APPROVAL_NEEDED' || res?.error === 'APPROVAL_NEEDED' ||
+        res.code === 'APPROVAL_REQUIRED' || res?.error === 'APPROVAL_REQUIRED'
+      );
     });
     if (idx < 0) return;
     if (busyIdx != null) return;
@@ -121,7 +124,10 @@ export default function AgentToolCalls({ message, sessionId, skipApprovals = fal
               {(() => {
                 const name = String(i.toolName || i.name || '').toLowerCase();
                 const res = i.result as any;
-                if (name === 'terminal' && res && typeof res === 'object' && (res.code === 'APPROVAL_REQUIRED' || res?.error === 'APPROVAL_REQUIRED') && !dismissed[idx]) {
+                if (name === 'terminal' && res && typeof res === 'object' && (
+                  res.code === 'APPROVAL_NEEDED' || res?.error === 'APPROVAL_NEEDED' ||
+                  res.code === 'APPROVAL_REQUIRED' || res?.error === 'APPROVAL_REQUIRED'
+                ) && !dismissed[idx]) {
                   const usingSkip = Boolean(turnSkip[idx] || skipApprovals);
                   const approve = async () => {
                     if (!sessionId) return;

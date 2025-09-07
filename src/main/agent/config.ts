@@ -13,7 +13,7 @@ export type AgentConfig = {
   TEMPERATURE: number;
   ENABLE_FILE_WRITE: boolean;
   ENABLE_CODE_EXECUTION: boolean;
-  REQUIRE_APPROVAL: boolean;
+  APPROVAL_MODE: 'never' | 'risky' | 'always';
   RETRY_ATTEMPTS: number;
   RETRY_BASE_MS: number;
   RETRY_MAX_MS: number;
@@ -33,9 +33,12 @@ const Defaults: AgentConfig = {
   MAX_RESULTS_PER_TOOL: Number(process.env.PF_AGENT_MAX_RESULTS_PER_TOOL ?? 200),
   MAX_SEARCH_MATCHES: Number(process.env.PF_AGENT_MAX_SEARCH_MATCHES ?? 500),
   TEMPERATURE: Number(process.env.PF_AGENT_TEMPERATURE ?? 0.3),
-  ENABLE_FILE_WRITE: String(process.env.PF_AGENT_ENABLE_FILE_WRITE || "false") === "true",
-  ENABLE_CODE_EXECUTION: String(process.env.PF_AGENT_ENABLE_CODE_EXECUTION || "false") === "true",
-  REQUIRE_APPROVAL: String(process.env.PF_AGENT_REQUIRE_APPROVAL || "true") !== "false",
+  ENABLE_FILE_WRITE: String(process.env.PF_AGENT_ENABLE_FILE_WRITE || "true") !== "false",
+  ENABLE_CODE_EXECUTION: String(process.env.PF_AGENT_ENABLE_CODE_EXECUTION || "true") !== "false",
+  APPROVAL_MODE: ((): 'never'|'risky'|'always' => {
+    const raw = String(process.env.PF_AGENT_APPROVAL_MODE || '').toLowerCase();
+    return raw === 'never' || raw === 'always' || raw === 'risky' ? (raw as any) : 'risky';
+  })(),
   RETRY_ATTEMPTS: Number(process.env.PF_AGENT_RETRY_ATTEMPTS ?? 3),
   RETRY_BASE_MS: Number(process.env.PF_AGENT_RETRY_BASE_MS ?? 800),
   RETRY_MAX_MS: Number(process.env.PF_AGENT_RETRY_MAX_MS ?? 8000),
@@ -53,7 +56,7 @@ const PrefKeys = {
   TEMPERATURE: "agent.temperature",
   ENABLE_FILE_WRITE: "agent.enableFileWrite",
   ENABLE_CODE_EXECUTION: "agent.enableCodeExecution",
-  REQUIRE_APPROVAL: "agent.requireApproval",
+  APPROVAL_MODE: "agent.approvalMode",
   RETRY_ATTEMPTS: "agent.retryAttempts",
   RETRY_BASE_MS: "agent.retryBaseMs",
   RETRY_MAX_MS: "agent.retryMaxMs",
@@ -100,10 +103,11 @@ export async function resolveAgentConfig(db?: DbGetter): Promise<AgentConfig> {
     pTemp,
     pWrite,
     pExec,
-    pRequire,
+    pApprovalMode,
     pRetryAttempts,
     pRetryBase,
     pRetryMax,
+    pLegacyRequire,
   ] = await Promise.all([
     safeGet(PrefKeys.PROVIDER),
     safeGet(PrefKeys.DEFAULT_MODEL),
@@ -115,10 +119,11 @@ export async function resolveAgentConfig(db?: DbGetter): Promise<AgentConfig> {
     safeGet(PrefKeys.TEMPERATURE),
     safeGet(PrefKeys.ENABLE_FILE_WRITE),
     safeGet(PrefKeys.ENABLE_CODE_EXECUTION),
-    safeGet(PrefKeys.REQUIRE_APPROVAL),
+    safeGet(PrefKeys.APPROVAL_MODE),
     safeGet(PrefKeys.RETRY_ATTEMPTS),
     safeGet(PrefKeys.RETRY_BASE_MS),
     safeGet(PrefKeys.RETRY_MAX_MS),
+    safeGet('agent.requireApproval'),
   ]);
 
   return {
@@ -135,7 +140,14 @@ export async function resolveAgentConfig(db?: DbGetter): Promise<AgentConfig> {
     TEMPERATURE: coerceNumber(pTemp, base.TEMPERATURE, 0, 2),
     ENABLE_FILE_WRITE: coerceBoolean(pWrite, base.ENABLE_FILE_WRITE),
     ENABLE_CODE_EXECUTION: coerceBoolean(pExec, base.ENABLE_CODE_EXECUTION),
-    REQUIRE_APPROVAL: coerceBoolean(pRequire, base.REQUIRE_APPROVAL),
+    APPROVAL_MODE: ((): 'never'|'risky'|'always' => {
+      if (typeof pApprovalMode === 'string') {
+        const v = pApprovalMode.toLowerCase().trim();
+        if (v === 'never' || v === 'risky' || v === 'always') return v as any;
+      }
+      if (typeof pLegacyRequire === 'boolean') return pLegacyRequire ? 'always' : 'never';
+      return base.APPROVAL_MODE;
+    })(),
     // Treat null/undefined prefs as absent so env/defaults apply
     RETRY_ATTEMPTS: (pRetryAttempts == null)
       ? base.RETRY_ATTEMPTS

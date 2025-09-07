@@ -43,19 +43,20 @@ export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: Te
     }
   }, []);
 
-  const fetchEnabled = useCallback(async () => {
+  const fetchEnabled = useCallback(async (): Promise<boolean> => {
     try {
       const res: Result<TerminalMeta[] | null> = await (window as any).electron?.ipcRenderer?.invoke?.('terminal:list');
       if (res && typeof res === 'object' && 'success' in res) {
         if ((res as any).success) {
           setEnabled(true);
           setSessions(((res as any).data || []) as TerminalMeta[]);
-          return;
+          return true;
         }
-        if ((res as any).error === 'EXECUTION_DISABLED') { setEnabled(false); return; }
+        if ((res as any).error === 'EXECUTION_DISABLED') { setEnabled(false); return false; }
       }
     } catch { /* noop */ }
     setEnabled(false);
+    return false;
   }, []);
 
   const startSession = useCallback(async () => {
@@ -102,19 +103,27 @@ export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: Te
     let cancelled = false;
     (async () => {
       setReady(false);
-      await fetchEnabled();
+      const ok = await fetchEnabled();
+      if (!ok) { setReady(true); return; }
       if (cancelled) return;
       if (!termElRef.current) return;
       try {
-        const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
-          import(/* @vite-ignore */"xterm").catch(() => ({ Terminal: null as any })),
-          import(/* @vite-ignore */"xterm-addon-fit").catch(() => ({ FitAddon: null as any })),
-          import(/* @vite-ignore */"xterm-addon-web-links").catch(() => ({ WebLinksAddon: null as any })),
-        ]);
-        if (Terminal) {
-          const term = new Terminal({ convertEol: true, fontSize: 12, cursorBlink: true });
-          const fit = FitAddon ? new FitAddon() : null;
-          const links = WebLinksAddon ? new WebLinksAddon() : null;
+        // Avoid static import specifiers to keep xterm optional in dev
+        const XTERM = ['x', 'term'].join('');
+        const FIT = ['xterm-addon', 'fit'].join('-');
+        const LINKS = ['xterm-addon', 'web-links'].join('-');
+
+        let TerminalCtor: any = null;
+        let FitAddonCtor: any = null;
+        let WebLinksAddonCtor: any = null;
+        try { TerminalCtor = (await import(/* @vite-ignore */ XTERM)).Terminal; } catch {}
+        try { FitAddonCtor = (await import(/* @vite-ignore */ FIT)).FitAddon; } catch {}
+        try { WebLinksAddonCtor = (await import(/* @vite-ignore */ LINKS)).WebLinksAddon; } catch {}
+
+        if (TerminalCtor) {
+          const term = new TerminalCtor({ convertEol: true, fontSize: 12, cursorBlink: true });
+          const fit = FitAddonCtor ? new FitAddonCtor() : null;
+          const links = WebLinksAddonCtor ? new WebLinksAddonCtor() : null;
           if (fit) term.loadAddon(fit);
           if (links) term.loadAddon(links);
           term.open(termElRef.current);

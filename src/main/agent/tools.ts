@@ -159,12 +159,11 @@ export function getAgentTools(deps?: {
         return record({ directory: dirVal.absolutePath, items: out, truncated });
       }
 
-      // Phase 4 gated destructive ops -> return structured denial unless explicitly enabled and approved
+      // Destructive ops -> deny unless enabled; if approval mode is 'always', require approval
       if (action === "write" || action === "move" || action === "delete") {
         const enabled = cfg?.ENABLE_FILE_WRITE === true;
-        const requireApproval = cfg?.REQUIRE_APPROVAL !== false;
         if (!enabled) return record({ type: "error" as const, code: "WRITE_DISABLED", message: "File writes are disabled" });
-        if (requireApproval) return record({ type: "error" as const, code: "APPROVAL_REQUIRED", message: "Apply requires approval (Phase 4)" });
+        if (cfg?.APPROVAL_MODE === 'always') return record({ type: "error" as const, code: "APPROVAL_NEEDED", message: "Operation requires approval" });
         return record({ type: "error" as const, code: "NOT_IMPLEMENTED", message: "Write path not implemented" });
       }
 
@@ -331,8 +330,8 @@ export function getAgentTools(deps?: {
         if (!cfg?.ENABLE_FILE_WRITE) {
           return record({ path, diff, apply }, { type: "error" as const, code: 'WRITE_DISABLED', message: "File writes disabled" });
         }
-        if (cfg?.REQUIRE_APPROVAL !== false) {
-          return record({ path, diff, apply }, { type: "error" as const, code: 'APPROVAL_REQUIRED', message: "Apply requires approval (Phase 4)" });
+        if (cfg?.APPROVAL_MODE === 'always') {
+          return record({ path, diff, apply }, { type: "error" as const, code: 'APPROVAL_NEEDED', message: "Apply requires approval" });
         }
         const r0 = await readTextFile(val.absolutePath);
         if (!r0.ok) throw new Error(r0.message);
@@ -398,7 +397,7 @@ export function getAgentTools(deps?: {
 
         const cfg = deps?.config || null;
         if (!cfg?.ENABLE_FILE_WRITE) return record(rawParams, { type: 'error' as const, code: 'WRITE_DISABLED', message: 'File writes are disabled' });
-        if (cfg?.REQUIRE_APPROVAL !== false) return record(rawParams, { type: 'error' as const, code: 'APPROVAL_REQUIRED', message: 'Apply requires approval (Phase 4)' });
+        if (cfg?.APPROVAL_MODE === 'always') return record(rawParams, { type: 'error' as const, code: 'APPROVAL_NEEDED', message: 'Apply requires approval' });
 
         const w = await writeTextFile(val.absolutePath, modified);
         if (!w.ok) throw new Error(w.message);
@@ -416,7 +415,7 @@ export function getAgentTools(deps?: {
         const maxFiles = Number.isFinite(rawParams.maxFiles) ? Math.min(200, Math.max(1, Math.floor(rawParams.maxFiles))) : 200;
 
         const cfg = deps?.config || null;
-        const canApply = cfg?.ENABLE_FILE_WRITE && cfg?.REQUIRE_APPROVAL === false && rawParams.apply === true;
+        const canApply = cfg?.ENABLE_FILE_WRITE && cfg?.APPROVAL_MODE !== 'always' && rawParams.apply === true;
 
         const out: Array<any> = [];
         let totalReplacements = 0;
@@ -686,8 +685,12 @@ export function getAgentTools(deps?: {
         const cwd = typeof params?.cwd === 'string' && params.cwd.trim().length > 0 ? params.cwd : '.';
         const v = validateAndResolvePath(cwd);
         if (!v.ok) return record({ type: 'error' as const, code: 'PATH_DENIED', message: v.message });
-        if (params?.command && isRisky(String(params.command)) && cfg?.REQUIRE_APPROVAL !== false && params?.skipPermissions !== true) {
-          return record({ type: 'error' as const, code: 'APPROVAL_REQUIRED', message: 'Risky command requires approval' });
+        const cmdStr = params?.command ? String(params.command) : '';
+        if ((cfg?.APPROVAL_MODE === 'always') && params?.skipPermissions !== true) {
+          return record({ type: 'error' as const, code: 'APPROVAL_NEEDED', message: 'Command requires approval' });
+        }
+        if (cfg?.APPROVAL_MODE === 'risky' && cmdStr && isRisky(cmdStr) && params?.skipPermissions !== true) {
+          return record({ type: 'error' as const, code: 'APPROVAL_NEEDED', message: 'Risky command requires approval' });
         }
         const { id, pid } = tm.create({ command: params?.command, args: Array.isArray(params?.args) ? params.args : undefined, cwd: v.absolutePath });
         return record({ sessionId: id, pid });
@@ -695,8 +698,11 @@ export function getAgentTools(deps?: {
       if (action === 'interact') {
         const id = String(params?.sessionId || '');
         const input = String(params?.input || '');
-        if (isRisky(input) && cfg?.REQUIRE_APPROVAL !== false && params?.skipPermissions !== true) {
-          return record({ type: 'error' as const, code: 'APPROVAL_REQUIRED', message: 'Risky input requires approval' });
+        if ((cfg?.APPROVAL_MODE === 'always') && params?.skipPermissions !== true) {
+          return record({ type: 'error' as const, code: 'APPROVAL_NEEDED', message: 'Command requires approval' });
+        }
+        if (cfg?.APPROVAL_MODE === 'risky' && isRisky(input) && params?.skipPermissions !== true) {
+          return record({ type: 'error' as const, code: 'APPROVAL_NEEDED', message: 'Risky input requires approval' });
         }
         try { tm.write(id, input); } catch (err) { return record({ type: 'error' as const, code: 'NOT_FOUND', message: (err as Error)?.message || 'NOT_FOUND' }); }
         return record({ ok: true });

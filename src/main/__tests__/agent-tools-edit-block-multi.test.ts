@@ -39,11 +39,10 @@ describe("Agent tools - edit.block and edit.multi", () => {
     }
   });
 
-  it("block: apply gated returns structured error when approval required or writes disabled", async () => {
+  it("block: apply gated returns structured error when approval needed or writes disabled", async () => {
     const tools = getAgentTools();
     const res: any = await tools.edit.execute({ action: 'block', path: '/repo/a.txt', search: 'TODO', replacement: 'DONE', apply: true, preview: false });
     // Default config disables writes; expect a typed error response
-    expect(res && (res.code === 'WRITE_DISABLED' || res.code === 'APPROVAL_REQUIRED' || res.type === 'error')).toBe(true);
+    expect(res && (res.code === 'WRITE_DISABLED' || res.code === 'APPROVAL_NEEDED' || res.type === 'error')).toBe(true);
   });
 });
-
