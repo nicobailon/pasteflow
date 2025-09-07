@@ -58,9 +58,7 @@ export function getWorkspaceDir(ws: WorkspaceRef): string {
   return dir;
 }
 
-function ensureDirSync(dir: string) {
-  fs.mkdirSync(dir, { recursive: true });
-}
+// Note: all directories in this module are created via async fs.promises.mkdir
 
 function isWithinRoot(p: string, root: string): boolean {
   const rp = path.resolve(p);
@@ -145,6 +143,20 @@ export async function loadThread(sessionId: string): Promise<AgentThreadFileV1 |
   return parsed as AgentThreadFileV1;
 }
 
+export async function loadThreadInWorkspace(ws: WorkspaceRef, sessionId: string): Promise<AgentThreadFileV1 | null> {
+  const root = getThreadsRoot();
+  const fp = getThreadFilePath(ws, sessionId);
+  if (!isWithinRoot(fp, root)) return null;
+  try {
+    await fs.promises.access(fp, fs.constants.R_OK);
+  } catch {
+    return null;
+  }
+  const raw = await fs.promises.readFile(fp, "utf8");
+  const parsed = JSON.parse(raw);
+  return parsed as AgentThreadFileV1;
+}
+
 export async function deleteThread(sessionId: string): Promise<boolean> {
   const root = getThreadsRoot();
   let deleted = false;
@@ -167,6 +179,18 @@ export async function deleteThread(sessionId: string): Promise<boolean> {
   return deleted;
 }
 
+export async function deleteThreadInWorkspace(ws: WorkspaceRef, sessionId: string): Promise<boolean> {
+  const root = getThreadsRoot();
+  const fp = getThreadFilePath(ws, sessionId);
+  if (!isWithinRoot(fp, root)) return false;
+  try {
+    await fs.promises.unlink(fp);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function renameThread(sessionId: string, title: string): Promise<boolean> {
   const thread = await loadThread(sessionId);
   if (!thread) return false;
@@ -180,6 +204,30 @@ export async function renameThread(sessionId: string, title: string): Promise<bo
   };
   const ws = thread.workspace;
   const fp = getThreadFilePath(ws, sessionId);
+  await safeWriteJsonAtomic(fp, updated);
+  return true;
+}
+
+export async function renameThreadInWorkspace(ws: WorkspaceRef, sessionId: string, title: string): Promise<boolean> {
+  const root = getThreadsRoot();
+  const fp = getThreadFilePath(ws, sessionId);
+  if (!isWithinRoot(fp, root)) return false;
+  let existing: AgentThreadFileV1 | null = null;
+  try {
+    const raw = await fs.promises.readFile(fp, 'utf8');
+    existing = JSON.parse(raw) as AgentThreadFileV1;
+  } catch {
+    existing = null;
+  }
+  if (!existing) return false;
+  const updated: AgentThreadFileV1 = {
+    ...existing,
+    meta: {
+      ...existing.meta,
+      title: title.trim() || existing.meta.title,
+      updatedAt: Date.now(),
+    },
+  };
   await safeWriteJsonAtomic(fp, updated);
   return true;
 }
@@ -262,16 +310,5 @@ export async function saveSnapshot(input: {
   };
 
   await safeWriteJsonAtomic(fp, toWrite);
-  // Mirror a copy into the workspace folder for user visibility (.pasteflow/agent-threads)
-  try {
-    if (workspace.folderPath && typeof workspace.folderPath === 'string' && workspace.folderPath.trim().length > 0) {
-      const mirrorDir = path.join(workspace.folderPath, '.pasteflow', 'agent-threads');
-      ensureDirSync(mirrorDir);
-      const mirrorFile = path.join(mirrorDir, `thread-${sessionId}.json`);
-      await safeWriteJsonAtomic(mirrorFile, toWrite);
-    }
-  } catch {
-    // Best-effort mirror; ignore failures
-  }
   return { ok: true, filePath: fp, created };
 }

@@ -627,7 +627,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         } catch { /* ignore */ }
         if (!targetSession && threads.length > 0) targetSession = threads[0].sessionId;
         if (cancelled || !targetSession) return;
-        const loadedRaw = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('agent:threads:load', { sessionId: targetSession });
+        const loadedRaw = await (window as unknown as { electron?: { ipcRenderer?: { invoke: (ch: string, data?: unknown) => Promise<unknown> }}}).electron?.ipcRenderer?.invoke?.('agent:threads:load', { workspaceId: wsId, sessionId: targetSession });
         const loaded = loadedRaw as ThreadLoadResponse | undefined;
         const json = (loaded && 'success' in loaded && loaded.success) ? loaded.data : (loaded as { data?: { sessionId?: string; messages?: unknown[] } } | undefined)?.data;
         if (json && Array.isArray(json.messages)) {
@@ -992,12 +992,13 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
     } catch { /* noop */ }
     try {
       if (!panelEnabled) return;
-      const loaded: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:load', { sessionId: session });
+      const wsId = await resolveWorkspaceId();
+      const loaded: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:load', wsId ? { workspaceId: wsId, sessionId: session } : { workspaceId: '', sessionId: session });
       const json = (loaded && loaded.success) ? loaded.data : loaded?.data ?? loaded;
       setSessionId(session);
       if (json && typeof json === 'object' && Array.isArray(json.messages)) setHydratedMessages(json.messages);
       else setHydratedMessages([]);
-      const wsId = await resolveWorkspaceId();
+      // wsId already resolved above
       if (wsId) { try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.lastSession.${wsId}`, value: session }); } catch { /* ignore */ } }
       setShowThreads(false);
     } catch { /* noop */ }
@@ -1005,7 +1006,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
 
   async function deleteThread(session: string) {
     try {
-      await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:delete', { sessionId: session });
+      const wsId = await resolveWorkspaceId();
+      await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:delete', wsId ? { workspaceId: wsId, sessionId: session } : { workspaceId: '', sessionId: session });
     } catch { /* ignore */ }
     // If deleting current session, clear it
     if (sessionId === session) {

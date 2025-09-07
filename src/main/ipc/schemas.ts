@@ -197,6 +197,7 @@ export const AgentThreadsListSchema = z.object({
 });
 
 export const AgentThreadsLoadSchema = z.object({
+  workspaceId: z.string().min(1),
   sessionId: z.string().min(1),
 });
 
@@ -212,10 +213,12 @@ export const AgentThreadsSaveSnapshotSchema = z.object({
 });
 
 export const AgentThreadsDeleteSchema = z.object({
+  workspaceId: z.string().min(1),
   sessionId: z.string().min(1),
 });
 
 export const AgentThreadsRenameSchema = z.object({
+  workspaceId: z.string().min(1),
   sessionId: z.string().min(1),
   title: z.string().min(1),
 });
