@@ -107,7 +107,8 @@
     "asarUnpack": [
       "node_modules/ignore/**",
       "node_modules/tiktoken/**",
-      "node_modules/better-sqlite3/**"
+      "node_modules/better-sqlite3/**",
+      "node_modules/node-pty/**"
     ],
     "npmRebuild": true,
     "buildDependenciesFromSource": false,
@@ -185,6 +186,7 @@
     "uuid": "^11.1.0",
     "zod": "^3.23.8",
     "diff": "^5.2.0",
-    "unified-diff": "^4.0.0"
+    "unified-diff": "^4.0.0",
+    "node-pty": "^1.0.0"
   }
 }

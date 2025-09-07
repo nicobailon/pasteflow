@@ -48,6 +48,8 @@ let currentWorkspacePaths: string[] = [];
 let database: DatabaseBridge | null = null;
 // HTTP API server instance
 let apiServer: PasteFlowAPIServer | null = null;
+// Terminal manager (lazy)
+let terminalManager: any | null = null;
 
 // Initialize token service
 const tokenService = getMainTokenService();
@@ -1080,6 +1082,118 @@ ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: s
       return { success: true, data: { file: filePath } };
     }
     return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+/**
+ * Terminal IPC (gated by ENABLE_CODE_EXECUTION)
+ */
+function getTerminalManagerLazy() {
+  if (!terminalManager) {
+    const { TerminalManager } = require('./terminal/terminal-manager');
+    const tm = new TerminalManager();
+    // Push-based streaming: forward chunks to all windows under terminal:output:${id}
+    try {
+      tm.on('data', (id: string, chunk: string) => {
+        const channel = `terminal:output:${id}`;
+        broadcastUpdate(channel, { chunk });
+      });
+    } catch { /* ignore */ }
+    terminalManager = tm;
+  }
+  return terminalManager;
+}
+
+ipcMain.handle('terminal:create', async (_e, params: unknown) => {
+  try {
+    const { TerminalCreateSchema } = await import('./ipc/schemas');
+    const parsed = TerminalCreateSchema.safeParse(params || {});
+    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { resolveAgentConfig } = await import('./agent/config');
+    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
+    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
+    const tm = getTerminalManagerLazy();
+    const { id, pid } = tm.create(parsed.data);
+    return { success: true, data: { id, pid } };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('terminal:write', async (_e, params: unknown) => {
+  try {
+    const { TerminalWriteSchema } = await import('./ipc/schemas');
+    const p = TerminalWriteSchema.safeParse(params || {});
+    if (!p.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { resolveAgentConfig } = await import('./agent/config');
+    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
+    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
+    const tm = getTerminalManagerLazy();
+    tm.write(p.data.id, p.data.data);
+    return { success: true, data: null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('terminal:resize', async (_e, params: unknown) => {
+  try {
+    const { TerminalResizeSchema } = await import('./ipc/schemas');
+    const p = TerminalResizeSchema.safeParse(params || {});
+    if (!p.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { resolveAgentConfig } = await import('./agent/config');
+    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
+    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
+    const tm = getTerminalManagerLazy();
+    tm.resize(p.data.id, p.data.cols, p.data.rows);
+    return { success: true, data: null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('terminal:kill', async (_e, params: unknown) => {
+  try {
+    const { TerminalKillSchema } = await import('./ipc/schemas');
+    const p = TerminalKillSchema.safeParse(params || {});
+    if (!p.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { resolveAgentConfig } = await import('./agent/config');
+    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
+    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
+    const tm = getTerminalManagerLazy();
+    tm.kill(p.data.id);
+    return { success: true, data: null };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('terminal:list', async () => {
+  try {
+    const { resolveAgentConfig } = await import('./agent/config');
+    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
+    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
+    const tm = getTerminalManagerLazy();
+    const items = tm.list();
+    return { success: true, data: items };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('terminal:output:get', async (_e, params: unknown) => {
+  try {
+    const { TerminalOutputGetSchema } = await import('./ipc/schemas');
+    const p = TerminalOutputGetSchema.safeParse(params || {});
+    if (!p.success) return { success: false, error: 'INVALID_PARAMS' };
+    const { resolveAgentConfig } = await import('./agent/config');
+    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
+    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
+    const tm = getTerminalManagerLazy();
+    const out = tm.getOutput(p.data.id, { fromCursor: p.data.fromCursor, maxBytes: p.data.maxBytes });
+    return { success: true, data: out };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }

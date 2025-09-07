@@ -238,6 +238,25 @@ export type FileContentResponseType = z.infer<typeof FileContentResponseSchema>;
 export type FileSaveType = z.infer<typeof FileSaveSchema>;
 export type PreferenceGetType = z.infer<typeof PreferenceGetSchema>;
 export type PreferenceSetType = z.infer<typeof PreferenceSetSchema>;
+
+// Terminal IPC schemas
+export const TerminalCreateSchema = z.object({
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  cols: z.number().int().optional(),
+  rows: z.number().int().optional(),
+});
+export const TerminalWriteSchema = z.object({ id: z.string().min(1), data: z.string() });
+export const TerminalResizeSchema = z.object({ id: z.string().min(1), cols: z.number().int().min(10).max(1000), rows: z.number().int().min(5).max(500) });
+export const TerminalKillSchema = z.object({ id: z.string().min(1) });
+export const TerminalOutputGetSchema = z.object({ id: z.string().min(1), fromCursor: z.number().int().optional(), maxBytes: z.number().int().optional() });
+
+export type TerminalCreateType = z.infer<typeof TerminalCreateSchema>;
+export type TerminalWriteType = z.infer<typeof TerminalWriteSchema>;
+export type TerminalResizeType = z.infer<typeof TerminalResizeSchema>;
+export type TerminalKillType = z.infer<typeof TerminalKillSchema>;
+export type TerminalOutputGetType = z.infer<typeof TerminalOutputGetSchema>;
 export type PromptType = z.infer<typeof PromptSchema>;
 export type InstructionType = z.infer<typeof InstructionSchema>;
 export type InstructionCreateType = z.infer<typeof InstructionCreateSchema>;

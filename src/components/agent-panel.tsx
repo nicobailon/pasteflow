@@ -4,9 +4,10 @@ import useAgentPanelResize from "../hooks/use-agent-panel-resize";
 import AgentChatInputWithMention from "./agent-chat-input";
 import AgentAttachmentList from "./agent-attachment-list";
 import AgentToolCalls from "./agent-tool-calls";
+import AgentMiniFileList from "./agent-mini-file-list";
 import IntegrationsModal from "./integrations-modal";
 import ModelSelector from "./model-selector";
-import { ArrowUp, List as ListIcon, Plus as PlusIcon, Info as InfoIcon } from "lucide-react";
+import { ArrowUp, List as ListIcon, Plus as PlusIcon, Info as InfoIcon, Terminal as TerminalIcon } from "lucide-react";
 import { TOKEN_COUNTING } from "@constants";
 import ModelSettingsModal from "./model-settings-modal";
 import { Settings as SettingsIcon } from "lucide-react";
@@ -16,6 +17,7 @@ import { extname } from "../file-ops/path";
 import "./agent-panel.css";
 import { requestFileContent } from "../handlers/electron-handlers";
 import AgentThreadList from "./agent-thread-list";
+import TerminalPanel from "./terminal-panel";
 
 // Strict helper types for IPC and preferences
 type PrefsGetResponse<T> = { success: true; data: T } | { success: false; error?: string };
@@ -91,6 +93,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   const hadErrorRef = useRef(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [skipApprovals, setSkipApprovals] = useState<boolean>(false);
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -510,6 +514,17 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         setProvider(prov);
         setModelId(mid);
         try { console.log('[UI][Telemetry] provider/model', { provider: prov, model: mid }); } catch { /* noop */ }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  // Load skip approvals preference
+  useEffect(() => {
+    (async () => {
+      try {
+        const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.skipApprovals' });
+        const saved = res && res.success ? res.data : null;
+        setSkipApprovals(Boolean(saved));
       } catch { /* ignore */ }
     })();
   }, []);
@@ -1060,6 +1075,16 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
           <button className="secondary" onClick={async () => { const ws = await resolveWorkspaceId(); if (ws) setActiveWorkspaceId(ws); setThreadsRefreshKey((x)=>x+1); setShowThreads(true); }} title="Threads" aria-label="Threads" disabled={!panelEnabled}>
             <ListIcon size={16} />
           </button>
+          <button className={skipApprovals ? "primary" : "secondary"} onClick={async () => {
+            const next = !skipApprovals;
+            setSkipApprovals(next);
+            try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.skipApprovals', value: next }); } catch { /* ignore */ }
+          }} title="Skip permissions" aria-label="Skip permissions" disabled={!panelEnabled}>
+            {skipApprovals ? 'Skip On' : 'Skip Off'}
+          </button>
+          <button className="secondary" onClick={() => setShowTerminal((v)=>!v)} title="Terminal" aria-label="Terminal" disabled={!panelEnabled}>
+            <TerminalIcon size={16} />
+          </button>
           <button className="primary" onClick={handleNewChat} title="New Chat" aria-label="New Chat" disabled={!panelEnabled}>
             <PlusIcon size={16} />
           </button>
@@ -1145,6 +1170,27 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
           }
           return null;
         })()}
+        {/* Mini file list for quick context selection */}
+        <AgentMiniFileList
+          files={allFiles}
+          selected={Array.from(pendingAttachments.keys())}
+          onToggle={(absPath) => {
+            setPendingAttachments((prev) => {
+              const next = new Map(prev);
+              if (next.has(absPath)) next.delete(absPath); else next.set(absPath, { path: absPath, lines: null });
+              return next;
+            });
+          }}
+          onTokenCount={(absPath, tokens) => {
+            setPendingAttachments((prev) => {
+              const next = new Map(prev);
+              const cur = next.get(absPath);
+              if (cur) next.set(absPath, { ...cur, tokenCount: tokens });
+              return next;
+            });
+          }}
+          collapsed={true}
+        />
         <AgentAttachmentList
           pending={pendingAttachments}
           onRemove={(absPath) => {
@@ -1177,7 +1223,17 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
                   <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{m.role}</div>
                   <div style={{ whiteSpace: "pre-wrap" }}>{displayText}</div>
                   {/* Minimal tool-call visualization beneath assistant messages */}
-                  {m?.role === "assistant" ? <AgentToolCalls message={m} /> : null}
+              {m?.role === "assistant" ? (
+                <AgentToolCalls
+                  message={m}
+                  sessionId={sessionId || undefined}
+                  skipApprovals={skipApprovals}
+                  onToggleSkipApprovals={async (v) => {
+                    setSkipApprovals(Boolean(v));
+                    try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.skipApprovals', value: Boolean(v) }); } catch { /* ignore */ }
+                  }}
+                />
+              ) : null}
                   {/* User message token count (no latency) */}
                   {m?.role === 'user' && (() => {
                     try {
@@ -1300,6 +1356,9 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         refreshKey={threadsRefreshKey}
         workspaceId={activeWorkspaceId || undefined}
       />
+      {panelEnabled && (
+        <TerminalPanel isOpen={showTerminal} onClose={() => setShowTerminal(false)} defaultCwd={selectedFolder || null} />
+      )}
     </div>
   );
 };
