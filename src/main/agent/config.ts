@@ -14,10 +14,18 @@ export type AgentConfig = {
   ENABLE_FILE_WRITE: boolean;
   ENABLE_CODE_EXECUTION: boolean;
   REQUIRE_APPROVAL: boolean;
+  RETRY_ATTEMPTS: number;
+  RETRY_BASE_MS: number;
+  RETRY_MAX_MS: number;
 };
 
+function pickProvider(input: string): "openai" | "anthropic" | "openrouter" {
+  const v = input.trim().toLowerCase();
+  return v === "openai" || v === "anthropic" || v === "openrouter" ? v : "openai";
+}
+
 const Defaults: AgentConfig = {
-  PROVIDER: (process.env.PF_AGENT_PROVIDER as any) || "openai",
+  PROVIDER: pickProvider(String(process.env.PF_AGENT_PROVIDER || "")),
   DEFAULT_MODEL: process.env.PF_AGENT_DEFAULT_MODEL || "gpt-4o-mini",
   MAX_CONTEXT_TOKENS: Number(process.env.PF_AGENT_MAX_CONTEXT_TOKENS ?? 120_000),
   MAX_OUTPUT_TOKENS: Number(process.env.PF_AGENT_MAX_OUTPUT_TOKENS ?? 4_000),
@@ -28,6 +36,9 @@ const Defaults: AgentConfig = {
   ENABLE_FILE_WRITE: String(process.env.PF_AGENT_ENABLE_FILE_WRITE || "false") === "true",
   ENABLE_CODE_EXECUTION: String(process.env.PF_AGENT_ENABLE_CODE_EXECUTION || "false") === "true",
   REQUIRE_APPROVAL: String(process.env.PF_AGENT_REQUIRE_APPROVAL || "true") !== "false",
+  RETRY_ATTEMPTS: Number(process.env.PF_AGENT_RETRY_ATTEMPTS ?? 3),
+  RETRY_BASE_MS: Number(process.env.PF_AGENT_RETRY_BASE_MS ?? 800),
+  RETRY_MAX_MS: Number(process.env.PF_AGENT_RETRY_MAX_MS ?? 8000),
 };
 
 // Preference keys used when a DatabaseBridge is provided.
@@ -43,6 +54,9 @@ const PrefKeys = {
   ENABLE_FILE_WRITE: "agent.enableFileWrite",
   ENABLE_CODE_EXECUTION: "agent.enableCodeExecution",
   REQUIRE_APPROVAL: "agent.requireApproval",
+  RETRY_ATTEMPTS: "agent.retryAttempts",
+  RETRY_BASE_MS: "agent.retryBaseMs",
+  RETRY_MAX_MS: "agent.retryMaxMs",
 } as const;
 
 type DbGetter = { getPreference: (k: string) => Promise<unknown> } | null | undefined;
@@ -87,6 +101,9 @@ export async function resolveAgentConfig(db?: DbGetter): Promise<AgentConfig> {
     pWrite,
     pExec,
     pRequire,
+    pRetryAttempts,
+    pRetryBase,
+    pRetryMax,
   ] = await Promise.all([
     safeGet(PrefKeys.PROVIDER),
     safeGet(PrefKeys.DEFAULT_MODEL),
@@ -99,12 +116,15 @@ export async function resolveAgentConfig(db?: DbGetter): Promise<AgentConfig> {
     safeGet(PrefKeys.ENABLE_FILE_WRITE),
     safeGet(PrefKeys.ENABLE_CODE_EXECUTION),
     safeGet(PrefKeys.REQUIRE_APPROVAL),
+    safeGet(PrefKeys.RETRY_ATTEMPTS),
+    safeGet(PrefKeys.RETRY_BASE_MS),
+    safeGet(PrefKeys.RETRY_MAX_MS),
   ]);
 
   return {
-    PROVIDER: ((): any => {
-      const v = typeof pProvider === "string" ? pProvider.trim().toLowerCase() : String(pProvider || "");
-      return (v === "openai" || v === "anthropic" || v === "openrouter") ? v : base.PROVIDER;
+    PROVIDER: ((): "openai" | "anthropic" | "openrouter" => {
+      const v = typeof pProvider === "string" ? pProvider.trim().toLowerCase() : "";
+      return v === "openai" || v === "anthropic" || v === "openrouter" ? v : base.PROVIDER;
     })(),
     DEFAULT_MODEL: typeof pModel === "string" && pModel.trim() ? pModel : base.DEFAULT_MODEL,
     MAX_CONTEXT_TOKENS: coerceNumber(pMaxCtx, base.MAX_CONTEXT_TOKENS, 1_000, 2_000_000),
@@ -116,6 +136,16 @@ export async function resolveAgentConfig(db?: DbGetter): Promise<AgentConfig> {
     ENABLE_FILE_WRITE: coerceBoolean(pWrite, base.ENABLE_FILE_WRITE),
     ENABLE_CODE_EXECUTION: coerceBoolean(pExec, base.ENABLE_CODE_EXECUTION),
     REQUIRE_APPROVAL: coerceBoolean(pRequire, base.REQUIRE_APPROVAL),
+    // Treat null/undefined prefs as absent so env/defaults apply
+    RETRY_ATTEMPTS: (pRetryAttempts == null)
+      ? base.RETRY_ATTEMPTS
+      : coerceNumber(pRetryAttempts, base.RETRY_ATTEMPTS, 1, 10),
+    RETRY_BASE_MS: (pRetryBase == null)
+      ? base.RETRY_BASE_MS
+      : coerceNumber(pRetryBase, base.RETRY_BASE_MS, 0, 60_000),
+    RETRY_MAX_MS: (pRetryMax == null)
+      ? base.RETRY_MAX_MS
+      : coerceNumber(pRetryMax, base.RETRY_MAX_MS, 0, 300_000),
   };
 }
 

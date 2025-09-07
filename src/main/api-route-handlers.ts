@@ -27,6 +27,7 @@ import { buildSystemPrompt } from "./agent/system-prompt";
 import { getAgentTools } from "./agent/tools";
 import type { AgentContextEnvelope } from "../shared-types/agent-context";
 import type { ProviderId } from "./agent/models-catalog";
+import { withRateLimitRetries } from "./utils/retry";
 // secrets handled in provider-specific resolvers
 
 // Schema definitions
@@ -279,6 +280,11 @@ export class APIRouteHandlers {
         return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
       }
 
+      // If headers are already sent by an upstream middleware, do not proceed.
+      if (res.headersSent) {
+        return;
+      }
+
       // Derive or generate session id
       const _headers = (req.headers ?? {}) as Record<string, unknown>;
       const headerSession = String(((_headers['x-pasteflow-session'] as unknown) || (_headers['x-pf-session-id'] as unknown) || '')).trim();
@@ -387,53 +393,56 @@ export class APIRouteHandlers {
         } catch { /* noop */ }
       }
 
-      const start = Date.now();
-      const result = streamText({
-        model,
-        system,
-        messages: modelMessages,
-        tools: disableTools ? undefined : tools,
-        temperature: shouldOmitTemperature ? undefined : ((typeof cfgTemperature === 'number') ? cfgTemperature : undefined),
-        maxOutputTokens: cfg.MAX_OUTPUT_TOKENS ?? undefined,
-        abortSignal: controller.signal,
-        onAbort: () => {
-          // Best-effort: nothing to persist yet; hook kept for future telemetry
-        },
-        onFinish: async (info: any) => {
-          try {
-            const u = (info && typeof info === 'object' && (info as any).usage) ? (info as any).usage : (info ?? {});
-            const input = (u && typeof u.inputTokens === 'number') ? u.inputTokens : null;
-            const output = (u && typeof u.outputTokens === 'number') ? u.outputTokens : null;
-            const total = (u && typeof u.totalTokens === 'number') ? u.totalTokens : (
-              (input != null && output != null) ? (input + output) : null
-            );
-            const latency = Date.now() - start;
-            // Compute cost (best-effort) on server using simple pricing table
-            let cost: number | null = null;
+      let start = Date.now();
+      if (res.headersSent) {
+        return; // never retry or continue if headers already sent
+      }
+      const createStream = async (_attempt: number) => {
+        start = Date.now();
+        return streamText({
+          model,
+          system,
+          messages: modelMessages,
+          tools: disableTools ? undefined : tools,
+          temperature: shouldOmitTemperature ? undefined : ((typeof cfgTemperature === 'number') ? cfgTemperature : undefined),
+          maxOutputTokens: cfg.MAX_OUTPUT_TOKENS ?? undefined,
+          abortSignal: controller.signal,
+          onAbort: () => {
+            // Best-effort: nothing to persist yet; hook kept for future telemetry
+          },
+          onFinish: async (info: unknown) => {
             try {
-              const { calculateCostUSD } = await import('./agent/pricing');
-              const modelIdForPricing = String(cfg.DEFAULT_MODEL || "");
-              cost = calculateCostUSD(provider, modelIdForPricing, { inputTokens: input ?? undefined, outputTokens: output ?? undefined });
-            } catch { /* noop */ }
-            // Dev log for quick verification
-            try {
-              if (process.env.NODE_ENV === 'development') {
-                // eslint-disable-next-line no-console
-                console.log('[AI][finish]', { input, output, total, latency, cost });
-              }
-            } catch { /* noop */ }
-            const bridge: any = this.db as any;
-            if (typeof bridge.insertUsageSummaryWithLatencyAndCost === 'function') {
-              await bridge.insertUsageSummaryWithLatencyAndCost(sessionId, input, output, total, latency, cost ?? null);
-            } else if (typeof bridge.insertUsageSummaryWithLatency === 'function') {
-              await bridge.insertUsageSummaryWithLatency(sessionId, input, output, total, latency);
-            } else {
-              await this.db.insertUsageSummary(sessionId, input, output, total);
-            }
-          } catch { /* ignore persistence errors */ }
-        },
+              const { input, output, total } = this.extractUsage(info);
+              const latency = Date.now() - start;
+              // Compute cost (best-effort) on server using simple pricing table
+              let cost: number | null = null;
+              try {
+                const { calculateCostUSD } = await import('./agent/pricing');
+                const modelIdForPricing = String(cfg.DEFAULT_MODEL || "");
+                cost = calculateCostUSD(provider, modelIdForPricing, { inputTokens: input ?? undefined, outputTokens: output ?? undefined });
+              } catch { /* noop */ }
+              // Dev log for quick verification
+              try {
+                if (process.env.NODE_ENV === 'development') {
+                  // eslint-disable-next-line no-console
+                  console.log('[AI][finish]', { input, output, total, latency, cost });
+                }
+              } catch { /* noop */ }
+              await this.persistUsage(sessionId, input, output, total, latency, cost);
+            } catch { /* ignore persistence errors */ }
+          },
+        });
+      };
+
+      const result = await withRateLimitRetries(createStream, {
+        attempts: cfg.RETRY_ATTEMPTS,
+        baseMs: cfg.RETRY_BASE_MS,
+        maxMs: cfg.RETRY_MAX_MS,
+        isRetriable: this.isRetriableProviderError.bind(this),
+        getRetryAfterMs: this.getRetryAfterMsFromError.bind(this),
       });
 
+      if (res.headersSent) return; // safety: we should not have sent yet
       // Pipe to Express response with UI_MESSAGE_STREAM headers and consume stream on abort to avoid hangs
       result.pipeUIMessageStreamToResponse(res, {
         consumeSseStream: consumeStream,
@@ -499,49 +508,50 @@ export class APIRouteHandlers {
           const provider: ProviderId = cfg.PROVIDER || 'openai';
           const { model } = await resolveModelForRequest({ db: this.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: cfg.DEFAULT_MODEL });
 
-          const start = Date.now();
-          const result = streamText({
-            model,
-            system,
-            messages: modelMessages,
-            tools: undefined, // retry without tools
-            temperature: cfg.TEMPERATURE ?? undefined,
-            maxOutputTokens: cfg.MAX_OUTPUT_TOKENS ?? undefined,
-            abortSignal: controller.signal,
-            onAbort: () => {},
-            onFinish: async (info: any) => {
-              try {
-                const u = (info && typeof info === 'object' && (info as any).usage) ? (info as any).usage : (info ?? {});
-                const input = (u && typeof u.inputTokens === 'number') ? u.inputTokens : null;
-                const output = (u && typeof u.outputTokens === 'number') ? u.outputTokens : null;
-                const total = (u && typeof u.totalTokens === 'number') ? u.totalTokens : (
-                  (input != null && output != null) ? (input + output) : null
-                );
-                const latency = Date.now() - start;
-                let cost: number | null = null;
+          let start = Date.now();
+          if (res.headersSent) return; // safety
+          const createStream = async (_attempt: number) => {
+            start = Date.now();
+            return streamText({
+              model,
+              system,
+              messages: modelMessages,
+              tools: undefined, // retry without tools
+              temperature: cfg.TEMPERATURE ?? undefined,
+              maxOutputTokens: cfg.MAX_OUTPUT_TOKENS ?? undefined,
+              abortSignal: controller.signal,
+              onAbort: () => {},
+              onFinish: async (info: unknown) => {
                 try {
-                  const { calculateCostUSD } = await import('./agent/pricing');
-                  const modelIdForPricing = String(cfg.DEFAULT_MODEL || "");
-                  cost = calculateCostUSD(provider, modelIdForPricing, { inputTokens: input ?? undefined, outputTokens: output ?? undefined });
-                } catch { /* noop */ }
-                try {
-                  if (process.env.NODE_ENV === 'development') {
-                    // eslint-disable-next-line no-console
-                    console.log('[AI][finish:fallback]', { input, output, total, latency, cost });
-                  }
-                } catch { /* noop */ }
-                const bridge: any = this.db as any;
-                if (typeof bridge.insertUsageSummaryWithLatencyAndCost === 'function') {
-                  await bridge.insertUsageSummaryWithLatencyAndCost(sessionId, input, output, total, latency, cost ?? null);
-                } else if (typeof bridge.insertUsageSummaryWithLatency === 'function') {
-                  await bridge.insertUsageSummaryWithLatency(sessionId, input, output, total, latency);
-                } else {
-                  await this.db.insertUsageSummary(sessionId, input, output, total);
-                }
-              } catch { /* ignore persistence errors */ }
-            },
+                  const { input, output, total } = this.extractUsage(info);
+                  const latency = Date.now() - start;
+                  let cost: number | null = null;
+                  try {
+                    const { calculateCostUSD } = await import('./agent/pricing');
+                    const modelIdForPricing = String(cfg.DEFAULT_MODEL || "");
+                    cost = calculateCostUSD(provider, modelIdForPricing, { inputTokens: input ?? undefined, outputTokens: output ?? undefined });
+                  } catch { /* noop */ }
+                  try {
+                    if (process.env.NODE_ENV === 'development') {
+                      // eslint-disable-next-line no-console
+                      console.log('[AI][finish:fallback]', { input, output, total, latency, cost });
+                    }
+                  } catch { /* noop */ }
+                  await this.persistUsage(sessionId, input, output, total, latency, cost);
+                } catch { /* ignore persistence errors */ }
+              },
+            });
+          };
+
+          const result = await withRateLimitRetries(createStream, {
+            attempts: cfg.RETRY_ATTEMPTS,
+            baseMs: cfg.RETRY_BASE_MS,
+            maxMs: cfg.RETRY_MAX_MS,
+            isRetriable: this.isRetriableProviderError.bind(this),
+            getRetryAfterMs: this.getRetryAfterMsFromError.bind(this),
           });
 
+          if (res.headersSent) return;
           result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
 
           try {
@@ -1112,6 +1122,107 @@ export class APIRouteHandlers {
       if (/(?:^|\b)(429|too many requests)(?:\b|$)/.test(msg)) return 429;
       return null;
     } catch { return null; }
+  }
+
+  // Determine if provider error is transient/retriable (429/5xx)
+  private isRetriableProviderError(err: unknown): boolean {
+    try {
+      const status = this.getStatusFromAIError(err);
+      return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+    } catch { return false; }
+  }
+
+  // Extract Retry-After in ms from common error shapes
+  private getRetryAfterMsFromError(err: unknown): number | null {
+    try {
+      const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+      const get = (o: unknown, k: string): unknown => (isObject(o) ? (o as Record<string, unknown>)[k] : undefined);
+      const headerGet = (headersObj: unknown, name: string): string | undefined => {
+        if (!isObject(headersObj)) return undefined;
+        try {
+          const maybeGet = (headersObj as { get?: (n: string) => string | null | undefined }).get;
+          if (typeof maybeGet === 'function') {
+            const v = maybeGet.call(headersObj, name) || maybeGet.call(headersObj, name.toLowerCase()) || maybeGet.call(headersObj, name.toUpperCase());
+            return typeof v === 'string' ? v : undefined;
+          }
+          const rec = headersObj as Record<string, unknown>;
+          const raw = rec[name] ?? rec[name.toLowerCase?.() ?? name] ?? rec[name.toUpperCase?.() ?? name];
+          if (typeof raw === 'string') return raw;
+          if (typeof raw === 'number') return String(raw);
+          return undefined;
+        } catch { return undefined; }
+      };
+
+      const parseRetryAfterMs = (value: string): number | null => {
+        if (!value) return null;
+        const trimmed = String(value).trim();
+        const asNum = Number(trimmed);
+        if (Number.isFinite(asNum) && asNum >= 0) return Math.floor(asNum * 1000);
+        const dateMs = Date.parse(trimmed);
+        if (Number.isFinite(dateMs)) {
+          const diff = dateMs - Date.now();
+          return diff > 0 ? diff : 0;
+        }
+        return null;
+      };
+
+      const candidates = [
+        get(get(err, 'response'), 'headers'),
+        get(err, 'headers'),
+        get(get(get(err, 'cause'), 'response'), 'headers'),
+        get(get(err, 'cause'), 'headers'),
+      ];
+      for (const h of candidates) {
+        const v = headerGet(h, 'retry-after');
+        if (typeof v === 'string' && v) {
+          const ms = parseRetryAfterMs(v);
+          if (ms != null) return ms;
+        }
+      }
+      return null;
+    } catch { return null; }
+  }
+
+  private extractUsage(info: unknown): { input: number | null; output: number | null; total: number | null } {
+    const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+    const get = (o: unknown, k: string): unknown => (isObject(o) ? (o as Record<string, unknown>)[k] : undefined);
+    const usage = get(info, 'usage');
+    const input = get(usage, 'inputTokens');
+    const output = get(usage, 'outputTokens');
+    const total = get(usage, 'totalTokens');
+    const toNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const i = toNum(input);
+    const o = toNum(output);
+    const t = toNum(total);
+    return {
+      input: i,
+      output: o,
+      total: t != null ? t : i != null && o != null ? i + o : null,
+    };
+  }
+
+  private async persistUsage(
+    sessionId: string,
+    input: number | null,
+    output: number | null,
+    total: number | null,
+    latency: number | null,
+    cost: number | null,
+  ): Promise<void> {
+    const dbObj = this.db as unknown as {
+      insertUsageSummaryWithLatencyAndCost?: (sessionId: string, input: number | null, output: number | null, total: number | null, latencyMs: number | null, costUsd: number | null) => Promise<unknown>;
+      insertUsageSummaryWithLatency?: (sessionId: string, input: number | null, output: number | null, total: number | null, latencyMs: number | null) => Promise<unknown>;
+      insertUsageSummary: (sessionId: string, input: number | null, output: number | null, total: number | null) => Promise<unknown>;
+    };
+    if (typeof dbObj.insertUsageSummaryWithLatencyAndCost === 'function') {
+      await dbObj.insertUsageSummaryWithLatencyAndCost(sessionId, input, output, total, latency, cost);
+      return;
+    }
+    if (typeof dbObj.insertUsageSummaryWithLatency === 'function') {
+      await dbObj.insertUsageSummaryWithLatency(sessionId, input, output, total, latency);
+      return;
+    }
+    await dbObj.insertUsageSummary(sessionId, input, output, total);
   }
 
   // Detect invalid tool schema/parameters errors (e.g., OpenAI Responses API)
