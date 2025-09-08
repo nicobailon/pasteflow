@@ -85,15 +85,18 @@ export async function resolveModelForRequest(input: ResolveModelInput): Promise<
     if (!key) {
       // Return an OpenAI client without key to force validation errors on use
       const client = createOpenAI({ apiKey: "" as unknown as string, baseURL });
-      return { model: client(modelId) } as any;
+      // Explicitly use .chat() to force Chat Completions API
+      return { model: client.chat(modelId) } as any;
     }
     const client = createOpenAI({ apiKey: key, baseURL });
-    return { model: client(modelId) } as any;
+    // Explicitly use .chat() to force Chat Completions API
+    return { model: client.chat(modelId) } as any;
   }
 
   // Unknown provider: attempt OpenAI as default
   const client = createOpenAI({ apiKey: (await loadProviderCredentials(db)).openai?.apiKey || undefined });
-  return { model: client(modelId) };
+  // Explicitly use .chat() to force Chat Completions API
+  return { model: client.chat(modelId) };
 }
 
 export function pickSafeDefaultModel(provider: ProviderId, cfg: AgentConfig): string {

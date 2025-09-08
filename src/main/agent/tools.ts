@@ -240,54 +240,35 @@ export function getAgentTools(deps?: {
 
   const edit = (tool as any)({
     description: "Edit operations: diff (unified), block (targeted), multi (batch)",
+    // IMPORTANT: OpenAI function/tool schemas must be a top-level JSON Schema of type: "object".
+    // Older models tolerated top-level oneOf; GPT-5 requires explicit { type: "object" }.
+    // We accept a superset of fields and validate combinations at runtime.
     inputSchema: jsonSchema({
-      oneOf: [
-        // diff (backward compatible)
-        {
-          type: "object",
-          properties: {
-            path: { type: "string" },
-            diff: { type: "string" },
-            apply: { type: "boolean", default: false },
-          },
-          required: ["path", "diff"],
-          additionalProperties: false,
-        },
+      type: "object",
+      properties: {
+        // Variant selector: default is "diff" when omitted (back-compat)
+        action: { type: "string", enum: ["diff", "block", "multi"], description: "Edit variant; defaults to 'diff' if omitted" },
+
+        // diff
+        path: { type: "string" },
+        diff: { type: "string" },
+        apply: { type: "boolean", default: false },
+
         // block
-        {
-          type: "object",
-          properties: {
-            action: { const: "block" },
-            path: { type: "string" },
-            search: { type: "string" },
-            replacement: { type: "string" },
-            occurrence: { type: "integer", minimum: 1 },
-            isRegex: { type: "boolean" },
-            preview: { type: "boolean" },
-            apply: { type: "boolean" },
-          },
-          required: ["action", "path", "search"],
-          additionalProperties: false,
-        },
+        search: { type: "string" },
+        replacement: { type: "string" },
+        occurrence: { type: "integer", minimum: 1 },
+        isRegex: { type: "boolean" },
+        preview: { type: "boolean" },
+
         // multi
-        {
-          type: "object",
-          properties: {
-            action: { const: "multi" },
-            paths: { type: "array", items: { type: "string" } },
-            search: { type: "string" },
-            replacement: { type: "string" },
-            isRegex: { type: "boolean" },
-            occurrencePolicy: { type: "string", enum: ["first", "all", "index"] },
-            index: { type: "integer", minimum: 1 },
-            preview: { type: "boolean" },
-            maxFiles: { type: "integer", minimum: 1, maximum: 10000 },
-            apply: { type: "boolean" },
-          },
-          required: ["action", "paths", "search"],
-          additionalProperties: false,
-        },
-      ],
+        paths: { type: "array", items: { type: "string" } },
+        occurrencePolicy: { type: "string", enum: ["first", "all", "index"] },
+        index: { type: "integer", minimum: 1 },
+        maxFiles: { type: "integer", minimum: 1, maximum: 10000 },
+      },
+      required: [],
+      additionalProperties: false,
     } as any),
     execute: async (rawParams: any) => {
       const onExec = deps?.onToolExecute;

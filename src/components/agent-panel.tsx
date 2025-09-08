@@ -1,21 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import { ArrowUp, List as ListIcon, Plus as PlusIcon, Info as InfoIcon, Terminal as TerminalIcon , Settings as SettingsIcon } from "lucide-react";
+
+import { TOKEN_COUNTING } from "@constants";
+
 import useAgentPanelResize from "../hooks/use-agent-panel-resize";
+import type { FileData } from "../types/file-types";
+import { extname } from "../file-ops/path";
+import { requestFileContent } from "../handlers/electron-handlers";
+
 import AgentChatInputWithMention from "./agent-chat-input";
 import AgentAttachmentList from "./agent-attachment-list";
 import AgentToolCalls from "./agent-tool-calls";
 import AgentMiniFileList from "./agent-mini-file-list";
 import IntegrationsModal from "./integrations-modal";
 import ModelSelector from "./model-selector";
-import { ArrowUp, List as ListIcon, Plus as PlusIcon, Info as InfoIcon, Terminal as TerminalIcon } from "lucide-react";
-import { TOKEN_COUNTING } from "@constants";
 import ModelSettingsModal from "./model-settings-modal";
-import { Settings as SettingsIcon } from "lucide-react";
 import AgentAlertBanner from "./agent-alert-banner";
-import type { FileData } from "../types/file-types";
-import { extname } from "../file-ops/path";
+
 import "./agent-panel.css";
-import { requestFileContent } from "../handlers/electron-handlers";
+
 import AgentThreadList from "./agent-thread-list";
 
 // Strict helper types for IPC and preferences
@@ -377,8 +381,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
             } else {
               try { console.log('[UI][Telemetry] renderer append skipped (no usage payload)'); } catch { /* noop */ }
             }
-          } catch (e) {
-            try { console.warn('[UI][Telemetry] renderer append failed', e); } catch { /* noop */ }
+          } catch (error) {
+            try { console.warn('[UI][Telemetry] renderer append failed', error); } catch { /* noop */ }
           }
         }
       } catch { /* ignore */ }
@@ -554,8 +558,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
     const m = (modelId || '').toLowerCase();
     // Default approximate rates per 1K tokens
     const perK: { in: number; out: number } = m.includes('gpt-4o-mini') ? { in: 0.0005, out: 0.0015 } :
-      m.includes('gpt-5') ? { in: 0.005, out: 0.015 } :
-      m.includes('haiku') ? { in: 0.0008, out: 0.0024 } : { in: 0.001, out: 0.003 };
+      (m.includes('gpt-5') ? { in: 0.005, out: 0.015 } :
+      m.includes('haiku') ? { in: 0.0008, out: 0.0024 } : { in: 0.001, out: 0.003 });
     const cost = (i / 1000) * perK.in + (o / 1000) * perK.out;
     return `$${cost.toFixed(cost < 0.01 ? 3 : 2)}`;
   }
@@ -755,7 +759,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   }, []);
 
   // Helper: retry ensureSession a few times before giving up
-  const ensureSessionOrRetry = useCallback(async (maxAttempts: number = 8, delayMs: number = 250): Promise<string | null> => {
+  const ensureSessionOrRetry = useCallback(async (maxAttempts = 8, delayMs = 250): Promise<string | null> => {
     setIsStartingChat(true);
     try {
       for (let i = 0; i < maxAttempts; i++) {
@@ -815,7 +819,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   // Build condensed display text by replacing file content blocks with line-count summaries
   const condenseUserMessageForDisplay = useCallback((text: string) => {
     try {
-      const pattern = /File:\s*(.+?)\n```([a-zA-Z0-9_-]*)\n([\s\S]*?)\n```/g;
+      const pattern = /File:\s*(.+?)\n```([\w-]*)\n([\S\s]*?)\n```/g;
       return text.replace(pattern, (_m, p1: string, _lang: string, body: string) => {
         const lines = body === "" ? 0 : body.split(/\r?\n/).length;
         return `File: ${p1}\n[File content: ${lines} lines]`;
@@ -879,7 +883,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         // If still binding/switching, queue the first send and return
         if (awaitingBind || isSwitchingThread) {
           // Prepare payload for queued send below
-          const attachments = Array.from(pendingAttachments.values());
+          const attachments = [...pendingAttachments.values()];
           const llmBlocks: string[] = [];
           for (const att of attachments) {
             const content = typeof att.content === "string" && att.content.length > 0 ? att.content : await ensureAttachmentContent(att.path);
@@ -895,7 +899,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
       }
 
       // Use current pending attachments
-      const attachments = Array.from(pendingAttachments.values());
+      const attachments = [...pendingAttachments.values()];
 
       // Prepare LLM payload blocks and UI condensed blocks
       const llmBlocks: string[] = [];
@@ -930,7 +934,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   );
 
   const tokenHint = useMemo(() => {
-    const total = (composer.length || 0) + Array.from(pendingAttachments.values()).reduce((acc, a) => acc + (a.tokenCount || 0), 0);
+    const total = (composer.length || 0) + [...pendingAttachments.values()].reduce((acc, a) => acc + (a.tokenCount || 0), 0);
     return `${total} chars`;
   }, [composer, pendingAttachments]);
 
@@ -1171,7 +1175,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         {/* Mini file list for quick context selection */}
         <AgentMiniFileList
           files={allFiles}
-          selected={Array.from(pendingAttachments.keys())}
+          selected={[...pendingAttachments.keys()]}
           onToggle={(absPath) => {
             setPendingAttachments((prev) => {
               const next = new Map(prev);
@@ -1386,7 +1390,7 @@ function extractVisibleTextFromMessage(m: any): string {
 }
 
 function buildDynamicFromAttachments(pending: Map<string, AgentAttachment>) {
-  const files = Array.from(pending.values()).map((v) => ({ path: v.path, lines: v.lines ?? null, tokenCount: v.tokenCount }));
+  const files = [...pending.values()].map((v) => ({ path: v.path, lines: v.lines ?? null, tokenCount: v.tokenCount }));
   return { files };
 }
 
