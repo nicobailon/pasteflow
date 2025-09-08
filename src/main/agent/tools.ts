@@ -7,6 +7,7 @@ import { runRipgrepJson } from "../tools/ripgrep";
 import type { AgentSecurityManager } from "./security-manager";
 import type { AgentConfig } from "./config";
 import { generateFromTemplate as genFromTemplate } from "./template-engine";
+import { getToolCatalog } from "./tool-catalog";
 import type {
   ContextAction,
   ContextToolParams,
@@ -63,7 +64,7 @@ export function getAgentTools(deps?: {
       from: { type: "string" },
       to: { type: "string" },
     },
-    required: ["action"],
+    required: [],
     additionalProperties: false,
   };
 
@@ -71,8 +72,6 @@ export function getAgentTools(deps?: {
     description: "File operations within the workspace (read/info/list; write/move/delete gated)",
     inputSchema: jsonSchema(fileParamsSchema),
     execute: async (params: any) => {
-      // Default to 'read' for backward compatibility when action is omitted
-      const action = String(params?.action || "read");
       const cfg = deps?.config || null;
 
       const t0 = Date.now();
@@ -85,6 +84,30 @@ export function getAgentTools(deps?: {
       if (deps?.security && deps.sessionId && !deps.security.allowToolExecution(deps.sessionId)) {
         return record({ type: "error" as const, code: 'RATE_LIMITED', message: 'Tool execution rate limited' });
       }
+
+      // Introspection: if action is missing and no meaningful fields are provided, describe the tool
+      const hasKeys = params && typeof params === 'object' && Object.keys(params).length > 0;
+      const hasTaskFields = !!(params && typeof params === 'object' && (
+        'path' in params || 'directory' in params || 'content' in params || 'from' in params || 'to' in params || 'lines' in params || 'recursive' in params || 'maxResults' in params || 'apply' in params
+      ));
+      const actionRaw = params?.action;
+      if (!hasKeys || (!actionRaw && !hasTaskFields)) {
+        return record({
+          type: 'about',
+          name: 'file',
+          actions: [
+            { name: 'read', required: ['path'], optional: ['lines'] },
+            { name: 'info', required: ['path'], optional: [] },
+            { name: 'list', required: ['directory'], optional: ['recursive', 'maxResults'] },
+            { name: 'write', required: ['path', 'content'], optional: [], gatedBy: 'ENABLE_FILE_WRITE/APPROVAL_MODE' },
+            { name: 'move', required: ['from', 'to'], optional: [], gatedBy: 'ENABLE_FILE_WRITE/APPROVAL_MODE' },
+            { name: 'delete', required: ['path'], optional: [], gatedBy: 'ENABLE_FILE_WRITE/APPROVAL_MODE' },
+          ]
+        });
+      }
+
+      // Default to 'read' for backward compatibility when action is omitted
+      const action = String(actionRaw || "read");
       if (action === "read") {
         if (typeof params.path !== "string" || params.path.trim() === "") {
           return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'path' is required for action=read" });
@@ -183,7 +206,7 @@ export function getAgentTools(deps?: {
         pattern: { type: "string" },
         recursive: { type: "boolean" },
       },
-      required: ["action"],
+      required: [],
       additionalProperties: false,
     } as any),
     execute: async (params: any) => {
@@ -197,6 +220,21 @@ export function getAgentTools(deps?: {
       if (deps?.security && deps.sessionId && !deps.security.allowToolExecution(deps.sessionId)) {
         return record({ type: "error" as const, code: 'RATE_LIMITED', message: 'Tool execution rate limited' });
       }
+
+      // Introspection: describe tool when action missing and no meaningful fields
+      const hasKeys = params && typeof params === 'object' && Object.keys(params).length > 0;
+      const hasTaskFields = !!(params && typeof params === 'object' && ('query' in params || 'pattern' in params));
+      if (!hasKeys || (!params?.action && !hasTaskFields)) {
+        return record({
+          type: 'about',
+          name: 'search',
+          actions: [
+            { name: 'code', required: ['query'], optional: ['directory', 'maxResults'] },
+            { name: 'files', required: ['pattern'], optional: ['directory', 'recursive', 'maxResults'] },
+          ]
+        });
+      }
+
       const isCode = params.action === "code";
       if (isCode) {
         if (typeof params.query !== "string" || params.query.trim() === "") {
@@ -278,6 +316,22 @@ export function getAgentTools(deps?: {
         try { await onExec?.("edit", args, result, { startedAt: t0, durationMs: Date.now() - t0 }); } catch { /* noop */ }
         return result;
       };
+
+      // Introspection: if no action and no meaningful fields, describe tool
+      const hasAnyField = rawParams && typeof rawParams === 'object' && (
+        'path' in rawParams || 'diff' in rawParams || 'apply' in rawParams || 'search' in rawParams || 'replacement' in rawParams || 'paths' in rawParams
+      );
+      if (!rawParams || typeof rawParams !== 'object' || (!('action' in rawParams) && !hasAnyField)) {
+        return record(rawParams, {
+          type: 'about',
+          name: 'edit',
+          actions: [
+            { name: 'diff', required: ['path', 'diff'], optional: ['apply'] },
+            { name: 'block', required: ['path', 'search'], optional: ['replacement', 'occurrence', 'isRegex', 'preview', 'apply'] },
+            { name: 'multi', required: ['paths', 'search'], optional: ['replacement', 'occurrencePolicy', 'index', 'maxFiles', 'apply'] },
+          ]
+        });
+      }
 
       // Default branch: unified diff (back-compat when no action provided)
       if (!rawParams || typeof rawParams !== 'object' || !('action' in rawParams)) {
@@ -527,6 +581,12 @@ export function getAgentTools(deps?: {
         return record({ initialFiles: initFiles, dynamicFiles: dynFiles });
       }
 
+      // tools: return tool catalog (structured)
+      if (action === "tools") {
+        const catalog = getToolCatalog();
+        return record({ tools: catalog as any } as unknown as ContextResult);
+      }
+
       // expand: load file contents or line ranges with token counts and size caps
       if (action === "expand") {
         const filesParam = Array.isArray((params as any)?.files)
@@ -632,7 +692,7 @@ export function getAgentTools(deps?: {
         maxBytes: { type: "integer" },
         skipPermissions: { type: "boolean" },
       },
-      required: ["action"],
+      required: [],
       additionalProperties: false,
     } as any),
     execute: async (params: any) => {
@@ -643,6 +703,24 @@ export function getAgentTools(deps?: {
         try { await deps?.onToolExecute?.("terminal", params, result, meta as any); } catch { /* noop */ }
         return result;
       };
+
+      // Introspection: describe tool when action missing and no meaningful fields
+      const hasKeys = params && typeof params === 'object' && Object.keys(params).length > 0;
+      const hasTaskFields = !!(params && typeof params === 'object' && ('command' in params || 'sessionId' in params));
+      if (!hasKeys || (!params?.action && !hasTaskFields)) {
+        return record({
+          type: 'about',
+          name: 'terminal',
+          actions: [
+            { name: 'start', required: ['command'], optional: ['args', 'cwd'] },
+            { name: 'interact', required: ['sessionId', 'input'], optional: [] },
+            { name: 'output', required: ['sessionId'], optional: ['cursor', 'maxBytes'] },
+            { name: 'list', required: [], optional: [] },
+            { name: 'kill', required: ['sessionId'], optional: [] },
+          ],
+          gatedBy: 'ENABLE_CODE_EXECUTION/APPROVAL_MODE'
+        });
+      }
       if (cfg?.ENABLE_CODE_EXECUTION !== true) {
         return record({ type: 'error' as const, code: 'EXECUTION_DISABLED', message: 'Code execution is disabled' });
       }

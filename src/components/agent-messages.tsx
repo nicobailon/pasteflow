@@ -5,6 +5,20 @@ import type { UsageRow } from "../types/agent-types";
 import { extractVisibleTextFromMessage, condenseUserMessageForDisplay, estimateTokensForText, formatLatency, estimateCostUSD } from "../utils/agent-message-utils";
 import { TOKEN_COUNTING } from "@constants";
 
+// Local fallback tool catalog (renderer-only) mirrors main/agent/tool-catalog.ts
+// Kept in renderer to avoid cross-bundle imports in Vite/Electron.
+const FALLBACK_TOOL_CATALOG: ReadonlyArray<{ name: string; description: string }> = [
+  { name: 'file', description: 'File ops: read/info/list; writes gated' },
+  { name: 'search', description: 'Ripgrep code search' },
+  { name: 'edit', description: 'Edit: diff/block/multi; apply gated' },
+  { name: 'context', description: 'Context utilities: summary/expand/search/tools' },
+  { name: 'terminal', description: 'Terminal: start/interact/output/list/kill (gated)' },
+  { name: 'generateFromTemplate', description: 'Scaffold component/hook/api-route/test (no writes)' },
+] as const;
+
+// Deduplicate noisy diagnostic logs per assistant message id
+const __LOGGED_NO_TEXT_MSG_IDS = new Set<string>();
+
 interface AgentMessagesProps {
   readonly messages: readonly unknown[];
   readonly interruptions: ReadonlyMap<number, { readonly target: 'pre-assistant' | 'assistant'; readonly ts: number }>;
@@ -52,7 +66,40 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
         messages.map((m: unknown, idx: number) => {
           const rawText = extractVisibleTextFromMessage(m);
           const role = (m && typeof m === 'object' && (m as any).role) ? String((m as any).role) : '';
-          const displayText = role === 'user' && typeof rawText === 'string' ? condenseUserMessageForDisplay(rawText) : rawText;
+          let displayText = role === 'user' && typeof rawText === 'string' ? condenseUserMessageForDisplay(rawText) : rawText;
+
+          // Fallback: if assistant text is empty and last user asked about tools, render a local catalog list
+          try {
+            if (role === 'assistant' && (!displayText || displayText.trim() === '')) {
+              // Find nearest preceding user message
+              let prevUser: string | null = null;
+              for (let j = idx - 1; j >= 0; j--) {
+                const item = messages[j] as any;
+                if (item?.role === 'user') { prevUser = extractVisibleTextFromMessage(item); break; }
+              }
+              const isToolQuery = (() => {
+                if (!prevUser) return false;
+                const t = prevUser.toLowerCase();
+                return /\b(which|what|list)\b.*\btools?\b.*\b(avail|have|use)/.test(t);
+              })();
+              if (isToolQuery) {
+                displayText = ['Tools available:', ...FALLBACK_TOOL_CATALOG.map(t => `- ${t.name}: ${t.description}`)].join('\n');
+              }
+
+              const hasArray = (Array.isArray((m as any)?.content) && (m as any).content.length > 0) || (Array.isArray((m as any)?.parts) && (m as any).parts.length > 0);
+              if (hasArray) {
+                try {
+                  const msgId = typeof (m as any)?.id === 'string' ? String((m as any).id) : '';
+                  if (!msgId || !__LOGGED_NO_TEXT_MSG_IDS.has(msgId)) {
+                    // eslint-disable-next-line no-console
+                    console.warn('[UI][chat:assistant:no-visible-text]', m);
+                    if (msgId) __LOGGED_NO_TEXT_MSG_IDS.add(msgId);
+                  }
+                } catch { /* noop */ }
+              }
+            }
+          } catch { /* noop */ }
+
           const it = interruptions.get(idx);
           const assistantInterrupted = Boolean(it && it.target === 'assistant' && role === 'assistant');
 

@@ -119,6 +119,10 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
     // Override fetch to ensure we always target the local API and include auth
     fetch: (input: RequestInfo | URL, init?: RequestInit) => {
       try {
+        const dbg = { sessionId, method: (init?.method || 'POST'), ts: Date.now() };
+        console.log('[UI][chat:request]', dbg);
+      } catch { /* noop */ }
+      try {
         const info = (window as any).__PF_API_INFO || {};
         const base = typeof info.apiBase === "string" ? info.apiBase : apiBase;
         const token = typeof info.authToken === "string" ? info.authToken : authToken;
@@ -153,8 +157,10 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
             err.status = res.status;
             err.code = (apiErr?.code as string) || undefined;
             err.body = parsed || text || null;
+            try { console.warn('[UI][chat:response:error]', { status: res.status, code: err.code, message: err.message }); } catch { /* noop */ }
             throw err;
           }
+          try { console.log('[UI][chat:response:ok]', { status: res.status }); } catch { /* noop */ }
           return res;
         });
       } catch {
@@ -170,11 +176,34 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         dynamic,
         workspace: selectedFolder || null,
       };
+      try {
+        const lastUser = (() => {
+          try {
+            for (let i = messages.length - 1; i >= 0; i--) {
+              const m = messages[i];
+              if (m?.role === 'user') {
+                const parts = Array.isArray(m.content) ? m.content : [];
+                for (let j = parts.length - 1; j >= 0; j--) {
+                  const p = parts[j] as any;
+                  if (p && p.type === 'text' && typeof p.text === 'string') return p.text as string;
+                }
+              }
+            }
+            return '';
+          } catch { return ''; }
+        })();
+        const t = String(lastUser || '').toLowerCase();
+        if (/\bwhich\b.*\btools\b.*\b(avail|have)\b/.test(t) || /\bwhat\b.*\btools\b.*\b(avail|can you use|have)\b/.test(t)) {
+          console.log('[UI][chat] tool-availability-query detected');
+        }
+        console.log('[UI][chat:prepare]', { sessionId, dynamicFiles: dynamic.files?.length || 0, hasInitial: !!lastInitialRef.current });
+      } catch { /* noop */ }
       return { ...requestBody, messages, context: envelope };
     },
     onFinish: async (finishInfo: any) => {
       try {
         if (sessionId) {
+          try { console.log('[UI][chat:finish]', { sessionId }); } catch { /* noop */ }
           try { console.log('[UI][Telemetry] onFinish: snapshot + usage refresh start', { sessionId }); } catch { /* noop */ }
           const [p, m] = await Promise.all([
             (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
@@ -240,6 +269,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
     onError: (err: any) => {
       const code = typeof err?.status === "number" ? err.status : (typeof err?.code === "number" ? err.code : null);
       hadErrorRef.current = true;
+      try { console.warn('[UI][chat:error]', { status: code, code: (typeof err?.code === 'string' ? err.code : undefined), message: String(err?.message || '') }); } catch { /* noop */ }
       // Capture any structured error returned by backend
       try {
         const payload = (err?.body && typeof err.body === 'object') ? err.body : null;
@@ -456,6 +486,10 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
 
       // Use current pending attachments
       const attachments = [...pendingAttachments.values()];
+      try {
+        const preview = composer.trim();
+        console.log('[UI][chat:send]', { sessionId: sessionId || '(pending)', attachments: attachments.length, text: preview.length > 160 ? preview.slice(0, 160) + '…' : preview });
+      } catch { /* noop */ }
 
       // Prepare LLM payload blocks and UI condensed blocks
       const llmBlocks: string[] = [];

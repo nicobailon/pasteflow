@@ -7,20 +7,88 @@ export function extractVisibleTextFromMessage(m: unknown): string {
   try {
     if (!m || typeof m !== "object") return "";
     const msg = m as { role?: unknown; parts?: unknown; content?: unknown };
-    const parts = Array.isArray(msg.parts) ? (msg.parts as ReadonlyArray<{ type?: unknown; text?: unknown }>) : null;
+
+    // Helper: collect text from an array of content/parts items
+    const collectFrom = (arr: ReadonlyArray<any>): string => {
+      try {
+        const out: string[] = [];
+        for (const it of arr) {
+          const t = typeof it?.type === 'string' ? String(it.type).toLowerCase() : '';
+          // Heuristic: include any item whose type contains 'text' or is known text-bearing
+          if ((t && (t.includes('text') || t === 'message' || t === 'output_text' || t === 'output-text')) && typeof it?.text === 'string') {
+            out.push(String(it.text));
+            continue;
+          }
+          // Some SDKs provide { text: '...' } without a type
+          if (!t && typeof it?.text === 'string') {
+            out.push(String(it.text));
+            continue;
+          }
+          // Fallback: if item has a nested content string
+          if (typeof it?.content === 'string') {
+            out.push(String(it.content));
+            continue;
+          }
+        }
+        return out.join("");
+      } catch {
+        return "";
+      }
+    };
+
+    // Prefer modern UIMessage shape: content as array
+    if (Array.isArray((msg as any).content)) {
+      const out = collectFrom((msg as any).content as ReadonlyArray<any>);
+      if (out && out.trim().length > 0) return out;
+      if (String(msg.role || "") === "assistant") return ""; // assistant with non-visible parts (e.g., reasoning)
+    }
+
+    // Legacy/alternate shapes: parts array
+    const parts = Array.isArray((msg as any).parts) ? ((msg as any).parts as ReadonlyArray<any>) : null;
     if (parts) {
-      const collect = (types: readonly string[]) => parts
-        .filter((p) => typeof p?.type === "string" && types.includes(String(p.type)) && typeof p?.text === "string")
-        .map((p) => String(p.text))
-        .join("");
-
-      const outText = collect(["output_text", "output-text", "message", "text"]);
+      const outText = collectFrom(parts);
       if (outText && outText.trim().length > 0) return outText;
-
-      // If assistant message has no user-visible text yet (e.g., only reasoning/step parts), render nothing
       if (String(msg.role || "") === "assistant") return "";
     }
-    if (typeof msg.content === "string") return msg.content;
+
+    // Fallbacks
+    if (typeof (msg as any).content === "string") return (msg as any).content as string;
+    if ((msg as any).content && typeof (msg as any).content === 'object' && typeof (msg as any).content.text === 'string') {
+      return String((msg as any).content.text);
+    }
+
+    // Deep fallback: search common container keys for text-bearing nodes
+    try {
+      const keysToScan = new Set(['content', 'parts', 'items', 'children', 'delta', 'data']);
+      const seen = new Set<unknown>();
+      const out: string[] = [];
+      const visit = (val: unknown, parentType?: string) => {
+        if (val == null) return;
+        if (seen.has(val)) return; seen.add(val);
+        if (typeof val === 'string') return; // avoid pulling raw strings without signal
+        if (Array.isArray(val)) { for (const v of val) visit(v); return; }
+        if (typeof val === 'object') {
+          const obj = val as Record<string, unknown>;
+          const t = typeof obj.type === 'string' ? String(obj.type).toLowerCase() : parentType;
+          // Collect common fields regardless of type — some providers omit a text-y type
+          if (typeof obj.text === 'string') out.push(String(obj.text));
+          if (typeof obj.content === 'string') out.push(String(obj.content));
+          if (typeof (obj as any)?.value === 'string') out.push(String((obj as any).value));
+          if (typeof (obj as any)?.data === 'object' && (obj as any).data) {
+            const data = (obj as any).data as Record<string, unknown>;
+            if (typeof data.text === 'string') out.push(String(data.text));
+            if (typeof data.content === 'string') out.push(String(data.content));
+          }
+          for (const k of Object.keys(obj)) {
+            if (keysToScan.has(k)) visit(obj[k], t);
+          }
+        }
+      };
+      visit(msg as any);
+      const joined = out.join('');
+      if (joined && joined.trim().length > 0) return joined;
+    } catch { /* ignore */ }
+
     return "";
   } catch {
     return "";
