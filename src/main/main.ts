@@ -460,6 +460,26 @@ function broadcastUpdate(channel: string, data?: unknown): void {
   }
 }
 
+/**
+ * Window sizing helpers
+ */
+ipcMain.handle('window:adjust-height', async (_e, params: unknown) => {
+  try {
+    const p = (params || {}) as { delta?: number };
+    const delta = Math.floor(Number(p.delta ?? 0));
+    if (!Number.isFinite(delta) || delta === 0) return { success: true, data: null };
+    const win = BrowserWindow.getFocusedWindow() || mainWindow;
+    if (!win) return { success: false, error: 'NO_WINDOW' };
+    const [w, h] = win.getSize();
+    const minH = 400; // ensure reasonable minimum height
+    const newH = Math.max(minH, h + delta);
+    win.setSize(w, newH);
+    return { success: true, data: { width: w, height: newH } };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
 /** IPC: Open folder selection (event-based) */
 ipcMain.on('open-folder', async (event) => {
   try {

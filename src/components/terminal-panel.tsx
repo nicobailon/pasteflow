@@ -1,4 +1,58 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import "./terminal-panel.css";
+
+// Minimal xterm types to avoid using 'any'
+type XtermTerminal = {
+  element?: HTMLElement;
+  open: (el: HTMLElement) => void;
+  write: (data: string) => void;
+  loadAddon?: (addon: unknown) => void;
+  onData?: (handler: (data: string) => void) => void;
+  focus?: () => void;
+};
+
+type FitAddonType = { fit: () => void };
+// Inline module types are used in dynamic import casts inside loadXterm.
+
+// Small utility: check if a scrollable element is near bottom
+function isNearBottom(el: HTMLElement | null, threshold = 24): boolean {
+  if (!el) return true;
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - threshold;
+}
+
+type LoadXtermResult = { term: XtermTerminal; fit?: FitAddonType };
+
+// Load xterm and addons dynamically; returns created terminal and optional fit addon
+async function loadXterm(termMount: HTMLElement, onData: (d: string) => void): Promise<LoadXtermResult | null> {
+  const XTERM = ["x", "term"].join("");
+  const FIT = ["xterm-addon", "fit"].join("-");
+  const LINKS = ["xterm-addon", "web-links"].join("-");
+  try {
+    const mod = (await import(/* @vite-ignore */ XTERM)) as unknown as { Terminal?: new (opts?: Record<string, unknown>) => XtermTerminal };
+    const TerminalCtor = mod.Terminal;
+    if (!TerminalCtor) return null;
+    const term: XtermTerminal = new TerminalCtor({ convertEol: true, fontSize: 12, cursorBlink: true });
+    let fitAddon: FitAddonType | undefined;
+    try {
+      const fitMod = (await import(/* @vite-ignore */ FIT)) as unknown as { FitAddon?: new () => FitAddonType };
+      if (fitMod.FitAddon) {
+        fitAddon = new fitMod.FitAddon();
+        term.loadAddon?.(fitAddon);
+        try { fitAddon.fit(); } catch { /* noop */ }
+      }
+    } catch { /* optional */ }
+    try {
+      const linksMod = (await import(/* @vite-ignore */ LINKS)) as unknown as { WebLinksAddon?: new () => unknown };
+      if (linksMod.WebLinksAddon) term.loadAddon?.(new linksMod.WebLinksAddon());
+    } catch { /* optional */ }
+    term.open(termMount);
+    try { term.onData?.(onData); } catch { /* noop */ }
+    try { term.focus?.(); } catch { /* noop */ }
+    return { term, fit: fitAddon };
+  } catch {
+    return null;
+  }
+}
 
 type Result<T, E extends string = string> = { success: true; data: T } | { success: false; error: E };
 
@@ -18,30 +72,53 @@ export type TerminalPanelProps = {
  * - Pull-based streaming using IPC 'terminal:output:get'.
  * - Gated by ENABLE_CODE_EXECUTION (panel shows a banner otherwise).
  */
-export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: TerminalPanelProps) {
+export default function TerminalPanel({ isOpen, onClose: _onClose, defaultCwd = null }: TerminalPanelProps) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [session, setSession] = useState<TerminalSession | null>(null);
-  const [sessions, setSessions] = useState<TerminalMeta[]>([]);
+  // const [sessions, setSessions] = useState<TerminalMeta[]>([]);
   const [cursor, setCursor] = useState<number>(0);
   const [fallbackText, setFallbackText] = useState<string>("");
-  const [input, setInput] = useState<string>("");
+  const [currentLine, setCurrentLine] = useState<string>("");
+  const [history, setHistory] = useState<string[]>([]);
+  const [_histIdx, setHistIdx] = useState<number>(-1);
   const [err, setErr] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
+  const [, setReady] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  const xtermRef = useRef<any | null>(null);
-  const fitAddonRef = useRef<any | null>(null);
+  const xtermRef = useRef<XtermTerminal | null>(null);
+  const fitAddonRef = useRef<FitAddonType | null>(null);
   const termElRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
 
+  const getViewportEl = useCallback((): HTMLElement | null => {
+    const term = xtermRef.current;
+    try {
+      if (term?.element) {
+        const el = term.element.querySelector('.xterm-viewport') as HTMLElement | null;
+        if (el) return el;
+      }
+    } catch { /* noop */ }
+    return scrollRef.current;
+  }, []);
+
+  // (moved to module scope)
+
   const writeToTerm = useCallback((data: string) => {
+    const vp = getViewportEl();
+    const shouldAuto = isNearBottom(vp);
     if (xtermRef.current) {
       try { xtermRef.current.write(data); } catch { /* ignore */ }
+      if (shouldAuto && vp) requestAnimationFrame(() => { try { vp.scrollTop = vp.scrollHeight; } catch { /* noop */ } });
     } else {
-      setFallbackText((prev) => (prev + data).slice(-200000));
+      setFallbackText((prev) => {
+        const next = (prev + data).slice(-200_000);
+        if (shouldAuto) requestAnimationFrame(() => { const el = getViewportEl(); if (el) el.scrollTop = el.scrollHeight; });
+        return next;
+      });
     }
-  }, []);
+  }, [getViewportEl]);
 
   const fetchEnabled = useCallback(async (): Promise<boolean> => {
     try {
@@ -49,7 +126,7 @@ export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: Te
       if (res && typeof res === 'object' && 'success' in res) {
         if ((res as any).success) {
           setEnabled(true);
-          setSessions(((res as any).data || []) as TerminalMeta[]);
+          // setSessions(((res as any).data || []) as TerminalMeta[]);
           return true;
         }
         if ((res as any).error === 'EXECUTION_DISABLED') { setEnabled(false); return false; }
@@ -71,8 +148,8 @@ export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: Te
         const code = (res as any)?.error || 'UNKNOWN';
         setErr(String(code));
       }
-    } catch (e: any) {
-      setErr((e as Error)?.message || 'Failed to create terminal');
+    } catch (error: any) {
+      setErr((error as Error)?.message || 'Failed to create terminal');
     } finally {
       setCreating(false);
     }
@@ -83,7 +160,7 @@ export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: Te
       const res: Result<OutputChunk, string> = await (window as any).electron?.ipcRenderer?.invoke?.('terminal:output:get', { id: sid, fromCursor: cursor, maxBytes: 64 * 1024 });
       if (res && res.success) {
         const { chunk, nextCursor } = res.data;
-        if (chunk && chunk.length) writeToTerm(chunk);
+        if (chunk && chunk.length > 0) writeToTerm(chunk);
         setCursor(nextCursor);
       }
     } catch { /* ignore transient */ }
@@ -107,44 +184,26 @@ export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: Te
       if (!ok) { setReady(true); return; }
       if (cancelled) return;
       if (!termElRef.current) return;
-      try {
-        // Avoid static import specifiers to keep xterm optional in dev
-        const XTERM = ['x', 'term'].join('');
-        const FIT = ['xterm-addon', 'fit'].join('-');
-        const LINKS = ['xterm-addon', 'web-links'].join('-');
-
-        let TerminalCtor: any = null;
-        let FitAddonCtor: any = null;
-        let WebLinksAddonCtor: any = null;
-        try { TerminalCtor = (await import(/* @vite-ignore */ XTERM)).Terminal; } catch {}
-        try { FitAddonCtor = (await import(/* @vite-ignore */ FIT)).FitAddon; } catch {}
-        try { WebLinksAddonCtor = (await import(/* @vite-ignore */ LINKS)).WebLinksAddon; } catch {}
-
-        if (TerminalCtor) {
-          const term = new TerminalCtor({ convertEol: true, fontSize: 12, cursorBlink: true });
-          const fit = FitAddonCtor ? new FitAddonCtor() : null;
-          const links = WebLinksAddonCtor ? new WebLinksAddonCtor() : null;
-          if (fit) term.loadAddon(fit);
-          if (links) term.loadAddon(links);
-          term.open(termElRef.current);
-          if (fit) { try { fit.fit(); } catch {} }
-          xtermRef.current = term;
-          fitAddonRef.current = fit;
-          setReady(true);
-        } else {
-          // Fallback mode
-          xtermRef.current = null;
-          fitAddonRef.current = null;
-          setReady(true);
-        }
-      } catch {
-        xtermRef.current = null;
-        fitAddonRef.current = null;
-        setReady(true);
+      const created = await loadXterm(termElRef.current, async (d: string) => {
+        const sid = session?.id;
+        if (!sid) return;
+        await (window as any).electron?.ipcRenderer?.invoke?.('terminal:write', { id: sid, data: d });
+      });
+      xtermRef.current = created ? created.term : null;
+      fitAddonRef.current = created?.fit ?? null;
+      setReady(true);
+      if (!created) {
+        // Fallback mode: focus the fallback input line
+        requestAnimationFrame(() => {
+          try {
+            const el = scrollRef.current?.querySelector('.terminal-fallback') as HTMLElement | null;
+            el?.focus();
+          } catch { /* noop */ }
+        });
       }
     })();
     return () => { cancelled = true; };
-  }, [isOpen, fetchEnabled]);
+  }, [isOpen, fetchEnabled, session]);
 
   // Start a new session when panel opens and enabled
   useEffect(() => {
@@ -165,7 +224,7 @@ export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: Te
         if (payload?.chunk) writeToTerm(payload.chunk);
       };
       (window as any).electron?.ipcRenderer?.on?.(ch, handler);
-      unsub = () => { try { (window as any).electron?.ipcRenderer?.removeListener?.(ch, handler); } catch {} };
+      unsub = () => { try { (window as any).electron?.ipcRenderer?.removeListener?.(ch, handler); } catch { /* noop */ } };
     } catch { /* ignore */ }
     // Poll fallback
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
@@ -176,60 +235,102 @@ export default function TerminalPanel({ isOpen, onClose, defaultCwd = null }: Te
   // Resize observer for xterm
   useEffect(() => {
     if (!isOpen || !termElRef.current || !fitAddonRef.current) return;
-    const ro = new ResizeObserver(() => { try { fitAddonRef.current.fit(); } catch { /* ignore */ } });
+    const ro = new ResizeObserver(() => { try { fitAddonRef.current.fit(); } catch { /* noop */ } });
     ro.observe(termElRef.current);
-    return () => { try { ro.disconnect(); } catch {} };
+    return () => { try { ro.disconnect(); } catch { /* noop */ } };
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const header = (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid var(--border-color)", padding: "6px 8px", background: "var(--bg-secondary)" }}>
-      <div style={{ fontWeight: 600 }}>Terminal</div>
-      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-        {enabled === false ? "Execution disabled by config" : (session ? `PID ${session.pid}` : creating ? "Starting…" : "Idle")}
-      </div>
-      <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-        <button className="secondary" onClick={onClose} aria-label="Close terminal">Close</button>
-      </div>
-    </div>
-  );
-
-  if (enabled === false) {
-    return (
-      <div className="agent-terminal" style={{ borderTop: "1px solid var(--border-color)", display: "flex", flexDirection: "column", height: 260 }}>
-        {header}
-        <div style={{ padding: 12, color: "var(--text-secondary)" }}>
-          Code execution is disabled. Enable it in preferences to use the terminal.
-        </div>
-      </div>
-    );
-  }
+  const promptSymbol = '$ ';
 
   return (
-    <div className="agent-terminal" style={{ borderTop: "1px solid var(--border-color)", display: "flex", flexDirection: "column", height: 260 }}>
-      {header}
-      <div style={{ flex: 1, display: "flex" }}>
-        <div ref={termElRef} style={{ flex: 1, background: "#111" }} />
+    <div className="agent-terminal" style={{ display: "flex", flexDirection: "column", height: 280, width: '100%' }}>
+      {enabled === false && (
+        <div className="terminal-disabled-banner">Code execution is disabled. Enable it in Agent Settings to use the terminal.</div>
+      )}
+      <div
+        ref={scrollRef}
+        className="terminal-scroll"
+        role="button"
+        tabIndex={0}
+        onClick={() => {
+          try { const el = scrollRef.current?.querySelector('.terminal-fallback') as HTMLElement | null; el?.focus(); } catch { /* noop */ }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            try { const el = scrollRef.current?.querySelector('.terminal-fallback') as HTMLElement | null; el?.focus(); } catch { /* noop */ }
+          }
+        }}
+      >
+        <div ref={termElRef} />
         {!xtermRef.current && (
-          <pre style={{ flex: 1, margin: 0, padding: 8, background: "#111", color: "#eee", fontSize: 12, overflow: 'auto' }}>{fallbackText}</pre>
+          <div
+            className="terminal-fallback"
+            role="textbox"
+            tabIndex={0}
+            onKeyDown={async (e) => {
+              if (!session || creating) return;
+              const vp = getViewportEl();
+              const auto = isNearBottom(vp);
+              const scrollBottom = () => {
+                if (auto) requestAnimationFrame(() => { const el = getViewportEl(); if (el) el.scrollTop = el.scrollHeight; });
+              };
+              switch (e.key) {
+                case 'Enter': {
+                  e.preventDefault();
+                  const line = currentLine;
+                  setHistory((h) => [...h, line]);
+                  setHistIdx(-1);
+                  setCurrentLine('');
+                  await sendInput(line + "\n");
+                  setFallbackText((prev) => {
+                    const next = prev + (prev.endsWith("\n") ? '' : "\n") + promptSymbol + line + "\n";
+                    scrollBottom();
+                    return next;
+                  });
+                  break;
+                }
+                case 'Backspace': {
+                  e.preventDefault();
+                  setCurrentLine((s) => s.slice(0, -1));
+                  break;
+                }
+                case 'ArrowUp': {
+                  e.preventDefault();
+                  setHistIdx((idx) => {
+                    const next = (idx < 0 ? history.length - 1 : Math.max(0, idx - 1));
+                    setCurrentLine(history[next] ?? '');
+                    return next;
+                  });
+                  break;
+                }
+                case 'ArrowDown': {
+                  e.preventDefault();
+                  setHistIdx((idx) => {
+                    const next = idx < 0 ? -1 : Math.min(history.length - 1, idx + 1);
+                    setCurrentLine(next >= 0 ? (history[next] ?? '') : '');
+                    return next;
+                  });
+                  break;
+                }
+                default: {
+                  const ch = e.key.length === 1 ? e.key : '';
+                  if (ch) setCurrentLine((s) => { const next = s + ch; scrollBottom(); return next; });
+                }
+              }
+            }}
+          >
+            <pre>{fallbackText}</pre>
+            <div className="terminal-line">
+              <span className="prompt-symbol">{promptSymbol}</span>
+              <span className="command-text">{currentLine}</span>
+              <span className="terminal-cursor" />
+            </div>
+          </div>
         )}
       </div>
-      <form
-        onSubmit={(e) => { e.preventDefault(); if (!input) return; void sendInput(input.endsWith("\n") ? input : input + "\n"); setInput(""); }}
-        style={{ display: "flex", gap: 8, padding: 8, borderTop: "1px solid var(--border-color)" }}
-      >
-        <input
-          type="text"
-          value={input}
-          disabled={!session || creating}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={session ? "Type a command…" : creating ? "Starting…" : "Start a session"}
-          style={{ flex: 1 }}
-        />
-        <button className="primary" type="submit" disabled={!session || creating}>Send</button>
-      </form>
-      {err && <div style={{ color: "#a00", fontSize: 12, padding: "4px 8px" }}>Error: {err}</div>}
+      {err && <div className="terminal-error">Error: {err}</div>}
     </div>
   );
 }

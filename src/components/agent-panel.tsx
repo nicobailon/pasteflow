@@ -17,7 +17,6 @@ import { extname } from "../file-ops/path";
 import "./agent-panel.css";
 import { requestFileContent } from "../handlers/electron-handlers";
 import AgentThreadList from "./agent-thread-list";
-import TerminalPanel from "./terminal-panel";
 
 // Strict helper types for IPC and preferences
 type PrefsGetResponse<T> = { success: true; data: T } | { success: false; error?: string };
@@ -93,7 +92,6 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   const hadErrorRef = useRef(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
-  const [showTerminal, setShowTerminal] = useState(false);
   const [skipApprovals, setSkipApprovals] = useState<boolean>(false);
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
 
@@ -1082,7 +1080,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
           }} title="Skip permissions" aria-label="Skip permissions" disabled={!panelEnabled}>
             {skipApprovals ? 'Skip On' : 'Skip Off'}
           </button>
-          <button className="secondary" onClick={() => setShowTerminal((v)=>!v)} title="Terminal" aria-label="Terminal" disabled={!panelEnabled}>
+          <button className="secondary" onClick={() => { try { window.dispatchEvent(new CustomEvent('pasteflow:toggle-terminal')); } catch { /* noop */ } }} title="Terminal" aria-label="Terminal" disabled={!panelEnabled}>
             <TerminalIcon size={16} />
           </button>
           <button className="primary" onClick={handleNewChat} title="New Chat" aria-label="New Chat" disabled={!panelEnabled}>
@@ -1356,9 +1354,6 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         refreshKey={threadsRefreshKey}
         workspaceId={activeWorkspaceId || undefined}
       />
-      {panelEnabled && (
-        <TerminalPanel isOpen={showTerminal} onClose={() => setShowTerminal(false)} defaultCwd={selectedFolder || null} />
-      )}
     </div>
   );
 };
