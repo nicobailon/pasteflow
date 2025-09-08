@@ -9,6 +9,7 @@ import { toApiError } from '../error-normalizer';
 import { getAllowedWorkspacePaths } from '../workspace-context';
 import { buildSystemPrompt } from '../agent/system-prompt';
 import { getAgentTools } from '../agent/tools';
+import { getToolCatalog } from '../agent/tool-catalog';
 import type { ContextResult } from '../agent/tool-types';
 import type { ProviderId } from '../agent/models-catalog';
 import { withRateLimitRetries } from '../utils/retry';
@@ -17,6 +18,44 @@ import type { RendererPreviewProxy } from '../preview-proxy';
 import type { PreviewController } from '../preview-controller';
 import type { AgentContextEnvelope } from '../../shared-types/agent-context';
 import { chatBodySchema } from './schemas';
+
+// --- Logging helpers (non-invasive, dev-friendly) ---
+function clipLog(s: unknown, max = 200): string {
+  try {
+    const str = String(s ?? '');
+    return str.length > max ? str.slice(0, max) + '…' : str;
+  } catch { return ''; }
+}
+
+function extractLastUserText(messages: ModelMessage[]): string | null {
+  try {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m?.role === 'user') {
+        const parts = Array.isArray(m.content) ? m.content : [];
+        for (let j = parts.length - 1; j >= 0; j--) {
+          const p = parts[j] as { type?: string; text?: string } | null | undefined;
+          if (p && p.type === 'text' && typeof p.text === 'string') return p.text;
+        }
+      }
+    }
+    return null;
+  } catch { return null; }
+}
+
+function isToolAvailabilityQuery(text: string | null | undefined): boolean {
+  try {
+    if (!text) return false;
+    const t = text.toLowerCase();
+    return (
+      /\bwhich\b.*\btools\b.*\b(avail|have)\b/.test(t) ||
+      /\bwhat\b.*\btools\b.*\b(avail|can you use|have)\b/.test(t) ||
+      /\btools?\b.*\bavailable\b/.test(t)
+    );
+  } catch {
+    return false;
+  }
+}
 
 export type HandlerDeps = {
   db: DatabaseBridge;
@@ -35,7 +74,8 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     let modelMessages: ModelMessage[];
     try {
       modelMessages = convertToModelMessages(uiMessages);
-    } catch {
+    } catch (e) {
+      try { console.warn('[AI][chat] invalid messages format'); } catch { /* noop */ }
       return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
     }
 
@@ -45,21 +85,46 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     const headerSession = String(((_headers['x-pasteflow-session'] as unknown) || (_headers['x-pf-session-id'] as unknown) || '')).trim();
     const sessionId = parsed.data.sessionId || (headerSession || randomUUID());
 
+    const lastUser = extractLastUserText(modelMessages);
+    if (isToolAvailabilityQuery(lastUser)) {
+      try { console.log('[AI][chat] tool-availability-query detected'); } catch { /* noop */ }
+    }
+
     const envelope = parsed.data.context;
     const allowed = getAllowedWorkspacePaths();
     const safeEnvelope = envelope ? sanitizeContextEnvelope(envelope, allowed) : undefined;
+
+    // Build tools catalog for prompt
+    const toolsCatalog = getToolCatalog();
 
     const system = buildSystemPrompt({
       initial: safeEnvelope?.initial,
       dynamic: safeEnvelope?.dynamic ?? { files: [] },
       workspace: safeEnvelope?.workspace ?? null,
-    });
+    }, toolsCatalog);
+
+    try {
+      const initCount = safeEnvelope?.initial?.files?.length ?? 0;
+      const dynCount = safeEnvelope?.dynamic?.files?.length ?? 0;
+      const ws = safeEnvelope?.workspace ?? null;
+      const previewText = clipLog(lastUser, 160);
+      console.log('[AI][chat:start]', { sessionId, messages: uiMessages?.length ?? 0, lastUser: previewText, context: { initialFiles: initCount, dynamicFiles: dynCount, workspace: ws } });
+    } catch { /* noop */ }
 
     // Cancellation wiring
     const controller = new AbortController();
     const onAbort = () => { try { controller.abort(); } catch { /* noop */ } };
     req.on('aborted', onAbort);
     res.on('close', onAbort);
+
+    try {
+      res.on('finish', () => {
+        try { console.log('[AI][chat:response:finish]', { sessionId, status: res.statusCode }); } catch { /* noop */ }
+      });
+      res.on('close', () => {
+        try { console.log('[AI][chat:response:close]', { sessionId }); } catch { /* noop */ }
+      });
+    } catch { /* noop */ }
 
     // Resolve config, tools and security
     const { resolveAgentConfig } = await import('../agent/config');
@@ -87,6 +152,20 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         } catch {
           // ignore logging errors
         }
+        try {
+          const safeArgs = (() => {
+            try {
+              const a = args as Record<string, unknown>;
+              if (a && typeof a === 'object') {
+                const copy: Record<string, unknown> = { ...a };
+                if (typeof copy['content'] === 'string') copy['content'] = `[${(copy['content'] as string).length} chars]`;
+                return copy;
+              }
+              return args;
+            } catch { return args; }
+          })();
+          console.log('[AI][tool:execute]', { sessionId, name, args: safeArgs, durationMs: (meta as any)?.durationMs });
+        } catch { /* noop */ }
       },
     });
 
@@ -127,6 +206,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     } catch { /* noop */ }
 
     const disableTools = String(process.env.PF_AGENT_DISABLE_TOOLS || '').toLowerCase() === 'true';
+    try { console.log('[AI][chat:model]', { provider: cfg.PROVIDER || 'openai', modelId: cfg.DEFAULT_MODEL, toolsDisabled: disableTools }); } catch { /* noop */ }
 
     // Temperature handling for reasoning models
     const modelIdStr = String(cfg.DEFAULT_MODEL || '');
@@ -142,6 +222,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
       try {
         res.setHeader('X-Pasteflow-Warning', 'temperature-ignored');
         res.setHeader('X-Pasteflow-Warning-Message', 'The temperature setting is not supported for this reasoning model and was ignored.');
+        console.log('[AI][chat:model] reasoning model detected; temperature omitted');
       } catch { /* noop */ }
     }
 
@@ -159,6 +240,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     if (res.headersSent) return;
     const createStream = async (_attempt: number) => {
       start = Date.now();
+      try { console.log('[AI][chat:stream:start]', { sessionId }); } catch { /* noop */ }
       return streamText({
         model,
         system,
@@ -172,6 +254,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           try {
             const { input, output, total } = extractUsage(info);
             const latency = Date.now() - start;
+            try { console.log('[AI][chat:stream:finish]', { sessionId, usage: { input, output, total }, latency }); } catch { /* noop */ }
             let cost: number | null = null;
             try {
               const { calculateCostUSD } = await import('../agent/pricing');
@@ -202,6 +285,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     });
 
     if (res.headersSent) return;
+    try { console.log('[AI][chat:stream:pipe]', { sessionId }); } catch { /* noop */ }
     result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
 
     // Persist/refresh session shell with last known messages snapshot (cap messages)
@@ -216,6 +300,15 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     // Usage persistence occurs in onFinish callback
   } catch (error) {
     let cause: unknown = error;
+    try {
+      const err = error as any;
+      const status = Number(err?.status || err?.statusCode || err?.response?.status || err?.cause?.status || NaN);
+      const name = String(err?.name || 'Error');
+      const msg = String(err?.message || '');
+      const code = String(err?.code || err?.data?.error?.code || err?.cause?.data?.error?.code || '');
+      const param = String(err?.param || err?.data?.error?.param || err?.cause?.data?.error?.param || '');
+      console.error('[AI][chat:error]', { name, status: Number.isFinite(status) ? status : undefined, code: code || undefined, param: param || undefined, message: clipLog(msg, 300) });
+    } catch { /* noop */ }
     // Graceful fallback: invalid tool parameter schema → retry once without tools
     if (isInvalidToolParametersError(cause)) {
       try {
@@ -241,11 +334,12 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         const envelope = parsed.data.context;
         const allowed = getAllowedWorkspacePaths();
         const safeEnvelope = envelope ? sanitizeContextEnvelope(envelope, allowed) : undefined;
+        const toolsCatalog = getToolCatalog();
         const system = buildSystemPrompt({
           initial: safeEnvelope?.initial,
           dynamic: safeEnvelope?.dynamic ?? { files: [] },
           workspace: safeEnvelope?.workspace ?? null,
-        });
+        }, toolsCatalog);
 
         const controller = new AbortController();
         const onAbort = () => { try { controller.abort(); } catch { /* noop */ } };
