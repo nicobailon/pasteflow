@@ -110,7 +110,14 @@ export class TerminalManager extends EventEmitter {
   write(id: string, data: string): void {
     const s = this.sessions.get(id);
     if (!s) throw new Error('NOT_FOUND');
-    try { s.proc.stdin.write(data); } catch { /* ignore */ }
+    // Prefer PTY write when available; fallback to child_process stdin
+    try {
+      if (s.pty && typeof s.pty.write === 'function') {
+        s.pty.write(data);
+        return;
+      }
+    } catch { /* ignore */ }
+    try { s.proc?.stdin?.write?.(data); } catch { /* ignore */ }
   }
 
   resize(id: string, cols: number, rows: number): void {
