@@ -1267,8 +1267,20 @@ ipcMain.handle('agent:threads:load', async (_e, params: unknown) => {
     const parsed = AgentThreadsLoadSchema.safeParse(params || {});
     if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
     if (!database?.initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
-    const ws = await database.getWorkspace(parsed.data.workspaceId);
-    if (!ws) return { success: false, error: 'WORKSPACE_NOT_FOUND' };
+    let wsId: string | null = parsed.data.workspaceId ?? null;
+    if (!wsId || wsId.trim().length === 0) {
+      const active = await database.getPreference('workspace.active');
+      wsId = (typeof active === 'string' && active.trim().length > 0) ? active : null;
+    }
+    if (!wsId) {
+      try { console.warn('[Main] agent:threads:load failed: WORKSPACE_NOT_SELECTED'); } catch { /* noop */ }
+      return { success: false, error: 'WORKSPACE_NOT_SELECTED' };
+    }
+    const ws = await database.getWorkspace(wsId);
+    if (!ws) {
+      try { console.warn('[Main] agent:threads:load failed: WORKSPACE_NOT_FOUND', { wsId }); } catch { /* noop */ }
+      return { success: false, error: 'WORKSPACE_NOT_FOUND' };
+    }
     const { loadThreadInWorkspace } = await import('./agent/chat-storage');
     const data = await loadThreadInWorkspace({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path }, parsed.data.sessionId);
     return { success: true, data };

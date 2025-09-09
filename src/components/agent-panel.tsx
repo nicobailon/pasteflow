@@ -432,6 +432,24 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
     if (hasOpenAIKey) setErrorStatus(null);
   }, [hasOpenAIKey]);
 
+  // Thread load failure notice listener (from useAgentThreads)
+  useEffect(() => {
+    const onLoadError = (e: Event) => {
+      try {
+        const ev = e as CustomEvent<{ sessionId: string; code?: string }>;
+        const code = ev?.detail?.code;
+        const msg = code === 'WORKSPACE_NOT_SELECTED'
+          ? 'No active workspace selected. Open or load a workspace to view saved chats.'
+          : (code === 'WORKSPACE_NOT_FOUND' ? 'Workspace not found for this chat.' : 'Could not load the selected chat.');
+        const nId = `thread-load-failed-${Date.now()}`;
+        setNotices((prev) => [...prev, { id: nId, variant: 'warning', message: msg }]);
+        setTimeout(() => setNotices((prev) => prev.filter((n) => n.id !== nId)), 2500);
+      } catch { /* noop */ }
+    };
+    window.addEventListener('agent-thread-load-error', onLoadError as unknown as EventListener);
+    return () => window.removeEventListener('agent-thread-load-error', onLoadError as unknown as EventListener);
+  }, []);
+
   // Wire "Send to Agent" global event to chat
   useSendToAgentBridge({ sessionId, ensureSessionOrRetry, sendMessage: (p) => sendMessage(p as any), lastInitialRef, buildInitialSummaryMessage });
 

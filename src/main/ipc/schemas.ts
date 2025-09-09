@@ -197,7 +197,7 @@ export const AgentThreadsListSchema = z.object({
 });
 
 export const AgentThreadsLoadSchema = z.object({
-  workspaceId: z.string().min(1),
+  workspaceId: z.string().min(1).optional(),
   sessionId: z.string().min(1),
 });
 
