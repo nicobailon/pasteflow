@@ -273,6 +273,32 @@ export class PasteFlowDatabase {
       maxRetries: 3
     });
 
+    // Optional migration: add latency_ms column to usage_summary if missing
+    await executeWithRetry(async () => {
+      try {
+        const columns = this.db!.prepare("PRAGMA table_info('usage_summary')").all() as Array<{ name: string }>; 
+        const hasLatency = Array.isArray(columns) && columns.some((c) => String(c.name).toLowerCase() === 'latency_ms');
+        if (!hasLatency) {
+          this.db!.exec("ALTER TABLE usage_summary ADD COLUMN latency_ms INTEGER");
+        }
+      } catch {
+        // ignore migration errors to avoid blocking startup
+      }
+    }, { operation: 'migrate_usage_summary_latency_ms', maxRetries: 1 });
+
+    // Optional migration: add cost_usd column to usage_summary if missing
+    await executeWithRetry(async () => {
+      try {
+        const columns = this.db!.prepare("PRAGMA table_info('usage_summary')").all() as Array<{ name: string }>;
+        const hasCost = Array.isArray(columns) && columns.some((c) => String(c.name).toLowerCase() === 'cost_usd');
+        if (!hasCost) {
+          this.db!.exec("ALTER TABLE usage_summary ADD COLUMN cost_usd REAL");
+        }
+      } catch {
+        // ignore migration errors
+      }
+    }, { operation: 'migrate_usage_summary_cost_usd', maxRetries: 1 });
+
     // Prepare statements with retry
     await this.prepareStatements();
   }
@@ -412,10 +438,25 @@ export class PasteFlowDatabase {
     `);
   }
 
+  // Insert that includes latency (nullable)
+  private stmtInsertUsageSummaryWithLatency(): BetterSqlite3.Statement<[
+    string,
+    number | null,
+    number | null,
+    number | null,
+    number | null,
+  ]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      INSERT INTO usage_summary (session_id, input_tokens, output_tokens, total_tokens, latency_ms)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+  }
+
   private stmtListUsageSummaries(): BetterSqlite3.Statement<[string]> {
     if (!this.db) throw new Error('DB not initialized');
     return this.db.prepare(`
-      SELECT id, session_id, input_tokens, output_tokens, total_tokens, created_at
+      SELECT id, session_id, input_tokens, output_tokens, total_tokens, latency_ms, cost_usd, created_at
       FROM usage_summary WHERE session_id = ? ORDER BY created_at ASC
     `);
   }
@@ -631,7 +672,45 @@ export class PasteFlowDatabase {
     }, { operation: 'insert_usage_summary' });
   }
 
-  async listUsageSummaries(sessionId: string): Promise<Array<{ id: number; session_id: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; created_at: number }>> {
+  async insertUsageSummaryWithLatency(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null, latencyMs: number | null): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      try {
+        this.stmtInsertUsageSummaryWithLatency().run(
+          sessionId,
+          inputTokens ?? null,
+          outputTokens ?? null,
+          totalTokens ?? null,
+          latencyMs ?? null,
+        );
+      } catch {
+        // Fallback to legacy insert if statement fails (e.g., column missing)
+        this.stmtInsertUsageSummary().run(sessionId, inputTokens ?? null, outputTokens ?? null, totalTokens ?? null);
+      }
+    }, { operation: 'insert_usage_summary_with_latency' });
+  }
+
+  async insertUsageSummaryWithLatencyAndCost(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null, latencyMs: number | null, costUsd: number | null): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      try {
+        // Ensure statement exists; prepare dynamically to guard against older DBs
+        const stmt = this.db!.prepare(`
+          INSERT INTO usage_summary (session_id, input_tokens, output_tokens, total_tokens, latency_ms, cost_usd)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(sessionId, inputTokens ?? null, outputTokens ?? null, totalTokens ?? null, latencyMs ?? null, (typeof costUsd === 'number' && Number.isFinite(costUsd)) ? costUsd : null);
+      } catch {
+        try {
+          this.stmtInsertUsageSummaryWithLatency().run(sessionId, inputTokens ?? null, outputTokens ?? null, totalTokens ?? null, latencyMs ?? null);
+        } catch {
+          this.stmtInsertUsageSummary().run(sessionId, inputTokens ?? null, outputTokens ?? null, totalTokens ?? null);
+        }
+      }
+    }, { operation: 'insert_usage_summary_with_latency_and_cost' });
+  }
+
+  async listUsageSummaries(sessionId: string): Promise<Array<{ id: number; session_id: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; created_at: number }>> {
     this.ensureInitialized();
     const result = await executeWithRetry(async () => {
       const rows = this.stmtListUsageSummaries().all(sessionId) as any[];

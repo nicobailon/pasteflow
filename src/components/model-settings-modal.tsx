@@ -18,6 +18,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [exportPath, setExportPath] = useState<string | null>(null);
+  const [usageStats, setUsageStats] = useState<{ totalIn: number; totalOut: number; total: number; avgLatency: number | null; totalCost: number | null } | null>(null);
 
   // OpenAI
   const [openaiInput, setOpenaiInput] = useState("");
@@ -35,6 +36,9 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
   // General config
   const [temperature, setTemperature] = useState<number>(0.3);
   const [maxOut, setMaxOut] = useState<number>(4000);
+  const [enableWrites, setEnableWrites] = useState<boolean>(true);
+  const [enableExec, setEnableExec] = useState<boolean>(true);
+  const [approvalMode, setApprovalMode] = useState<'never'|'risky'|'always'>('risky');
 
   function useApiInfo() {
     const info = (window as any).__PF_API_INFO || {};
@@ -48,13 +52,16 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
     let mounted = true;
     (async () => {
       try {
-        const [okey, akey, orKey, orBase, temp, max] = await Promise.all([
+        const [okey, akey, orKey, orBase, temp, max, w, x, appr] = await Promise.all([
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.anthropic.apiKey' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.apiKey' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.baseUrl' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.temperature' }),
           (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxOutputTokens' }),
+          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableFileWrite' }),
+          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableCodeExecution' }),
+          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.approvalMode' }),
         ]);
         if (!mounted) return;
         setOpenaiStored(Boolean(okey?.data));
@@ -65,12 +72,44 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
         if (Number.isFinite(t)) setTemperature(Math.max(0, Math.min(2, t)));
         const m = Number(max?.data);
         if (Number.isFinite(m)) setMaxOut(Math.max(1, Math.min(128_000, m)));
+        setEnableWrites(Boolean(w?.data ?? true));
+        setEnableExec(Boolean(x?.data ?? true));
+        const am = String(appr?.data || '').toLowerCase();
+        if (am === 'never' || am === 'risky' || am === 'always') setApprovalMode(am as any);
       } catch { /* ignore */ }
     })();
     return () => { mounted = false; };
   }, [isOpen]);
 
   const canSave = status !== 'saving' && status !== 'testing';
+
+  // Load session usage stats when opened
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!isOpen || !sessionId) { setUsageStats(null); return; }
+        const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:list', { sessionId });
+        if (res && res.success && Array.isArray(res.data)) {
+          const rows = res.data as Array<{ input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; cost_usd: number | null }>;
+          let inSum = 0, outSum = 0, totalSum = 0;
+          let latSum = 0, latCount = 0;
+          let costSum = 0, costCount = 0;
+          for (const r of rows) {
+            inSum += r.input_tokens ?? 0;
+            outSum += r.output_tokens ?? 0;
+            totalSum += (typeof r.total_tokens === 'number' ? r.total_tokens : ((r.input_tokens ?? 0) + (r.output_tokens ?? 0)));
+            if (typeof r.latency_ms === 'number') { latSum += r.latency_ms; latCount += 1; }
+            if (typeof r.cost_usd === 'number' && Number.isFinite(r.cost_usd)) { costSum += r.cost_usd; costCount += 1; }
+          }
+          setUsageStats({ totalIn: inSum, totalOut: outSum, total: totalSum, avgLatency: latCount > 0 ? Math.round(latSum / latCount) : null, totalCost: costCount > 0 ? costSum : null });
+          try { console.log('[UI][Telemetry] settings: usage stats', { sessionId, rows: rows.length, totalIn: inSum, totalOut: outSum, total: totalSum, avgLatency: latCount > 0 ? Math.round(latSum / latCount) : null }); } catch { /* noop */ }
+        } else {
+          setUsageStats(null);
+          try { console.log('[UI][Telemetry] settings: no usage stats', { sessionId, res }); } catch { /* noop */ }
+        }
+      } catch { setUsageStats(null); }
+    })();
+  }, [isOpen, sessionId]);
 
   async function saveKey(key: string, value: string | null, enc = true) {
     setStatus('saving');
@@ -240,6 +279,70 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
             </section>
 
             <section className="settings-section">
+              {(() => {
+                const human = approvalMode === 'always' ? 'Always' : approvalMode === 'never' ? 'Never' : 'Risky only';
+                const desc = approvalMode === 'always'
+                  ? 'All terminal commands and apply operations require approval.'
+                  : approvalMode === 'never'
+                  ? 'No approval required for terminal commands or apply operations.'
+                  : 'Approval required for known dangerous terminal commands; safe actions run without prompts.';
+                return (
+                  <AgentAlertBanner
+                    variant="info"
+                    message={
+                      <span>
+                        <strong>Approval mode:</strong> {human}. {desc}
+                      </span>
+                    }
+                  />
+                );
+              })()}
+              <div className="settings-grid">
+                <div className="field">
+                  <label>
+                    <input type="checkbox" checked={enableWrites} onChange={(e) => setEnableWrites(e.target.checked)} />
+                    <span style={{ marginLeft: 6 }}>Enable file writes</span>
+                  </label>
+                </div>
+                <div className="field">
+                  <label>
+                    <input type="checkbox" checked={enableExec} onChange={(e) => setEnableExec(e.target.checked)} />
+                    <span style={{ marginLeft: 6 }}>Enable code execution (terminal)</span>
+                  </label>
+                </div>
+                <div className="field">
+                  <label>Approval mode</label>
+                  <select value={approvalMode} onChange={(e) => setApprovalMode(e.target.value as any)}>
+                    <option value="never">Never</option>
+                    <option value="risky">Risky only</option>
+                    <option value="always">Always</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            {usageStats && (
+              <section className="settings-section">
+                <div className="settings-grid">
+                  <div className="field">
+                    <label>Session Tokens</label>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                      Input: {usageStats.totalIn.toLocaleString()} · Output: {usageStats.totalOut.toLocaleString()} · Total: {usageStats.total.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Average Latency</label>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{usageStats.avgLatency != null ? (usageStats.avgLatency >= 1000 ? `${(usageStats.avgLatency/1000).toFixed(2)}s` : `${usageStats.avgLatency}ms`) : '—'}</div>
+                  </div>
+                  <div className="field">
+                    <label>Session Cost</label>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{usageStats.totalCost != null ? `$${usageStats.totalCost.toFixed(4)}` : '—'}</div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            <section className="settings-section">
               <div className="actions">
                 <button
                   className="secondary"
@@ -278,6 +381,9 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
               try {
                 await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.temperature', value: temperature });
                 await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.maxOutputTokens', value: maxOut });
+                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableFileWrite', value: enableWrites });
+                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableCodeExecution', value: enableExec });
+                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.approvalMode', value: approvalMode });
                 setStatus('success'); setTimeout(() => setStatus('idle'), 1000);
               } catch (e) { setStatus('error'); setError((e as Error)?.message || 'Failed to save'); }
             }}>Save</button>

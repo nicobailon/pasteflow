@@ -64,7 +64,9 @@ module.exports = {
     "unicorn/no-process-exit": "warn",
     "unicorn/no-new-array": "warn",
     "unicorn/prefer-add-event-listener": "warn",
-    "import/order": ["warn", { groups: ["builtin", "external", "internal", "parent", "sibling", "index"], newlinesBetween: "always" }],
+    // Keep explicit groups and enforce blank lines between groups.
+    // Note: use 'newlines-between' (kebab-case) per eslint-plugin-import schema.
+    "import/order": ["warn", { groups: ["builtin", "external", "internal", "parent", "sibling", "index"], "newlines-between": "always" }],
     "import/no-unresolved": "warn",
     "import/no-named-as-default-member": "warn",
     "react/prop-types": "off",

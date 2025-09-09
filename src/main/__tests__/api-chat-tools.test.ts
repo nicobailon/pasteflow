@@ -23,12 +23,17 @@ jest.mock("ai", () => {
 });
 
 jest.mock("@ai-sdk/openai", () => ({ openai: () => ({ id: "test-model" }) }));
+// Mock broadcast helper to avoid import.meta parsing under Jest
+jest.mock("../../main/broadcast-helper", () => ({
+  broadcastToRenderers: jest.fn(),
+  broadcastWorkspaceUpdated: jest.fn(),
+}));
 
 describe("handleChat tools wiring", () => {
   it("passes a tools registry to streamText", async () => {
     const handlers = new APIRouteHandlers(dbStub, previewProxyStub, previewControllerStub as any);
-    const req: any = { body: { messages: [], context: undefined } };
-    const res: any = { status: jest.fn(() => res), json: jest.fn(() => res), end: jest.fn() };
+    const req: any = { body: { messages: [], context: undefined }, on: jest.fn() };
+    const res: any = { status: jest.fn(() => res), json: jest.fn(() => res), end: jest.fn(), on: jest.fn() };
 
     const { streamText } = require("ai");
     await handlers.handleChat(req, res);

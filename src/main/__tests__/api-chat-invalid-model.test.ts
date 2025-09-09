@@ -25,6 +25,11 @@ jest.mock("ai", () => {
 });
 
 jest.mock("@ai-sdk/openai", () => ({ openai: () => ({ id: "test-model" }) }));
+// Mock broadcast helper to avoid import.meta parsing under Jest
+jest.mock("../../main/broadcast-helper", () => ({
+  broadcastToRenderers: jest.fn(),
+  broadcastWorkspaceUpdated: jest.fn(),
+}));
 
 describe("handleChat invalid model classification", () => {
   it("returns 400 AI_INVALID_MODEL for unknown model errors", async () => {

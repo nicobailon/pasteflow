@@ -25,6 +25,11 @@ jest.mock("ai", () => {
 });
 
 jest.mock("@ai-sdk/openai", () => ({ openai: () => ({ id: "test-model" }) }));
+// Mock broadcast helper to avoid import.meta parsing under Jest
+jest.mock("../../main/broadcast-helper", () => ({
+  broadcastToRenderers: jest.fn(),
+  broadcastWorkspaceUpdated: jest.fn(),
+}));
 
 describe("handleChat retries without tools on invalid_function_parameters", () => {
   it("retries once without tools and streams", async () => {
@@ -56,4 +61,3 @@ describe("handleChat retries without tools on invalid_function_parameters", () =
     expect(second.tools).toBeUndefined();
   });
 });
-

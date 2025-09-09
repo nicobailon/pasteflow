@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // Define the dependencies we need to ensure are installed
-const criticalDependencies = ['ignore', 'tiktoken'] as const;
+const criticalDependencies = ['ignore', 'tiktoken', 'node-pty'] as const;
 
 // Ensure dependencies are installed properly
 function fixDependencies(): void {
@@ -41,6 +41,8 @@ function fixDependencies(): void {
     packageJson.build.asarUnpack = [
       'node_modules/ignore/**',
       'node_modules/tiktoken/**',
+      'node_modules/better-sqlite3/**',
+      'node_modules/node-pty/**',
     ];
 
     // Write updated package.json

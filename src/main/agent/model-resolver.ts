@@ -6,7 +6,7 @@ import { getStaticModels } from "./models-catalog";
 
 import { createOpenAI, openai as openaiDirect } from "@ai-sdk/openai";
 import { createAnthropic, anthropic as anthropicDirect } from "@ai-sdk/anthropic";
-import type { LanguageModelV1 } from "ai";
+import type { LanguageModel } from "ai";
 
 type DbGetter = { getPreference: (k: string) => Promise<unknown> };
 
@@ -49,7 +49,7 @@ export type ResolveModelInput = {
   modelId: string;
 };
 
-export async function resolveModelForRequest(input: ResolveModelInput): Promise<{ model: LanguageModelV1 }>
+export async function resolveModelForRequest(input: ResolveModelInput): Promise<{ model: LanguageModel }>
 {
   const { db, provider } = input;
   const modelId = canonicalizeModelId(provider, input.modelId);
@@ -57,39 +57,46 @@ export async function resolveModelForRequest(input: ResolveModelInput): Promise<
 
   if (provider === "openai") {
     const key = creds.openai?.apiKey || process.env.OPENAI_API_KEY || null;
-    if (key) {
+    if (key && typeof createOpenAI === 'function') {
       const client = createOpenAI({ apiKey: key });
-      return { model: client(modelId) };
+      return { model: client(modelId) } as any;
     }
-    // Fall back to env-only direct helper
-    return { model: openaiDirect(modelId) };
+    // Fall back to env-only direct helper or when createOpenAI is unavailable in test/mocks
+    return { model: openaiDirect(modelId) } as any;
   }
 
   if (provider === "anthropic") {
     const key = creds.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || null;
-    if (key) {
+    if (key && typeof createAnthropic === 'function') {
       const client = createAnthropic({ apiKey: key });
-      return { model: client(modelId) };
+      return { model: client(modelId) } as any;
     }
-    // Fall back to env only
+    // Fall back to env only or when createAnthropic is unavailable
     return { model: anthropicDirect(modelId) } as any;
   }
 
   if (provider === "openrouter") {
     const key = creds.openrouter?.apiKey || null;
     const baseURL = creds.openrouter?.baseUrl || "https://openrouter.ai/api/v1";
+    if (typeof createOpenAI !== 'function') {
+      // Fallback to direct helper when createOpenAI is not available in mocks/tests
+      return { model: openaiDirect(modelId) } as any;
+    }
     if (!key) {
       // Return an OpenAI client without key to force validation errors on use
       const client = createOpenAI({ apiKey: "" as unknown as string, baseURL });
-      return { model: client(modelId) };
+      // Explicitly use .chat() to force Chat Completions API
+      return { model: client.chat(modelId) } as any;
     }
     const client = createOpenAI({ apiKey: key, baseURL });
-    return { model: client(modelId) };
+    // Explicitly use .chat() to force Chat Completions API
+    return { model: client.chat(modelId) } as any;
   }
 
   // Unknown provider: attempt OpenAI as default
   const client = createOpenAI({ apiKey: (await loadProviderCredentials(db)).openai?.apiKey || undefined });
-  return { model: client(modelId) };
+  // Explicitly use .chat() to force Chat Completions API
+  return { model: client.chat(modelId) };
 }
 
 export function pickSafeDefaultModel(provider: ProviderId, cfg: AgentConfig): string {
