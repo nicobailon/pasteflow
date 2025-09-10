@@ -51,6 +51,10 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
   const [spIncludeToolsHelp, setSpIncludeToolsHelp] = useState<boolean>(true);
   const [maxCtxTokens, setMaxCtxTokens] = useState<number>(120_000);
 
+  // Tools enable/disable (per tool)
+  type ToolToggle = { name: string; description: string; enabled: boolean };
+  const [toolToggles, setToolToggles] = useState<ToolToggle[]>([]);
+
   function useApiInfo() {
     const info = window.__PF_API_INFO ?? {};
     const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
@@ -124,6 +128,33 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
       } catch { setUsageStats(null); }
     })();
   }, [isOpen, sessionId]);
+
+  // Load tool catalog + enabled flags for toggles
+  useEffect(() => {
+    let aborted = false;
+    (async () => {
+      try {
+        if (!isOpen) return;
+        const res = await fetch(`${apiBase}/api/v1/tools`, { headers: { Authorization: authToken ? `Bearer ${authToken}` : '' } });
+        const json = await res.json();
+        const tools: Array<{ name: string; description: string }> = Array.isArray(json?.data?.tools) ? json.data.tools : [];
+        const enabledRec: Record<string, boolean> = (json?.data?.enabled && typeof json.data.enabled === 'object') ? json.data.enabled : {};
+        const list: ToolToggle[] = tools.map((t) => ({ name: t.name, description: t.description, enabled: enabledRec[t.name] !== false }));
+        if (!aborted) setToolToggles(list);
+      } catch {
+        // Fallback to known tools if API is not ready
+        if (!aborted) setToolToggles([
+          { name: 'file', description: 'File operations', enabled: true },
+          { name: 'search', description: 'Code search', enabled: true },
+          { name: 'edit', description: 'Editing utilities', enabled: true },
+          { name: 'context', description: 'Context utilities', enabled: true },
+          { name: 'terminal', description: 'Terminal control', enabled: true },
+          { name: 'generateFromTemplate', description: 'Scaffold previews', enabled: true },
+        ]);
+      }
+    })();
+    return () => { aborted = true; };
+  }, [isOpen, apiBase, authToken]);
 
   // Helper to compute preference key based on scope
   const spKey = (base: string): string => {
@@ -403,6 +434,41 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                 </div>
               </div>
             </section>
+
+            {/* Tools enable/disable */}
+            {toolToggles.length > 0 && (
+              <section className="settings-section">
+                <div className="field">
+                  <div className="field-label-row">
+                    <label>Tools</label>
+                  </div>
+                  <div className="settings-grid">
+                    {toolToggles.map((t, idx) => (
+                      <div key={t.name} className="field" style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{t.name}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t.description}</div>
+                          </div>
+                          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <input
+                              type="checkbox"
+                              checked={t.enabled}
+                              onChange={async (e) => {
+                                const next = e.target.checked;
+                                setToolToggles((prev) => prev.map((p, i) => i === idx ? { ...p, enabled: next } : p));
+                                try { await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.tools.${t.name}.enabled`, value: next }); } catch { /* ignore */ }
+                              }}
+                            />
+                            <span style={{ fontSize: 12 }}>{t.enabled ? 'Enabled' : 'Disabled'}</span>
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
 
             {/* System Prompt section */}
             <section className="settings-section">

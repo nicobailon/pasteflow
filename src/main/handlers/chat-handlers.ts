@@ -10,6 +10,7 @@ import { getAllowedWorkspacePaths } from '../workspace-context';
 import { buildSystemPrompt } from '../agent/system-prompt';
 import { getAgentTools } from '../agent/tools';
 import { getToolCatalog } from '../agent/tool-catalog';
+import { getEnabledToolsSet } from '../agent/tools-config';
 import type { ContextResult } from '../agent/tool-types';
 import type { ProviderId } from '../agent/models-catalog';
 import { withRateLimitRetries } from '../utils/retry';
@@ -94,14 +95,24 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     const allowed = getAllowedWorkspacePaths();
     const safeEnvelope = envelope ? sanitizeContextEnvelope(envelope, allowed) : undefined;
 
-    // Build tools catalog for prompt
+    // Build tools catalog for prompt and filter to enabled tools
     const toolsCatalog = getToolCatalog();
+    const enabledTools = await getEnabledToolsSet(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+    const filteredCatalog = toolsCatalog.filter((t) => enabledTools.has(t.name));
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[AI][tools:config]', {
+          enabled: Array.from(enabledTools),
+          catalog: filteredCatalog.map((t) => t.name),
+        });
+      }
+    } catch { /* noop */ }
 
     const system = buildSystemPrompt({
       initial: safeEnvelope?.initial,
       dynamic: safeEnvelope?.dynamic ?? { files: [] },
       workspace: safeEnvelope?.workspace ?? null,
-    }, toolsCatalog);
+    }, filteredCatalog, { enabledTools });
 
     try {
       const initCount = safeEnvelope?.initial?.files?.length ?? 0;
@@ -131,7 +142,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     const cfg = await resolveAgentConfig(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
     const { AgentSecurityManager } = await import('../agent/security-manager');
     const security = await AgentSecurityManager.create({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> } });
-    const tools = getAgentTools({
+    const toolsAll = getAgentTools({
       signal: controller.signal,
       security,
       config: cfg,
@@ -168,6 +179,16 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         } catch { /* noop */ }
       },
     });
+
+    // Filter tool set to only enabled tools
+    const tools = Object.fromEntries(
+      Object.entries(toolsAll).filter(([k]) => enabledTools.has(k))
+    ) as ToolSet;
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[AI][tools:active]', { active: Object.keys(tools) });
+      }
+    } catch { /* noop */ }
 
     // Backpressure guard: if session is currently rate-limited, return 429
     try {
@@ -226,18 +247,9 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
       }
     } catch { /* noop */ }
 
-    const disableTools = String(process.env.PF_AGENT_DISABLE_TOOLS || '').toLowerCase() === 'true';
-    const headerDisable = String(req.headers['x-pasteflow-disable-tools'] || '').toLowerCase() === '1';
-    // Heuristic: if packed content is embedded or initial context is present, avoid tool calls on the first turn
-    const hasPackedContent = (() => {
-      try {
-        if (safeEnvelope?.initial && Array.isArray(safeEnvelope.initial.files) && safeEnvelope.initial.files.length > 0) return true;
-        const lu = extractLastUserText(modelMessages);
-        return typeof lu === 'string' && lu.includes('<codebase>');
-      } catch { return false; }
-    })();
-    const toolsDisabledEffective = disableTools || headerDisable || hasPackedContent;
-    try { console.log('[AI][chat:model]', { provider: cfg.PROVIDER || 'openai', modelId: cfg.DEFAULT_MODEL, toolsDisabled: toolsDisabledEffective }); } catch { /* noop */ }
+    // Always enable tools for normal operation; safety is enforced via security/config/approvals.
+    // Tool disabling is now only done in specific error-retry paths below.
+    try { console.log('[AI][chat:model]', { provider: cfg.PROVIDER || 'openai', modelId: cfg.DEFAULT_MODEL, toolsDisabled: false }); } catch { /* noop */ }
 
     // Temperature handling for reasoning models
     const modelIdStr = String(effectiveModelId || '');
@@ -276,7 +288,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         model,
         system,
         messages: finalModelMessages,
-        tools: toolsDisabledEffective ? undefined : tools,
+        tools,
         temperature: shouldOmitTemperature ? undefined : (typeof cfgTemperature === 'number' ? cfgTemperature : undefined),
         maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
         abortSignal: controller.signal,
@@ -366,11 +378,13 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         const allowed = getAllowedWorkspacePaths();
         const safeEnvelope = envelope ? sanitizeContextEnvelope(envelope, allowed) : undefined;
         const toolsCatalog = getToolCatalog();
+        const enabledTools = await getEnabledToolsSet(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+        const filteredCatalog = toolsCatalog.filter((t) => enabledTools.has(t.name));
         const system = buildSystemPrompt({
           initial: safeEnvelope?.initial,
           dynamic: safeEnvelope?.dynamic ?? { files: [] },
           workspace: safeEnvelope?.workspace ?? null,
-        }, toolsCatalog);
+        }, filteredCatalog, { enabledTools });
 
         const controller = new AbortController();
         const onAbort = () => { try { controller.abort(); } catch { /* noop */ } };
@@ -410,7 +424,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
             model,
             system,
             messages: finalRetryMessages,
-            tools: undefined, // retry without tools
+            tools: undefined, // retry without tools (error fallback only)
             temperature: retryShouldOmitTemperature ? undefined : cfg.TEMPERATURE,
             maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
             abortSignal: controller.signal,

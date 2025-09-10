@@ -13,6 +13,7 @@ import * as Files from './handlers/files-handlers';
 import * as Tokens from './handlers/tokens-handlers';
 import * as Folders from './handlers/folders-handlers';
 import * as Agent from './handlers/agent-handlers';
+import * as Tools from './handlers/tools-handlers';
 export { selectionBody, exportBody, previewStartBody, previewIdParam } from './handlers/schemas';
 
 export class APIRouteHandlers {
@@ -130,5 +131,10 @@ export class APIRouteHandlers {
   // Agent
   async handleAgentExportSession(req: Request, res: Response) {
     return Agent.handleAgentExportSession({ db: this.db }, req, res);
+  }
+
+  // Tools
+  async handleListTools(req: Request, res: Response) {
+    return Tools.handleListTools({ db: this.db }, req, res);
   }
 }

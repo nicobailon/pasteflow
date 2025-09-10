@@ -1,4 +1,5 @@
 import type { AgentContextEnvelope } from "../../shared-types/agent-context";
+import { getToolPrompts } from "./tool-prompts";
 
 export interface CombinedContext {
   initial?: AgentContextEnvelope["initial"];
@@ -20,7 +21,11 @@ function toRel(path: string, root?: string | null): string {
   }
 }
 
-export function buildSystemPrompt(ctx: CombinedContext, toolsCatalog?: ReadonlyArray<ToolCatalogEntry>): string {
+export function buildSystemPrompt(
+  ctx: CombinedContext,
+  toolsCatalog?: ReadonlyArray<ToolCatalogEntry>,
+  opts?: { enabledTools?: ReadonlySet<string> }
+): string {
   const ws = ctx.workspace || "(unknown)";
 
   const iFiles = ctx.initial?.files ?? [];
@@ -39,6 +44,15 @@ export function buildSystemPrompt(ctx: CombinedContext, toolsCatalog?: ReadonlyA
 
   const truncatedNote = (files: unknown[]) => (files.length > 50 ? `\n  (…${files.length - 50} more)` : "");
 
+  const enabled = (opts?.enabledTools && opts.enabledTools.size > 0)
+    ? new Set(Array.from(opts.enabledTools))
+    : null;
+
+  const visibleCatalog = Array.isArray(toolsCatalog)
+    ? (enabled ? toolsCatalog.filter((t) => enabled.has(t.name)) : toolsCatalog)
+    : [];
+
+  const toolPrompts = getToolPrompts();
   const parts = [
     "You are an AI coding assistant integrated with PasteFlow.",
     `\nWorkspace: ${ws}`,
@@ -58,19 +72,26 @@ export function buildSystemPrompt(ctx: CombinedContext, toolsCatalog?: ReadonlyA
     `- Instructions: ${iPrompts?.instructions?.length ?? 0}` + (iPrompts?.instructions?.length ? ` (${(iPrompts.instructions || []).map((p) => p.name).join(", ")})` : ""),
     `- User text present: ${user?.present ? "yes" : "no"}` + (typeof user?.tokenCount === "number" ? ` (~${user.tokenCount} tokens)` : ""),
     "",
-    // Tools catalog (optional)
-    ...(Array.isArray(toolsCatalog) && toolsCatalog.length > 0 ? [
+    // Tools catalog (optional; filtered to enabled tools if provided)
+    ...(Array.isArray(visibleCatalog) && visibleCatalog.length > 0 ? [
       "Tools available:",
-      ...toolsCatalog.map((t) => `- ${t.name}: ${t.description}`),
+      ...visibleCatalog.map((t) => `- ${t.name}: ${t.description}`),
+      "",
+    ] : []),
+    // Tool-specific guidance (modular)
+    ...(Array.isArray(visibleCatalog) && visibleCatalog.length > 0 ? [
+      "Tools Guidance:",
+      ...visibleCatalog.map((t) => {
+        const p = toolPrompts[t.name] || "Use this tool when it reduces work vs. manual steps.";
+        return `- ${t.name}: ${p}`;
+      }),
       "",
     ] : []),
     "Guidance:",
     "- Use this summary to orient; full file contents may be embedded in user messages.",
-    "- You may call tools as needed. If the user asks about available tools, either list them from the Tools section or call the context.tools action to fetch the catalog.",
-    "- When listing tools, answer with a concise bullet list of tool name and a one‑line description, e.g.:\n  - file: read/info/list; writes gated\n  - search: ripgrep code search\n  - edit: diff/block/multi; apply gated\n  - context: summary/expand/search/tools\n  - terminal: start/interact/output/list/kill (gated)\n  - generateFromTemplate: scaffold component/hook/api-route/test",
+    "- You may call tools as needed. If the user asks about available tools, list only enabled tools shown above.",
     "- Do not re-embed entire files in the system prompt.",
   ];
 
   return parts.filter(Boolean).join("\n");
 }
-

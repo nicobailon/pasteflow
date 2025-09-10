@@ -146,14 +146,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
           }
         } catch { /* noop */ }
 
-        let hasPackedMarker = false;
-        if (bodyStr && bodyStr.includes('<codebase>')) { hasPackedMarker = true; }
-        // no further body rewrites needed
-
-        // If we detect packed content markers, explicitly instruct server to disable tools for this turn
-        if (hasPackedMarker) {
-          merged.set('X-Pasteflow-Disable-Tools', '1');
-        }
+        // no further body rewrites needed; tools remain enabled and are gated only by approvals/config
 
         const finalInit: RequestInit = { ...(init || {}), headers: merged };
         if (bodyStr !== undefined) finalInit.body = bodyStr;
