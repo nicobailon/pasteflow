@@ -204,9 +204,6 @@ interface HandlerParams {
   setAllFiles: (files: FileData[]) => void;
   setProcessingStatus: (status: ProcessingStatus) => void;
   clearSelectedFiles: () => void;
-  applyFiltersAndSort: (files: FileData[], sort: string, filter: string) => void;
-  sortOrder: string;
-  searchTerm: string;
   setIsLoadingCancellable: (cancellable: boolean) => void;
   setAppInitialized: (initialized: boolean) => void;
   currentWorkspace: string | null;
@@ -294,9 +291,6 @@ export const setupElectronHandlers = (
   setAllFiles: (files: FileData[]) => void,
   setProcessingStatus: (status: ProcessingStatus) => void,
   clearSelectedFiles: () => void,
-  applyFiltersAndSort: (files: FileData[], sort: string, filter: string) => void,
-  sortOrder: string,
-  searchTerm: string,
   setIsLoadingCancellable: (cancellable: boolean) => void,
   setAppInitialized: (initialized: boolean) => void,
   currentWorkspace: string | null,
@@ -315,9 +309,6 @@ export const setupElectronHandlers = (
     setAllFiles,
     setProcessingStatus,
     clearSelectedFiles,
-    applyFiltersAndSort,
-    sortOrder,
-    searchTerm,
     setIsLoadingCancellable,
     setAppInitialized,
     currentWorkspace,
@@ -345,9 +336,6 @@ function createHandlerConfiguration(params: {
   setAllFiles: (files: FileData[]) => void;
   setProcessingStatus: (status: ProcessingStatus) => void;
   clearSelectedFiles: () => void;
-  applyFiltersAndSort: (files: FileData[], sort: string, filter: string) => void;
-  sortOrder: string;
-  searchTerm: string;
   setIsLoadingCancellable: (cancellable: boolean) => void;
   setAppInitialized: (initialized: boolean) => void;
   currentWorkspace: string | null;
@@ -652,7 +640,6 @@ function createFileListDataHandler(
     const { filesArray, isComplete, processedCount, directoriesCount, totalCount } = processFileData(data, currentRequestId);
 
     params.setAllFiles(filesArray);
-    params.applyFiltersAndSort(filesArray, params.sortOrder, params.searchTerm);
     
     if (params.validateSelectedFilesExist) {
       setTimeout(() => {

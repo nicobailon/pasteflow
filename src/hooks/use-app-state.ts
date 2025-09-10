@@ -6,7 +6,7 @@ import { STORAGE_KEYS, TOKEN_COUNTING } from '@constants';
 
 import { logger } from '../utils/logger';
 import { cancelFileLoading, openFolderDialog, requestFileContent, setupElectronHandlers, setGlobalRequestId } from '../handlers/electron-handlers';
-import { applyFiltersAndSort, refreshFileTree } from '../handlers/filter-handlers';
+import { getFilteredAndSortedFiles, refreshFileTree } from '../handlers/filter-handlers';
 import { electronHandlerSingleton } from '../handlers/electron-handler-singleton';
 import { FileData, FileTreeMode, WorkspaceState, SystemPrompt, RolePrompt, Instruction, SelectedFileWithLines, SelectedFileReference } from '../types/file-types';
 import type { WorkspaceUpdatedPayload } from '../shared-types';
@@ -30,6 +30,7 @@ import { useTokenService } from './use-token-service';
 import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
+import useLatest from './use-latest';
 import {
   buildWorkspaceState,
   reconcileSelectedInstructions,
@@ -100,26 +101,24 @@ const useAppState = () => {
     ]
   );
 
-  // Initialize virtual file loader
+  // Initialize virtual file loader (no-effect construction)
   const virtualFileLoaderRef = useRef<VirtualFileLoader | null>(null);
-  useEffect(() => {
-    if (!virtualFileLoaderRef.current) {
-      virtualFileLoaderRef.current = new VirtualFileLoader(
-        async (path: string) => {
-          const result = await requestFileContent(path);
-          if (result.success && result.content !== undefined) {
-            const tokenCount = estimateTokenCount(result.content);
-            return { content: result.content, tokenCount };
-          }
-          throw new Error(result.error || 'Failed to load file');
-        }
-      );
-    }
-  }, []);
+  if (!virtualFileLoaderRef.current) {
+    virtualFileLoaderRef.current = new VirtualFileLoader(async (path: string) => {
+      const result = await requestFileContent(path);
+      if (result.success && result.content !== undefined) {
+        const tokenCount = estimateTokenCount(result.content);
+        return { content: result.content, tokenCount };
+      }
+      throw new Error(result.error || "Failed to load file");
+    });
+  }
 
   // Non-persistent state
   const [allFiles, setAllFiles] = useState([] as FileData[]);
-  const [displayedFiles, setDisplayedFiles] = useState([] as FileData[]);
+  const displayedFiles = useMemo(() => {
+    return getFilteredAndSortedFiles(allFiles, sortOrder, searchTerm);
+  }, [allFiles, sortOrder, searchTerm]);
   // Per-workspace expansion state - not globally persistent
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [appInitialized, setAppInitialized] = useState(false);
@@ -169,20 +168,11 @@ const useAppState = () => {
   const { countTokens: serviceCountTokens, countTokensBatch, isReady: isServiceReady } = useTokenService();
 
   // Refs for state values needed in callbacks to avoid unstable dependencies
-  const allFilesRef = useRef(allFiles);
-  const selectedFolderRef = useRef(selectedFolder);
-  const processingStatusRef = useRef(processingStatus);
-  const promptStateRef = useRef(promptState); // Ref for the whole prompt state object
-
-  // Update refs whenever state changes
-  useEffect(() => { allFilesRef.current = allFiles; }, [allFiles]);
-  useEffect(() => { selectedFolderRef.current = selectedFolder; }, [selectedFolder]);
-  useEffect(() => { processingStatusRef.current = processingStatus; }, [processingStatus]);
-  useEffect(() => { promptStateRef.current = promptState; }, [promptState]);
-
-  // Ref to always access latest selected files
-  const selectedFilesRef = useRef(selectedFiles);
-  useEffect(() => { selectedFilesRef.current = selectedFiles; }, [selectedFiles]);
+  const allFilesRef = useLatest(allFiles);
+  const selectedFolderRef = useLatest(selectedFolder);
+  const processingStatusRef = useLatest(processingStatus);
+  const promptStateRef = useLatest(promptState); // Ref for the whole prompt state object
+  const selectedFilesRef = useLatest(selectedFiles);
 
   // Track last processed sequence per workspace to avoid out-of-order updates
   const workspaceSeqRef = useRef<Map<string, number>>(new Map());
@@ -190,9 +180,9 @@ const useAppState = () => {
   // Track previous mtimes to detect changed files across refreshes
   const prevMtimeByPathRef = useRef<Map<string, number>>(new Map());
 
-  // Update instructions token count when user instructions change
+  // Update instructions token count when user instructions change (derived)
   const [userInstructions, setUserInstructions] = useState('');
-  const [instructionsTokenCount, setInstructionsTokenCount] = useState(0);
+  const instructionsTokenCount = useMemo(() => estimateTokenCount(userInstructions), [userInstructions]);
 
   // Instructions (docs) state - now from database
   const instructionsState = useInstructionsState();
@@ -211,9 +201,7 @@ const useAppState = () => {
   }, [setSelectedFolder, setAllFiles, fileSelection.setSelectedFiles, setProcessingStatus, setAppInitialized, setExpandedNodes]);
 
   // Ref for stable callback
-  const handleResetFolderStateRef = useRef(handleResetFolderState);
-  // Update ref whenever state changes
-  useEffect(() => { handleResetFolderStateRef.current = handleResetFolderState; }, [handleResetFolderState]);
+  const handleResetFolderStateRef = useLatest(handleResetFolderState);
 
   // Clear header save timeout on unmount
   useEffect(() => {
@@ -224,29 +212,18 @@ const useAppState = () => {
     };
   }, []);
 
-  // Apply filters and sorting to files
-  const handleFiltersAndSort = useCallback(
-    (files: FileData[], sort: string, filter: string) => {
-      return applyFiltersAndSort(files, sort, filter, setDisplayedFiles);
-    },
-    [setDisplayedFiles]
-  );
+  // Filters and sorting are derived (no imperative handler needed)
 
-  useEffect(() => {
-    setInstructionsTokenCount(estimateTokenCount(userInstructions));
-  }, [userInstructions]);
+  // instructionsTokenCount is computed with useMemo above
 
   useEffect(() => {
     const handleWorkspacesChanged = (event: CustomEvent) => {
-
       if (event.detail?.deleted === currentWorkspace && event.detail?.wasCurrent) {
-         setCurrentWorkspace(null);
-         handleResetFolderState();
+        setCurrentWorkspace(null);
+        handleResetFolderState();
       }
     };
-
     window.addEventListener('workspacesChanged', handleWorkspacesChanged as EventListener);
-
     return () => {
       window.removeEventListener('workspacesChanged', handleWorkspacesChanged as EventListener);
     };
@@ -255,22 +232,19 @@ const useAppState = () => {
   // Handle sort change
   const handleSortChange = useCallback((newSort: string) => {
     setSortOrder(newSort);
-    handleFiltersAndSort(allFiles, newSort, searchTerm);
     setSortDropdownOpen(false); // Close dropdown after selection
-  }, [allFiles, searchTerm, setSortOrder, handleFiltersAndSort]);
+  }, [setSortOrder]);
 
   // Add the new handler for file tree sort changes
   const handleFileTreeSortChange = useCallback((fileTreeSort: string) => {
     const mappedSort = mapFileTreeSortToContentSort(fileTreeSort);
     setSortOrder(mappedSort);
-    handleFiltersAndSort(allFiles, mappedSort, searchTerm);
-  }, [allFiles, searchTerm, setSortOrder, handleFiltersAndSort]);
+  }, [setSortOrder]);
 
   // Handle search change
   const handleSearchChange = useCallback((newSearch: string) => {
     setSearchTerm(newSearch);
-    handleFiltersAndSort(allFiles, sortOrder, newSearch);
-  }, [allFiles, sortOrder, setSearchTerm, handleFiltersAndSort]);
+  }, [setSearchTerm]);
 
   // State for sort dropdown
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
@@ -280,15 +254,18 @@ const useAppState = () => {
     setSortDropdownOpen(!sortDropdownOpen);
   }, [sortDropdownOpen]);
 
-  // Calculate token counts for file tree modes
-  const fileTreeTokenCounts = useCallback(() => {
+  // Calculate token counts for file tree modes (memoized)
+  const fileTreeTokenStats = useMemo(() => {
     return calculateFileTreeTokens(allFiles, fileSelection.selectedFiles, selectedFolder);
   }, [allFiles, fileSelection.selectedFiles, selectedFolder]);
 
-  // Get the token count for the current file tree mode
-  const getCurrentFileTreeTokens = useCallback(() => {
+  const currentFileTreeTokensMemo = useMemo(() => {
     return getFileTreeModeTokens(allFiles, fileSelection.selectedFiles, selectedFolder, fileTreeMode);
   }, [allFiles, fileSelection.selectedFiles, selectedFolder, fileTreeMode]);
+
+  // Backward-compatible getters to avoid changing consumers
+  const fileTreeTokenCounts = useCallback(() => fileTreeTokenStats, [fileTreeTokenStats]);
+  const getCurrentFileTreeTokens = useCallback(() => currentFileTreeTokensMemo, [currentFileTreeTokensMemo]);
 
   // Handle token calculations - now uses estimation when content not loaded
   const calculateTotalTokens = useCallback(() => {
@@ -882,11 +859,7 @@ const useAppState = () => {
         modalState.openFileViewModal(event.detail);
       }
     };
-
-    // Add event listener
     window.addEventListener('viewFile', handleViewFileEvent as EventListener);
-
-    // Cleanup
     return () => {
       window.removeEventListener('viewFile', handleViewFileEvent as EventListener);
     };
@@ -1170,60 +1143,24 @@ const useAppState = () => {
     instructionsState.instructions
   ]);
 
-  // Store refs to get latest values in handlers
-  const sortOrderRef = useRef(sortOrder);
-  const searchTermRef = useRef(searchTerm);
-  const currentWorkspaceRef = useRef(currentWorkspace);
-  const expandedNodesRef = useRef(expandedNodes);
-  const fileTreeModeRef = useRef(fileTreeMode);
-  const exclusionPatternsRef = useRef(exclusionPatterns);
-  const userInstructionsRef = useRef(userInstructions);
-  const selectedInstructionsRef = useRef(selectedInstructions);
+  // Store refs to get latest values in handlers (no-effect ref updates)
+  const sortOrderRef = useLatest(sortOrder);
+  const searchTermRef = useLatest(searchTerm);
+  const currentWorkspaceRef = useLatest(currentWorkspace);
+  const expandedNodesRef = useLatest(expandedNodes);
+  const fileTreeModeRef = useLatest(fileTreeMode);
+  const exclusionPatternsRef = useLatest(exclusionPatterns);
+  const userInstructionsRef = useLatest(userInstructions);
+  const selectedInstructionsRef = useLatest(selectedInstructions);
   // selectedFolderRef already exists above
 
-  // Update refs when values change
-  useEffect(() => {
-    sortOrderRef.current = sortOrder;
-  }, [sortOrder]);
-
-  useEffect(() => {
-    searchTermRef.current = searchTerm;
-  }, [searchTerm]);
-
-  useEffect(() => {
-    currentWorkspaceRef.current = currentWorkspace;
-  }, [currentWorkspace]);
-
-  useEffect(() => {
-    expandedNodesRef.current = expandedNodes;
-  }, [expandedNodes]);
-
-  useEffect(() => {
-    fileTreeModeRef.current = fileTreeMode;
-  }, [fileTreeMode]);
-
-  useEffect(() => {
-    exclusionPatternsRef.current = exclusionPatterns;
-  }, [exclusionPatterns]);
-
-  useEffect(() => {
-    userInstructionsRef.current = userInstructions;
-  }, [userInstructions]);
-
-  useEffect(() => {
-    selectedInstructionsRef.current = selectedInstructions;
-  }, [selectedInstructions]);
+  // useLatest keeps these refs in sync without effects
 
   useEffect(() => {
     if (!isElectron) return;
 
     try {
       electronHandlerSingleton.setup(() => {
-
-        // Create wrapper functions that use refs to get latest values
-        const handleFiltersAndSortWrapper = (files: FileData[], _sort: string, _filter: string) => {
-          handleFiltersAndSort(files, sortOrderRef.current, searchTermRef.current);
-        };
 
         // React to external workspace updates (e.g., CLI selection changes)
         const handleWorkspaceUpdatedWrapper = (payload: WorkspaceUpdatedPayload) => {
@@ -1255,9 +1192,6 @@ const useAppState = () => {
           setAllFiles,
           setProcessingStatus,
           fileSelection.clearSelectedFiles,
-          handleFiltersAndSortWrapper,
-          sortOrderRef.current,
-          searchTermRef.current,
           setIsLoadingCancellable,
           setAppInitialized,
           currentWorkspaceRef.current,
@@ -1542,7 +1476,6 @@ const useAppState = () => {
         });
         await persistWorkspace(currentWorkspaceRef.current, workspace);
       }
-
       // Apply the workspace data, including the name
       applyWorkspaceData(event.detail.name, event.detail.workspace); // Pass name and data
       sessionStorage.setItem("hasLoadedInitialWorkspace", "true"); // Mark that initial load happened
