@@ -48,7 +48,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
   const [spMode, setSpMode] = useState<SystemPromptMode>("default");
   const [spText, setSpText] = useState<string>("");
   const [spScope, setSpScope] = useState<"global" | "workspace">("global");
-  const [spIncludeToolsHelp, setSpIncludeToolsHelp] = useState<boolean>(true);
+  // Tools help is always included server-side; no toggle in UI.
   const [maxCtxTokens, setMaxCtxTokens] = useState<number>(120_000);
 
   // Tools enable/disable (per tool)
@@ -170,36 +170,31 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
       try {
         const globalModeP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.mode' });
         const globalTextP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.text' });
-        const globalToolsP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.includeToolsHelp' });
         const wsModeP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.mode.${workspaceId}` }) : Promise.resolve(null);
         const wsTextP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.text.${workspaceId}` }) : Promise.resolve(null);
-        const wsToolsP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.includeToolsHelp.${workspaceId}` }) : Promise.resolve(null);
-        const [gMode, gText, gTools, wMode, wText, wTools] = await Promise.all([globalModeP, globalTextP, globalToolsP, wsModeP, wsTextP, wsToolsP] as const);
+        const [gMode, gText, wMode, wText] = await Promise.all([globalModeP, globalTextP, wsModeP, wsTextP] as const);
         if (!mounted) return;
         const gmRaw = typeof gMode?.data === 'string' ? gMode.data : 'default';
         const gtRaw = typeof gText?.data === 'string' ? gText.data : '';
-        const gtIncl = typeof gTools?.data === 'boolean' ? gTools.data : true;
         const wmRaw = typeof wMode?.data === 'string' ? wMode.data : null;
         const wtRaw = typeof wText?.data === 'string' ? wText.data : null;
-        const wtIncl = typeof wTools?.data === 'boolean' ? wTools.data : null;
 
         // Prefer workspace scope if any workspace-based preference exists
-        const initialScope: 'global' | 'workspace' = (workspaceId && (wmRaw || wtRaw || wtIncl !== null)) ? 'workspace' : 'global';
+        const initialScope: 'global' | 'workspace' = (workspaceId && (wmRaw || wtRaw)) ? 'workspace' : 'global';
         setSpScope(initialScope);
         const mode = (initialScope === 'workspace' ? (wmRaw || gmRaw) : gmRaw);
         const text = (initialScope === 'workspace' ? (wtRaw ?? gtRaw) : gtRaw);
-        const incl = (initialScope === 'workspace' ? (wtIncl ?? gtIncl) : gtIncl);
 
         if (mode === 'default' || mode === 'override' || mode === 'prefix' || mode === 'suffix') setSpMode(mode);
         else setSpMode('default');
         setSpText(typeof text === 'string' ? text : '');
-        setSpIncludeToolsHelp(Boolean(incl));
       } catch { /* ignore */ }
     })();
     return () => { mounted = false; };
   }, [isOpen, workspaceId]);
 
   // Derived counts and warnings
+  // Editor shows only the custom system prompt text (no summary/placeholder).
   const spCharCount = spText.length;
   const spTokenCount = useMemo<number>(() => estimateTokenCount(spText), [spText]);
   const spTokenWarn = useMemo<null | { level: 'info' | 'hard'; message: string }>(() => {
@@ -210,17 +205,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     return null;
   }, [spTokenCount, maxCtxTokens]);
 
-  const previewText = useMemo<string>(() => {
-    const summary = '[Default system summary here]';
-    const custom = spText.trim();
-    switch (spMode) {
-      case 'override': return custom || '';
-      case 'prefix': return [custom, summary].filter(Boolean).join('\n\n');
-      case 'suffix': return [summary, custom].filter(Boolean).join('\n\n');
-      case 'default':
-      default: return summary;
-    }
-  }, [spMode, spText]);
+  // previewText no longer needed; the editor shows the effective prompt directly.
 
   async function saveKey(key: string, value: string | null, enc = true) {
     setStatus('saving');
@@ -506,24 +491,23 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               </div>
 
               <div className="field">
-                <label htmlFor="system-prompt-text">Custom system prompt</label>
+                <label htmlFor="system-prompt-text">System prompt</label>
+                <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  This is your custom system prompt. Leave empty for the default behavior. Editing switches Mode to Override.
+                </div>
                 <textarea
                   id="system-prompt-text"
                   className="prompt-content-input"
                   value={spText}
-                  onChange={(e) => setSpText(e.target.value)}
+                  onChange={(e) => { setSpMode('override'); setSpText(e.target.value); }}
                   rows={10}
-                  placeholder="Write a baseline system prompt used for the agent across chats."
+                  placeholder=""
                 />
                 <div className="actions" style={{ justifyContent: 'space-between' }}>
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                     {spCharCount.toLocaleString()} chars · ~{spTokenCount.toLocaleString()} tokens
                   </div>
                   <div className="actions">
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                      <input type="checkbox" checked={spIncludeToolsHelp} onChange={(e) => setSpIncludeToolsHelp(e.target.checked)} />
-                      Include tools help
-                    </label>
                     <button className="secondary" onClick={async () => {
                       try {
                         const toCopy = spText;
@@ -547,10 +531,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                 <AgentAlertBanner variant={spTokenWarn.level === 'hard' ? 'error' : 'info'} message={spTokenWarn.message} />
               )}
 
-              <details className="preview" style={{ marginTop: 8 }}>
-                <summary>Preview effective system prompt</summary>
-                <pre style={{ whiteSpace: 'pre-wrap', background: 'var(--background-secondary)', padding: 8, borderRadius: 6, border: '1px solid var(--border-color)' }}>{previewText}</pre>
-              </details>
+              {/* Preview collapsed removed; editor shows effective prompt directly. */}
             </section>
 
             {usageStats && (
@@ -622,7 +603,6 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                 // System prompt persistence (respect scope)
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: spKey('agent.systemPrompt.mode'), value: spMode });
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: spKey('agent.systemPrompt.text'), value: spText });
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: spKey('agent.systemPrompt.includeToolsHelp'), value: spIncludeToolsHelp });
                 setStatus('success'); setTimeout(() => setStatus('idle'), 1000);
               } catch (e) { setStatus('error'); setError((e as Error)?.message || 'Failed to save'); }
             }}>Save</button>
