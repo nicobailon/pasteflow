@@ -44,3 +44,8 @@
 - Electron target/version pinned in `.npmrc`; native deps (e.g., `better-sqlite3`) rebuild on install.
 - Packaging uses `electron-builder` with notarization hook compiled to `build/scripts/notarize.js`.
 - Avoid committing secrets; use env/CI secrets. Validate paths and inputs in main/IPC layers.
+
+## React Guidelines
+- write idiomatic react
+- use component composition 
+- use computed values, you don't need use effect

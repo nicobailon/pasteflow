@@ -2,24 +2,14 @@ import { FileData } from '../types/file-types';
 
 import { requestFileList } from './electron-handlers';
 
-/**
- * Applies filters and sorting to files
- * 
- * @param {FileData[]} files - Array of all files
- * @param {string} sort - Sort order 
- * @param {string} filter - Search filter
- * @param {Function} setDisplayedFiles - Setter for displayed files
- * @returns {FileData[]} Filtered and sorted files
- */
-export const applyFiltersAndSort = (
+export const getFilteredAndSortedFiles = (
   files: FileData[],
   sort: string,
-  filter: string,
-  setDisplayedFiles: (files: FileData[]) => void
+  filter: string
 ): FileData[] => {
+  // Work with a copy to avoid mutating callers
   let filtered = files;
 
-  // Apply filter
   if (filter) {
     const searchLower = filter.toLowerCase();
     filtered = files.filter(
@@ -29,22 +19,24 @@ export const applyFiltersAndSort = (
     );
   }
 
-  // Apply sort
+  // Make a shallow copy before sorting to avoid mutating the filtered array reference
+  const result = [...filtered];
+
   switch (sort) {
     case "name-asc": {
-      filtered.sort((a, b) => a.name.localeCompare(b.name));
+      result.sort((a, b) => a.name.localeCompare(b.name));
       break;
     }
     case "name-desc": {
-      filtered.sort((a, b) => b.name.localeCompare(a.name));
+      result.sort((a, b) => b.name.localeCompare(a.name));
       break;
     }
     case "tokens-asc": {
-      filtered.sort((a, b) => (a.tokenCount || 0) - (b.tokenCount || 0));
+      result.sort((a, b) => (a.tokenCount || 0) - (b.tokenCount || 0));
       break;
     }
     case "tokens-desc": {
-      filtered.sort((a, b) => (b.tokenCount || 0) - (a.tokenCount || 0));
+      result.sort((a, b) => (b.tokenCount || 0) - (a.tokenCount || 0));
       break;
     }
     default: {
@@ -53,11 +45,10 @@ export const applyFiltersAndSort = (
     }
   }
 
-  // Update displayed files
-  setDisplayedFiles(filtered);
-  
-  return filtered;
+  return result;
 };
+
+// Note: imperative API removed; use getFilteredAndSortedFiles and derive via useMemo in components/hooks.
 
 /**
  * Saves exclusion patterns and optionally refreshes file list
