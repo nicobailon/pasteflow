@@ -64,14 +64,14 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
 
   // Bridge provided by preload/IPC (fallback for tests/dev)
   function useApiInfo() {
-    const info = (window as any).__PF_API_INFO || {};
-    const apiBase = typeof info.apiBase === "string" ? info.apiBase : "http://localhost:5839";
+    const info = window.__PF_API_INFO ?? {};
+    const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
     const authToken = typeof info.authToken === "string" ? info.authToken : "";
     return { apiBase, authToken };
   }
 
   // Initial context from Content Area hand-off
-  const lastInitialRef = useRef<any | null>(null);
+  const lastInitialRef = useRef<unknown | null>(null);
   const { apiBase, authToken } = useApiInfo();
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [errorInfo, setErrorInfo] = useState<null | {
@@ -111,27 +111,54 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
 
   // Note: workspace bootstrap handled by useAgentThreads
 
+  // Workspace from the most recent send-to-agent context envelope
+  const lastWorkspaceRef = useRef<string | null>(null);
+
   const { messages, sendMessage, status, stop } = useChat({
     api: `${apiBase}/api/v1/chat`,
     headers: { Authorization: authToken ? `Bearer ${authToken}` : undefined },
     id: sessionId || undefined,
     initialMessages: hydratedMessages,
-    // Override fetch to ensure we always target the local API and include auth
+    // Override fetch to ensure we always target the local API, include auth, and enforce full-text override
     fetch: (input: RequestInfo | URL, init?: RequestInit) => {
-      try {
-        const dbg = { sessionId, method: (init?.method || 'POST'), ts: Date.now() };
-        console.log('[UI][chat:request]', dbg);
-      } catch { /* noop */ }
-      try {
-        const info = (window as any).__PF_API_INFO || {};
+      const doFetch = async () => {
+        if (process.env.NODE_ENV === 'development') {
+          try {
+            const dbg = { sessionId, method: (init?.method || (input instanceof Request ? input.method : 'POST')), ts: Date.now() };
+            console.log('[UI][chat:request]', dbg);
+          } catch { /* noop */ }
+        }
+        const info = window.__PF_API_INFO ?? {};
         const base = typeof info.apiBase === "string" ? info.apiBase : apiBase;
         const token = typeof info.authToken === "string" ? info.authToken : authToken;
         const url = `${base}/api/v1/chat`;
-        // Preserve all headers provided by useChat (e.g., Content-Type, Accept) and add ours
+        // Merge headers
         const merged = new Headers(init?.headers as HeadersInit | undefined);
         if (token) merged.set('Authorization', `Bearer ${token}`);
         if (sessionId) merged.set('X-Pasteflow-Session', sessionId);
-        return fetch(url, { ...init, headers: merged }).then(async (res) => {
+
+        // Materialize/modify JSON body robustly (handles both init.body and Request as input)
+        let bodyStr: string | undefined;
+        try {
+          if (typeof init?.body === 'string') bodyStr = init.body as string;
+          else if (input instanceof Request) {
+            try { bodyStr = await input.clone().text(); } catch { /* noop */ }
+          }
+        } catch { /* noop */ }
+
+        let hasPackedMarker = false;
+        if (bodyStr && bodyStr.includes('<codebase>')) { hasPackedMarker = true; }
+        // no further body rewrites needed
+
+        // If we detect packed content markers, explicitly instruct server to disable tools for this turn
+        if (hasPackedMarker) {
+          merged.set('X-Pasteflow-Disable-Tools', '1');
+        }
+
+        const finalInit: RequestInit = { ...(init || {}), headers: merged };
+        if (bodyStr !== undefined) finalInit.body = bodyStr;
+
+        return fetch(url, finalInit).then(async (res) => {
           // Surface server advisories as UI banners
           try {
             const warn = res.headers.get('x-pasteflow-warning');
@@ -163,18 +190,17 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
           try { console.log('[UI][chat:response:ok]', { status: res.status }); } catch { /* noop */ }
           return res;
         });
-      } catch {
-        return fetch(input, init);
-      }
+      };
+      try { return doFetch(); } catch { return fetch(input, init); }
     },
     // Attach structured envelope without changing user text embeddings
-    prepareSendMessagesRequest: ({ messages, requestBody }: any) => {
+    prepareSendMessagesRequest: ({ messages, requestBody }: { messages: ReadonlyArray<{ role: string; content: ReadonlyArray<{ readonly type?: string; readonly text?: string; readonly content?: unknown }> | string }>; requestBody: Record<string, unknown> }) => {
       const dynamic = buildDynamicFromAttachments(pendingAttachments);
       const envelope = {
         version: 1 as const,
         initial: lastInitialRef.current || undefined,
         dynamic,
-        workspace: selectedFolder || null,
+        workspace: (selectedFolder ?? lastWorkspaceRef.current) || null,
       };
       try {
         const lastUser = (() => {
@@ -184,8 +210,8 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
               if (m?.role === 'user') {
                 const parts = Array.isArray(m.content) ? m.content : [];
                 for (let j = parts.length - 1; j >= 0; j--) {
-                  const p = parts[j] as any;
-                  if (p && p.type === 'text' && typeof p.text === 'string') return p.text as string;
+                const p = parts[j] as { type?: string; text?: string } | null | undefined;
+                if (p && p.type === 'text' && typeof p.text === 'string') return p.text;
                 }
               }
             }
@@ -198,35 +224,54 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         }
         console.log('[UI][chat:prepare]', { sessionId, dynamicFiles: dynamic.files?.length || 0, hasInitial: !!lastInitialRef.current });
       } catch { /* noop */ }
-      return { ...requestBody, messages, context: envelope };
+      // Keep messages unchanged here and defer any full-text substitution to the fetch override.
+      const base: Record<string, unknown> = { ...requestBody };
+      base.messages = messages as unknown as ReadonlyArray<unknown>;
+      base.context = envelope as unknown as Record<string, unknown>;
+      if (sessionId) base.sessionId = sessionId;
+      return base;
     },
-    onFinish: async (finishInfo: any) => {
+    onFinish: async (finishInfo: unknown) => {
       try {
         if (sessionId) {
           try { console.log('[UI][chat:finish]', { sessionId }); } catch { /* noop */ }
           try { console.log('[UI][Telemetry] onFinish: snapshot + usage refresh start', { sessionId }); } catch { /* noop */ }
           const [p, m] = await Promise.all([
-            (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
-            (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }),
+            window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }) ?? Promise.resolve(null),
+            window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }) ?? Promise.resolve(null),
           ]);
-          const provider = (p && p.success && typeof p.data === 'string') ? p.data : undefined;
-          const model = (m && m.success && typeof m.data === 'string') ? m.data : undefined;
+          type IpcResp<T = unknown> = { success: true; data: T } | { success: true; data: null } | { success: false; error?: string } | null;
+          const provider = ((): string | undefined => {
+            const r = p as IpcResp<unknown>;
+            return (r && 'success' in (r as object) && (r as { success: boolean }).success === true && typeof (r as { data?: unknown }).data === 'string')
+              ? (r as { data: string }).data : undefined;
+          })();
+          const model = ((): string | undefined => {
+            const r = m as IpcResp<unknown>;
+            return (r && 'success' in (r as object) && (r as { success: boolean }).success === true && typeof (r as { data?: unknown }).data === 'string')
+              ? (r as { data: string }).data : undefined;
+          })();
           // Retry snapshot persist a few times to tolerate DB readiness and preference races
           for (let attempt = 0; attempt < 5; attempt++) {
             try {
               const wsId = await resolveWorkspaceId();
-              const res = await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:saveSnapshot', {
+              const res: unknown = await window.electron?.ipcRenderer?.invoke?.('agent:threads:saveSnapshot', {
                 sessionId,
                 workspaceId: wsId || undefined,
-                messages: (finishInfo && finishInfo.messages) ? finishInfo.messages : undefined,
+                messages: (() => {
+                  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+                  const get = (o: unknown, k: string): unknown => (isObj(o) ? (o as Record<string, unknown>)[k] : undefined);
+                  const msgs = get(finishInfo, 'messages');
+                  return Array.isArray(msgs) ? msgs : undefined;
+                })(),
                 meta: { model, provider },
               });
-              if (res && typeof res === 'object' && 'success' in res && (res as any).success === false) {
+              if (res && typeof res === 'object' && 'success' in res && (res as { success: boolean }).success === false) {
                 await new Promise((r) => setTimeout(r, 200));
                 continue;
               }
               if (wsId) {
-                try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.lastSession.${wsId}`, value: sessionId }); } catch { /* ignore */ }
+                try { await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.lastSession.${wsId}`, value: sessionId }); } catch { /* ignore */ }
               }
               bumpThreadsRefreshKey();
               break;
@@ -237,13 +282,17 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
 
           // Renderer-side telemetry append (usage + latency)
           try {
-            const uRoot = finishInfo && (finishInfo.usage || finishInfo.data?.usage) ? (finishInfo.usage || finishInfo.data?.usage) : null;
-            const input = (uRoot && typeof uRoot.inputTokens === 'number') ? uRoot.inputTokens : null;
-            const output = (uRoot && typeof uRoot.outputTokens === 'number') ? uRoot.outputTokens : null;
-            const total = (uRoot && typeof uRoot.totalTokens === 'number') ? uRoot.totalTokens : ((input != null && output != null) ? input + output : null);
+            const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+            const get = (o: unknown, k: string): unknown => (isObj(o) ? (o as Record<string, unknown>)[k] : undefined);
+            const usageRoot = get(finishInfo, 'usage') ?? get(get(finishInfo, 'data'), 'usage');
+            const toNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+            const input = toNum(get(usageRoot, 'inputTokens'));
+            const output = toNum(get(usageRoot, 'outputTokens'));
+            const totalCandidate = toNum(get(usageRoot, 'totalTokens'));
+            const total = (totalCandidate != null) ? totalCandidate : ((input != null && output != null) ? input + output : null);
             const latency = (turnStartRef.current && typeof turnStartRef.current === 'number') ? (Date.now() - turnStartRef.current) : null;
             if (input != null || output != null || total != null || latency != null) {
-              await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:append', { sessionId, inputTokens: input, outputTokens: output, totalTokens: total, latencyMs: latency });
+              await window.electron?.ipcRenderer?.invoke?.('agent:usage:append', { sessionId, inputTokens: input, outputTokens: output, totalTokens: total, latencyMs: latency });
               try { console.log('[UI][Telemetry] renderer append usage', { sessionId, input, output, total, latency }); } catch { /* noop */ }
             } else {
               try { console.log('[UI][Telemetry] renderer append skipped (no usage payload)'); } catch { /* noop */ }
@@ -266,19 +315,27 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         await refreshUsage();
       } catch { /* ignore */ }
     },
-    onError: (err: any) => {
-      const code = typeof err?.status === "number" ? err.status : (typeof err?.code === "number" ? err.code : null);
+    onError: (err: unknown) => {
+      const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+      const statusVal = isObj(err) ? (err as { status?: unknown }).status : undefined;
+      const codeVal = isObj(err) ? (err as { code?: unknown }).code : undefined;
+      const code = typeof statusVal === 'number' ? statusVal : (typeof codeVal === 'number' ? codeVal : null);
       hadErrorRef.current = true;
-      try { console.warn('[UI][chat:error]', { status: code, code: (typeof err?.code === 'string' ? err.code : undefined), message: String(err?.message || '') }); } catch { /* noop */ }
+      try {
+        const message = isObj(err) && typeof (err as { message?: unknown }).message === 'string' ? String((err as { message?: unknown }).message) : '';
+        const codeStr = isObj(err) && typeof (err as { code?: unknown }).code === 'string' ? String((err as { code?: unknown }).code) : undefined;
+        console.warn('[UI][chat:error]', { status: code, code: codeStr, message });
+      } catch { /* noop */ }
       // Capture any structured error returned by backend
       try {
-        const payload = (err?.body && typeof err.body === 'object') ? err.body : null;
-        const e = payload?.error || null;
-        if (code && e && typeof e === 'object') {
-          setErrorInfo({ status: code, code: String(e.code || ''), message: String(e.message || ''), details: e.details });
+        const body = isObj(err) ? (err as { body?: unknown }).body : undefined;
+        const payload = isObj(body) ? body : null;
+        const e = isObj(payload) ? (payload as Record<string, unknown>)['error'] : null;
+        if (code && isObj(e)) {
+          setErrorInfo({ status: code, code: String((e as { code?: unknown }).code || ''), message: String((e as { message?: unknown }).message || ''), details: (e as { details?: unknown }).details });
         } else if (code) {
-          const msg = (typeof err?.message === 'string' && err.message) ? err.message : undefined;
-          const c = (typeof err?.code === 'string' && err.code) ? err.code : undefined;
+          const msg = isObj(err) && typeof (err as { message?: unknown }).message === 'string' ? (err as { message: string }).message : undefined;
+          const c = isObj(err) && typeof (err as { code?: unknown }).code === 'string' ? String((err as { code: string }).code) : undefined;
           setErrorInfo({ status: code, code: c, message: msg });
         }
       } catch { /* noop */ }
@@ -293,8 +350,9 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
       }
       // Heuristics: detect provider config errors by name/message
       try {
-        const name = String(err?.name || "");
-        const msg = String(err?.message || "").toLowerCase();
+        const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+        const name = isObj(err) && typeof (err as { name?: unknown }).name === 'string' ? (err as { name: string }).name : '';
+        const msg = isObj(err) && typeof (err as { message?: unknown }).message === 'string' ? String((err as { message: string }).message).toLowerCase() : '';
         if (name.includes("LoadAPIKeyError") || msg.includes("api key is missing") || msg.includes("api-key is missing") || code === 401 || code === 403) {
           setErrorStatus(503);
           return;
@@ -321,6 +379,15 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
       setErrorStatus(500);
     }
   } as any);
+  // Adapter to satisfy the UI's stricter payload type without relaxing library types
+  const sendChat: (payload: { text: string }) => void = useCallback((payload) => {
+    try {
+      (sendMessage as unknown as (o: { text: string }) => void)(payload);
+    } catch {
+      // Best-effort fallback; in tests, the mock supports this shape
+      (sendMessage as unknown as (o?: unknown) => void)({ text: payload.text });
+    }
+  }, [sendMessage]);
 
   statusRef.current = (status as string | null) ?? null;
 
@@ -342,8 +409,9 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   useEffect(() => {
     (async () => {
       try {
-        const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.skipApprovals' });
-        const saved = res && res.success ? res.data : null;
+        const res: unknown = await window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.skipApprovals' });
+        const saved = (res && typeof res === 'object' && 'success' in res && (res as { success: boolean }).success === true)
+          ? (res as { data?: unknown }).data : null;
         setSkipApprovals(Boolean(saved));
       } catch { /* ignore */ }
     })();
@@ -450,15 +518,36 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
     return () => window.removeEventListener('agent-thread-load-error', onLoadError as unknown as EventListener);
   }, []);
 
+  // Transient banner helper for info/warning notices
+  const showTransientNotice = useCallback((message: string, variant: 'warning' | 'info' = 'info', durationMs = 1800) => {
+    const nId = `${variant}-notice-${Date.now()}`;
+    setNotices((prev) => [...prev, { id: nId, variant, message }]);
+    window.setTimeout(() => {
+      setNotices((prev) => prev.filter((n) => n.id !== nId));
+    }, durationMs);
+  }, []);
+
   // Wire "Send to Agent" global event to chat
-  useSendToAgentBridge({ sessionId, ensureSessionOrRetry, sendMessage: (p) => sendMessage(p as any), lastInitialRef, buildInitialSummaryMessage });
+  useSendToAgentBridge({
+    sessionId,
+    ensureSessionOrRetry,
+    sendMessage: (p) => sendChat(p),
+    lastInitialRef,
+    buildInitialSummaryMessage,
+    // capture workspace from context for server-side tools gating
+    setLastWorkspace: (ws) => { lastWorkspaceRef.current = ws; },
+    awaitingBind,
+    isSwitchingThread,
+    setQueuedFirstSend,
+    onQueuedNotice: (msg, ms) => showTransientNotice(msg, 'info', ms ?? 1800),
+  });
 
   // Queue handling: if a send was queued during thread switching, flush it after binding
   useEffect(() => {
     if (!queuedFirstSend) return;
     if (awaitingBind || isSwitchingThread || !sessionId) return;
     // Flush the queued text now that session is ready
-    sendMessage({ text: queuedFirstSend } as any);
+    sendChat({ text: queuedFirstSend });
     setQueuedFirstSend(null);
   }, [queuedFirstSend, awaitingBind, isSwitchingThread, sessionId, sendMessage]);
 
@@ -533,7 +622,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
 
       // Send to LLM with full contents (mark turn start for latency)
       try { turnStartRef.current = Date.now(); } catch { /* noop */ }
-      sendMessage({ text: llmText } as any);
+      sendChat({ text: llmText });
 
       // Clear local composer
       setComposer("");
@@ -558,13 +647,13 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
       if (sessionId) {
         try {
           const [p, m] = await Promise.all([
-            (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
-            (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }),
+            window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }) ?? Promise.resolve(null),
+            window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }) ?? Promise.resolve(null),
           ]);
-          const provider = (p && p.success && typeof p.data === 'string') ? p.data : undefined;
-          const model = (m && m.success && typeof m.data === 'string') ? m.data : undefined;
+          const provider = (p && typeof p === 'object' && 'success' in p && (p as { success: boolean }).success === true && typeof (p as { data?: unknown }).data === 'string') ? (p as { data: string }).data : undefined;
+          const model = (m && typeof m === 'object' && 'success' in m && (m as { success: boolean }).success === true && typeof (m as { data?: unknown }).data === 'string') ? (m as { data: string }).data : undefined;
           const wsId = await resolveWorkspaceId();
-          await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:saveSnapshot', {
+          await window.electron?.ipcRenderer?.invoke?.('agent:threads:saveSnapshot', {
             sessionId,
             workspaceId: wsId || undefined,
             messages,
@@ -574,8 +663,13 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         } catch { /* ignore snapshot of previous */ }
       }
 
-      const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:start-session', {});
-      const id = (res && res.success) ? res.data?.sessionId : res?.data?.sessionId || res?.sessionId;
+      const res: unknown = await window.electron?.ipcRenderer?.invoke?.('agent:start-session', {});
+      const __isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+      const ok = __isObj(res) && (res as Record<string, unknown>)['success'] === true;
+      const dataVal = __isObj(res) ? (res as Record<string, unknown>)['data'] : undefined;
+      const id = ok && __isObj(dataVal) && typeof (dataVal as { sessionId?: unknown }).sessionId === 'string'
+        ? (dataVal as { sessionId: string }).sessionId
+        : null;
       if (typeof id !== 'string') return null;
       setSessionId(id);
       setHydratedMessages([]);
@@ -609,11 +703,11 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         skipApprovals={skipApprovals}
         onToggleSkipApprovals={async (next) => {
           setSkipApprovals(next);
-          try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.skipApprovals', value: next }); } catch { /* ignore */ }
+          try { await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.skipApprovals', value: next }); } catch { /* ignore */ }
         }}
         onOpenThreads={() => { void (async () => { const ws = await resolveWorkspaceId(); if (ws) setActiveWorkspaceId(ws); bumpThreadsRefreshKey(); setShowThreads(true); })(); }}
         onToggleTerminal={() => { try { window.dispatchEvent(new CustomEvent('pasteflow:toggle-terminal')); } catch { /* noop */ } }}
-        onNewChat={handleNewChat}
+        onNewChat={() => { void handleNewChat(); }}
         onOpenSettings={() => setShowModelSettings(true)}
         onOpenIntegrations={() => setShowIntegrations(true)}
         showConfigure={(hasOpenAIKey === false || errorStatus === 503)}
@@ -628,7 +722,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         {!panelEnabled && (
           <AgentDisabledOverlay
             onOpenWorkspaces={() => window.dispatchEvent(new CustomEvent('pasteflow:open-workspaces'))}
-            onOpenFolder={() => { try { window.electron?.ipcRenderer?.send('open-folder'); } catch { /* noop */ } }}
+            onOpenFolder={() => { try { window.electron?.ipcRenderer?.send?.('open-folder'); } catch { /* noop */ } }}
           />
         )}
 
@@ -679,7 +773,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
           skipApprovals={skipApprovals}
           onToggleSkipApprovals={async (v) => {
             setSkipApprovals(Boolean(v));
-            try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.skipApprovals', value: Boolean(v) }); } catch { /* ignore */ }
+            try { await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.skipApprovals', value: Boolean(v) }); } catch { /* ignore */ }
           }}
           modelId={modelId}
         />
@@ -728,7 +822,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
       <AgentResizeHandle onMouseDown={handleResizeStart} />
 
       <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
-      <ModelSettingsModal isOpen={showModelSettings} onClose={() => setShowModelSettings(false)} sessionId={sessionId} />
+      <ModelSettingsModal isOpen={showModelSettings} onClose={() => setShowModelSettings(false)} sessionId={sessionId} workspaceId={activeWorkspaceId || null} />
       <AgentThreadList
         isOpen={showThreads}
         onClose={() => setShowThreads(false)}
@@ -743,5 +837,4 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
 };
 
 export default AgentPanel;
-
 // utils moved to ../utils/agent-message-utils

@@ -26,9 +26,9 @@ export default function useAgentUsage(opts: UseAgentUsageOptions): UseAgentUsage
   const refreshUsage = useCallback(async () => {
     try {
       if (!sessionId) { setUsageRows([]); setLastUsage(null); return; }
-      const res: unknown = await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:list', { sessionId });
-      if (res && (res as any).success && Array.isArray((res as any).data)) {
-        const rows = (res as any).data as UsageRow[];
+      const res: unknown = await window.electron?.ipcRenderer?.invoke?.('agent:usage:list', { sessionId });
+      if (res && typeof res === 'object' && 'success' in res && (res as { success: boolean }).success === true && Array.isArray((res as { data?: unknown }).data)) {
+        const rows = (res as { data?: unknown }).data as UsageRow[];
         setUsageRows(rows);
         setLastUsage(rows[rows.length - 1] || null);
       }
@@ -54,11 +54,11 @@ export default function useAgentUsage(opts: UseAgentUsageOptions): UseAgentUsage
     (async () => {
       try {
         const [p, m] = await Promise.all([
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }),
-        ]);
-        const prov = p && (p as any).success && typeof (p as any).data === 'string' ? (p as any).data : null;
-        const mid = m && (m as any).success && typeof (m as any).data === 'string' ? (m as any).data : null;
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' }),
+        ] as const);
+        const prov = p && typeof p === 'object' && 'success' in p && (p as { success: boolean }).success === true && typeof (p as { data?: unknown }).data === 'string' ? (p as { data: string }).data : null;
+        const mid = m && typeof m === 'object' && 'success' in m && (m as { success: boolean }).success === true && typeof (m as { data?: unknown }).data === 'string' ? (m as { data: string }).data : null;
         setProvider(prov);
         setModelId(mid);
       } catch { /* ignore */ }
@@ -91,4 +91,3 @@ export default function useAgentUsage(opts: UseAgentUsageOptions): UseAgentUsage
 
   return { usageRows, lastUsage, provider, modelId, refreshUsage, sessionTotals };
 }
-

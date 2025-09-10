@@ -234,9 +234,11 @@ export default function TerminalPanel({ isOpen, onClose: _onClose, defaultCwd = 
 
   // Resize observer for xterm
   useEffect(() => {
-    if (!isOpen || !termElRef.current || !fitAddonRef.current) return;
-    const ro = new ResizeObserver(() => { try { fitAddonRef.current.fit(); } catch { /* noop */ } });
-    ro.observe(termElRef.current);
+    const el = termElRef.current;
+    const addon = fitAddonRef.current;
+    if (!isOpen || !el || !addon) return;
+    const ro = new ResizeObserver(() => { try { addon.fit(); } catch { /* noop */ } });
+    try { ro.observe(el); } catch { /* noop */ }
     return () => { try { ro.disconnect(); } catch { /* noop */ } };
   }, [isOpen]);
 

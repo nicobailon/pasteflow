@@ -284,10 +284,11 @@ const AgentChatInputWithMention = memo(function AgentChatInputWithMention({
     };
     let ro: ResizeObserver | null = null;
     try {
-      const RO = (window as any).ResizeObserver;
+      const RO = (window as unknown as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
       if (typeof RO === 'function') {
-        ro = new RO(() => recompute());
-        try { ro.observe(el); } catch { /* noop */ }
+        const roLocal = new RO(() => recompute());
+        ro = roLocal;
+        try { roLocal.observe(el); } catch { /* noop */ }
       }
     } catch { /* noop */ }
     window.addEventListener('resize', recompute);

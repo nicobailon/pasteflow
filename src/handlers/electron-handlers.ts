@@ -215,7 +215,7 @@ interface HandlerParams {
   getWorkspaceNames: () => Promise<string[]>;
   selectedFolder: string | null;
   validateSelectedFilesExist?: () => void;
-  onWorkspaceUpdated?: (payload: { workspaceId?: string; folderPath?: string; selectedFiles?: SelectedFileReference[] }) => void;
+  onWorkspaceUpdated?: (payload: WorkspaceUpdatedPayload) => void;
 }
 
 // Create the folder selected handler factory
