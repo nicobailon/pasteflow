@@ -20,8 +20,8 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
 
   // API info from preload
   function useApiInfo() {
-    const info = (window as any).__PF_API_INFO || {};
-    const apiBase = typeof info.apiBase === "string" ? info.apiBase : "http://localhost:5839";
+    const info = window.__PF_API_INFO ?? {};
+    const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
     const authToken = typeof info.authToken === "string" ? info.authToken : "";
     return { apiBase, authToken };
   }
@@ -52,10 +52,10 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
     let mounted = true;
     (async () => {
       try {
-        const p = await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' });
-        const m = await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' });
-        const pv = (p && p.success) ? p.data : null;
-        const mv = (m && m.success) ? m.data : null;
+        const p: unknown = await window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' });
+        const m: unknown = await window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' });
+        const pv = (p && typeof p === 'object' && 'success' in p && (p as { success: boolean }).success === true) ? (p as { data?: unknown }).data : null;
+        const mv = (m && typeof m === 'object' && 'success' in m && (m as { success: boolean }).success === true) ? (m as { data?: unknown }).data : null;
         if (!mounted) return;
         if (typeof pv === 'string' && (pv === 'openai' || pv === 'anthropic' || pv === 'openrouter')) setProvider(pv);
         if (typeof mv === 'string' && mv.trim()) setModel(mv);
@@ -100,7 +100,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
 
   async function updateProvider(next: ProviderId) {
     try {
-      await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.provider', value: next });
+      await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.provider', value: next });
       setProvider(next);
       // Inform user that model applies on next turn implicitly
     } catch { /* ignore */ }
@@ -108,7 +108,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
 
   async function updateModel(next: string) {
     try {
-      await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.defaultModel', value: next });
+      await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.defaultModel', value: next });
       setModel(next);
     } catch { /* ignore */ }
   }
@@ -119,7 +119,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
         <Dropdown
           options={providerOptions}
           value={provider}
-          onChange={(v: any) => updateProvider(v as ProviderId)}
+          onChange={(v: unknown) => updateProvider(String(v) as ProviderId)}
           buttonLabel={`Provider: ${providerOptions.find(o => o.value === provider)?.label ?? provider}`}
           position="left"
           placement="top"
@@ -130,7 +130,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
         <Dropdown
           options={modelOptions}
           value={model}
-          onChange={(v: any) => updateModel(v as string)}
+          onChange={(v: unknown) => updateModel(String(v))}
           buttonLabel={loading ? 'Loading models…' : (modelOptions.find(o => o.value === model)?.label ?? 'Select Model')}
           position="left"
           placement="top"

@@ -179,7 +179,28 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     // Resolve model
     const { resolveModelForRequest } = await import('../agent/model-resolver');
     const provider: ProviderId = cfg.PROVIDER || 'openai';
-    const { model } = await resolveModelForRequest({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: cfg.DEFAULT_MODEL });
+    const preferredModelId = String(cfg.DEFAULT_MODEL || '');
+    const modelIdIsReasoning = (() => {
+      try {
+        const s = preferredModelId.toLowerCase();
+        return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
+      } catch { return false; }
+    })();
+    // For packed content first turns, favor a non-reasoning chat model for visible output
+    const packedContent = (() => {
+      try {
+        if (safeEnvelope?.initial && Array.isArray(safeEnvelope.initial.files) && safeEnvelope.initial.files.length > 0) return true;
+        const lu = extractLastUserText(modelMessages);
+        return typeof lu === 'string' && lu.includes('<codebase>');
+      } catch { return false; }
+    })();
+    const effectiveModelId = (packedContent && modelIdIsReasoning)
+      ? (provider === 'openai' ? 'gpt-4o-mini' : preferredModelId)
+      : preferredModelId;
+    if (effectiveModelId !== preferredModelId) {
+      try { console.log('[AI][chat:model:override]', { from: preferredModelId, to: effectiveModelId, reason: 'packed-content-text-output' }); } catch { /* noop */ }
+    }
+    const { model } = await resolveModelForRequest({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: effectiveModelId });
 
     // Dev-only: log tool param kinds
     try {
@@ -206,10 +227,20 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     } catch { /* noop */ }
 
     const disableTools = String(process.env.PF_AGENT_DISABLE_TOOLS || '').toLowerCase() === 'true';
-    try { console.log('[AI][chat:model]', { provider: cfg.PROVIDER || 'openai', modelId: cfg.DEFAULT_MODEL, toolsDisabled: disableTools }); } catch { /* noop */ }
+    const headerDisable = String(req.headers['x-pasteflow-disable-tools'] || '').toLowerCase() === '1';
+    // Heuristic: if packed content is embedded or initial context is present, avoid tool calls on the first turn
+    const hasPackedContent = (() => {
+      try {
+        if (safeEnvelope?.initial && Array.isArray(safeEnvelope.initial.files) && safeEnvelope.initial.files.length > 0) return true;
+        const lu = extractLastUserText(modelMessages);
+        return typeof lu === 'string' && lu.includes('<codebase>');
+      } catch { return false; }
+    })();
+    const toolsDisabledEffective = disableTools || headerDisable || hasPackedContent;
+    try { console.log('[AI][chat:model]', { provider: cfg.PROVIDER || 'openai', modelId: cfg.DEFAULT_MODEL, toolsDisabled: toolsDisabledEffective }); } catch { /* noop */ }
 
     // Temperature handling for reasoning models
-    const modelIdStr = String(cfg.DEFAULT_MODEL || '');
+    const modelIdStr = String(effectiveModelId || '');
     const isReasoningModel = (() => {
       try {
         const s = modelIdStr.toLowerCase();
@@ -245,7 +276,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         model,
         system,
         messages: finalModelMessages,
-        tools: disableTools ? undefined : tools,
+        tools: toolsDisabledEffective ? undefined : tools,
         temperature: shouldOmitTemperature ? undefined : (typeof cfgTemperature === 'number' ? cfgTemperature : undefined),
         maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
         abortSignal: controller.signal,

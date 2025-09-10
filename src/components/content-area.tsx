@@ -1067,6 +1067,8 @@ const ContentArea = ({
                       userInstructions={userInstructions}
                       tokenEstimate={packState.tokenEstimate}
                       signature={packState.signature}
+                      fullContent={packState.fullContent}
+                      contentForDisplay={packState.contentForDisplay}
                     />
                     <CopyButton
                       text={() => packState.fullContent || streamingPreview?.fullContent || ''}

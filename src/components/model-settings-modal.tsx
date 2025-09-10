@@ -1,8 +1,9 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useState } from "react";
-import { X, Shield, CheckCircle2, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { X, Shield, CheckCircle2, Trash2, Copy } from "lucide-react";
 import AgentAlertBanner from "./agent-alert-banner";
 import "./model-settings-modal.css";
+import { estimateTokenCount } from "../utils/token-utils";
 
 type ProviderId = "openai" | "anthropic" | "openrouter";
 
@@ -10,9 +11,12 @@ type Props = {
   isOpen: boolean;
   onClose: () => void;
   sessionId?: string | null;
+  workspaceId?: string | null;
 };
 
-export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props) {
+type SystemPromptMode = "default" | "override" | "prefix" | "suffix";
+
+export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspaceId }: Props) {
   const [tab, setTab] = useState<ProviderId>("openai");
   const [status, setStatus] = useState<"idle" | "saving" | "success" | "error" | "testing">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -40,9 +44,16 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
   const [enableExec, setEnableExec] = useState<boolean>(true);
   const [approvalMode, setApprovalMode] = useState<'never'|'risky'|'always'>('risky');
 
+  // System prompt (new)
+  const [spMode, setSpMode] = useState<SystemPromptMode>("default");
+  const [spText, setSpText] = useState<string>("");
+  const [spScope, setSpScope] = useState<"global" | "workspace">("global");
+  const [spIncludeToolsHelp, setSpIncludeToolsHelp] = useState<boolean>(true);
+  const [maxCtxTokens, setMaxCtxTokens] = useState<number>(120_000);
+
   function useApiInfo() {
-    const info = (window as any).__PF_API_INFO || {};
-    const apiBase = typeof info.apiBase === "string" ? info.apiBase : "http://localhost:5839";
+    const info = window.__PF_API_INFO ?? {};
+    const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
     const authToken = typeof info.authToken === "string" ? info.authToken : "";
     return { apiBase, authToken };
   }
@@ -52,17 +63,18 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
     let mounted = true;
     (async () => {
       try {
-        const [okey, akey, orKey, orBase, temp, max, w, x, appr] = await Promise.all([
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.anthropic.apiKey' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.apiKey' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.baseUrl' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.temperature' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxOutputTokens' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableFileWrite' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableCodeExecution' }),
-          (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.approvalMode' }),
-        ]);
+        const [okey, akey, orKey, orBase, temp, max, w, x, appr, maxCtx] = await Promise.all([
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.anthropic.apiKey' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.apiKey' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.baseUrl' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.temperature' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxOutputTokens' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableFileWrite' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableCodeExecution' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.approvalMode' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxContextTokens' }),
+        ] as const);
         if (!mounted) return;
         setOpenaiStored(Boolean(okey?.data));
         setAnthropicStored(Boolean(akey?.data));
@@ -76,6 +88,8 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
         setEnableExec(Boolean(x?.data ?? true));
         const am = String(appr?.data || '').toLowerCase();
         if (am === 'never' || am === 'risky' || am === 'always') setApprovalMode(am as any);
+        const mc = Number(maxCtx?.data);
+        if (Number.isFinite(mc)) setMaxCtxTokens(Math.max(1000, Math.min(2_000_000, mc)));
       } catch { /* ignore */ }
     })();
     return () => { mounted = false; };
@@ -111,11 +125,77 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
     })();
   }, [isOpen, sessionId]);
 
+  // Helper to compute preference key based on scope
+  const spKey = (base: string): string => {
+    if (spScope === 'workspace' && workspaceId) return `${base}.${workspaceId}`;
+    return base;
+  };
+
+  // Load system prompt preferences
+  useEffect(() => {
+    if (!isOpen) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const globalModeP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.mode' });
+        const globalTextP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.text' });
+        const globalToolsP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.includeToolsHelp' });
+        const wsModeP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.mode.${workspaceId}` }) : Promise.resolve(null);
+        const wsTextP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.text.${workspaceId}` }) : Promise.resolve(null);
+        const wsToolsP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.includeToolsHelp.${workspaceId}` }) : Promise.resolve(null);
+        const [gMode, gText, gTools, wMode, wText, wTools] = await Promise.all([globalModeP, globalTextP, globalToolsP, wsModeP, wsTextP, wsToolsP] as const);
+        if (!mounted) return;
+        const gmRaw = typeof gMode?.data === 'string' ? gMode.data : 'default';
+        const gtRaw = typeof gText?.data === 'string' ? gText.data : '';
+        const gtIncl = typeof gTools?.data === 'boolean' ? gTools.data : true;
+        const wmRaw = typeof wMode?.data === 'string' ? wMode.data : null;
+        const wtRaw = typeof wText?.data === 'string' ? wText.data : null;
+        const wtIncl = typeof wTools?.data === 'boolean' ? wTools.data : null;
+
+        // Prefer workspace scope if any workspace-based preference exists
+        const initialScope: 'global' | 'workspace' = (workspaceId && (wmRaw || wtRaw || wtIncl !== null)) ? 'workspace' : 'global';
+        setSpScope(initialScope);
+        const mode = (initialScope === 'workspace' ? (wmRaw || gmRaw) : gmRaw);
+        const text = (initialScope === 'workspace' ? (wtRaw ?? gtRaw) : gtRaw);
+        const incl = (initialScope === 'workspace' ? (wtIncl ?? gtIncl) : gtIncl);
+
+        if (mode === 'default' || mode === 'override' || mode === 'prefix' || mode === 'suffix') setSpMode(mode);
+        else setSpMode('default');
+        setSpText(typeof text === 'string' ? text : '');
+        setSpIncludeToolsHelp(Boolean(incl));
+      } catch { /* ignore */ }
+    })();
+    return () => { mounted = false; };
+  }, [isOpen, workspaceId]);
+
+  // Derived counts and warnings
+  const spCharCount = spText.length;
+  const spTokenCount = useMemo<number>(() => estimateTokenCount(spText), [spText]);
+  const spTokenWarn = useMemo<null | { level: 'info' | 'hard'; message: string }>(() => {
+    const soft = Math.floor(maxCtxTokens * 0.4);
+    const hard = Math.floor(maxCtxTokens * 0.9);
+    if (spTokenCount >= hard) return { level: 'hard', message: `System prompt is very large (${spTokenCount.toLocaleString()} tokens). Consider reducing size.` };
+    if (spTokenCount >= soft) return { level: 'info', message: `Large system prompt (${spTokenCount.toLocaleString()} tokens) reduces available context.` };
+    return null;
+  }, [spTokenCount, maxCtxTokens]);
+
+  const previewText = useMemo<string>(() => {
+    const summary = '[Default system summary here]';
+    const custom = spText.trim();
+    switch (spMode) {
+      case 'override': return custom || '';
+      case 'prefix': return [custom, summary].filter(Boolean).join('\n\n');
+      case 'suffix': return [summary, custom].filter(Boolean).join('\n\n');
+      case 'default':
+      default: return summary;
+    }
+  }, [spMode, spText]);
+
   async function saveKey(key: string, value: string | null, enc = true) {
     setStatus('saving');
     setError(null);
     try {
-      await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key, value, encrypted: enc });
+      await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key, value, encrypted: enc });
       setStatus('success');
       setTimeout(() => setStatus('idle'), 1000);
     } catch (e) {
@@ -129,9 +209,12 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
     setError(null);
     try {
       // Use current default model for provider
-      const modelPref = await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' });
-      const model = (modelPref && modelPref.success && typeof modelPref.data === 'string') ? modelPref.data : 'gpt-4o-mini';
-      const body: any = { provider, model, temperature: 0, maxOutputTokens: 1 };
+      const modelPref: unknown = await window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' });
+      const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+      const model = (isObj(modelPref) && (modelPref as Record<string, unknown>)['success'] === true && typeof (modelPref as { data?: unknown }).data === 'string')
+        ? (modelPref as { data: string }).data
+        : 'gpt-4o-mini';
+      const body: Record<string, unknown> = { provider, model, temperature: 0, maxOutputTokens: 1 };
       if (provider === 'openai') body.apiKey = openaiInput || undefined;
       if (provider === 'anthropic') body.apiKey = anthropicInput || undefined;
       if (provider === 'openrouter') { body.apiKey = openrouterInput || undefined; body.baseUrl = openrouterBaseUrl || undefined; }
@@ -321,6 +404,89 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
               </div>
             </section>
 
+            {/* System Prompt section */}
+            <section className="settings-section">
+              <div className="field">
+                <div className="field-label-row">
+                  <label>System Prompt</label>
+                </div>
+                <div className="settings-grid">
+                  <div className="field">
+                    <label>Scope</label>
+                    <select
+                      value={spScope}
+                      onChange={(e) => setSpScope((() => {
+                        const v = e.target.value === 'workspace' ? 'workspace' : 'global';
+                        return v;
+                      })())}
+                      disabled={!workspaceId}
+                    >
+                      <option value="global">Global (all workspaces)</option>
+                      <option value="workspace" disabled={!workspaceId}>
+                        {workspaceId ? 'Current workspace' : 'Current workspace (no workspace)'}
+                      </option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Mode</label>
+                    <select value={spMode} onChange={(e) => setSpMode((e.target.value as SystemPromptMode) || 'default')}>
+                      <option value="default">Default (summary only)</option>
+                      <option value="override">Override (use only custom)</option>
+                      <option value="prefix">Prefix (custom above summary)</option>
+                      <option value="suffix">Suffix (custom below summary)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="system-prompt-text">Custom system prompt</label>
+                <textarea
+                  id="system-prompt-text"
+                  className="prompt-content-input"
+                  value={spText}
+                  onChange={(e) => setSpText(e.target.value)}
+                  rows={10}
+                  placeholder="Write a baseline system prompt used for the agent across chats."
+                />
+                <div className="actions" style={{ justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {spCharCount.toLocaleString()} chars · ~{spTokenCount.toLocaleString()} tokens
+                  </div>
+                  <div className="actions">
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <input type="checkbox" checked={spIncludeToolsHelp} onChange={(e) => setSpIncludeToolsHelp(e.target.checked)} />
+                      Include tools help
+                    </label>
+                    <button className="secondary" onClick={async () => {
+                      try {
+                        const toCopy = spText;
+                        if (navigator?.clipboard?.writeText) await navigator.clipboard.writeText(toCopy);
+                        else {
+                          const ta = document.createElement('textarea');
+                          ta.value = toCopy; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                        }
+                      } catch { /* ignore */ }
+                    }} title="Copy system prompt">
+                      <Copy size={14} /> Copy
+                    </button>
+                    <button className="cancel-button" onClick={() => { setSpMode('default'); setSpText(''); }} title="Reset to default">
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {spTokenWarn && (
+                <AgentAlertBanner variant={spTokenWarn.level === 'hard' ? 'error' : 'info'} message={spTokenWarn.message} />
+              )}
+
+              <details className="preview" style={{ marginTop: 8 }}>
+                <summary>Preview effective system prompt</summary>
+                <pre style={{ whiteSpace: 'pre-wrap', background: 'var(--background-secondary)', padding: 8, borderRadius: 6, border: '1px solid var(--border-color)' }}>{previewText}</pre>
+              </details>
+            </section>
+
             {usageStats && (
               <section className="settings-section">
                 <div className="settings-grid">
@@ -351,9 +517,12 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
                     if (!sessionId) return;
                     setExporting('saving'); setExportPath(null);
                     try {
-                      const result: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:export-session', sessionId);
-                      const file = (result && typeof result === 'object' && result.success && result.data?.file) ? result.data.file : null;
-                      const payload = (result && typeof result === 'object' && result.success) ? result.data : null;
+                      const result: unknown = await window.electron?.ipcRenderer?.invoke?.('agent:export-session', sessionId);
+                      const _isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+                      const ok = _isObj(result) && (result as Record<string, unknown>)['success'] === true;
+                      const data = _isObj(result) ? (result as Record<string, unknown>)['data'] : undefined;
+                      const file = ok && _isObj(data) && typeof (data as { file?: unknown }).file === 'string' ? (data as { file: string }).file : null;
+                      const payload = ok ? data : null;
                       if (file) setExportPath(String(file));
                       else if (payload) setExportPath('(export in memory)');
                       setExporting('success'); setTimeout(() => setExporting('idle'), 1000);
@@ -379,11 +548,15 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId }: Props
             <button className="apply-button" disabled={!canSave} onClick={async () => {
               setStatus('saving'); setError(null);
               try {
-                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.temperature', value: temperature });
-                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.maxOutputTokens', value: maxOut });
-                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableFileWrite', value: enableWrites });
-                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableCodeExecution', value: enableExec });
-                await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.approvalMode', value: approvalMode });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.temperature', value: temperature });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.maxOutputTokens', value: maxOut });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableFileWrite', value: enableWrites });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableCodeExecution', value: enableExec });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.approvalMode', value: approvalMode });
+                // System prompt persistence (respect scope)
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: spKey('agent.systemPrompt.mode'), value: spMode });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: spKey('agent.systemPrompt.text'), value: spText });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: spKey('agent.systemPrompt.includeToolsHelp'), value: spIncludeToolsHelp });
                 setStatus('success'); setTimeout(() => setStatus('idle'), 1000);
               } catch (e) { setStatus('error'); setError((e as Error)?.message || 'Failed to save'); }
             }}>Save</button>

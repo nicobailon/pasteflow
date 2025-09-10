@@ -6,7 +6,7 @@ interface FolderCardProps {
   fileCount: number;
   onExpand?: () => void;
   onRemove?: () => void;
-  copyText?: string | (() => string | Promise<string>);
+  copyText?: string | (() => string) | (() => Promise<string>);
 }
 
 const FolderCard = ({ folderPath, fileCount, onExpand, onRemove, copyText }: FolderCardProps) => {
@@ -50,4 +50,3 @@ const FolderCard = ({ folderPath, fileCount, onExpand, onRemove, copyText }: Fol
 };
 
 export default FolderCard;
-

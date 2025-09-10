@@ -12,6 +12,10 @@ interface SendToAgentButtonProps {
   userInstructions: string;
   tokenEstimate: number;
   signature: string;
+  /** Full packed content (matches Copy to Clipboard) */
+  fullContent?: string;
+  /** Condensed content for display (matches Preview modal) */
+  contentForDisplay?: string;
 }
 
 const SendToAgentButton = memo(function SendToAgentButton({
@@ -24,6 +28,8 @@ const SendToAgentButton = memo(function SendToAgentButton({
   userInstructions,
   tokenEstimate,
   signature,
+  fullContent,
+  contentForDisplay,
 }: SendToAgentButtonProps) {
   const handleClick = useCallback(() => {
     if (status !== "ready") return;
@@ -51,8 +57,13 @@ const SendToAgentButton = memo(function SendToAgentButton({
     };
 
     const envelope = { version: 1 as const, initial, dynamic: { files: [] }, workspace: selectedFolder || null };
-    window.dispatchEvent(new CustomEvent("pasteflow:send-to-agent", { detail: { context: envelope } }));
-  }, [status, selectedFiles, selectedSystemPrompts, selectedRolePrompts, selectedInstructions, userInstructions, tokenEstimate, signature, selectedFolder]);
+    const displayText = (contentForDisplay && typeof contentForDisplay === 'string') ? contentForDisplay : undefined;
+    const fullText = (fullContent && typeof fullContent === 'string') ? fullContent : undefined;
+    if (process.env.NODE_ENV === 'development') {
+      try { console.log('[UI][send-to-agent:click]', { hasFull: Boolean(fullText), fullLen: fullText?.length || 0, displayLen: displayText?.length || 0 }); } catch { /* noop */ }
+    }
+    window.dispatchEvent(new CustomEvent("pasteflow:send-to-agent", { detail: { context: envelope, displayText, fullText } }));
+  }, [status, selectedFiles, selectedSystemPrompts, selectedRolePrompts, selectedInstructions, userInstructions, tokenEstimate, signature, selectedFolder, fullContent, contentForDisplay]);
 
   return (
     <button
@@ -68,4 +79,3 @@ const SendToAgentButton = memo(function SendToAgentButton({
 });
 
 export default SendToAgentButton;
-

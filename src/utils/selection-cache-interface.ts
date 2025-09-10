@@ -3,7 +3,7 @@ import { DirectorySelectionCache } from '../types/file-types';
 import { SelectionState } from './selection-cache';
 import { getGlobalPerformanceMonitor } from './performance-monitor';
 import {
-  type WorkerBatchPayload,
+  type WorkerBatchUpdate,
   type CacheInterfaceParams,
   type ProgressiveRecomputeOptions,
   applyCacheUpdate,
@@ -79,7 +79,7 @@ function createWorkerMessageHandler(
   return (ev: MessageEvent) => {
     if (taskId !== state.currentTaskId) return; // stale
     
-    const data = ev.data as { type: string; payload?: WorkerBatchPayload };
+    const data = ev.data as { type: string; payload?: WorkerBatchUpdate };
     if (!data || typeof data.type !== 'string') return;
     
     if (data.type === 'BATCH' && data.payload && Array.isArray(data.payload.updates)) {

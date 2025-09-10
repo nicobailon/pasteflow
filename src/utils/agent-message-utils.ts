@@ -19,6 +19,11 @@ export function extractVisibleTextFromMessage(m: unknown): string {
             out.push(String(it.text));
             continue;
           }
+          // Some providers place text under alternate keys
+          if (typeof (it as any)?.output_text === 'string') { out.push(String((it as any).output_text)); continue; }
+          if (typeof (it as any)?.outputText === 'string') { out.push(String((it as any).outputText)); continue; }
+          if (typeof (it as any)?.response_text === 'string') { out.push(String((it as any).response_text)); continue; }
+          if (typeof (it as any)?.textDelta === 'string') { out.push(String((it as any).textDelta)); continue; }
           // Some SDKs provide { text: '...' } without a type
           if (!t && typeof it?.text === 'string') {
             out.push(String(it.text));
@@ -28,6 +33,14 @@ export function extractVisibleTextFromMessage(m: unknown): string {
           if (typeof it?.content === 'string') {
             out.push(String(it.content));
             continue;
+          }
+          // Handle nested objects with value fields
+          if (typeof (it as any)?.value === 'string') { out.push(String((it as any).value)); continue; }
+          // Recursively search common containers
+          const nested = (it && typeof it === 'object') ? (it as any).content || (it as any).data || (it as any).delta || (it as any).items || (it as any).parts : undefined;
+          if (nested && Array.isArray(nested)) {
+            const nestedText = collectFrom(nested);
+            if (nestedText) out.push(nestedText);
           }
         }
         return out.join("");
@@ -74,10 +87,17 @@ export function extractVisibleTextFromMessage(m: unknown): string {
           if (typeof obj.text === 'string') out.push(String(obj.text));
           if (typeof obj.content === 'string') out.push(String(obj.content));
           if (typeof (obj as any)?.value === 'string') out.push(String((obj as any).value));
+          if (typeof (obj as any)?.output_text === 'string') out.push(String((obj as any).output_text));
+          if (typeof (obj as any)?.outputText === 'string') out.push(String((obj as any).outputText));
+          if (typeof (obj as any)?.response_text === 'string') out.push(String((obj as any).response_text));
+          if (typeof (obj as any)?.textDelta === 'string') out.push(String((obj as any).textDelta));
           if (typeof (obj as any)?.data === 'object' && (obj as any).data) {
             const data = (obj as any).data as Record<string, unknown>;
             if (typeof data.text === 'string') out.push(String(data.text));
             if (typeof data.content === 'string') out.push(String(data.content));
+            if (typeof (data as any)?.output_text === 'string') out.push(String((data as any).output_text));
+            if (typeof (data as any)?.outputText === 'string') out.push(String((data as any).outputText));
+            if (typeof (data as any)?.response_text === 'string') out.push(String((data as any).response_text));
           }
           for (const k of Object.keys(obj)) {
             if (keysToScan.has(k)) visit(obj[k], t);
@@ -169,4 +189,3 @@ export function estimateCostUSD(modelId: string | null, u?: Partial<UsageRow> | 
 export function estimateTokensForText(text: string): number {
   return text ? Math.ceil(text.length / TOKEN_COUNTING.CHARS_PER_TOKEN) : 0;
 }
-

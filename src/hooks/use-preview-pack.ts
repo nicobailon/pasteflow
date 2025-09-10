@@ -12,6 +12,7 @@ import { logger } from '../utils/logger';
 
 import { usePreviewGenerator } from './use-preview-generator';
 import type { StartPreviewParams } from './use-preview-generator';
+import { condenseUserMessageForDisplay } from '../utils/agent-message-utils';
 
 export type PackStatus = 'idle' | 'packing' | 'ready' | 'error' | 'cancelled';
 
@@ -199,6 +200,10 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           signature: currentSignatureRef.current,
         });
         
+        const derivedDisplay = previewState.contentForDisplay && previewState.contentForDisplay.length > 0
+          ? previewState.contentForDisplay
+          : (previewState.fullContent ? condenseUserMessageForDisplay(previewState.fullContent) : '');
+
         const completeState: PackState = {
           status: 'ready',
           processed: previewState.processed,
@@ -206,7 +211,7 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           percent: 100,
           tokenEstimate: previewState.tokenEstimate,
           fullContent: previewState.fullContent,
-          contentForDisplay: previewState.contentForDisplay,
+          contentForDisplay: derivedDisplay,
           signature: currentSignatureRef.current,
           hasSignatureChanged: false,  // Content is now up-to-date
         };
@@ -233,7 +238,9 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           status: 'error',
           error: previewState.error,
           fullContent: previewState.fullContent, // Keep any partial content
-          contentForDisplay: previewState.contentForDisplay,
+          contentForDisplay: previewState.contentForDisplay && previewState.contentForDisplay.length > 0
+            ? previewState.contentForDisplay
+            : (previewState.fullContent ? condenseUserMessageForDisplay(previewState.fullContent) : prev.contentForDisplay),
         }));
       
       break;
@@ -243,7 +250,9 @@ export function usePreviewPack(params: UsePreviewPackParams) {
           ...prev,
           status: 'cancelled',
           fullContent: previewState.fullContent, // Keep any partial content
-          contentForDisplay: previewState.contentForDisplay,
+          contentForDisplay: previewState.contentForDisplay && previewState.contentForDisplay.length > 0
+            ? previewState.contentForDisplay
+            : (previewState.fullContent ? condenseUserMessageForDisplay(previewState.fullContent) : prev.contentForDisplay),
         }));
       
       break;
