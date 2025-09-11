@@ -3,9 +3,9 @@ declare const jest: { fn?: unknown } | undefined;
 
 import { WORKER_POOL } from '@constants';
 
-import { DiscreteWorkerPoolBase } from './worker-base/discrete-worker-pool-base';
-import { estimateTokenCount } from './token-utils';
-import { createTokenCounterWorker } from './worker-factories';
+import { DiscreteWorkerPoolBase } from '../base/discrete-worker-pool-base';
+import { estimateTokenCount } from '../../utils/token-utils';
+import { createTokenCounterWorker } from '../worker-factories';
 
 interface TokenRequest {
   text: string;
@@ -184,3 +184,4 @@ export class TokenWorkerPool extends DiscreteWorkerPoolBase<TokenRequest, number
     this.terminate();
   }
 }
+

@@ -2,7 +2,7 @@
  * Tests for tree-builder-worker-pool error handling improvements
  */
 
-import { TreeBuilderWorkerPool } from '../utils/tree-builder-worker-pool';
+import { TreeBuilderWorkerPool } from '../workers/pools/tree-builder-worker-pool';
 
 describe('TreeBuilderWorkerPool Error Handling', () => {
   let pool: TreeBuilderWorkerPool;

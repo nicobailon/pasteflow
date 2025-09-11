@@ -5,10 +5,10 @@
 
 import { UI } from '@constants';
 
-import type { FileData, TreeNode } from '../types/file-types';
+import type { FileData, TreeNode } from '../../types/file-types';
 
-import { StreamingWorkerBase } from './worker-base/streaming-worker-base';
-import { createTreeBuilderWorker } from './worker-factories';
+import { StreamingWorkerBase } from '../base/streaming-worker-base';
+import { createTreeBuilderWorker } from '../worker-factories';
 
 interface TreeBuildStartRequest {
   files: FileData[];

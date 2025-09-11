@@ -1,4 +1,4 @@
-import { resolveWorkerUrl, withTimeout } from '../../worker-base/worker-common';
+import { resolveWorkerUrl, withTimeout } from '../../../workers/base/worker-common';
 
 describe('worker-common', () => {
   describe('resolveWorkerUrl', () => {

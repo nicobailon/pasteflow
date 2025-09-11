@@ -2,7 +2,7 @@
  * Example test file showing different Worker mocking strategies
  */
 
-import { TokenWorkerPool } from '../../utils/token-worker-pool';
+import { TokenWorkerPool } from '../../workers/pools/token-worker-pool';
 import { TOKEN_COUNTING } from '@constants';
 
 // Strategy 1: Using manual mock (if jest.mock is configured)

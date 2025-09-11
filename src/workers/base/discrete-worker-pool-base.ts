@@ -370,24 +370,18 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     request: TReq,
     options?: { signal?: AbortSignal; priority?: number }
   ): Promise<TRes> {
-    // Ensure workers are initialized
-    if (this.initPromise) {
-      try {
-        await this.initPromise;
-      } catch {
-        // Initialization failed, use fallback
-        return this.fallbackValue(request);
-      }
-    }
-    
     if (!this.acceptingJobs || this.isTerminated) {
       return this.fallbackValue(request);
     }
     
+    // De-duplication based on hash of request
     const hash = this.hashRequest(request);
     const existing = this.pendingByHash.get(hash);
-    if (existing) {
-      return existing;
+    if (existing) return existing;
+    
+    // Abort support
+    if (options?.signal?.aborted) {
+      return this.fallbackValue(request);
     }
     
     const promise = new Promise<TRes>((resolve, reject) => {
@@ -606,3 +600,4 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     this.recoveryQueue.clear();
   }
 }
+

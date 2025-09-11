@@ -1,5 +1,5 @@
 import { TEST_CONSTANTS } from './test-constants';
-import { TokenWorkerPool } from '../utils/token-worker-pool';
+import { TokenWorkerPool } from '../workers/pools/token-worker-pool';
 import { TOKEN_COUNTING } from '@constants';
 
 describe('TokenWorkerPool Behavioral Tests', () => {

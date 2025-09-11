@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 
-import { TokenWorkerPool } from '../utils/token-worker-pool';
+import { TokenWorkerPool } from '../workers/pools/token-worker-pool';
 import { estimateTokenCount } from '../utils/token-utils';
 
 // Match the worker's size limit
