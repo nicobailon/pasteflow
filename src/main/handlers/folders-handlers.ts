@@ -41,6 +41,10 @@ export async function handleOpenFolder(deps: { db: DatabaseBridge }, req: Reques
 
     const { data } = workspace;
     await activateWorkspace(deps.db, data);
+    try {
+      const { globalSystemContextCache } = await import('../agent/system-context-cache');
+      await globalSystemContextCache.refresh();
+    } catch { /* non-fatal */ }
 
     broadcastToRenderers('folder-selected', data.folder_path);
 

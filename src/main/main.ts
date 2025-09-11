@@ -516,6 +516,10 @@ ipcMain.on('open-folder', async (event) => {
          
         console.warn('Failed to persist active workspace for selected folder:', persistError);
       }
+      try {
+        const { globalSystemContextCache } = await import('./agent/system-context-cache');
+        await globalSystemContextCache.refresh();
+      } catch { /* non-fatal */ }
       event.sender.send('folder-selected', selectedPath);
     } catch (error) {
        

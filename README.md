@@ -31,8 +31,17 @@ Build precise, token-efficient context from any codebase. Select exact files and
 
 ### Workspace & Prompts
 - **Workspace Persistence**: Save and restore complete application state via SQLite
-- **System Prompts**: Create and manage reusable prompts bundled with code packs
+- **System Prompts**: Separate Global and Workspace prompts. Both are editable in Agent Settings and are the only system text sent to the model (no automatic summary).
+  - Replace flags: "Use only this prompt" for Global/Workspace; Workspace wins over Global.
+  - Default composition: Global → Workspace (when neither replaces).
 - **Configuration Reuse**: Save context selections for repeated use
+
+### System Execution Context
+- **Optional**: When enabled, a small environment snapshot is appended after your system prompts.
+- **What’s included**: Working Directory, Home Directory, Platform (OS + arch), Shell (name + version when available), and a Timestamp.
+- **Refresh behavior**: Collected on initial load and refreshed only when a workspace is opened or a new folder is selected.
+- **Toggles**: Global and Workspace toggles in Agent Settings. Workspace toggle overrides Global. Env fallback: set `PF_AGENT_DISABLE_EXECUTION_CONTEXT=1` to force-disable when no preference is set.
+- **Privacy**: Includes only non‑sensitive values; absolute paths are limited to cwd/home.
 
 ### User Experience
 - **File Tree Navigation**: Browse and select files/folders from your codebase
@@ -98,6 +107,7 @@ npm run test:watch
   - Related: `PF_AGENT_ENABLE_FILE_WRITE` (default: true), `PF_AGENT_ENABLE_CODE_EXECUTION` (default: true)
 - PF_AGENT_MAX_SESSION_MESSAGES: persist last N chat messages per session (default: 50)
 - PF_AGENT_TELEMETRY_RETENTION_DAYS: days to retain tool/usage telemetry (default: 90)
+- PF_AGENT_DISABLE_EXECUTION_CONTEXT: disable system execution context injection (default: false)
 
 Telemetry & cost notes
 - Costs are computed server‑side using a small built‑in pricing table (per 1M tokens) in `src/main/agent/pricing.ts`. The table covers common default models and can be expanded. When a model is not in the table, the UI may show an approximate cost based on a conservative rate.

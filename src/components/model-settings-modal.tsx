@@ -14,7 +14,7 @@ type Props = {
   workspaceId?: string | null;
 };
 
-type SystemPromptMode = "default" | "override" | "prefix" | "suffix";
+// System prompt modes removed; replaced with simple Replace Summary toggles
 
 export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspaceId }: Props) {
   const [tab, setTab] = useState<ProviderId>("openai");
@@ -43,11 +43,14 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
   const [enableWrites, setEnableWrites] = useState<boolean>(true);
   const [enableExec, setEnableExec] = useState<boolean>(true);
   const [approvalMode, setApprovalMode] = useState<'never'|'risky'|'always'>('risky');
+  const [execCtxGlobalEnabled, setExecCtxGlobalEnabled] = useState<boolean>(true);
+  const [execCtxWorkspaceEnabled, setExecCtxWorkspaceEnabled] = useState<boolean>(true);
 
-  // System prompt (new)
-  const [spMode, setSpMode] = useState<SystemPromptMode>("default");
-  const [spText, setSpText] = useState<string>("");
-  const [spScope, setSpScope] = useState<"global" | "workspace">("global");
+  // System prompts: separate global and workspace
+  const [spGlobalText, setSpGlobalText] = useState<string>("");
+  const [spGlobalReplace, setSpGlobalReplace] = useState<boolean>(false);
+  const [spWorkspaceText, setSpWorkspaceText] = useState<string>("");
+  const [spWorkspaceReplace, setSpWorkspaceReplace] = useState<boolean>(false);
   // Tools help is always included server-side; no toggle in UI.
   const [maxCtxTokens, setMaxCtxTokens] = useState<number>(120_000);
 
@@ -67,7 +70,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     let mounted = true;
     (async () => {
       try {
-        const [okey, akey, orKey, orBase, temp, max, w, x, appr, maxCtx] = await Promise.all([
+        const [okey, akey, orKey, orBase, temp, max, w, x, appr, maxCtx, execCtx, execCtxWs] = await Promise.all([
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.anthropic.apiKey' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.apiKey' }),
@@ -78,6 +81,8 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableCodeExecution' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.approvalMode' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxContextTokens' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.executionContext.enabled' }),
+          workspaceId ? window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.executionContext.enabled.${workspaceId}` }) : Promise.resolve(null),
         ] as const);
         if (!mounted) return;
         setOpenaiStored(Boolean(okey?.data));
@@ -94,6 +99,18 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
         if (am === 'never' || am === 'risky' || am === 'always') setApprovalMode(am as any);
         const mc = Number(maxCtx?.data);
         if (Number.isFinite(mc)) setMaxCtxTokens(Math.max(1000, Math.min(2_000_000, mc)));
+        // Execution context toggles
+        const storedExecGlobal = execCtx?.data;
+        if (typeof storedExecGlobal === 'boolean') setExecCtxGlobalEnabled(storedExecGlobal);
+        else {
+          try {
+            const raw = String(process.env.PF_AGENT_DISABLE_EXECUTION_CONTEXT || '').trim().toLowerCase();
+            const disabled = raw === '1' || raw === 'true' || raw === 'yes';
+            setExecCtxGlobalEnabled(!disabled);
+          } catch { setExecCtxGlobalEnabled(true); }
+        }
+        const storedExecWs = (execCtxWs as any)?.data;
+        if (typeof storedExecWs === 'boolean') setExecCtxWorkspaceEnabled(storedExecWs);
       } catch { /* ignore */ }
     })();
     return () => { mounted = false; };
@@ -156,54 +173,37 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     return () => { aborted = true; };
   }, [isOpen, apiBase, authToken]);
 
-  // Helper to compute preference key based on scope
-  const spKey = (base: string): string => {
-    if (spScope === 'workspace' && workspaceId) return `${base}.${workspaceId}`;
-    return base;
-  };
-
-  // Load system prompt preferences
+  // Load system prompt preferences (global + workspace)
   useEffect(() => {
     if (!isOpen) return;
     let mounted = true;
     (async () => {
       try {
-        const globalModeP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.mode' });
+        const globalReplaceP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.replace' });
         const globalTextP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.text' });
-        const wsModeP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.mode.${workspaceId}` }) : Promise.resolve(null);
+        const wsReplaceP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.replace.${workspaceId}` }) : Promise.resolve(null);
         const wsTextP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.text.${workspaceId}` }) : Promise.resolve(null);
-        const [gMode, gText, wMode, wText] = await Promise.all([globalModeP, globalTextP, wsModeP, wsTextP] as const);
+        const [gReplace, gText, wReplace, wText] = await Promise.all([globalReplaceP, globalTextP, wsReplaceP, wsTextP] as const);
         if (!mounted) return;
-        const gmRaw = typeof gMode?.data === 'string' ? gMode.data : 'default';
+        const grRaw = typeof gReplace?.data === 'boolean' ? gReplace.data : false;
         const gtRaw = typeof gText?.data === 'string' ? gText.data : '';
-        const wmRaw = typeof wMode?.data === 'string' ? wMode.data : null;
-        const wtRaw = typeof wText?.data === 'string' ? wText.data : null;
-
-        // Prefer workspace scope if any workspace-based preference exists
-        const initialScope: 'global' | 'workspace' = (workspaceId && (wmRaw || wtRaw)) ? 'workspace' : 'global';
-        setSpScope(initialScope);
-        const mode = (initialScope === 'workspace' ? (wmRaw || gmRaw) : gmRaw);
-        const text = (initialScope === 'workspace' ? (wtRaw ?? gtRaw) : gtRaw);
-
-        if (mode === 'default' || mode === 'override' || mode === 'prefix' || mode === 'suffix') setSpMode(mode);
-        else setSpMode('default');
-        setSpText(typeof text === 'string' ? text : '');
+        const wrRaw = typeof (wReplace as any)?.data === 'boolean' ? (wReplace as any).data : false;
+        const wtRaw = typeof (wText as any)?.data === 'string' ? (wText as any).data : '';
+        setSpGlobalReplace(Boolean(grRaw));
+        setSpGlobalText(typeof gtRaw === 'string' ? gtRaw : '');
+        setSpWorkspaceReplace(Boolean(wrRaw));
+        setSpWorkspaceText(typeof wtRaw === 'string' ? wtRaw : '');
       } catch { /* ignore */ }
     })();
     return () => { mounted = false; };
   }, [isOpen, workspaceId]);
 
-  // Derived counts and warnings
-  // Editor shows only the custom system prompt text (no summary/placeholder).
-  const spCharCount = spText.length;
-  const spTokenCount = useMemo<number>(() => estimateTokenCount(spText), [spText]);
-  const spTokenWarn = useMemo<null | { level: 'info' | 'hard'; message: string }>(() => {
-    const soft = Math.floor(maxCtxTokens * 0.4);
-    const hard = Math.floor(maxCtxTokens * 0.9);
-    if (spTokenCount >= hard) return { level: 'hard', message: `System prompt is very large (${spTokenCount.toLocaleString()} tokens). Consider reducing size.` };
-    if (spTokenCount >= soft) return { level: 'info', message: `Large system prompt (${spTokenCount.toLocaleString()} tokens) reduces available context.` };
-    return null;
-  }, [spTokenCount, maxCtxTokens]);
+  // Derived counts and warnings per prompt
+  const spGlobalCharCount = spGlobalText.length;
+  const spGlobalTokenCount = useMemo<number>(() => estimateTokenCount(spGlobalText), [spGlobalText]);
+  const spWorkspaceCharCount = spWorkspaceText.length;
+  const spWorkspaceTokenCount = useMemo<number>(() => estimateTokenCount(spWorkspaceText), [spWorkspaceText]);
+  // No combined warning for prompts; individual sizes are shown next to editors.
 
   // previewText no longer needed; the editor shows the effective prompt directly.
 
@@ -410,6 +410,29 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                   </label>
                 </div>
                 <div className="field">
+                  <label>
+                    <input type="checkbox" checked={execCtxGlobalEnabled} onChange={(e) => setExecCtxGlobalEnabled(e.target.checked)} />
+                    <span style={{ marginLeft: 6 }}>Include System Execution Context (Global)</span>
+                  </label>
+                  <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                    Adds a short, automatic snapshot to the system prompt so the agent understands your environment (paths, OS, shell, time).
+                    <div style={{ marginTop: 4 }}>Example:</div>
+                    <pre style={{ margin: '6px 0 0', padding: 6, background: 'var(--surface-muted)', borderRadius: 4, fontSize: 11 }}>
+- Working Directory: /your/project
+- Home Directory: /Users/you
+- Platform: darwin (arm64)
+- Shell: zsh 5.9
+- Timestamp: 2025-09-10T12:34:56.789Z
+                    </pre>
+                  </div>
+                </div>
+                <div className="field">
+                  <label>
+                    <input type="checkbox" checked={execCtxWorkspaceEnabled} onChange={(e) => setExecCtxWorkspaceEnabled(e.target.checked)} disabled={!workspaceId} />
+                    <span style={{ marginLeft: 6 }}>Include System Execution Context (Workspace)</span>
+                  </label>
+                </div>
+                <div className="field">
                   <label>Approval mode</label>
                   <select value={approvalMode} onChange={(e) => setApprovalMode(e.target.value as any)}>
                     <option value="never">Never</option>
@@ -455,83 +478,112 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               </section>
             )}
 
-            {/* System Prompt section */}
+            {/* System Prompts section */}
             <section className="settings-section">
               <div className="field">
                 <div className="field-label-row">
-                  <label>System Prompt</label>
+                  <label>Global System Prompt</label>
                 </div>
                 <div className="settings-grid">
                   <div className="field">
-                    <label>Scope</label>
-                    <select
-                      value={spScope}
-                      onChange={(e) => setSpScope((() => {
-                        const v = e.target.value === 'workspace' ? 'workspace' : 'global';
-                        return v;
-                      })())}
-                      disabled={!workspaceId}
-                    >
-                      <option value="global">Global (all workspaces)</option>
-                      <option value="workspace" disabled={!workspaceId}>
-                        {workspaceId ? 'Current workspace' : 'Current workspace (no workspace)'}
-                      </option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Mode</label>
-                    <select value={spMode} onChange={(e) => setSpMode((e.target.value as SystemPromptMode) || 'default')}>
-                      <option value="default">Default (summary only)</option>
-                      <option value="override">Override (use only custom)</option>
-                      <option value="prefix">Prefix (custom above summary)</option>
-                      <option value="suffix">Suffix (custom below summary)</option>
-                    </select>
+                    <label>
+                      <input type="checkbox" checked={spGlobalReplace} onChange={(e) => setSpGlobalReplace(e.target.checked)} />
+                      <span style={{ marginLeft: 6 }}>Use only this prompt</span>
+                    </label>
                   </div>
                 </div>
               </div>
 
               <div className="field">
-                <label htmlFor="system-prompt-text">System prompt</label>
+                <label htmlFor="system-prompt-text-global">Global prompt</label>
                 <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
-                  This is your custom system prompt. Leave empty for the default behavior. Editing switches Mode to Override.
+                  Leave empty to skip. When not replacing, Global and Workspace prompts are combined.
                 </div>
                 <textarea
-                  id="system-prompt-text"
+                  id="system-prompt-text-global"
                   className="prompt-content-input"
-                  value={spText}
-                  onChange={(e) => { setSpMode('override'); setSpText(e.target.value); }}
-                  rows={10}
+                  value={spGlobalText}
+                  onChange={(e) => { setSpGlobalText(e.target.value); }}
+                  rows={8}
                   placeholder=""
                 />
                 <div className="actions" style={{ justifyContent: 'space-between' }}>
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    {spCharCount.toLocaleString()} chars · ~{spTokenCount.toLocaleString()} tokens
+                    {spGlobalCharCount.toLocaleString()} chars · ~{spGlobalTokenCount.toLocaleString()} tokens
                   </div>
                   <div className="actions">
                     <button className="secondary" onClick={async () => {
                       try {
-                        const toCopy = spText;
+                        const toCopy = spGlobalText;
                         if (navigator?.clipboard?.writeText) await navigator.clipboard.writeText(toCopy);
                         else {
                           const ta = document.createElement('textarea');
                           ta.value = toCopy; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
                         }
                       } catch { /* ignore */ }
-                    }} title="Copy system prompt">
+                    }} title="Copy global system prompt">
                       <Copy size={14} /> Copy
                     </button>
-                    <button className="cancel-button" onClick={() => { setSpMode('default'); setSpText(''); }} title="Reset to default">
+                    <button className="cancel-button" onClick={() => { setSpGlobalMode('default'); setSpGlobalText(''); }} title="Reset global to default">
                       Reset
                     </button>
                   </div>
                 </div>
               </div>
 
-              {spTokenWarn && (
-                <AgentAlertBanner variant={spTokenWarn.level === 'hard' ? 'error' : 'info'} message={spTokenWarn.message} />
-              )}
+              <div className="field" style={{ marginTop: 16 }}>
+                <div className="field-label-row">
+                  <label>Workspace System Prompt</label>
+                </div>
+                <div className="settings-grid">
+                  <div className="field">
+                    <label>
+                      <input type="checkbox" checked={spWorkspaceReplace} onChange={(e) => setSpWorkspaceReplace(e.target.checked)} disabled={!workspaceId} />
+                      <span style={{ marginLeft: 6 }}>Use only this prompt</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
 
-              {/* Preview collapsed removed; editor shows effective prompt directly. */}
+              <div className="field">
+                <label htmlFor="system-prompt-text-workspace">Workspace prompt</label>
+                <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  Applies only to the active workspace. Typing here switches Mode to Override.
+                </div>
+                <textarea
+                  id="system-prompt-text-workspace"
+                  className="prompt-content-input"
+                  value={spWorkspaceText}
+                  onChange={(e) => { setSpWorkspaceText(e.target.value); }}
+                  rows={8}
+                  placeholder={workspaceId ? '' : 'Open a workspace to edit its prompt'}
+                  disabled={!workspaceId}
+                />
+                <div className="actions" style={{ justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {spWorkspaceCharCount.toLocaleString()} chars · ~{spWorkspaceTokenCount.toLocaleString()} tokens
+                  </div>
+                  <div className="actions">
+                    <button className="secondary" disabled={!workspaceId} onClick={async () => {
+                      try {
+                        const toCopy = spWorkspaceText;
+                        if (navigator?.clipboard?.writeText) await navigator.clipboard.writeText(toCopy);
+                        else {
+                          const ta = document.createElement('textarea');
+                          ta.value = toCopy; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                        }
+                      } catch { /* ignore */ }
+                    }} title="Copy workspace system prompt">
+                      <Copy size={14} /> Copy
+                    </button>
+                    <button className="cancel-button" disabled={!workspaceId} onClick={() => { setSpWorkspaceReplace(false); setSpWorkspaceText(''); }} title="Reset workspace to default">
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes: The automatic summary has been removed. Execution context may be appended if enabled. */}
             </section>
 
             {usageStats && (
@@ -599,10 +651,18 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.maxOutputTokens', value: maxOut });
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableFileWrite', value: enableWrites });
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableCodeExecution', value: enableExec });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.executionContext.enabled', value: execCtxGlobalEnabled });
+                if (workspaceId) {
+                  await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.executionContext.enabled.${workspaceId}`, value: execCtxWorkspaceEnabled });
+                }
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.approvalMode', value: approvalMode });
-                // System prompt persistence (respect scope)
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: spKey('agent.systemPrompt.mode'), value: spMode });
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: spKey('agent.systemPrompt.text'), value: spText });
+                // System prompts: save global and workspace separately
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.systemPrompt.replace', value: spGlobalReplace });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.systemPrompt.text', value: spGlobalText });
+                if (workspaceId) {
+                  await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.systemPrompt.replace.${workspaceId}`, value: spWorkspaceReplace });
+                  await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.systemPrompt.text.${workspaceId}`, value: spWorkspaceText });
+                }
                 setStatus('success'); setTimeout(() => setStatus('idle'), 1000);
               } catch (e) { setStatus('error'); setError((e as Error)?.message || 'Failed to save'); }
             }}>Save</button>
