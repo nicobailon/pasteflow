@@ -153,6 +153,10 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     if (this.handshake.healthCheckType && typeof jest === 'undefined') {
       this.startHealthMonitoring();
     }
+
+    // Drain any queued jobs that may have arrived during initialization
+    // Ensures early requests made before workers were ready don't stall
+    this.processNext();
   }
 
   private async handshakeWorker(worker: Worker, workerId: number): Promise<void> {
@@ -370,6 +374,15 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     request: TReq,
     options?: { signal?: AbortSignal; priority?: number }
   ): Promise<TRes> {
+    // Ensure initialization completes before attempting to dispatch or enqueue
+    // This prevents early calls from stalling when no workers exist yet
+    try {
+      if (this.initPromise) {
+        await this.initPromise;
+      }
+    } catch {
+      // If initialization failed, continue; fallback resolution below will handle missing workers
+    }
     if (!this.acceptingJobs || this.isTerminated) {
       return this.fallbackValue(request);
     }
@@ -397,7 +410,12 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
       };
       
       if (workerId === null) {
-        this.enqueue(item);
+        // If no workers exist (e.g., init failed), resolve with fallback immediately
+        if (this.workers.length === 0) {
+          resolve(this.fallbackValue(request));
+        } else {
+          this.enqueue(item);
+        }
       } else {
         this.dispatch(item, workerId);
       }
@@ -600,4 +618,3 @@ export abstract class DiscreteWorkerPoolBase<TReq, TRes> {
     this.recoveryQueue.clear();
   }
 }
-
