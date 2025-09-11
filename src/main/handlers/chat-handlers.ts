@@ -7,9 +7,9 @@ import type { UIMessage, ModelMessage, ToolSet } from 'ai';
 
 import { toApiError } from '../error-normalizer';
 import { getAllowedWorkspacePaths } from '../workspace-context';
-import { buildSystemPrompt } from '../agent/system-prompt';
+import { composeEffectiveSystemPrompt } from '../agent/system-prompt';
 import { getAgentTools } from '../agent/tools';
-import { getToolCatalog } from '../agent/tool-catalog';
+import { getEnabledToolsSet } from '../agent/tools-config';
 import type { ContextResult } from '../agent/tool-types';
 import type { ProviderId } from '../agent/models-catalog';
 import { withRateLimitRetries } from '../utils/retry';
@@ -94,14 +94,17 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     const allowed = getAllowedWorkspacePaths();
     const safeEnvelope = envelope ? sanitizeContextEnvelope(envelope, allowed) : undefined;
 
-    // Build tools catalog for prompt
-    const toolsCatalog = getToolCatalog();
-
-    const system = buildSystemPrompt({
-      initial: safeEnvelope?.initial,
-      dynamic: safeEnvelope?.dynamic ?? { files: [] },
-      workspace: safeEnvelope?.workspace ?? null,
-    }, toolsCatalog);
+    // Read enabled tools (for both system composition and tool filtering)
+    const enabledTools = await getEnabledToolsSet(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+    const system = await composeEffectiveSystemPrompt(
+      deps.db as unknown as { getPreference: (k: string) => Promise<unknown> },
+      {
+        initial: safeEnvelope?.initial,
+        dynamic: safeEnvelope?.dynamic ?? { files: [] },
+        workspace: safeEnvelope?.workspace ?? null,
+      },
+      { enabledTools }
+    );
 
     try {
       const initCount = safeEnvelope?.initial?.files?.length ?? 0;
@@ -131,7 +134,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     const cfg = await resolveAgentConfig(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
     const { AgentSecurityManager } = await import('../agent/security-manager');
     const security = await AgentSecurityManager.create({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> } });
-    const tools = getAgentTools({
+    const toolsAll = getAgentTools({
       signal: controller.signal,
       security,
       config: cfg,
@@ -168,6 +171,16 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         } catch { /* noop */ }
       },
     });
+
+    // Filter tool set to only enabled tools
+    const tools = Object.fromEntries(
+      Object.entries(toolsAll).filter(([k]) => enabledTools.has(k))
+    ) as ToolSet;
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[AI][tools:active]', { active: Object.keys(tools) });
+      }
+    } catch { /* noop */ }
 
     // Backpressure guard: if session is currently rate-limited, return 429
     try {
@@ -226,18 +239,9 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
       }
     } catch { /* noop */ }
 
-    const disableTools = String(process.env.PF_AGENT_DISABLE_TOOLS || '').toLowerCase() === 'true';
-    const headerDisable = String(req.headers['x-pasteflow-disable-tools'] || '').toLowerCase() === '1';
-    // Heuristic: if packed content is embedded or initial context is present, avoid tool calls on the first turn
-    const hasPackedContent = (() => {
-      try {
-        if (safeEnvelope?.initial && Array.isArray(safeEnvelope.initial.files) && safeEnvelope.initial.files.length > 0) return true;
-        const lu = extractLastUserText(modelMessages);
-        return typeof lu === 'string' && lu.includes('<codebase>');
-      } catch { return false; }
-    })();
-    const toolsDisabledEffective = disableTools || headerDisable || hasPackedContent;
-    try { console.log('[AI][chat:model]', { provider: cfg.PROVIDER || 'openai', modelId: cfg.DEFAULT_MODEL, toolsDisabled: toolsDisabledEffective }); } catch { /* noop */ }
+    // Always enable tools for normal operation; safety is enforced via security/config/approvals.
+    // Tool disabling is now only done in specific error-retry paths below.
+    try { console.log('[AI][chat:model]', { provider: cfg.PROVIDER || 'openai', modelId: cfg.DEFAULT_MODEL, toolsDisabled: false }); } catch { /* noop */ }
 
     // Temperature handling for reasoning models
     const modelIdStr = String(effectiveModelId || '');
@@ -276,7 +280,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         model,
         system,
         messages: finalModelMessages,
-        tools: toolsDisabledEffective ? undefined : tools,
+        tools,
         temperature: shouldOmitTemperature ? undefined : (typeof cfgTemperature === 'number' ? cfgTemperature : undefined),
         maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
         abortSignal: controller.signal,
@@ -340,128 +344,172 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
       const param = String(err?.param || err?.data?.error?.param || err?.cause?.data?.error?.param || '');
       console.error('[AI][chat:error]', { name, status: Number.isFinite(status) ? status : undefined, code: code || undefined, param: param || undefined, message: clipLog(msg, 300) });
     } catch { /* noop */ }
-    // Graceful fallback: invalid tool parameter schema → retry once without tools
-    if (isInvalidToolParametersError(cause)) {
+    // Per-tool quarantine-on-error: if a specific tool's call is invalid, retry once without that tool
+    if (isInvalidToolCallError(cause)) {
       try {
-        // eslint-disable-next-line no-console
-        console.warn('[AI] Tool schema invalid; retrying without tools');
-
         const parsed = chatBodySchema.safeParse(req.body);
         if (!parsed.success) {
           return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid body'));
         }
 
-        let modelMessages: ModelMessage[];
-        try {
-          modelMessages = convertToModelMessages(parsed.data.messages as Omit<UIMessage, 'id'>[]);
-        } catch {
-          return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
-        }
+        // Determine which tool likely caused the error by message heuristics
+        const enabledToolsSet = await getEnabledToolsSet(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+        const enabledNames = Array.from(enabledToolsSet);
+        const badTool = extractToolNameFromError(cause, enabledNames);
+        if (badTool && enabledToolsSet.has(badTool)) {
+          try { console.warn('[AI][tool:quarantine]', { tool: badTool, reason: 'invalid-function-parameters' }); } catch { /* noop */ }
 
-        const _headers = (req.headers ?? {}) as Record<string, unknown>;
-        const headerSession = String(((_headers['x-pasteflow-session'] as unknown) || (_headers['x-pf-session-id'] as unknown) || '')).trim();
-        const sessionId = parsed.data.sessionId || (headerSession || randomUUID());
+          // Quarantine just this tool for the retry
+          const enabledMinus = new Set(enabledNames.filter((n) => n !== badTool));
 
-        const envelope = parsed.data.context;
-        const allowed = getAllowedWorkspacePaths();
-        const safeEnvelope = envelope ? sanitizeContextEnvelope(envelope, allowed) : undefined;
-        const toolsCatalog = getToolCatalog();
-        const system = buildSystemPrompt({
-          initial: safeEnvelope?.initial,
-          dynamic: safeEnvelope?.dynamic ?? { files: [] },
-          workspace: safeEnvelope?.workspace ?? null,
-        }, toolsCatalog);
-
-        const controller = new AbortController();
-        const onAbort = () => { try { controller.abort(); } catch { /* noop */ } };
-        req.on('aborted', onAbort);
-        res.on('close', onAbort);
-
-        const { resolveAgentConfig } = await import('../agent/config');
-        const cfg = await resolveAgentConfig(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
-
-        const { resolveModelForRequest } = await import('../agent/model-resolver');
-        const provider: ProviderId = cfg.PROVIDER || 'openai';
-        const { model } = await resolveModelForRequest({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: cfg.DEFAULT_MODEL });
-
-        const retryModelIdStr = String(cfg.DEFAULT_MODEL || '');
-        const retryIsReasoningModel = (() => {
+          let modelMessages: ModelMessage[];
           try {
-            const s = retryModelIdStr.toLowerCase();
-            return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
-          } catch { return false; }
-        })();
-        const retryShouldOmitTemperature = retryIsReasoningModel && typeof cfg.TEMPERATURE === 'number';
-
-        // Ensure trailing user message for reasoning models
-        let finalRetryMessages: ModelMessage[] = modelMessages;
-        if (retryIsReasoningModel) {
-          const needsUserTail = finalRetryMessages.length === 0 || finalRetryMessages[finalRetryMessages.length - 1]?.role !== 'user';
-          if (needsUserTail) {
-            finalRetryMessages = finalRetryMessages.concat([{ role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage]);
+            modelMessages = convertToModelMessages(parsed.data.messages as Omit<UIMessage, 'id'>[]);
+          } catch {
+            return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
           }
-        }
 
-        let start = Date.now();
-        if (res.headersSent) return; // safety
-        const createStream = async (_attempt: number) => {
-          start = Date.now();
-          return streamText({
-            model,
-            system,
-            messages: finalRetryMessages,
-            tools: undefined, // retry without tools
-            temperature: retryShouldOmitTemperature ? undefined : cfg.TEMPERATURE,
-            maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
-            abortSignal: controller.signal,
-            onAbort: () => {},
-            onFinish: async (info: unknown) => {
+          const _headers = (req.headers ?? {}) as Record<string, unknown>;
+          const headerSession = String(((_headers['x-pasteflow-session'] as unknown) || (_headers['x-pf-session-id'] as unknown) || '')).trim();
+          const sessionId = parsed.data.sessionId || (headerSession || randomUUID());
+
+          const envelope = parsed.data.context;
+          const allowed = getAllowedWorkspacePaths();
+          const safeEnvelope = envelope ? sanitizeContextEnvelope(envelope, allowed) : undefined;
+          const system = await composeEffectiveSystemPrompt(
+            deps.db as unknown as { getPreference: (k: string) => Promise<unknown> },
+            {
+              initial: safeEnvelope?.initial,
+              dynamic: safeEnvelope?.dynamic ?? { files: [] },
+              workspace: safeEnvelope?.workspace ?? null,
+            },
+            { enabledTools: enabledMinus }
+          );
+
+          const controller = new AbortController();
+          const onAbort = () => { try { controller.abort(); } catch { /* noop */ } };
+          req.on('aborted', onAbort);
+          res.on('close', onAbort);
+
+          const { resolveAgentConfig } = await import('../agent/config');
+          const cfg = await resolveAgentConfig(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
+
+          const { resolveModelForRequest } = await import('../agent/model-resolver');
+          const provider: ProviderId = cfg.PROVIDER || 'openai';
+          const preferredModelId = String(cfg.DEFAULT_MODEL || '');
+          const modelIdIsReasoning = (() => {
+            try {
+              const s = preferredModelId.toLowerCase();
+              return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
+            } catch { return false; }
+          })();
+          const packedContent = (() => {
+            try {
+              if (safeEnvelope?.initial && Array.isArray(safeEnvelope.initial.files) && safeEnvelope.initial.files.length > 0) return true;
+              const lu = extractLastUserText(modelMessages);
+              return typeof lu === 'string' && lu.includes('<codebase>');
+            } catch { return false; }
+          })();
+          const effectiveModelId = (packedContent && modelIdIsReasoning)
+            ? (provider === 'openai' ? 'gpt-4o-mini' : preferredModelId)
+            : preferredModelId;
+          const { model } = await resolveModelForRequest({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: effectiveModelId });
+
+          const cfgTemperature = cfg.TEMPERATURE;
+          const shouldOmitTemperature = modelIdIsReasoning && typeof cfgTemperature === 'number';
+          let finalRetryMessages: ModelMessage[] = modelMessages;
+          if (modelIdIsReasoning) {
+            const needsUserTail = finalRetryMessages.length === 0 || finalRetryMessages[finalRetryMessages.length - 1]?.role !== 'user';
+            if (needsUserTail) {
+              finalRetryMessages = finalRetryMessages.concat([{ role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage]);
+            }
+          }
+
+          // Build tool set minus the quarantined tool
+          const { AgentSecurityManager } = await import('../agent/security-manager');
+          const security = await AgentSecurityManager.create({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> } });
+          const { getAgentTools } = await import('../agent/tools');
+          const toolsAll = getAgentTools({
+            signal: controller.signal,
+            security,
+            config: cfg,
+            sessionId,
+            onToolExecute: async (name, args, result, meta) => {
               try {
-                const { input, output, total } = extractUsage(info);
-                const latency = Date.now() - start;
-                let cost: number | null = null;
-                try {
-                  const { calculateCostUSD } = await import('../agent/pricing');
-                  const modelIdForPricing = String(cfg.DEFAULT_MODEL || '');
-                  cost = calculateCostUSD(provider, modelIdForPricing, { inputTokens: input ?? undefined, outputTokens: output ?? undefined });
-                } catch { /* noop */ }
-                try {
-                  if (process.env.NODE_ENV === 'development') {
-                    // eslint-disable-next-line no-console
-                    console.log('[AI][finish:fallback]', { input, output, total, latency, cost });
-                  }
-                } catch { /* noop */ }
-                await persistUsage(deps.db, sessionId, input, output, total, latency, cost);
-              } catch { /* ignore persistence errors */ }
+                const typedResult = name === 'context' ? (result as ContextResult) : result;
+                await deps.db.insertToolExecution({
+                  sessionId,
+                  toolName: String(name),
+                  args,
+                  result: typedResult,
+                  status: 'ok',
+                  error: null,
+                  startedAt: (meta as { startedAt?: number } | undefined)?.startedAt ?? null,
+                  durationMs: (meta as { durationMs?: number } | undefined)?.durationMs ?? null,
+                });
+              } catch { /* ignore */ }
             },
           });
-        };
+          const tools = Object.fromEntries(
+            Object.entries(toolsAll).filter(([k]) => enabledMinus.has(k))
+          ) as ToolSet;
 
-        try {
-          res.setHeader('X-Pasteflow-Warning', 'tools-disabled');
-          res.setHeader('X-Pasteflow-Warning-Message', 'Tools disabled due to invalid tool schema; retried without tools.');
-        } catch { /* noop */ }
+          try {
+            res.setHeader('X-Pasteflow-Warning', 'tool-quarantined');
+            res.setHeader('X-Pasteflow-Tool-Quarantined', badTool);
+            res.setHeader('X-Pasteflow-Warning-Message', `Tool "${badTool}" quarantined due to invalid tool call; retried without it.`);
+          } catch { /* noop */ }
 
-        const result = await withRateLimitRetries(createStream, {
-          attempts: cfg.RETRY_ATTEMPTS,
-          baseMs: cfg.RETRY_BASE_MS,
-          maxMs: cfg.RETRY_MAX_MS,
-          isRetriable: isRetriableProviderError,
-          getRetryAfterMs: getRetryAfterMsFromError,
-        });
+          let start = Date.now();
+          if (res.headersSent) return; // safety
+          const createStream = async (_attempt: number) => {
+            start = Date.now();
+            return streamText({
+              model,
+              system,
+              messages: finalRetryMessages,
+              tools,
+              temperature: shouldOmitTemperature ? undefined : cfgTemperature,
+              maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
+              abortSignal: controller.signal,
+              onAbort: () => {},
+              onFinish: async (info: unknown) => {
+                try {
+                  const { input, output, total } = extractUsage(info);
+                  const latency = Date.now() - start;
+                  let cost: number | null = null;
+                  try {
+                    const { calculateCostUSD } = await import('../agent/pricing');
+                    const modelIdForPricing = String(effectiveModelId || '');
+                    cost = calculateCostUSD(provider, modelIdForPricing, { inputTokens: input ?? undefined, outputTokens: output ?? undefined });
+                  } catch { /* noop */ }
+                  await persistUsage(deps.db, sessionId, input, output, total, latency, cost);
+                } catch { /* ignore persistence errors */ }
+              },
+            });
+          };
 
-        if (res.headersSent) return;
-        result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
+          const result = await withRateLimitRetries(createStream, {
+            attempts: cfg.RETRY_ATTEMPTS,
+            baseMs: cfg.RETRY_BASE_MS,
+            maxMs: cfg.RETRY_MAX_MS,
+            isRetriable: isRetriableProviderError,
+            getRetryAfterMs: getRetryAfterMsFromError,
+          });
 
-        try {
-          const maxMsgs = Number(process.env.PF_AGENT_MAX_SESSION_MESSAGES ?? 50);
-          const msgJson = JSON.stringify(Array.isArray(parsed.data.messages) ? parsed.data.messages.slice(-Math.max(1, maxMsgs)) : parsed.data.messages);
-          const activeId = await deps.db.getPreference('workspace.active');
-          const ws = activeId ? await deps.db.getWorkspace(String(activeId)) : null;
-          await deps.db.upsertChatSession(sessionId, msgJson, ws ? String(ws.id) : null);
-        } catch { /* ignore */ }
+          if (res.headersSent) return;
+          result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
 
-        return; // streamed response
+          try {
+            const maxMsgs = Number(process.env.PF_AGENT_MAX_SESSION_MESSAGES ?? 50);
+            const msgJson = JSON.stringify(Array.isArray(parsed.data.messages) ? parsed.data.messages.slice(-Math.max(1, maxMsgs)) : parsed.data.messages);
+            const activeId = await deps.db.getPreference('workspace.active');
+            const ws = activeId ? await deps.db.getWorkspace(String(activeId)) : null;
+            await deps.db.upsertChatSession(sessionId, msgJson, ws ? String(ws.id) : null);
+          } catch { /* ignore */ }
+
+          return; // streamed response
+        }
       } catch (fallbackError) {
         // Merge back into error handling below
         cause = fallbackError;
@@ -731,24 +779,54 @@ export function getRetryAfterMsFromError(err: unknown): number | null {
   } catch { return null; }
 }
 
-export function isInvalidToolParametersError(err: unknown): boolean {
+export function isInvalidToolCallError(err: unknown): boolean {
   try {
-    const msg = String((err as { message?: string } | null | undefined)?.message || '').toLowerCase();
-    const code = String(
+    const toStr = (v: unknown) => (v == null ? '' : String(v));
+    const msg = toStr((err as { message?: string } | null | undefined)?.message).toLowerCase();
+    const code = toStr(
       (err as { code?: string } | null | undefined)?.code
       ?? (err as { data?: { error?: { code?: string } } } | null | undefined)?.data?.error?.code
       ?? (err as { cause?: { data?: { error?: { code?: string } } } } | null | undefined)?.cause?.data?.error?.code
-      ?? ''
-    ).toLowerCase();
-    const param = String(
-      (err as { param?: string } | null | undefined)?.param
-      ?? (err as { data?: { error?: { param?: string } } } | null | undefined)?.data?.error?.param
-      ?? (err as { cause?: { data?: { error?: { param?: string } } } } | null | undefined)?.cause?.data?.error?.param
-      ?? ''
     ).toLowerCase();
     return code.includes('invalid_function_parameters')
       || msg.includes('invalid_function_parameters')
-      || (msg.includes('invalid schema for function') && (param.includes('tools') || msg.includes('tools')))
-      || (msg.includes('parameters must be json schema type') && (param.includes('tools') || msg.includes('tools')));
+      || msg.includes('invalid schema for function')
+      || msg.includes('parameters must be json schema type');
   } catch { return false; }
+}
+
+export function extractToolNameFromError(err: unknown, candidates: string[]): string | null {
+  try {
+    const seen = new Set<string>();
+    const texts: string[] = [];
+    const push = (v: unknown) => { try { const s = String(v || ''); if (s && !seen.has(s)) { seen.add(s); texts.push(s.toLowerCase()); } } catch {} };
+    push((err as { message?: string } | null | undefined)?.message);
+    push((err as { param?: string } | null | undefined)?.param);
+    const d = (err as { data?: { error?: { message?: string; param?: string } } } | null | undefined)?.data?.error;
+    if (d) { push(d.message); push(d.param); }
+    const c = (err as { cause?: { message?: string; data?: { error?: { message?: string; param?: string } } } } | null | undefined)?.cause;
+    if (c) { push(c.message); const ce = c?.data?.error; if (ce) { push(ce.message); push(ce.param); } }
+
+    // Common patterns: function '<name>', function "<name>", tool '<name>'
+    for (const cand of candidates) {
+      const lc = cand.toLowerCase();
+      const patterns = [
+        `function '${lc}'`,
+        `function "${lc}"`,
+        `function ${lc}`,
+        `tool '${lc}'`,
+        `tool "${lc}"`,
+        `tool ${lc}`,
+        `'${lc}'`,
+        `"${lc}"`,
+        ` ${lc} `,
+      ];
+      for (const t of texts) {
+        for (const p of patterns) {
+          if (t.includes(p)) return cand;
+        }
+      }
+    }
+    return null;
+  } catch { return null; }
 }
