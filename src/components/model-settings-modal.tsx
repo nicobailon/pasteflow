@@ -524,7 +524,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                     }} title="Copy global system prompt">
                       <Copy size={14} /> Copy
                     </button>
-                    <button className="cancel-button" onClick={() => { setSpGlobalMode('default'); setSpGlobalText(''); }} title="Reset global to default">
+                    <button className="cancel-button" onClick={() => { setSpGlobalReplace(false); setSpGlobalText(''); }} title="Reset global to default">
                       Reset
                     </button>
                   </div>
@@ -548,7 +548,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               <div className="field">
                 <label htmlFor="system-prompt-text-workspace">Workspace prompt</label>
                 <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
-                  Applies only to the active workspace. Typing here switches Mode to Override.
+                  Applies only to the active workspace. Leave empty to skip. Combined with Global unless "Use only this prompt" is set.
                 </div>
                 <textarea
                   id="system-prompt-text-workspace"
