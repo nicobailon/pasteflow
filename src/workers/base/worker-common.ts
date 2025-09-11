@@ -121,3 +121,4 @@ export function debugLog(message: string, ...args: unknown[]): void {
     console.log(`[WorkerBase] ${message}`, ...args);
   }
 }
+

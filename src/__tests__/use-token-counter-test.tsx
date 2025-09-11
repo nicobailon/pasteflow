@@ -1,5 +1,5 @@
 // Mock the TokenWorkerPool to use our test-friendly version
-jest.mock('../utils/token-worker-pool', () => ({
+jest.mock('../workers/pools/token-worker-pool', () => ({
   TokenWorkerPool: jest.fn()
 }));
 jest.mock('../utils/token-utils');
@@ -7,7 +7,7 @@ jest.mock('../utils/token-utils');
 import { renderHook, act } from '@testing-library/react';
 import { useTokenCounter, forceCleanupTokenWorkerPool } from '../hooks/use-token-counter';
 
-import { TokenWorkerPool } from '../utils/token-worker-pool';
+import { TokenWorkerPool } from '../workers/pools/token-worker-pool';
 import { estimateTokenCount } from '../utils/token-utils';
 import { TEST_CONSTANTS } from './test-constants';
 

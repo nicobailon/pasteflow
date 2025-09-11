@@ -126,7 +126,6 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
               // Send init if configured
               if (this.handshake.initRequestType) {
                 this.worker?.postMessage(this.buildInitMessage());
-                // Don't resolve yet - wait for init response
               } else {
                 // No init required, we're ready
                 resolved = true;
@@ -357,3 +356,4 @@ export abstract class StreamingWorkerBase<TStartReq, TChunk, TDone> {
     this.state = 'uninitialized';
   }
 }
+

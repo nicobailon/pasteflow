@@ -16,7 +16,7 @@ import {
   buildTreeNodesFromMap
 } from '../utils/tree-node-transform';
 import { getTreeSortingService, clearTreeSortingCache } from '../utils/tree-sorting-service';
-import { getTreeBuilderWorkerPool } from '../utils/tree-builder-worker-pool';
+import { getTreeBuilderWorkerPool } from '../workers/pools/tree-builder-worker-pool';
 
 interface UseFileTreeProcessingProps {
   allFiles: FileData[];

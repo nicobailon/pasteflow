@@ -17,7 +17,7 @@ const common = {
     '@ai-sdk/react': '<rootDir>/src/__tests__/__mocks__/ai-sdk-react.ts',
     '^.*/worker-factories$': '<rootDir>/src/__tests__/__mocks__/worker-factories.ts',
     '^.*/workers/token-counter-worker\\.ts$': '<rootDir>/src/__tests__/__mocks__/token-counter-worker.ts',
-    '^.*/utils/tree-builder-worker-pool$': '<rootDir>/src/__tests__/__mocks__/tree-builder-worker-pool.ts',
+    '^.*/workers/pools/tree-builder-worker-pool$': '<rootDir>/src/__tests__/__mocks__/tree-builder-worker-pool.ts',
   },
   globals: {
     URL: URL,

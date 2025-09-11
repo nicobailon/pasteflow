@@ -68,3 +68,8 @@ coverage/
 memory-bank/
 # TypeScript build info
 *.tsbuildinfo
+
+# notes
+notes/
+
+WARP.md
