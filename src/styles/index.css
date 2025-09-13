@@ -1062,6 +1062,64 @@ input[type="search"]:focus {
   }
 }
 
+/* Agent reasoning block */
+.agent-reasoning {
+  margin: 4px 0;
+}
+
+.agent-reasoning-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.agent-reasoning-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(120, 120, 120, 0.15);
+  border: 1px solid rgba(120, 120, 120, 0.3);
+}
+
+.agent-reasoning-toggle {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.agent-reasoning-toggle:hover {
+  text-decoration: underline;
+}
+
+.agent-reasoning-default-toggle {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 8px;
+  opacity: 0.8;
+}
+
+.agent-reasoning-default-toggle:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.agent-reasoning-body {
+  white-space: pre-wrap;
+  font-style: italic;
+  color: var(--text-secondary);
+  border-left: 3px solid rgba(120, 120, 120, 0.4);
+  padding-left: 8px;
+  margin-top: 2px;
+}
+
 /* Responsive adjustments for smaller screens */
 @media (max-width: 48rem) {
   .ascii-logo {

@@ -1,13 +1,16 @@
 import React from "react";
 import { Info as InfoIcon } from "lucide-react";
-import AgentToolCalls from "./agent-tool-calls";
-import type { UsageRow } from "../types/agent-types";
-import { extractVisibleTextFromMessage, condenseUserMessageForDisplay, estimateTokensForText, formatLatency, estimateCostUSD } from "../utils/agent-message-utils";
+
 import { TOKEN_COUNTING } from "@constants";
+
+import type { UsageRow } from "../types/agent-types";
+import { extractVisibleTextFromMessage, extractReasoningTextFromMessage, condenseUserMessageForDisplay, estimateTokensForText, formatLatency, estimateCostUSD } from "../utils/agent-message-utils";
+
+import AgentToolCalls from "./agent-tool-calls";
 
 // Local fallback tool catalog (renderer-only) mirrors main/agent/tool-catalog.ts
 // Kept in renderer to avoid cross-bundle imports in Vite/Electron.
-const FALLBACK_TOOL_CATALOG: ReadonlyArray<{ name: string; description: string }> = [
+const FALLBACK_TOOL_CATALOG: readonly { name: string; description: string }[] = [
   { name: 'file', description: 'File ops: read/info/list; writes gated' },
   { name: 'search', description: 'Ripgrep code search' },
   { name: 'edit', description: 'Edit: diff/block/multi; apply gated' },
@@ -38,6 +41,41 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
   onToggleSkipApprovals,
   modelId,
 }) => {
+  // Preference: default collapsed/expanded for reasoning blocks
+  const [defaultReasoningCollapsed, setDefaultReasoningCollapsed] = React.useState<boolean>(false);
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const raw = await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'ui.reasoning.defaultCollapsed' });
+        setDefaultReasoningCollapsed(Boolean((raw as any)?.data ?? raw));
+      } catch { /* noop */ }
+    })();
+  }, []);
+
+  // Track user overrides per assistant message
+  const [expandedReasoning, setExpandedReasoning] = React.useState<Set<number>>(() => new Set());
+  const [collapsedReasoning, setCollapsedReasoning] = React.useState<Set<number>>(() => new Set());
+  const isCollapsed = (idx: number): boolean => (defaultReasoningCollapsed ? !expandedReasoning.has(idx) : collapsedReasoning.has(idx));
+  const toggleReasoning = (idx: number) => {
+    if (defaultReasoningCollapsed) {
+      setExpandedReasoning(prev => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx); else next.add(idx);
+        return next;
+      });
+    } else {
+      setCollapsedReasoning(prev => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx); else next.add(idx);
+        return next;
+      });
+    }
+  };
+  const toggleDefaultReasoning = async () => {
+    const next = !defaultReasoningCollapsed;
+    setDefaultReasoningCollapsed(next);
+    try { await (window as any).electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'ui.reasoning.defaultCollapsed', value: next }); } catch { /* noop */ }
+  };
   // Estimate tokens for assistant entry by pairing with nearest preceding user message
   const estimateTokensForAssistant = (idx: number): { input: number | null; output: number | null; total: number | null } => {
     try {
@@ -64,13 +102,14 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
         <div className="agent-banner">Start a conversation or send packed content.</div>
       ) : (
         messages.map((m: unknown, idx: number) => {
-          const rawText = extractVisibleTextFromMessage(m);
+          const visibleText = extractVisibleTextFromMessage(m);
+          const reasoningText = extractReasoningTextFromMessage(m);
           const role = (m && typeof m === 'object' && (m as any).role) ? String((m as any).role) : '';
-          let displayText = role === 'user' && typeof rawText === 'string' ? condenseUserMessageForDisplay(rawText) : rawText;
+          let displayText = role === 'user' && typeof visibleText === 'string' ? condenseUserMessageForDisplay(visibleText) : visibleText;
 
           // Fallback: if assistant text is empty and last user asked about tools, render a local catalog list
           try {
-            if (role === 'assistant' && (!displayText || displayText.trim() === '')) {
+            if (role === 'assistant' && (!displayText || displayText.trim() === '') && (!reasoningText || reasoningText.trim() === '')) {
               // Find nearest preceding user message
               let prevUser: string | null = null;
               for (let j = idx - 1; j >= 0; j--) {
@@ -106,6 +145,35 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
           return (
             <div key={idx} style={{ marginBottom: 10, border: assistantInterrupted ? '1px dashed #d99' : undefined, borderRadius: assistantInterrupted ? 4 : undefined, background: assistantInterrupted ? 'rgba(255,0,0,0.03)' : undefined }}>
               <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{role}</div>
+              {/* Reasoning stream (shown first, visually differentiated) */}
+              {role === 'assistant' && reasoningText && reasoningText.trim() !== '' ? (
+                <div className="agent-reasoning">
+                  <div className="agent-reasoning-header">
+                    <span className="agent-reasoning-badge">Reasoning</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleReasoning(idx)}
+                      className="agent-reasoning-toggle"
+                      aria-label={isCollapsed(idx) ? 'Show reasoning' : 'Hide reasoning'}
+                    >
+                      {isCollapsed(idx) ? 'Show' : 'Hide'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={toggleDefaultReasoning}
+                      className="agent-reasoning-default-toggle"
+                      aria-label={defaultReasoningCollapsed ? 'Set reasoning default to expanded' : 'Set reasoning default to collapsed'}
+                      title={defaultReasoningCollapsed ? 'Default: collapsed (click to expand by default)' : 'Default: expanded (click to collapse by default)'}
+                    >
+                      {defaultReasoningCollapsed ? 'Default: Collapsed' : 'Default: Expanded'}
+                    </button>
+                  </div>
+                  {isCollapsed(idx) ? null : (
+                    <div className="agent-reasoning-body">{reasoningText}</div>
+                  )}
+                </div>
+              ) : null}
+              {/* Final/output text (full) */}
               <div style={{ whiteSpace: "pre-wrap" }}>{displayText}</div>
               {role === "assistant" ? (
                 <AgentToolCalls
@@ -117,7 +185,7 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
               ) : null}
               {role === 'user' && (() => {
                 try {
-                  const userTok = rawText ? Math.ceil(rawText.length / TOKEN_COUNTING.CHARS_PER_TOKEN) : 0;
+                  const userTok = visibleText ? Math.ceil(visibleText.length / TOKEN_COUNTING.CHARS_PER_TOKEN) : 0;
                   const tip = `User message tokens: ${userTok} (approx)`;
                   return (
                     <div className="message-usage-row">
@@ -143,10 +211,16 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
                 const totalTok = (typeof usageInfo.total_tokens === 'number') ? usageInfo.total_tokens : ((inTok != null && outTok != null) ? (inTok + outTok) : (approx?.total ?? null));
                 const latencyTxt = formatLatency(usageInfo.latency_ms);
                 const costTxt = (typeof usageInfo.cost_usd === 'number' && Number.isFinite(usageInfo.cost_usd)) ? `$${usageInfo.cost_usd.toFixed(4)}` : (estimateCostUSD(modelId, usageInfo) || null);
-                const tooltip = `Output tokens: ${outTok ?? '—'}${approx && usageInfo.output_tokens == null ? ' (approx)' : ''}\n` +
-                  `Input tokens: ${inTok ?? '—'}${approx && usageInfo.input_tokens == null ? ' (approx)' : ''}\n` +
-                  `Total tokens: ${totalTok ?? '—'}${approx && usageInfo.total_tokens == null ? ' (approx)' : ''}\n` +
-                  `Latency: ${latencyTxt}${costTxt ? `\nCost: ${costTxt}` : ''}`;
+                const tooltipLines = [
+                  `Output tokens: ${outTok ?? '—'}${approx && usageInfo.output_tokens == null ? ' (approx)' : ''}`,
+                  `Input tokens: ${inTok ?? '—'}${approx && usageInfo.input_tokens == null ? ' (approx)' : ''}`,
+                  `Total tokens: ${totalTok ?? '—'}${approx && usageInfo.total_tokens == null ? ' (approx)' : ''}`,
+                  (() => {
+                    const costSuffix = costTxt ? ` | Cost: ${costTxt}` : '';
+                    return `Latency: ${latencyTxt}${costSuffix}`;
+                  })(),
+                ];
+                const tooltip = tooltipLines.join('\n');
                 const label = `${(outTok ?? '—')}${approx && usageInfo.output_tokens == null ? ' (approx)' : ''} tokens`;
                 return (
                   <div className="message-usage-row">
@@ -171,4 +245,3 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
 };
 
 export default AgentMessages;
-

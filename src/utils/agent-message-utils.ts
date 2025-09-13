@@ -1,6 +1,7 @@
+import { TOKEN_COUNTING } from "@constants";
+
 import { extname } from "../file-ops/path";
 import type { AgentAttachment, UsageRow } from "../types/agent-types";
-import { TOKEN_COUNTING } from "@constants";
 
 // Extract a human-readable string from a UI message produced by @ai-sdk/react streams
 export function extractVisibleTextFromMessage(m: unknown): string {
@@ -9,7 +10,7 @@ export function extractVisibleTextFromMessage(m: unknown): string {
     const msg = m as { role?: unknown; parts?: unknown; content?: unknown };
 
     // Helper: collect text from an array of content/parts items
-    const collectFrom = (arr: ReadonlyArray<any>): string => {
+    const collectFrom = (arr: readonly any[]): string => {
       try {
         const out: string[] = [];
         for (const it of arr) {
@@ -51,13 +52,13 @@ export function extractVisibleTextFromMessage(m: unknown): string {
 
     // Prefer modern UIMessage shape: content as array
     if (Array.isArray((msg as any).content)) {
-      const out = collectFrom((msg as any).content as ReadonlyArray<any>);
+      const out = collectFrom((msg as any).content as readonly any[]);
       if (out && out.trim().length > 0) return out;
       if (String(msg.role || "") === "assistant") return ""; // assistant with non-visible parts (e.g., reasoning)
     }
 
     // Legacy/alternate shapes: parts array
-    const parts = Array.isArray((msg as any).parts) ? ((msg as any).parts as ReadonlyArray<any>) : null;
+    const parts = Array.isArray((msg as any).parts) ? ((msg as any).parts as readonly any[]) : null;
     if (parts) {
       const outText = collectFrom(parts);
       if (outText && outText.trim().length > 0) return outText;
@@ -72,7 +73,7 @@ export function extractVisibleTextFromMessage(m: unknown): string {
 
     // Deep fallback: search common container keys for text-bearing nodes
     try {
-      const keysToScan = new Set(['content', 'parts', 'items', 'children', 'delta', 'data']);
+      const keysToScan = new Set(["content", "parts", "items", "children", "delta", "data"]);
       const seen = new Set<unknown>();
       const out: string[] = [];
       const visit = (val: unknown, parentType?: string) => {
@@ -115,7 +116,68 @@ export function extractVisibleTextFromMessage(m: unknown): string {
   }
 }
 
-export function buildDynamicFromAttachments(pending: ReadonlyMap<string, AgentAttachment>): { readonly files: ReadonlyArray<{ readonly path: string; readonly lines: { readonly start: number; readonly end: number } | null; readonly tokenCount?: number }>; } {
+// Extract reasoning/analysis text from a UI/Model message, if present.
+// This intentionally focuses on provider-agnostic type tags commonly used for chain-of-thought-like streams.
+export function extractReasoningTextFromMessage(m: unknown): string {
+  try {
+    if (!m || typeof m !== 'object') return '';
+    const msg = m as { content?: unknown; parts?: unknown };
+
+    const collectReasoning = (arr: readonly any[]): string => {
+      try {
+        const out: string[] = [];
+        for (const it of arr) {
+          const t = typeof it?.type === 'string' ? String(it.type).toLowerCase() : '';
+          const isReason = t === 'reasoning' || t === 'thinking' || t === 'analysis' || t === 'chain_of_thought' || t === 'chain-of-thought' || t === 'cot' || t === 'thought' || t === 'plan';
+          if (isReason && typeof it?.text === 'string') { out.push(String(it.text)); continue; }
+          // Some SDKs put deltas under alternate keys
+          if (isReason && typeof (it as any)?.textDelta === 'string') { out.push(String((it as any).textDelta)); continue; }
+          const nested = (it && typeof it === 'object') ? (it as any).content || (it as any).items || (it as any).parts || (it as any).delta : undefined;
+          if (nested && Array.isArray(nested)) {
+            const nestedText = collectReasoning(nested);
+            if (nestedText) out.push(nestedText);
+          }
+        }
+        return out.join('');
+      } catch { return ''; }
+    };
+
+    if (Array.isArray((msg as any).content)) {
+      const out = collectReasoning((msg as any).content as readonly any[]);
+      if (out && out.trim().length > 0) return out;
+    }
+    if (Array.isArray((msg as any).parts)) {
+      const out = collectReasoning((msg as any).parts as readonly any[]);
+      if (out && out.trim().length > 0) return out;
+    }
+
+    // Deep fallback: scan for reasoning-like nodes in common containers
+    try {
+      const keysToScan = new Set(["content", "parts", "items", "children", "delta", "data"]);
+      const seen = new Set<unknown>();
+      const out: string[] = [];
+      const visit = (val: unknown) => {
+        if (val == null) return;
+        if (seen.has(val)) return; seen.add(val);
+        if (Array.isArray(val)) { for (const v of val) visit(v); return; }
+        if (typeof val === 'object') {
+          const obj = val as Record<string, unknown>;
+          const t = typeof obj.type === 'string' ? String(obj.type).toLowerCase() : '';
+          const isReason = t === 'reasoning' || t === 'thinking' || t === 'analysis' || t === 'chain_of_thought' || t === 'chain-of-thought' || t === 'cot' || t === 'thought' || t === 'plan';
+          if (isReason && typeof obj.text === 'string') out.push(String(obj.text));
+          if (isReason && typeof (obj as any)?.textDelta === 'string') out.push(String((obj as any).textDelta));
+          for (const k of Object.keys(obj)) { if (keysToScan.has(k)) visit(obj[k]); }
+        }
+      };
+      visit(msg as any);
+      const joined = out.join('');
+      if (joined && joined.trim().length > 0) return joined;
+    } catch { /* ignore */ }
+    return '';
+  } catch { return ''; }
+}
+
+export function buildDynamicFromAttachments(pending: ReadonlyMap<string, AgentAttachment>): { readonly files: readonly { readonly path: string; readonly lines: { readonly start: number; readonly end: number } | null; readonly tokenCount?: number }[]; } {
   const files = [...pending.values()].map((v) => ({ path: v.path, lines: v.lines ?? null, tokenCount: v.tokenCount }));
   return { files } as const;
 }
@@ -125,11 +187,14 @@ export function buildInitialSummaryMessage(envelope: unknown): string {
     const e = envelope as { initial?: unknown; workspace?: unknown };
     const i = (e && typeof e === "object" && (e as any).initial) ? (e as any).initial : undefined;
     const ws = (e && typeof e === "object" && typeof (e as any).workspace === "string") ? (e as any).workspace : "(unknown)";
-    const files = Array.isArray((i as any)?.files) ? ((i as any).files as ReadonlyArray<any>) : [];
+    const files = Array.isArray((i as any)?.files) ? ((i as any).files as readonly any[]) : [];
     const prompts = (i as any)?.prompts as { system?: unknown; roles?: unknown; instructions?: unknown } | undefined;
     const totalTokens = typeof (i as any)?.metadata?.totalTokens === "number" ? (i as any).metadata.totalTokens : 0;
     const header = `Initial context from PasteFlow — Workspace: ${ws}`;
-    const fList = files.slice(0, 20).map((f: any) => `- ${f.relativePath || f.path}${f?.lines ? ` (lines ${f.lines.start}-${f.lines.end})` : ''}`).join("\n");
+    const fList = files.slice(0, 20).map((f: any) => {
+      const lineInfo = f?.lines ? ` (lines ${f.lines.start}-${f.lines.end})` : '';
+      return `- ${f.relativePath || f.path}${lineInfo}`;
+    }).join("\n");
     const truncated = files.length > 20 ? `\n(…${files.length - 20} more)` : "";
     const sysCount = Array.isArray(prompts?.system) ? prompts?.system.length : 0;
     const rolesCount = Array.isArray(prompts?.roles) ? prompts?.roles.length : 0;
@@ -179,9 +244,12 @@ export function estimateCostUSD(modelId: string | null, u?: Partial<UsageRow> | 
   const t = (typeof u.total_tokens === 'number') ? u.total_tokens : (i + o);
   if (!t) return null;
   const m = (modelId || '').toLowerCase();
-  const perK: { in: number; out: number } = m.includes('gpt-4o-mini') ? { in: 0.0005, out: 0.0015 } :
-    (m.includes('gpt-5') ? { in: 0.005, out: 0.015 } :
-    m.includes('haiku') ? { in: 0.0008, out: 0.0024 } : { in: 0.001, out: 0.003 });
+  const perK: { in: number; out: number } = (() => {
+    if (m.includes('gpt-4o-mini')) return { in: 0.0005, out: 0.0015 };
+    if (m.includes('gpt-5')) return { in: 0.005, out: 0.015 };
+    if (m.includes('haiku')) return { in: 0.0008, out: 0.0024 };
+    return { in: 0.001, out: 0.003 };
+  })();
   const cost = (i / 1000) * perK.in + (o / 1000) * perK.out;
   return `$${cost.toFixed(cost < 0.01 ? 3 : 2)}`;
 }

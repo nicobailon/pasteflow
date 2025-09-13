@@ -199,20 +199,8 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
         return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
       } catch { return false; }
     })();
-    // For packed content first turns, favor a non-reasoning chat model for visible output
-    const packedContent = (() => {
-      try {
-        if (safeEnvelope?.initial && Array.isArray(safeEnvelope.initial.files) && safeEnvelope.initial.files.length > 0) return true;
-        const lu = extractLastUserText(modelMessages);
-        return typeof lu === 'string' && lu.includes('<codebase>');
-      } catch { return false; }
-    })();
-    const effectiveModelId = (packedContent && modelIdIsReasoning)
-      ? (provider === 'openai' ? 'gpt-4o-mini' : preferredModelId)
-      : preferredModelId;
-    if (effectiveModelId !== preferredModelId) {
-      try { console.log('[AI][chat:model:override]', { from: preferredModelId, to: effectiveModelId, reason: 'packed-content-text-output' }); } catch { /* noop */ }
-    }
+    // Keep selected model even for packed content to allow reasoning-first streams
+    const effectiveModelId = preferredModelId;
     const { model } = await resolveModelForRequest({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: effectiveModelId });
 
     // Dev-only: log tool param kinds
@@ -403,16 +391,8 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
               return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
             } catch { return false; }
           })();
-          const packedContent = (() => {
-            try {
-              if (safeEnvelope?.initial && Array.isArray(safeEnvelope.initial.files) && safeEnvelope.initial.files.length > 0) return true;
-              const lu = extractLastUserText(modelMessages);
-              return typeof lu === 'string' && lu.includes('<codebase>');
-            } catch { return false; }
-          })();
-          const effectiveModelId = (packedContent && modelIdIsReasoning)
-            ? (provider === 'openai' ? 'gpt-4o-mini' : preferredModelId)
-            : preferredModelId;
+          // Keep selected model even for packed content to allow reasoning-first streams
+          const effectiveModelId = preferredModelId;
           const { model } = await resolveModelForRequest({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: effectiveModelId });
 
           const cfgTemperature = cfg.TEMPERATURE;
