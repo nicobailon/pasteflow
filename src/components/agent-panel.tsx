@@ -6,9 +6,7 @@ import { ArrowUp } from "lucide-react";
 import useAgentPanelResize from "../hooks/use-agent-panel-resize";
 import type { FileData } from "../types/file-types";
 
-import AgentChatInputWithMention from "./agent-chat-input";
-import AgentAttachmentList from "./agent-attachment-list";
-import AgentMiniFileList from "./agent-mini-file-list";
+// Simplified input: no @-mention or attachment UI
 import IntegrationsModal from "./integrations-modal";
 import ModelSelector from "./model-selector";
 import ModelSettingsModal from "./model-settings-modal";
@@ -22,14 +20,12 @@ import AgentMessages from "./agent-messages";
 import AgentDisabledOverlay from "./agent-disabled-overlay";
 import AgentStatusBanner from "./agent-status-banner";
 import AgentResizeHandle from "./agent-resize-handle";
-import { buildDynamicFromAttachments, buildInitialSummaryMessage, detectLanguageFromPath } from "../utils/agent-message-utils";
+import { buildInitialSummaryMessage } from "../utils/agent-message-utils";
 import useAgentSession from "../hooks/use-agent-session";
 import useAgentThreads from "../hooks/use-agent-threads";
 import useAgentUsage from "../hooks/use-agent-usage";
 import useSendToAgentBridge from "../hooks/use-send-to-agent-bridge";
 import useAgentProviderStatus from "../hooks/use-agent-provider-status";
-import useAttachmentContentLoader from "../hooks/use-attachment-content-loader";
-import type { AgentAttachment } from "../types/agent-types";
 
 // (types migrated to hooks/util files; keeping panel lean)
 
@@ -56,8 +52,7 @@ export type AgentPanelProps = {
 const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorkspace = null, loadFileContent }: AgentPanelProps) => {
   const { agentWidth, handleResizeStart } = useAgentPanelResize(320);
 
-  // Local attachment state (message-scoped)
-  const [pendingAttachments, setPendingAttachments] = useState<Map<string, AgentAttachment>>(new Map());
+  // Attachments removed: panel no longer manages local file attachments
 
   // Track when a turn starts to compute renderer-side latency if server usage is missing
   const turnStartRef = useRef<number | null>(null);
@@ -188,11 +183,10 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
     },
     // Attach structured envelope without changing user text embeddings
     prepareSendMessagesRequest: ({ messages, requestBody }: { messages: ReadonlyArray<{ role: string; content: ReadonlyArray<{ readonly type?: string; readonly text?: string; readonly content?: unknown }> | string }>; requestBody: Record<string, unknown> }) => {
-      const dynamic = buildDynamicFromAttachments(pendingAttachments);
       const envelope = {
         version: 1 as const,
         initial: lastInitialRef.current || undefined,
-        dynamic,
+        // dynamic files omitted by design (panel-local attachments removed)
         workspace: (selectedFolder ?? lastWorkspaceRef.current) || null,
       };
       try {
@@ -215,7 +209,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         if (/\bwhich\b.*\btools\b.*\b(avail|have)\b/.test(t) || /\bwhat\b.*\btools\b.*\b(avail|can you use|have)\b/.test(t)) {
           console.log('[UI][chat] tool-availability-query detected');
         }
-        console.log('[UI][chat:prepare]', { sessionId, dynamicFiles: dynamic.files?.length || 0, hasInitial: !!lastInitialRef.current });
+        console.log('[UI][chat:prepare]', { sessionId, dynamicFiles: 0, hasInitial: !!lastInitialRef.current });
       } catch { /* noop */ }
       // Keep messages unchanged here and defer any full-text substitution to the fetch override.
       const base: Record<string, unknown> = { ...requestBody };
@@ -295,8 +289,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
           }
         }
       } catch { /* ignore */ }
-      // Clear one-shot attachments
-      setPendingAttachments(new Map());
+      // No panel-local attachments to clear
       // Only clear error if there wasn't an error signaled in this turn
       if (!hadErrorRef.current) {
         setErrorStatus(null);
@@ -548,9 +541,6 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
 
   // Condensation logic moved to utils and used by AgentMessages
 
-  // Ensure we have content for a given attachment path
-  const { ensureAttachmentContent } = useAttachmentContentLoader({ allFiles, pendingAttachments, setPendingAttachments, loadFileContent });
-
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -568,65 +558,28 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         }
         // If still binding/switching, queue the first send and return
         if (awaitingBind || isSwitchingThread) {
-          // Prepare payload for queued send below
-          const attachments = [...pendingAttachments.values()];
-          const llmBlocks: string[] = [];
-          for (const att of attachments) {
-            const content = typeof att.content === "string" && att.content.length > 0 ? att.content : await ensureAttachmentContent(att.path);
-            const lang = detectLanguageFromPath(att.path);
-            llmBlocks.push(`File: ${att.path}\n\`\`\`${lang}\n${content}\n\`\`\``);
-          }
-          const llmTextBound = [...llmBlocks, userText].filter(Boolean).join("\n\n");
-          setQueuedFirstSend(llmTextBound);
+          // Queue plain user text (no attachments in panel)
+          setQueuedFirstSend(userText);
           setComposer("");
           return;
         }
         await new Promise((r) => setTimeout(r, 0));
       }
-
-      // Use current pending attachments
-      const attachments = [...pendingAttachments.values()];
       try {
         const preview = composer.trim();
-        console.log('[UI][chat:send]', { sessionId: sessionId || '(pending)', attachments: attachments.length, text: preview.length > 160 ? preview.slice(0, 160) + '…' : preview });
+        console.log('[UI][chat:send]', { sessionId: sessionId || '(pending)', attachments: 0, text: preview.length > 160 ? preview.slice(0, 160) + '…' : preview });
       } catch { /* noop */ }
-
-      // Prepare LLM payload blocks and UI condensed blocks
-      const llmBlocks: string[] = [];
-      const uiBlocks: string[] = [];
-
-      for (const att of attachments) {
-        const content = typeof att.content === "string" && att.content.length > 0
-          ? att.content
-          : await ensureAttachmentContent(att.path);
-
-        const lang = detectLanguageFromPath(att.path);
-        const lines = content === "" ? 0 : content.split(/\r?\n/).length;
-
-        // Full block for LLM payload
-        llmBlocks.push(`File: ${att.path}\n\`\`\`${lang}\n${content}\n\`\`\``);
-
-        // Condensed summary for UI (will also be computed at render as a guard)
-        uiBlocks.push(`File: ${att.path}\n[File content: ${lines} lines]`);
-      }
-
-      // Build final strings — attachments first, then the user's message
-      const llmText = [...llmBlocks, userText].filter(Boolean).join("\n\n");
-
-      // Send to LLM with full contents (mark turn start for latency)
+      // Send plain user text (mark turn start for latency)
       try { turnStartRef.current = Date.now(); } catch { /* noop */ }
-      sendChat({ text: llmText });
+      sendChat({ text: userText });
 
       // Clear local composer
       setComposer("");
     },
-    [composer, pendingAttachments, detectLanguageFromPath, ensureAttachmentContent, sendMessage, sessionId, ensureSessionOrRetry, setNotices, isStartingChat, isSwitchingThread]
+    [composer, sendMessage, sessionId, ensureSessionOrRetry, setNotices, isStartingChat, isSwitchingThread]
   );
 
-  const tokenHint = useMemo(() => {
-    const total = (composer.length || 0) + [...pendingAttachments.values()].reduce((acc, a) => acc + (a.tokenCount || 0), 0);
-    return `${total} chars`;
-  }, [composer, pendingAttachments]);
+  // Token hint no longer aggregates attachments; omit for now
 
   async function handleNewChat(isAuto?: boolean): Promise<string | null> {
     try {
@@ -727,37 +680,7 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
           errorInfo={errorInfo}
           onDismissError={() => { setErrorStatus(null); setErrorInfo(null); }}
         />
-        {/* Mini file list for quick context selection */}
-        <AgentMiniFileList
-          files={allFiles}
-          selected={[...pendingAttachments.keys()]}
-          onToggle={(absPath) => {
-            setPendingAttachments((prev) => {
-              const next = new Map(prev);
-              if (next.has(absPath)) next.delete(absPath); else next.set(absPath, { path: absPath, lines: null });
-              return next;
-            });
-          }}
-          onTokenCount={(absPath, tokens) => {
-            setPendingAttachments((prev) => {
-              const next = new Map(prev);
-              const cur = next.get(absPath);
-              if (cur) next.set(absPath, { ...cur, tokenCount: tokens });
-              return next;
-            });
-          }}
-          collapsed={true}
-        />
-        <AgentAttachmentList
-          pending={pendingAttachments}
-          onRemove={(absPath) => {
-            setPendingAttachments((prev) => {
-              const n = new Map(prev);
-              n.delete(absPath);
-              return n;
-            });
-          }}
-        />
+        {/* Attachments and mini file list removed in simplified panel */}
         <AgentMessages
           messages={messages as unknown[]}
           interruptions={interruptions}
@@ -773,39 +696,32 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
         <AgentStatusBanner status={status as string | null} />
 
         <form className="agent-input-container" onSubmit={handleSubmit}>
-          <AgentChatInputWithMention
-            value={composer}
-            onChange={setComposer}
-            disabled={(!panelEnabled) || status === "streaming" || status === "submitted" || isStartingChat || isSwitchingThread}
-            allFiles={allFiles}
-            selectedFolder={selectedFolder}
-            onFileMention={(absPath) =>
-              setPendingAttachments((prev) => {
-                const next = new Map(prev);
-                if (!next.has(absPath)) next.set(absPath, { path: absPath, lines: null });
-                return next;
-              })
-            }
-            overlay={
-              <>
-                {(isStartingChat || isSwitchingThread) && (
-                  <div className="agent-starting-chip" aria-live="polite" aria-atomic="true">
-                    <div className="agent-spinner" />
-                    <span>Starting chat…</span>
-                  </div>
-                )}
-                <button
-                  className="agent-input-submit"
-                  type="submit"
-                  title="Send"
-                  aria-label="Send"
-                  disabled={(!panelEnabled) || (status === "streaming" || status === "submitted") || isStartingChat || isSwitchingThread || !composer.trim()}
-                >
-                  <ArrowUp size={14} />
-                </button>
-              </>
-            }
-          />
+          <div className="autocomplete-container" style={{ position: "relative" }}>
+            <textarea
+              className="agent-input"
+              placeholder="Message the Agent…"
+              value={composer}
+              onChange={(e) => setComposer(e.target.value)}
+              disabled={(!panelEnabled) || status === "streaming" || status === "submitted" || isStartingChat || isSwitchingThread}
+            />
+            <div className="agent-input-overlay">
+              {(isStartingChat || isSwitchingThread) && (
+                <div className="agent-starting-chip" aria-live="polite" aria-atomic="true">
+                  <div className="agent-spinner" />
+                  <span>Starting chat…</span>
+                </div>
+              )}
+              <button
+                className="agent-input-submit"
+                type="submit"
+                title="Send"
+                aria-label="Send"
+                disabled={(!panelEnabled) || (status === "streaming" || status === "submitted") || isStartingChat || isSwitchingThread || !composer.trim()}
+              >
+                <ArrowUp size={14} />
+              </button>
+            </div>
+          </div>
           <div className="agent-input-underbar">
             <ModelSelector onOpenSettings={() => setShowModelSettings(true)} />
           </div>
