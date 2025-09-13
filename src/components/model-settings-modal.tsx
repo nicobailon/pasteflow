@@ -45,6 +45,8 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
   const [approvalMode, setApprovalMode] = useState<'never'|'risky'|'always'>('risky');
   const [execCtxGlobalEnabled, setExecCtxGlobalEnabled] = useState<boolean>(true);
   const [execCtxWorkspaceEnabled, setExecCtxWorkspaceEnabled] = useState<boolean>(true);
+  // UI: reasoning visibility default (global)
+  const [reasoningDefaultCollapsed, setReasoningDefaultCollapsed] = useState<boolean>(false);
 
   // System prompts: separate global and workspace
   const [spGlobalText, setSpGlobalText] = useState<string>("");
@@ -70,7 +72,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     let mounted = true;
     (async () => {
       try {
-        const [okey, akey, orKey, orBase, temp, max, w, x, appr, maxCtx, execCtx, execCtxWs] = await Promise.all([
+        const [okey, akey, orKey, orBase, temp, max, w, x, appr, maxCtx, execCtx, execCtxWs, rsnDefault] = await Promise.all([
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.anthropic.apiKey' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.apiKey' }),
@@ -83,6 +85,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxContextTokens' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.executionContext.enabled' }),
           workspaceId ? window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.executionContext.enabled.${workspaceId}` }) : Promise.resolve(null),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'ui.reasoning.defaultCollapsed' }),
         ] as const);
         if (!mounted) return;
         setOpenaiStored(Boolean(okey?.data));
@@ -97,6 +100,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
         setEnableExec(Boolean(x?.data ?? true));
         const am = String(appr?.data || '').toLowerCase();
         if (am === 'never' || am === 'risky' || am === 'always') setApprovalMode(am as any);
+        setReasoningDefaultCollapsed(Boolean(rsnDefault?.data));
         const mc = Number(maxCtx?.data);
         if (Number.isFinite(mc)) setMaxCtxTokens(Math.max(1000, Math.min(2_000_000, mc)));
         // Execution context toggles
@@ -411,6 +415,15 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                 </div>
                 <div className="field">
                   <label>
+                    <input type="checkbox" checked={reasoningDefaultCollapsed} onChange={(e) => setReasoningDefaultCollapsed(e.target.checked)} />
+                    <span style={{ marginLeft: 6 }}>Collapse reasoning by default</span>
+                  </label>
+                  <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                    Controls whether assistant reasoning is hidden by default. You can still Show/Hide per message.
+                  </div>
+                </div>
+                <div className="field">
+                  <label>
                     <input type="checkbox" checked={execCtxGlobalEnabled} onChange={(e) => setExecCtxGlobalEnabled(e.target.checked)} />
                     <span style={{ marginLeft: 6 }}>Include System Execution Context (Global)</span>
                   </label>
@@ -656,6 +669,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                   await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.executionContext.enabled.${workspaceId}`, value: execCtxWorkspaceEnabled });
                 }
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.approvalMode', value: approvalMode });
+                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'ui.reasoning.defaultCollapsed', value: reasoningDefaultCollapsed });
                 // System prompts: save global and workspace separately
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.systemPrompt.replace', value: spGlobalReplace });
                 await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.systemPrompt.text', value: spGlobalText });
