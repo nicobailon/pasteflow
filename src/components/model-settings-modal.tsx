@@ -5,7 +5,7 @@ import AgentAlertBanner from "./agent-alert-banner";
 import "./model-settings-modal.css";
 import { estimateTokenCount } from "../utils/token-utils";
 
-type ProviderId = "openai" | "anthropic" | "openrouter";
+type ProviderId = "openai" | "anthropic" | "openrouter" | "groq";
 
 type Props = {
   isOpen: boolean;
@@ -36,6 +36,10 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
   const [openrouterInput, setOpenrouterInput] = useState("");
   const [openrouterStored, setOpenrouterStored] = useState<boolean>(false);
   const [openrouterBaseUrl, setOpenrouterBaseUrl] = useState("https://openrouter.ai/api/v1");
+
+  // Groq
+  const [groqInput, setGroqInput] = useState("");
+  const [groqStored, setGroqStored] = useState<boolean>(false);
 
   // General config
   const [temperature, setTemperature] = useState<number>(0.3);
@@ -72,11 +76,12 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     let mounted = true;
     (async () => {
       try {
-        const [okey, akey, orKey, orBase, temp, max, w, x, appr, maxCtx, execCtx, execCtxWs, rsnDefault] = await Promise.all([
+        const [okey, akey, orKey, orBase, groqKey, temp, max, w, x, appr, maxCtx, execCtx, execCtxWs, rsnDefault] = await Promise.all([
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.anthropic.apiKey' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.apiKey' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.baseUrl' }),
+          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.groq.apiKey' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.temperature' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxOutputTokens' }),
           window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableFileWrite' }),
@@ -91,6 +96,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
         setOpenaiStored(Boolean(okey?.data));
         setAnthropicStored(Boolean(akey?.data));
         setOpenrouterStored(Boolean(orKey?.data));
+        setGroqStored(Boolean(groqKey?.data));
         if (typeof orBase?.data === 'string' && orBase.data.trim()) setOpenrouterBaseUrl(orBase.data);
         const t = Number(temp?.data);
         if (Number.isFinite(t)) setTemperature(Math.max(0, Math.min(2, t)));
@@ -238,6 +244,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
       if (provider === 'openai') body.apiKey = openaiInput || undefined;
       if (provider === 'anthropic') body.apiKey = anthropicInput || undefined;
       if (provider === 'openrouter') { body.apiKey = openrouterInput || undefined; body.baseUrl = openrouterBaseUrl || undefined; }
+      if (provider === 'groq') body.apiKey = groqInput || undefined;
       const resp = await fetch(`${apiBase}/api/v1/models/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: authToken ? `Bearer ${authToken}` : '' },
@@ -278,6 +285,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               <button className={`tab-button ${tab === 'openai' ? 'active' : ''}`} onClick={() => setTab('openai')}>OpenAI</button>
               <button className={`tab-button ${tab === 'anthropic' ? 'active' : ''}`} onClick={() => setTab('anthropic')}>Anthropic</button>
               <button className={`tab-button ${tab === 'openrouter' ? 'active' : ''}`} onClick={() => setTab('openrouter')}>OpenRouter</button>
+              <button className={`tab-button ${tab === 'groq' ? 'active' : ''}`} onClick={() => setTab('groq')}>Groq</button>
             </div>
 
             {tab === 'openai' && (
@@ -364,6 +372,36 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                   <div className="actions right">
                     <button className="secondary" disabled={!canSave} onClick={() => saveKey('integrations.openrouter.baseUrl', openrouterBaseUrl.trim(), false)}>Save Base URL</button>
                   </div>
+                </div>
+              </section>
+            )}
+
+            {tab === 'groq' && (
+              <section className="settings-section">
+                <div className="field">
+                  <div className="field-label-row">
+                    <label htmlFor="groq-key">Groq API key</label>
+                    {groqStored && <span className="configured-indicator"><CheckCircle2 size={14} /> Configured</span>}
+                  </div>
+                  {groqStored ? (
+                    <div className="actions" style={{ justifyContent: 'space-between' }}>
+                      <code style={{ fontSize: 12, opacity: 0.8 }}>gsk_••••••••</code>
+                      <button className="cancel-button" title="Remove key" onClick={() => saveKey('integrations.groq.apiKey', null, false)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <input id="groq-key" type="password" placeholder="gsk_..." value={groqInput} onChange={(e) => setGroqInput(e.target.value)} />
+                      <div className="actions">
+                        <button className="apply-button" disabled={!canSave || !groqInput.trim()} onClick={() => saveKey('integrations.groq.apiKey', groqInput.trim(), true)}>Save</button>
+                        <button className="secondary" disabled={status === 'testing'} onClick={() => testProvider('groq')}>Test</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="help" style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  Supports Kimi K2 0905 model with 16K output tokens and 262K context window.
                 </div>
               </section>
             )}
