@@ -30,6 +30,14 @@ import "./agent-panel.css";
 const IPC_PREFS_GET = '/prefs/get';
 const IPC_PREFS_SET = '/prefs/set';
 
+// Module-scope helper to retrieve API info exposed by preload
+function getApiInfo() {
+  const info = window.__PF_API_INFO ?? {};
+  const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
+  const authToken = typeof info.authToken === "string" ? info.authToken : "";
+  return { apiBase, authToken };
+}
+
 // Helper functions to reduce cognitive complexity in onError
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
@@ -123,7 +131,7 @@ export type AgentPanelProps = {
  *
  * This is intentionally slim for Phase 1; richer UI comes in follow-ups.
  */
-const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorkspace = null, loadFileContent }: AgentPanelProps) => {
+const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, currentWorkspace = null, loadFileContent: _loadFileContent }: AgentPanelProps) => {
   const { agentWidth, handleResizeStart } = useAgentPanelResize(320);
 
   // Attachments removed: panel no longer manages local file attachments
@@ -132,16 +140,10 @@ const AgentPanel = ({ hidden, allFiles = [], selectedFolder = null, currentWorks
   const turnStartRef = useRef<number | null>(null);
 
   // Bridge provided by preload/IPC (fallback for tests/dev)
-  function useApiInfo() {
-    const info = window.__PF_API_INFO ?? {};
-    const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
-    const authToken = typeof info.authToken === "string" ? info.authToken : "";
-    return { apiBase, authToken };
-  }
 
   // Initial context from Content Area hand-off
   const lastInitialRef = useRef<unknown | null>(null);
-  const { apiBase, authToken } = useApiInfo();
+  const { apiBase, authToken } = getApiInfo();
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [errorInfo, setErrorInfo] = useState<null | {
     status: number;

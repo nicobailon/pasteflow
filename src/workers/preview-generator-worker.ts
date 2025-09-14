@@ -109,6 +109,9 @@ function estimateTokens(text: string): number {
   return Math.ceil((text || '').length / CHARS_PER_TOKEN);
 }
 
+// Simple comparator moved to outer scope to satisfy consistent-function-scoping rule
+const cmpValues = (a: number | string, b: number | string) => (a === b ? 0 : (a < b ? -1 : 1));
+
 /**
  * Efficiently count lines without allocating large arrays.
  * Treats empty string as 0 lines, "a" as 1 line.
@@ -300,24 +303,23 @@ function generateFileTreeItems(
 function sortFilesByOrder(files: FileData[], sortOrder: string): FileData[] {
   const [key, dirRaw] = (sortOrder || '').split('-');
   const dir = (dirRaw === 'desc' || sortOrder.endsWith('-desc')) ? 'desc' : 'asc';
-  const cmp = (a: number | string, b: number | string) => (a === b ? 0 : (a < b ? -1 : 1));
   const arr = [...files];
   switch (key) {
     case 'tokens': {
-      arr.sort((a, b) => cmp(a.tokenCount ?? Math.round(a.size / CHARS_PER_TOKEN), b.tokenCount ?? Math.round(b.size / CHARS_PER_TOKEN)));
+      arr.sort((a, b) => cmpValues(a.tokenCount ?? Math.round(a.size / CHARS_PER_TOKEN), b.tokenCount ?? Math.round(b.size / CHARS_PER_TOKEN)));
       break;
     }
     case 'size': {
-      arr.sort((a, b) => cmp(a.size, b.size));
+      arr.sort((a, b) => cmpValues(a.size, b.size));
       break;
     }
     case 'extension': {
       const ext = (n: string) => (n.split('.').pop() || '');
-      arr.sort((a, b) => cmp(ext(a.name), ext(b.name)) || cmp(a.name, b.name));
+      arr.sort((a, b) => cmpValues(ext(a.name), ext(b.name)) || cmpValues(a.name, b.name));
       break;
     }
     default: {
-      arr.sort((a, b) => cmp(a.name, b.name));
+      arr.sort((a, b) => cmpValues(a.name, b.name));
     }
   }
   if (dir === 'desc') arr.reverse();

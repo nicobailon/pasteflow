@@ -73,7 +73,7 @@ export function extractVisibleTextFromMessage(m: unknown): string {
           if (typeof (it as any)?.textDelta === 'string') { outPieces.push(String((it as any).textDelta)); continue; }
           // Occasional providers put text under alternate keys
           if (typeof (it as any)?.content === 'string') { outPieces.push(String((it as any).content)); continue; }
-          if (typeof (it as any)?.value === 'string') { outPieces.push(String((it as any).value)); continue; }
+          if (typeof (it as any)?.value === 'string') { outPieces.push(String((it as any).value)); }
         }
         const joined = outPieces.join('');
         if (joined && joined.trim().length > 0) return joined;

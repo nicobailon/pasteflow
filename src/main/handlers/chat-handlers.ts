@@ -4,6 +4,7 @@ import nodePath from 'node:path';
 import type { Request, Response } from 'express';
 import { streamText, convertToModelMessages, consumeStream } from 'ai';
 import type { UIMessage, ModelMessage, ToolSet } from 'ai';
+import type { ProviderOptions } from '@ai-sdk/provider-utils';
 
 import { toApiError } from '../error-normalizer';
 import { getAllowedWorkspacePaths } from '../workspace-context';
@@ -63,6 +64,44 @@ export type HandlerDeps = {
   previewProxy: RendererPreviewProxy;
   previewController: PreviewController;
 };
+
+// Small helpers moved to outer scope to reduce complexity and satisfy linting rules
+const isRecordObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+const toNumberOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const getProp = (o: unknown, k: string): unknown => (isRecordObject(o) ? (o as Record<string, unknown>)[k] : undefined);
+
+function buildSafeFiles(
+  files: AgentContextEnvelope['dynamic']['files'] | undefined,
+  allowed: readonly string[]
+): AgentContextEnvelope['dynamic']['files'] {
+  const out: AgentContextEnvelope['dynamic']['files'] = [];
+  for (const f of Array.isArray(files) ? files : []) {
+    const p = String(f?.path || '');
+    const isAllowed = allowed.some((root) => {
+      try {
+        const rel = nodePath.relative(root, p);
+        return rel && !rel.startsWith('..') && !nodePath.isAbsolute(rel);
+      } catch { return false; }
+    });
+    if (!isAllowed) continue;
+    let rel: string | undefined;
+    for (const root of allowed) {
+      try {
+        const r = nodePath.relative(root, p);
+        if (r && !r.startsWith('..') && !nodePath.isAbsolute(r)) { rel = r; break; }
+      } catch { /* noop */ }
+    }
+    out.push({
+      path: p,
+      lines: f?.lines ?? null,
+      tokenCount: typeof f?.tokenCount === 'number' ? f.tokenCount : undefined,
+      bytes: typeof f?.bytes === 'number' ? f.bytes : undefined,
+      relativePath: rel,
+    });
+    if (out.length >= 50) break;
+  }
+  return out;
+}
 
 export async function handleChat(deps: HandlerDeps, req: Request, res: Response) {
   try {
@@ -195,12 +234,6 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     const { resolveModelForRequest } = await import('../agent/model-resolver');
     const provider: ProviderId = cfg.PROVIDER || 'openai';
     const preferredModelId = String(cfg.DEFAULT_MODEL || '');
-    const modelIdIsReasoning = (() => {
-      try {
-        const s = preferredModelId.toLowerCase();
-        return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
-      } catch { return false; }
-    })();
     // Keep selected model even for packed content to allow reasoning-first streams
     const effectiveModelId = preferredModelId;
     const { model } = await resolveModelForRequest({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: effectiveModelId });
@@ -271,12 +304,12 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
 
     let start = Date.now();
     if (res.headersSent) return;
-    let lastFinishReason: string | undefined;
+    // finish reason kept for logging only; do not persist between steps
     const createStream = async (_attempt: number) => {
       start = Date.now();
       try { console.log('[AI][chat:stream:start]', { sessionId }); } catch { /* noop */ }
       // Provider-specific tuning for reasoning models to ensure answer text is produced
-      const providerOptions = (() => {
+      const providerOptions: ProviderOptions | undefined = (() => {
         try {
           if (provider === 'openai' && isReasoningModel) {
             return {
@@ -288,7 +321,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
                 serviceTier: 'auto',
                 instructions: 'After reasoning, provide the final answer as visible text (not only reasoning). Keep it concise.'
               }
-            } as unknown as Record<string, unknown>;
+            } as ProviderOptions;
           }
           return;
         } catch { return; }
@@ -347,7 +380,6 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           try {
             const get = (o: any, k: string) => (o && typeof o === 'object') ? o[k] : undefined;
             const finishReason = get(step, 'finishReason');
-            if (typeof finishReason === 'string') lastFinishReason = finishReason;
             const usage = get(step, 'usage');
             const toolCalls = get(step, 'toolCalls');
             console.log('[AI][step:finish]', { finishReason, usage, toolCallsCount: Array.isArray(toolCalls) ? toolCalls.length : undefined });
@@ -535,7 +567,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           if (res.headersSent) return; // safety
           const createStream = async (_attempt: number) => {
             start = Date.now();
-            const providerOptions = (() => {
+            const providerOptions: ProviderOptions | undefined = (() => {
               try {
                 if (provider === 'openai' && modelIdIsReasoning) {
                   return {
@@ -546,7 +578,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
                       serviceTier: 'auto',
                       instructions: 'After reasoning, provide the final answer as visible text (not only reasoning). Keep it concise.'
                     }
-                  } as unknown as Record<string, unknown>;
+                  } as ProviderOptions;
                 }
                 return;
               } catch { return; }
@@ -727,37 +759,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
 export function sanitizeContextEnvelope(envelope: AgentContextEnvelope, allowed: readonly string[]) {
   try {
     if (!envelope || !Array.isArray(allowed) || allowed.length === 0) return envelope;
-    const safeFiles = (files: AgentContextEnvelope['dynamic']['files']) => {
-      const out: AgentContextEnvelope['dynamic']['files'] = [];
-      for (const f of Array.isArray(files) ? files : []) {
-        const p = String(f?.path || '');
-        const isAllowed = allowed.some((root) => {
-          try {
-            const rel = nodePath.relative(root, p);
-            return rel && !rel.startsWith('..') && !nodePath.isAbsolute(rel);
-          } catch { return false; }
-        });
-        if (!isAllowed) continue;
-        const rel = (() => {
-          for (const root of allowed) {
-            try {
-              const r = nodePath.relative(root, p);
-              if (r && !r.startsWith('..') && !nodePath.isAbsolute(r)) return r;
-            } catch { /* noop */ }
-          }
-          // no relative path within allowed roots
-        })();
-        out.push({
-          path: p,
-          lines: f?.lines ?? null,
-          tokenCount: typeof f?.tokenCount === 'number' ? f.tokenCount : undefined,
-          bytes: typeof f?.bytes === 'number' ? f.bytes : undefined,
-          relativePath: rel,
-        });
-        if (out.length >= 50) break;
-      }
-      return out;
-    };
+    const safeFiles = (files: AgentContextEnvelope['dynamic']['files']) => buildSafeFiles(files, allowed);
 
     const initial = envelope.initial ? {
       files: safeFiles(envelope.initial.files || []),
@@ -787,16 +789,13 @@ export function sanitizeContextEnvelope(envelope: AgentContextEnvelope, allowed:
 
 // Usage helpers
 export function extractUsage(info: unknown): { input: number | null; output: number | null; total: number | null } {
-  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
-  const get = (o: unknown, k: string): unknown => (isObject(o) ? (o as Record<string, unknown>)[k] : undefined);
-  const usage = get(info, 'usage');
-  const input = get(usage, 'inputTokens');
-  const output = get(usage, 'outputTokens');
-  const total = get(usage, 'totalTokens');
-  const toNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-  const i = toNum(input);
-  const o = toNum(output);
-  const t = toNum(total);
+  const usage = getProp(info, 'usage');
+  const input = getProp(usage, 'inputTokens');
+  const output = getProp(usage, 'outputTokens');
+  const total = getProp(usage, 'totalTokens');
+  const i = toNumberOrNull(input);
+  const o = toNumberOrNull(output);
+  const t = toNumberOrNull(total);
   let totalOut: number | null = null;
   if (typeof t === 'number') totalOut = t;
   else if (typeof i === 'number' && typeof o === 'number') totalOut = i + o;
@@ -894,10 +893,9 @@ export function isRetriableProviderError(err: unknown): boolean {
 
 export function getRetryAfterMsFromError(err: unknown): number | null {
   try {
-    const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
-    const get = (o: unknown, k: string): unknown => (isObject(o) ? (o as Record<string, unknown>)[k] : undefined);
+    const get = getProp;
     const headerGet = (headersObj: unknown, name: string): string | undefined => {
-      if (!isObject(headersObj)) return undefined;
+      if (!isRecordObject(headersObj)) return undefined;
       try {
         const maybeGet = (headersObj as { get?: (n: string) => string | null | undefined }).get;
         if (typeof maybeGet === 'function') {
@@ -905,7 +903,7 @@ export function getRetryAfterMsFromError(err: unknown): number | null {
           return typeof v === 'string' ? v : undefined;
         }
         const rec = headersObj as Record<string, unknown>;
-        const raw = rec[name] ?? rec[name.toLowerCase?.() ?? name] ?? rec[name.toUpperCase?.() ?? name];
+        const raw = rec[name] ?? rec[String(name).toLowerCase?.() ?? name] ?? rec[String(name).toUpperCase?.() ?? name];
         if (typeof raw === 'string') return raw;
         if (typeof raw === 'number') return String(raw);
         return undefined;
@@ -925,7 +923,7 @@ export function getRetryAfterMsFromError(err: unknown): number | null {
       return null;
     };
 
-    const candidates = [
+    const candidates: unknown[] = [
       get(get(err, 'response'), 'headers'),
       get(err, 'headers'),
       get(get(get(err, 'cause'), 'response'), 'headers'),
@@ -962,7 +960,7 @@ export function extractToolNameFromError(err: unknown, candidates: string[]): st
   try {
     const seen = new Set<string>();
     const texts: string[] = [];
-    const push = (v: unknown) => { try { const s = String(v || ''); if (s && !seen.has(s)) { seen.add(s); texts.push(s.toLowerCase()); } } catch {} };
+    const push = (v: unknown) => { try { const s = String(v || ''); if (s && !seen.has(s)) { seen.add(s); texts.push(s.toLowerCase()); } } catch { /* noop */ } };
     push((err as { message?: string } | null | undefined)?.message);
     push((err as { param?: string } | null | undefined)?.param);
     const d = (err as { data?: { error?: { message?: string; param?: string } } } | null | undefined)?.data?.error;

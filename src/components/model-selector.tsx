@@ -14,7 +14,14 @@ type CatalogModel = {
   supportsTools?: boolean;
 };
 
-export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void }) {
+function getApiInfo() {
+  const info = window.__PF_API_INFO ?? {};
+  const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
+  const authToken = typeof info.authToken === "string" ? info.authToken : "";
+  return { apiBase, authToken };
+}
+
+export function ModelSelector({ onOpenSettings: _onOpenSettings }: { onOpenSettings?: () => void }) {
   const [provider, setProvider] = useState<ProviderId>("openai");
   const [model, setModel] = useState<string>("gpt-4o-mini");
   const [reasoningEffort, setReasoningEffort] = useState<string>("high");
@@ -22,13 +29,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
   const [loading, setLoading] = useState<boolean>(false);
 
   // API info from preload
-  function useApiInfo() {
-    const info = window.__PF_API_INFO ?? {};
-    const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
-    const authToken = typeof info.authToken === "string" ? info.authToken : "";
-    return { apiBase, authToken };
-  }
-  const { apiBase, authToken } = useApiInfo();
+  const { apiBase, authToken } = getApiInfo();
 
   // Minimal static fallback catalog to ensure models are selectable even if the API list fails (e.g., auth race on startup)
   const STATIC_FALLBACK: Record<ProviderId, CatalogModel[]> = {

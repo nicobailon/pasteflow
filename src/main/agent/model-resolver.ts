@@ -3,7 +3,7 @@ import { createAnthropic, anthropic as anthropicDirect } from "@ai-sdk/anthropic
 import { createGroq, groq as groqDirect } from "@ai-sdk/groq";
 import type { LanguageModel } from "ai";
 
-import type { DatabaseBridge } from "../db/database-bridge";
+// Note: keep minimal types local to avoid importing broad DB bridge types
 import { isSecretBlob, decryptSecret } from "../secret-prefs";
 
 import type { AgentConfig } from "./config";
@@ -13,11 +13,26 @@ import { getStaticModels } from "./models-catalog";
 
 type DbGetter = { getPreference: (k: string) => Promise<unknown> };
 
+function isReasoningModelId(id: string): boolean {
+  try {
+    const s = id.toLowerCase();
+    return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
+  } catch { return false; }
+}
+
 export type ProviderCredentials = {
   openai?: { apiKey?: string | null };
   anthropic?: { apiKey?: string | null };
   openrouter?: { apiKey?: string | null; baseUrl?: string | null };
   groq?: { apiKey?: string | null };
+};
+
+const unwrapSecretOrString = (v: unknown): string | null => {
+  if (isSecretBlob(v)) {
+    try { return decryptSecret(v); } catch { return null; }
+  }
+  if (typeof v === "string" && v.trim()) return v.trim();
+  return null;
 };
 
 export async function loadProviderCredentials(db: DbGetter): Promise<ProviderCredentials> {
@@ -33,19 +48,11 @@ export async function loadProviderCredentials(db: DbGetter): Promise<ProviderCre
     safeGet("integrations.groq.apiKey"),
   ]);
 
-  const unwrap = (v: unknown): string | null => {
-    if (isSecretBlob(v)) {
-      try { return decryptSecret(v); } catch { return null; }
-    }
-    if (typeof v === "string" && v.trim()) return v.trim();
-    return null;
-  };
-
   return {
-    openai: { apiKey: unwrap(okey) },
-    anthropic: { apiKey: unwrap(akey) },
-    openrouter: { apiKey: unwrap(orKey), baseUrl: typeof orBase === "string" && orBase.trim() ? orBase.trim() : "https://openrouter.ai/api/v1" },
-    groq: { apiKey: unwrap(groqKey) },
+    openai: { apiKey: unwrapSecretOrString(okey) },
+    anthropic: { apiKey: unwrapSecretOrString(akey) },
+    openrouter: { apiKey: unwrapSecretOrString(orKey), baseUrl: typeof orBase === "string" && orBase.trim() ? orBase.trim() : "https://openrouter.ai/api/v1" },
+    groq: { apiKey: unwrapSecretOrString(groqKey) },
   };
 }
 
@@ -61,67 +68,64 @@ export async function resolveModelForRequest(input: ResolveModelInput): Promise<
   const modelId = canonicalizeModelId(provider, input.modelId);
   const creds = await loadProviderCredentials(db);
 
-  if (provider === "openai") {
+
+  const resolveOpenAI = (): { model: LanguageModel } => {
     const key = creds.openai?.apiKey || process.env.OPENAI_API_KEY || null;
     if (key && typeof createOpenAI === 'function') {
       const client = createOpenAI({ apiKey: key });
-      // Use Responses API by default for GPT‑5 family (client(modelId)).
       return { model: client(modelId) } as any;
     }
-    // Fallback when createOpenAI is unavailable in test/mocks
     return { model: openaiDirect(modelId) } as any;
-  }
+  };
 
-  if (provider === "anthropic") {
+  const resolveAnthropic = (): { model: LanguageModel } => {
     const key = creds.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || null;
     if (key && typeof createAnthropic === 'function') {
       const client = createAnthropic({ apiKey: key });
       return { model: client(modelId) } as any;
     }
-    // Fall back to env only or when createAnthropic is unavailable
     return { model: anthropicDirect(modelId) } as any;
-  }
+  };
 
-  if (provider === "groq") {
+  const resolveGroq = (): { model: LanguageModel } => {
     const key = creds.groq?.apiKey || null;
     if (key && typeof createGroq === 'function') {
       const client = createGroq({ apiKey: key });
       return { model: client(modelId) } as any;
     }
-    // Fall back to direct client when createGroq is unavailable
     return { model: groqDirect(modelId) } as any;
-  }
+  };
 
-  if (provider === "openrouter") {
+  const resolveOpenRouter = (): { model: LanguageModel } => {
     const key = creds.openrouter?.apiKey || null;
     const baseURL = creds.openrouter?.baseUrl || "https://openrouter.ai/api/v1";
-    const isReasoning = (() => {
-      try {
-        const s = modelId.toLowerCase();
-        return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
-      } catch { return false; }
-    })();
+    const isReasoning = isReasoningModelId(modelId);
     if (typeof createOpenAI !== 'function') {
-      // Fallback to direct helper when createOpenAI is not available in mocks/tests
       return { model: openaiDirect(modelId) } as any;
     }
-    // Use Responses API for reasoning models to enable reasoning-first streaming
-    // and Chat Completions for pure chat models for compatibility.
     const client = createOpenAI({ apiKey: key || ("" as unknown as string), baseURL });
     return { model: isReasoning ? client(modelId) : client.chat(modelId) } as any;
-  }
+  };
 
-  // Unknown provider: attempt OpenAI as default
-  {
-    const client = createOpenAI({ apiKey: (await loadProviderCredentials(db)).openai?.apiKey || undefined });
-    const isReasoning = (() => {
-      try {
-        const s = modelId.toLowerCase();
-        return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
-      } catch { return false; }
-    })();
-    // Use Responses API for reasoning models; Chat Completions for chat-only models
-    return { model: isReasoning ? client(modelId) : client.chat(modelId) };
+  switch (provider) {
+    case "openai": {
+      return resolveOpenAI();
+    }
+    case "anthropic": {
+      return resolveAnthropic();
+    }
+    case "groq": {
+      return resolveGroq();
+    }
+    case "openrouter": {
+      return resolveOpenRouter();
+    }
+    default: {
+      const provCreds = await loadProviderCredentials(db);
+      const client = createOpenAI({ apiKey: provCreds.openai?.apiKey || undefined });
+      const isReasoning = isReasoningModelId(modelId);
+      return { model: isReasoning ? client(modelId) : client.chat(modelId) };
+    }
   }
 }
 
