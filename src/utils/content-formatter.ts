@@ -51,6 +51,23 @@ const generateFileTreeItems = (
   }
 };
 
+function buildMissingContentPlaceholder(fileData: FileData, _filePath: string): string {
+  if (fileData.isSkipped) {
+    const errSuffix = (fileData.error && `: ${fileData.error}`) || "";
+    return `[File skipped${errSuffix}]`;
+  }
+  if (fileData.isBinary) {
+    const ft = fileData.fileType || "BINARY";
+    const ftSuffix = ft && `: ${ft}`;
+    return `[Binary file omitted${ftSuffix || ""}]`;
+  }
+  if (fileData.error) {
+    const loadErrSuffix = (fileData.error && `: ${fileData.error}`) || "";
+    return `[Failed to load file${loadErrSuffix}]`;
+  }
+  return `[Content is loading...]`;
+}
+
 /**
  * Map file extension to appropriate language identifier for code blocks
  */
@@ -204,22 +221,7 @@ export const getSelectedFilesContentWithoutInstructions = (
     
     // Handle files that cannot be rendered as text
     if (!fileData.isContentLoaded || fileData.content === undefined) {
-      let placeholder: string;
-
-      if (fileData.isSkipped) {
-        const errSuffix = fileData.error ? `: ${fileData.error}` : "";
-        placeholder = `[File skipped${errSuffix}]`;
-      } else if (fileData.isBinary) {
-        const ft = fileData.fileType || "BINARY";
-        const ftSuffix = ft && `: ${ft}`;
-        placeholder = `[Binary file omitted${ftSuffix || ""}]`;
-      } else if (fileData.error) {
-        const loadErrSuffix = fileData.error ? `: ${fileData.error}` : "";
-        placeholder = `[Failed to load file${loadErrSuffix}]`;
-      } else {
-        placeholder = `[Content is loading...]`;
-      }
-
+      const placeholder = buildMissingContentPlaceholder(fileData, file.path);
       concatenatedString += `\nFile: ${file.path}\n\`\`\`\n${placeholder}\n\`\`\`\n`;
       continue;
     }
@@ -323,9 +325,9 @@ export const getSelectedFilesContent = (
     result = `${instructionsText}\n\n${result}`;
   }
 
-  // Add user instructions if provided
+  // Place user instructions at the beginning instead of the end
   if (userInstructions) {
-    result = `${result}\n\n${userInstructions}`;
+    result = `${userInstructions}\n\n${result}`;
   }
 
   return result;
@@ -399,9 +401,9 @@ export const getSimpleFileContent = (
     })
     .join('\n\n');
 
-  // Add user instructions if provided
+  // Place user instructions at the beginning instead of the end
   if (userInstructions) {
-    content += `\n\n${userInstructions}`;
+    content = `${userInstructions}\n\n${content}`;
   }
 
   return content;

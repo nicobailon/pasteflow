@@ -4,6 +4,7 @@ import nodePath from 'node:path';
 import type { Request, Response } from 'express';
 import { streamText, convertToModelMessages, consumeStream } from 'ai';
 import type { UIMessage, ModelMessage, ToolSet } from 'ai';
+import type { ProviderOptions } from '@ai-sdk/provider-utils';
 
 import { toApiError } from '../error-normalizer';
 import { getAllowedWorkspacePaths } from '../workspace-context';
@@ -17,6 +18,7 @@ import type { DatabaseBridge } from '../db/database-bridge';
 import type { RendererPreviewProxy } from '../preview-proxy';
 import type { PreviewController } from '../preview-controller';
 import type { AgentContextEnvelope } from '../../shared-types/agent-context';
+
 import { chatBodySchema } from './schemas';
 
 // --- Logging helpers (non-invasive, dev-friendly) ---
@@ -63,6 +65,44 @@ export type HandlerDeps = {
   previewController: PreviewController;
 };
 
+// Small helpers moved to outer scope to reduce complexity and satisfy linting rules
+const isRecordObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+const toNumberOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const getProp = (o: unknown, k: string): unknown => (isRecordObject(o) ? (o as Record<string, unknown>)[k] : undefined);
+
+function buildSafeFiles(
+  files: AgentContextEnvelope['dynamic']['files'] | undefined,
+  allowed: readonly string[]
+): AgentContextEnvelope['dynamic']['files'] {
+  const out: AgentContextEnvelope['dynamic']['files'] = [];
+  for (const f of Array.isArray(files) ? files : []) {
+    const p = String(f?.path || '');
+    const isAllowed = allowed.some((root) => {
+      try {
+        const rel = nodePath.relative(root, p);
+        return rel && !rel.startsWith('..') && !nodePath.isAbsolute(rel);
+      } catch { return false; }
+    });
+    if (!isAllowed) continue;
+    let rel: string | undefined;
+    for (const root of allowed) {
+      try {
+        const r = nodePath.relative(root, p);
+        if (r && !r.startsWith('..') && !nodePath.isAbsolute(r)) { rel = r; break; }
+      } catch { /* noop */ }
+    }
+    out.push({
+      path: p,
+      lines: f?.lines ?? null,
+      tokenCount: typeof f?.tokenCount === 'number' ? f.tokenCount : undefined,
+      bytes: typeof f?.bytes === 'number' ? f.bytes : undefined,
+      relativePath: rel,
+    });
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
 export async function handleChat(deps: HandlerDeps, req: Request, res: Response) {
   try {
     const parsed = chatBodySchema.safeParse(req.body);
@@ -74,7 +114,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     let modelMessages: ModelMessage[];
     try {
       modelMessages = convertToModelMessages(uiMessages);
-    } catch (e) {
+    } catch {
       try { console.warn('[AI][chat] invalid messages format'); } catch { /* noop */ }
       return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
     }
@@ -173,6 +213,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     });
 
     // Filter tool set to only enabled tools
+    // Enable tools (including for GPT-5 Mini) — provider supports tool calls via Responses API
     const tools = Object.fromEntries(
       Object.entries(toolsAll).filter(([k]) => enabledTools.has(k))
     ) as ToolSet;
@@ -193,12 +234,6 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     const { resolveModelForRequest } = await import('../agent/model-resolver');
     const provider: ProviderId = cfg.PROVIDER || 'openai';
     const preferredModelId = String(cfg.DEFAULT_MODEL || '');
-    const modelIdIsReasoning = (() => {
-      try {
-        const s = preferredModelId.toLowerCase();
-        return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
-      } catch { return false; }
-    })();
     // Keep selected model even for packed content to allow reasoning-first streams
     const effectiveModelId = preferredModelId;
     const { model } = await resolveModelForRequest({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }, provider, modelId: effectiveModelId });
@@ -255,24 +290,107 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     if (isReasoningModel) {
       const needsUserTail = finalModelMessages.length === 0 || finalModelMessages[finalModelMessages.length - 1]?.role !== 'user';
       if (needsUserTail) {
-        finalModelMessages = finalModelMessages.concat([{ role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage]);
+        finalModelMessages = [...finalModelMessages, { role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage];
       }
     }
 
+    // Read reasoning effort preference (default: high)
+    let prefEffort: 'minimal'|'low'|'medium'|'high' = 'high';
+    try {
+      const v = await (deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference('agent.reasoningEffort');
+      const s = typeof v === 'string' ? v.toLowerCase() : '';
+      if (s === 'minimal' || s === 'low' || s === 'medium' || s === 'high') prefEffort = s as any;
+    } catch { /* noop */ }
+
     let start = Date.now();
     if (res.headersSent) return;
+    // finish reason kept for logging only; do not persist between steps
     const createStream = async (_attempt: number) => {
       start = Date.now();
       try { console.log('[AI][chat:stream:start]', { sessionId }); } catch { /* noop */ }
+      // Provider-specific tuning for reasoning models to ensure answer text is produced
+      const providerOptions: ProviderOptions | undefined = (() => {
+        try {
+          if (provider === 'openai' && isReasoningModel) {
+            return {
+              openai: {
+                // Keep text concise and reserve budget for message output
+                textVerbosity: 'medium',
+                reasoningEffort: prefEffort,
+                parallelToolCalls: false,
+                serviceTier: 'auto',
+                instructions: 'After reasoning, provide the final answer as visible text (not only reasoning). Keep it concise.'
+              }
+            } as ProviderOptions;
+          }
+          return;
+        } catch { return; }
+      })();
+
+      // For reasoning models, pick a sensible default per-step budget based on effort
+      // if cfg.MAX_OUTPUT_TOKENS is not set. For non-reasoning, use model-specific limits.
+      const { getEffectiveMaxOutputTokens } = await import('../agent/config');
+      const modelSpecificLimit = getEffectiveMaxOutputTokens(cfg, provider, effectiveModelId);
+
+      const stepBudget: number | undefined = ((): number | undefined => {
+        // If user has explicitly set MAX_OUTPUT_TOKENS, respect it
+        const cfgVal = Number(cfg.MAX_OUTPUT_TOKENS);
+        if (Number.isFinite(cfgVal) && cfgVal !== 128_000) { // 128000 is the old default
+          return cfgVal;
+        }
+
+        // For reasoning models, use effort-based budgets within model limits
+        if (isReasoningModel) {
+          const effort = prefEffort; // 'minimal'|'low'|'medium'|'high'
+          const effortBudget = (() => {
+            switch (effort) {
+              case 'minimal': { return 768;
+              }
+              case 'low': { return 1024;
+              }
+              case 'medium': { return 1536;
+              }
+              case 'high': { return 3072;
+              }
+              default: { return 2048;
+              }
+            }
+          })();
+          // Use the smaller of effort budget or model limit
+          return Math.min(effortBudget, modelSpecificLimit);
+        }
+
+        // For non-reasoning models, use model-specific limit
+        return modelSpecificLimit;
+      })();
+
       return streamText({
         model,
         system,
         messages: finalModelMessages,
         tools,
+        toolChoice: (isReasoningModel ? 'none' : undefined) as any,
         temperature: shouldOmitTemperature ? undefined : (typeof cfgTemperature === 'number' ? cfgTemperature : undefined),
-        maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
+        maxOutputTokens: stepBudget,
+        providerOptions,
+        // Do not impose a custom stop condition; let provider handle steps
         abortSignal: controller.signal,
         onAbort: () => {},
+        onStepFinish: (step: unknown) => {
+          try {
+            const get = (o: any, k: string) => (o && typeof o === 'object') ? o[k] : undefined;
+            const finishReason = get(step, 'finishReason');
+            const usage = get(step, 'usage');
+            const toolCalls = get(step, 'toolCalls');
+            console.log('[AI][step:finish]', { finishReason, usage, toolCallsCount: Array.isArray(toolCalls) ? toolCalls.length : undefined });
+          } catch { /* noop */ }
+        },
+        onChunk: (ev: unknown) => {
+          try {
+            const t = String((ev as { chunk?: { type?: string } } | null | undefined)?.chunk?.type || '');
+            if (t) console.log('[AI][chunk]', t);
+          } catch { /* noop */ }
+        },
         onFinish: async (info: unknown) => {
           try {
             const { input, output, total } = extractUsage(info);
@@ -309,7 +427,12 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
 
     if (res.headersSent) return;
     try { console.log('[AI][chat:stream:pipe]', { sessionId }); } catch { /* noop */ }
-    result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
+
+    result.pipeUIMessageStreamToResponse(res, {
+      originalMessages: uiMessages as unknown as UIMessage[],
+      sendReasoning: true,
+      consumeSseStream: consumeStream,
+    });
 
     // Persist/refresh session shell with last known messages snapshot (cap messages)
     try {
@@ -325,7 +448,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     let cause: unknown = error;
     try {
       const err = error as any;
-      const status = Number(err?.status || err?.statusCode || err?.response?.status || err?.cause?.status || NaN);
+      const status = Number(err?.status || err?.statusCode || err?.response?.status || err?.cause?.status || Number.NaN);
       const name = String(err?.name || 'Error');
       const msg = String(err?.message || '');
       const code = String(err?.code || err?.data?.error?.code || err?.cause?.data?.error?.code || '');
@@ -342,7 +465,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
 
         // Determine which tool likely caused the error by message heuristics
         const enabledToolsSet = await getEnabledToolsSet(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
-        const enabledNames = Array.from(enabledToolsSet);
+        const enabledNames = [...enabledToolsSet];
         const badTool = extractToolNameFromError(cause, enabledNames);
         if (badTool && enabledToolsSet.has(badTool)) {
           try { console.warn('[AI][tool:quarantine]', { tool: badTool, reason: 'invalid-function-parameters' }); } catch { /* noop */ }
@@ -401,7 +524,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           if (modelIdIsReasoning) {
             const needsUserTail = finalRetryMessages.length === 0 || finalRetryMessages[finalRetryMessages.length - 1]?.role !== 'user';
             if (needsUserTail) {
-              finalRetryMessages = finalRetryMessages.concat([{ role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage]);
+              finalRetryMessages = [...finalRetryMessages, { role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage];
             }
           }
 
@@ -444,15 +567,93 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           if (res.headersSent) return; // safety
           const createStream = async (_attempt: number) => {
             start = Date.now();
+            const providerOptions: ProviderOptions | undefined = (() => {
+              try {
+                if (provider === 'openai' && modelIdIsReasoning) {
+                  return {
+                    openai: {
+                      textVerbosity: 'medium',
+                      reasoningEffort: 'high',
+                      parallelToolCalls: false,
+                      serviceTier: 'auto',
+                      instructions: 'After reasoning, provide the final answer as visible text (not only reasoning). Keep it concise.'
+                    }
+                  } as ProviderOptions;
+                }
+                return;
+              } catch { return; }
+            })();
+
+            const { getEffectiveMaxOutputTokens } = await import('../agent/config');
+            const retryModelSpecificLimit = getEffectiveMaxOutputTokens(cfg, provider, effectiveModelId);
+
+            // Read reasoning effort preference for retry (default: high)
+            let retryPrefEffort: 'minimal'|'low'|'medium'|'high' = 'high';
+            try {
+              const v = await (deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference('agent.reasoningEffort');
+              const s = typeof v === 'string' ? v.toLowerCase() : '';
+              if (s === 'minimal' || s === 'low' || s === 'medium' || s === 'high') retryPrefEffort = s as any;
+            } catch { /* noop */ }
+
+            const retryBudget: number | undefined = ((): number | undefined => {
+              // If user has explicitly set MAX_OUTPUT_TOKENS, respect it
+              const cfgVal = Number(cfg.MAX_OUTPUT_TOKENS);
+              if (Number.isFinite(cfgVal) && cfgVal !== 128_000) { // 128000 is the old default
+                return cfgVal;
+              }
+
+              // For reasoning models, use effort-based budgets within model limits
+              if (modelIdIsReasoning) {
+                const effort = retryPrefEffort;
+                const effortBudget = (() => {
+                  switch (effort) {
+                    case 'minimal': { return 768;
+                    }
+                    case 'low': { return 1024;
+                    }
+                    case 'medium': { return 1536;
+                    }
+                    case 'high': { return 3072;
+                    }
+                    default: { return 2048;
+                    }
+                  }
+                })();
+                // Use the smaller of effort budget or model limit
+                return Math.min(effortBudget, retryModelSpecificLimit);
+              }
+
+              // For non-reasoning models, use model-specific limit
+              return retryModelSpecificLimit;
+            })();
+
             return streamText({
               model,
               system,
               messages: finalRetryMessages,
               tools,
+              toolChoice: (modelIdIsReasoning ? 'none' : undefined) as any,
               temperature: shouldOmitTemperature ? undefined : cfgTemperature,
-              maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
+              maxOutputTokens: retryBudget,
+              providerOptions,
+              // Do not impose a custom stop condition; let provider handle steps
               abortSignal: controller.signal,
               onAbort: () => {},
+              onStepFinish: (step: unknown) => {
+                try {
+                  const get = (o: any, k: string) => (o && typeof o === 'object') ? o[k] : undefined;
+                  const finishReason = get(step, 'finishReason');
+                  const usage = get(step, 'usage');
+                  const toolCalls = get(step, 'toolCalls');
+                  console.log('[AI][step:finish]', { finishReason, usage, toolCallsCount: Array.isArray(toolCalls) ? toolCalls.length : undefined });
+                } catch { /* noop */ }
+              },
+              onChunk: (ev: unknown) => {
+                try {
+                  const t = String((ev as { chunk?: { type?: string } } | null | undefined)?.chunk?.type || '');
+                  if (t) console.log('[AI][chunk]', t);
+                } catch { /* noop */ }
+              },
               onFinish: async (info: unknown) => {
                 try {
                   const { input, output, total } = extractUsage(info);
@@ -478,7 +679,21 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           });
 
           if (res.headersSent) return;
-          result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
+          result.pipeUIMessageStreamToResponse(res, {
+            originalMessages: parsed.data.messages as unknown as UIMessage[],
+            sendReasoning: true,
+            onFinish: (ev: unknown) => {
+              try {
+                const get = (o: any, k: string) => (o && typeof o === 'object') ? o[k] : undefined;
+                const rm = get(ev, 'responseMessage');
+                const parts = Array.isArray(get(rm, 'parts')) ? get(rm, 'parts') as any[] : [];
+                const types = parts.map(p => String((p && p.type) || 'unknown'));
+                const sample = parts.slice(0, 3);
+                console.log('[AI][ui:onFinish]', { partTypes: types, sample });
+              } catch { /* noop */ }
+            },
+            consumeSseStream: consumeStream,
+          });
 
           try {
             const maxMsgs = Number(process.env.PF_AGENT_MAX_SESSION_MESSAGES ?? 50);
@@ -544,37 +759,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
 export function sanitizeContextEnvelope(envelope: AgentContextEnvelope, allowed: readonly string[]) {
   try {
     if (!envelope || !Array.isArray(allowed) || allowed.length === 0) return envelope;
-    const safeFiles = (files: AgentContextEnvelope['dynamic']['files']) => {
-      const out: AgentContextEnvelope['dynamic']['files'] = [];
-      for (const f of Array.isArray(files) ? files : []) {
-        const p = String(f?.path || '');
-        const isAllowed = allowed.some((root) => {
-          try {
-            const rel = nodePath.relative(root, p);
-            return rel && !rel.startsWith('..') && !nodePath.isAbsolute(rel);
-          } catch { return false; }
-        });
-        if (!isAllowed) continue;
-        const rel = (() => {
-          for (const root of allowed) {
-            try {
-              const r = nodePath.relative(root, p);
-              if (r && !r.startsWith('..') && !nodePath.isAbsolute(r)) return r;
-            } catch { /* noop */ }
-          }
-          // no relative path within allowed roots
-        })();
-        out.push({
-          path: p,
-          lines: f?.lines ?? null,
-          tokenCount: typeof f?.tokenCount === 'number' ? f.tokenCount : undefined,
-          bytes: typeof f?.bytes === 'number' ? f.bytes : undefined,
-          relativePath: rel,
-        });
-        if (out.length >= 50) break;
-      }
-      return out;
-    };
+    const safeFiles = (files: AgentContextEnvelope['dynamic']['files']) => buildSafeFiles(files, allowed);
 
     const initial = envelope.initial ? {
       files: safeFiles(envelope.initial.files || []),
@@ -604,16 +789,13 @@ export function sanitizeContextEnvelope(envelope: AgentContextEnvelope, allowed:
 
 // Usage helpers
 export function extractUsage(info: unknown): { input: number | null; output: number | null; total: number | null } {
-  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
-  const get = (o: unknown, k: string): unknown => (isObject(o) ? (o as Record<string, unknown>)[k] : undefined);
-  const usage = get(info, 'usage');
-  const input = get(usage, 'inputTokens');
-  const output = get(usage, 'outputTokens');
-  const total = get(usage, 'totalTokens');
-  const toNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-  const i = toNum(input);
-  const o = toNum(output);
-  const t = toNum(total);
+  const usage = getProp(info, 'usage');
+  const input = getProp(usage, 'inputTokens');
+  const output = getProp(usage, 'outputTokens');
+  const total = getProp(usage, 'totalTokens');
+  const i = toNumberOrNull(input);
+  const o = toNumberOrNull(output);
+  const t = toNumberOrNull(total);
   let totalOut: number | null = null;
   if (typeof t === 'number') totalOut = t;
   else if (typeof i === 'number' && typeof o === 'number') totalOut = i + o;
@@ -711,10 +893,9 @@ export function isRetriableProviderError(err: unknown): boolean {
 
 export function getRetryAfterMsFromError(err: unknown): number | null {
   try {
-    const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
-    const get = (o: unknown, k: string): unknown => (isObject(o) ? (o as Record<string, unknown>)[k] : undefined);
+    const get = getProp;
     const headerGet = (headersObj: unknown, name: string): string | undefined => {
-      if (!isObject(headersObj)) return undefined;
+      if (!isRecordObject(headersObj)) return undefined;
       try {
         const maybeGet = (headersObj as { get?: (n: string) => string | null | undefined }).get;
         if (typeof maybeGet === 'function') {
@@ -722,7 +903,7 @@ export function getRetryAfterMsFromError(err: unknown): number | null {
           return typeof v === 'string' ? v : undefined;
         }
         const rec = headersObj as Record<string, unknown>;
-        const raw = rec[name] ?? rec[name.toLowerCase?.() ?? name] ?? rec[name.toUpperCase?.() ?? name];
+        const raw = rec[name] ?? rec[String(name).toLowerCase?.() ?? name] ?? rec[String(name).toUpperCase?.() ?? name];
         if (typeof raw === 'string') return raw;
         if (typeof raw === 'number') return String(raw);
         return undefined;
@@ -742,7 +923,7 @@ export function getRetryAfterMsFromError(err: unknown): number | null {
       return null;
     };
 
-    const candidates = [
+    const candidates: unknown[] = [
       get(get(err, 'response'), 'headers'),
       get(err, 'headers'),
       get(get(get(err, 'cause'), 'response'), 'headers'),
@@ -779,7 +960,7 @@ export function extractToolNameFromError(err: unknown, candidates: string[]): st
   try {
     const seen = new Set<string>();
     const texts: string[] = [];
-    const push = (v: unknown) => { try { const s = String(v || ''); if (s && !seen.has(s)) { seen.add(s); texts.push(s.toLowerCase()); } } catch {} };
+    const push = (v: unknown) => { try { const s = String(v || ''); if (s && !seen.has(s)) { seen.add(s); texts.push(s.toLowerCase()); } } catch { /* noop */ } };
     push((err as { message?: string } | null | undefined)?.message);
     push((err as { param?: string } | null | undefined)?.param);
     const d = (err as { data?: { error?: { message?: string; param?: string } } } | null | undefined)?.data?.error;

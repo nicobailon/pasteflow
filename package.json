@@ -163,6 +163,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.12",
+    "@ai-sdk/groq": "^2.0.19",
     "@ai-sdk/openai": "^2.0.25",
     "@ai-sdk/react": "^2.0.35",
     "@radix-ui/react-dialog": "^1.1.6",

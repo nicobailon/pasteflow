@@ -90,10 +90,10 @@ npm run test:watch
 ```
 
 ### Configuration (Agent)
-- PF_AGENT_PROVIDER: default provider id (default: openai)
+- PF_AGENT_PROVIDER: default provider id (default: openai) - supports: openai, anthropic, openrouter, groq
 - PF_AGENT_DEFAULT_MODEL: default model id (default: gpt-4o-mini)
 - PF_AGENT_MAX_CONTEXT_TOKENS: max context size (default: 120000)
-- PF_AGENT_MAX_OUTPUT_TOKENS: max output tokens (default: 4000)
+- PF_AGENT_MAX_OUTPUT_TOKENS: fallback max output tokens when model-specific limit not available (default: 128000)
 - PF_AGENT_TEMPERATURE: default generation temperature (default: 0.3)
 - PF_AGENT_MAX_TOOLS_PER_TURN: per-session tool cap per 60s (default: 8)
 - PF_AGENT_MAX_RESULTS_PER_TOOL: list/search max results (default: 200)
@@ -108,6 +108,14 @@ npm run test:watch
 - PF_AGENT_MAX_SESSION_MESSAGES: persist last N chat messages per session (default: 50)
 - PF_AGENT_TELEMETRY_RETENTION_DAYS: days to retain tool/usage telemetry (default: 90)
 - PF_AGENT_DISABLE_EXECUTION_CONTEXT: disable system execution context injection (default: false)
+
+### Environment Variables (API Keys)
+Provider API keys can be set via environment variables as fallbacks when not configured in the UI:
+- OPENAI_API_KEY: OpenAI API key
+- ANTHROPIC_API_KEY: Anthropic API key
+- OpenRouter uses OPENAI_API_KEY with custom base URL
+
+Note: Groq provider only uses API keys configured through the UI preferences system (no environment variable fallback).
 
 Telemetry & cost notes
 - Costs are computed server‑side using a small built‑in pricing table (per 1M tokens) in `src/main/agent/pricing.ts`. The table covers common default models and can be expanded. When a model is not in the table, the UI may show an approximate cost based on a conservative rate.
@@ -414,12 +422,13 @@ Implementation
 - Renderer flags: Renderer feature-flag injection has been removed; the Agent panel displays tool-call details based on message content without feature gating.
 
 ### Agent Model Management (WIP)
-- Providers: OpenAI, Anthropic, OpenRouter. Configure in the Model Settings modal (header → Settings). Secrets are stored encrypted and used only locally.
+- Providers: OpenAI, Anthropic, OpenRouter, Groq. Configure in the Model Settings modal (header → Settings). Secrets are stored encrypted and used only locally.
 - Runtime switching: Use the Model Switcher under the Agent input to select provider and model. Changes apply to the next turn.
 - Defaults: If no preference is set, provider defaults to `openai` and the model to `PF_AGENT_DEFAULT_MODEL` (fallback `gpt-4o-mini`).
 - OpenRouter: Optional custom `baseUrl` is supported; model ids are namespaced (e.g., `openai/gpt-5`).
+- Groq: Supports Kimi K2 0905 model (`moonshotai/kimi-k2-instruct-0905`) with 16K output tokens and 262K context window.
 - API (local):
-  - `GET /api/v1/models?provider=openai|anthropic|openrouter` → `{ provider, models: [{ id, label, ...}] }` (static catalog; best-effort).
+  - `GET /api/v1/models?provider=openai|anthropic|openrouter|groq` → `{ provider, models: [{ id, label, ...}] }` (static catalog; best-effort).
   - `POST /api/v1/models/validate` → `{ ok: true } | { ok: false, error }` using a tiny generation to verify credentials/model.
   - Telemetry is captured by the chat route and exposed via IPC; session export includes usage rows.
 

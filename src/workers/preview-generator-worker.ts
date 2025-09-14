@@ -2,22 +2,17 @@
 
 import { normalizePath, getRelativePath, extname } from '../file-ops/path';
 import { generateAsciiFileTree } from '../file-ops/ascii-tree';
-import type { LineRange, SelectedFileReference, FileData, Instruction, SystemPrompt, RolePrompt, FileTreeMode } from '../shared-types';
+import type { SelectedFileReference, FileData, Instruction, SystemPrompt, RolePrompt, FileTreeMode } from '../shared-types';
 import type { PreviewWorkerMessage, PreviewStartPayload } from "../shared-types/messages";
 
 import {
   EmitContext,
-  FileEmitResult,
   handleFileEmitFailure,
-  markFileAsEmitted,
   canEmitFile,
   processFileForEmission,
   scheduleFileRetry,
   processBatchForEmission,
   processFileUpdate,
-  RETRY_MAX_ATTEMPTS,
-  RETRY_DELAY_MS,
-  RETRY_BACKOFF_MULTIPLIER,
   PENDING_FILE_TIMEOUT as PENDING_FILE_TIMEOUT_IMPORT
 } from './preview-generator-helpers';
 
@@ -113,6 +108,9 @@ const CLEANUP_INTERVAL_MS = 30_000;  // Interval for memory cleanup
 function estimateTokens(text: string): number {
   return Math.ceil((text || '').length / CHARS_PER_TOKEN);
 }
+
+// Simple comparator moved to outer scope to satisfy consistent-function-scoping rule
+const cmpValues = (a: number | string, b: number | string) => (a === b ? 0 : (a < b ? -1 : 1));
 
 /**
  * Efficiently count lines without allocating large arrays.
@@ -305,24 +303,23 @@ function generateFileTreeItems(
 function sortFilesByOrder(files: FileData[], sortOrder: string): FileData[] {
   const [key, dirRaw] = (sortOrder || '').split('-');
   const dir = (dirRaw === 'desc' || sortOrder.endsWith('-desc')) ? 'desc' : 'asc';
-  const cmp = (a: number | string, b: number | string) => (a === b ? 0 : (a < b ? -1 : 1));
   const arr = [...files];
   switch (key) {
     case 'tokens': {
-      arr.sort((a, b) => cmp(a.tokenCount ?? Math.round(a.size / CHARS_PER_TOKEN), b.tokenCount ?? Math.round(b.size / CHARS_PER_TOKEN)));
+      arr.sort((a, b) => cmpValues(a.tokenCount ?? Math.round(a.size / CHARS_PER_TOKEN), b.tokenCount ?? Math.round(b.size / CHARS_PER_TOKEN)));
       break;
     }
     case 'size': {
-      arr.sort((a, b) => cmp(a.size, b.size));
+      arr.sort((a, b) => cmpValues(a.size, b.size));
       break;
     }
     case 'extension': {
       const ext = (n: string) => (n.split('.').pop() || '');
-      arr.sort((a, b) => cmp(ext(a.name), ext(b.name)) || cmp(a.name, b.name));
+      arr.sort((a, b) => cmpValues(ext(a.name), ext(b.name)) || cmpValues(a.name, b.name));
       break;
     }
     default: {
-      arr.sort((a, b) => cmp(a.name, b.name));
+      arr.sort((a, b) => cmpValues(a.name, b.name));
     }
   }
   if (dir === 'desc') arr.reverse();
@@ -346,12 +343,9 @@ function emitProgress() {
   } satisfies PreviewWorkerMessage);
 }
 
-function emitFooterAndComplete(userInstructions?: string) {
+function emitFooterAndComplete(_userInstructions?: string) {
   if (footerEmitted || isCancelled || !currentId) return;
-  let footerFull = '</codebase>';
-  if (userInstructions && userInstructions.trim().length > 0) {
-    footerFull += `\n\n${userInstructions}`;
-  }
+  const footerFull = '</codebase>';
   const footerDisplay = footerFull; // small; safe to reuse
   tokenTotal += estimateTokens(footerFull);
   workerCtx.postMessage({
@@ -371,15 +365,18 @@ function emitHeaderAndPrimingChunk(opts: {
   selectedSystemPrompts?: SystemPrompt[];
   selectedRolePrompts?: RolePrompt[];
   selectedInstructions?: Instruction[];
+  userInstructions?: string;
 }) {
   if (headerEmitted || !currentId) return;
-  const { fileTreeMode, selectedFolder, sortedSelectedFiles, selectedSystemPrompts, selectedRolePrompts, selectedInstructions } = opts;
+  const { fileTreeMode, selectedFolder, sortedSelectedFiles, selectedSystemPrompts, selectedRolePrompts, selectedInstructions, userInstructions } = opts;
 
   // Prefix (prompts/docs)
   const prefixParts: string[] = [];
   if (selectedSystemPrompts?.length) prefixParts.push(selectedSystemPrompts.map(p => p.content).join('\n\n'));
   if (selectedRolePrompts?.length) prefixParts.push(selectedRolePrompts.map(p => p.content).join('\n\n'));
   if (selectedInstructions?.length) prefixParts.push(selectedInstructions.map(d => d.content).join('\n\n'));
+  // Put user instructions at the beginning (before <codebase>)
+  if (userInstructions && userInstructions.trim().length > 0) prefixParts.push(userInstructions);
 
   let header = '';
   if (prefixParts.length > 0) header += prefixParts.join('\n\n') + '\n\n';
@@ -575,6 +572,7 @@ function tryEmitSingle(path: string, userSelectedFolder: string | null, packOnly
       // Ensure no stale retry count
       retryCounts.delete(path);
       if (DEBUG_ENABLED) {
+        // eslint-disable-next-line no-console
         console.log('[Worker] Non-transient error for path:', path, error);
       }
       emitProgress();
@@ -646,6 +644,7 @@ async function streamPreview(payload: StartPayload) {
   
   // Diagnostic logging (only in debug mode)
   if (DEBUG_ENABLED) {
+    // eslint-disable-next-line no-console
     console.log('[Worker START] Diagnostic info:', {
       totalSelected: allSelectedList.length,
       binaryCount: excludedBinaryCount,
@@ -676,7 +675,8 @@ async function streamPreview(payload: StartPayload) {
     sortedSelectedFiles: allSortedSelected, // Include ALL files for tree
     selectedSystemPrompts,
     selectedRolePrompts,
-    selectedInstructions
+    selectedInstructions,
+    userInstructions: lastUserInstructions
   });
 
   // Emit any files that already have content
@@ -740,12 +740,13 @@ function handleUpdateFiles(id: string, files: UpdateFile[], chunkSize: number) {
 
   // Diagnostic logging
   if (DEBUG_ENABLED) {
+    // eslint-disable-next-line no-console
     console.log('[Worker UPDATE_FILES]', {
       filesReceived: files.length,
       newlyReady: newlyReady.length,
       pendingPathsSize: pendingPaths.size,
       emittedPathsSize: emittedPaths.size,
-      totalFiles: totalFiles
+      totalFiles
     });
   }
 
@@ -796,6 +797,7 @@ function handleUpdateFileStatus(id: string, path: string, status: FileStatus, re
   
   // Diagnostic logging
   if (DEBUG_ENABLED) {
+    // eslint-disable-next-line no-console
     console.log('[Worker UPDATE_FILE_STATUS]', {
       path,
       status,
@@ -815,6 +817,7 @@ function handleUpdateFileStatus(id: string, path: string, status: FileStatus, re
 function handlePendingTimeout(path: string) {
   if (pendingPaths.has(path)) {
     if (DEBUG_ENABLED) {
+      // eslint-disable-next-line no-console
       console.log('[Worker TIMEOUT]', {
         path,
         message: 'File timed out waiting for content'
@@ -845,6 +848,7 @@ function checkAndCompleteIfDone() {
   
   // Diagnostic logging for completion check
   if (DEBUG_ENABLED) {
+    // eslint-disable-next-line no-console
     console.log('[Worker COMPLETE check]', {
       emittedPaths: emittedPaths.size,
       skippedPaths: skippedPaths.size,
@@ -865,7 +869,7 @@ function checkAndCompleteIfDone() {
     
     // Stop memory cleanup when complete
     stopMemoryCleanup();
-    emitFooterAndComplete(lastUserInstructions);
+    emitFooterAndComplete();
   }
 }
 
@@ -940,6 +944,7 @@ function enforceMemoryLimits() {
       emittedPaths.add(path);
     }
     if (DEBUG_ENABLED) {
+      // eslint-disable-next-line no-console
       console.log('[Worker] Trimmed emittedPaths from', pathsArray.length, 'to', targetSize);
     }
   }
@@ -959,7 +964,8 @@ function enforceMemoryLimits() {
         }
       }
     }
-    if (DEBUG_ENABLED) {
+  if (DEBUG_ENABLED) {
+      // eslint-disable-next-line no-console
       console.log('[Worker] Cleaned up', toRemove.length, 'old pending timeouts');
     }
   }
@@ -993,6 +999,7 @@ function enforceMemoryLimits() {
       retryCounts.set(path, count);
     }
     if (DEBUG_ENABLED) {
+      // eslint-disable-next-line no-console
       console.log('[Worker] Trimmed retryCounts from', entries.length, 'to', MAX_RETRY_COUNTS);
     }
   }
