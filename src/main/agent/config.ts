@@ -2,11 +2,13 @@
 // Minimal, central Agent configuration with env + preferences precedence.
 // When a DatabaseBridge is provided, preferences override env; otherwise env-only.
 
+import { getMaxOutputTokensForModel } from './models-catalog';
+
 export type AgentConfig = {
-  PROVIDER: "openai" | "anthropic" | "openrouter";
+  PROVIDER: "openai" | "anthropic" | "openrouter" | "groq";
   DEFAULT_MODEL: string;
   MAX_CONTEXT_TOKENS: number;
-  MAX_OUTPUT_TOKENS: number;
+  MAX_OUTPUT_TOKENS: number; // Fallback value when model-specific limit not available
   MAX_TOOLS_PER_TURN: number;
   MAX_RESULTS_PER_TOOL: number;
   MAX_SEARCH_MATCHES: number;
@@ -19,16 +21,16 @@ export type AgentConfig = {
   RETRY_MAX_MS: number;
 };
 
-function pickProvider(input: string): "openai" | "anthropic" | "openrouter" {
+function pickProvider(input: string): "openai" | "anthropic" | "openrouter" | "groq" {
   const v = input.trim().toLowerCase();
-  return v === "openai" || v === "anthropic" || v === "openrouter" ? v : "openai";
+  return v === "openai" || v === "anthropic" || v === "openrouter" || v === "groq" ? v : "openai";
 }
 
 const Defaults: AgentConfig = {
   PROVIDER: pickProvider(String(process.env.PF_AGENT_PROVIDER || "")),
   DEFAULT_MODEL: process.env.PF_AGENT_DEFAULT_MODEL || "gpt-4o-mini",
   MAX_CONTEXT_TOKENS: Number(process.env.PF_AGENT_MAX_CONTEXT_TOKENS ?? 120_000),
-  MAX_OUTPUT_TOKENS: Number(process.env.PF_AGENT_MAX_OUTPUT_TOKENS ?? 4000),
+  MAX_OUTPUT_TOKENS: Number(process.env.PF_AGENT_MAX_OUTPUT_TOKENS ?? 128_000), // Fallback when model-specific limit not available
   MAX_TOOLS_PER_TURN: Number(process.env.PF_AGENT_MAX_TOOLS_PER_TURN ?? 8),
   MAX_RESULTS_PER_TOOL: Number(process.env.PF_AGENT_MAX_RESULTS_PER_TOOL ?? 200),
   MAX_SEARCH_MATCHES: Number(process.env.PF_AGENT_MAX_SEARCH_MATCHES ?? 500),
@@ -127,9 +129,9 @@ export async function resolveAgentConfig(db?: DbGetter): Promise<AgentConfig> {
   ]);
 
   return {
-    PROVIDER: ((): "openai" | "anthropic" | "openrouter" => {
+    PROVIDER: ((): "openai" | "anthropic" | "openrouter" | "groq" => {
       const v = typeof pProvider === "string" ? pProvider.trim().toLowerCase() : "";
-      return v === "openai" || v === "anthropic" || v === "openrouter" ? v : base.PROVIDER;
+      return v === "openai" || v === "anthropic" || v === "openrouter" || v === "groq" ? v : base.PROVIDER;
     })(),
     DEFAULT_MODEL: typeof pModel === "string" && pModel.trim() ? pModel : base.DEFAULT_MODEL,
     MAX_CONTEXT_TOKENS: coerceNumber(pMaxCtx, base.MAX_CONTEXT_TOKENS, 1000, 2_000_000),
@@ -164,6 +166,23 @@ export async function resolveAgentConfig(db?: DbGetter): Promise<AgentConfig> {
 /** Lightweight sync accessor using env + defaults only (no DB). */
 export function getEnvAgentConfig(): AgentConfig {
   return { ...Defaults };
+}
+
+/**
+ * Get the effective maximum output tokens for a specific model.
+ * Uses model-specific limits when available, falls back to config value.
+ *
+ * @param config - The agent configuration
+ * @param provider - The provider ID
+ * @param modelId - The model identifier
+ * @returns The maximum output tokens for the model
+ */
+export function getEffectiveMaxOutputTokens(
+  config: AgentConfig,
+  provider: "openai" | "anthropic" | "openrouter" | "groq",
+  modelId: string
+): number {
+  return getMaxOutputTokensForModel(provider, modelId, config.MAX_OUTPUT_TOKENS);
 }
 
 // Renderer-facing feature hints (read-only). Kept narrow to avoid leaking config surface.

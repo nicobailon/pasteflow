@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
+
 import Dropdown from "./dropdown";
 import "./model-selector.css";
 
-type ProviderId = "openai" | "anthropic" | "openrouter";
+type ProviderId = "openai" | "anthropic" | "openrouter" | "groq";
 
 type CatalogModel = {
   id: string;
   label: string;
   contextWindowTokens?: number;
+  maxOutputTokens?: number;
   costTier?: string;
   supportsTools?: boolean;
 };
@@ -31,20 +33,23 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
   // Minimal static fallback catalog to ensure models are selectable even if the API list fails (e.g., auth race on startup)
   const STATIC_FALLBACK: Record<ProviderId, CatalogModel[]> = {
     openai: [
-      { id: "gpt-5", label: "GPT-5", supportsTools: true },
-      { id: "gpt-5-mini", label: "GPT-5 Mini", supportsTools: true },
-      { id: "gpt-5-nano", label: "GPT-5 Nano", supportsTools: true },
-      { id: "gpt-4o-mini", label: "GPT-4o Mini (fallback)", supportsTools: true },
-      { id: "gpt-5-chat-latest", label: "GPT-5 Chat (router)", supportsTools: true },
+      { id: "gpt-5", label: "GPT-5", supportsTools: true, maxOutputTokens: 128_000 },
+      { id: "gpt-5-mini", label: "GPT-5 Mini", supportsTools: true, maxOutputTokens: 128_000 },
+      { id: "gpt-5-nano", label: "GPT-5 Nano", supportsTools: true, maxOutputTokens: 128_000 },
+      { id: "gpt-4o-mini", label: "GPT-4o Mini (fallback)", supportsTools: true, maxOutputTokens: 16_384 },
+      { id: "gpt-5-chat-latest", label: "GPT-5 Chat (router)", supportsTools: true, maxOutputTokens: 128_000 },
     ],
     anthropic: [
-      { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4 (2025-05-14)", supportsTools: true },
-      { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku (2024-10-22)", supportsTools: true },
+      { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4 (2025-05-14)", supportsTools: true, maxOutputTokens: 128_000 },
+      { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku (2024-10-22)", supportsTools: true, maxOutputTokens: 8192 },
     ],
     openrouter: [
-      { id: "openai/gpt-5", label: "OpenRouter • OpenAI GPT-5", supportsTools: true },
-      { id: "openai/gpt-4o-mini", label: "OpenRouter • OpenAI GPT-4o Mini", supportsTools: true },
-      { id: "anthropic/claude-sonnet-4-20250514", label: "OpenRouter • Claude Sonnet 4", supportsTools: true },
+      { id: "openai/gpt-5", label: "OpenRouter • OpenAI GPT-5", supportsTools: true, maxOutputTokens: 128_000 },
+      { id: "openai/gpt-4o-mini", label: "OpenRouter • OpenAI GPT-4o Mini", supportsTools: true, maxOutputTokens: 16_384 },
+      { id: "anthropic/claude-sonnet-4-20250514", label: "OpenRouter • Claude Sonnet 4", supportsTools: true, maxOutputTokens: 128_000 },
+    ],
+    groq: [
+      { id: "moonshotai/kimi-k2-instruct-0905", label: "Kimi K2 0905", supportsTools: true, maxOutputTokens: 16_384 },
     ],
   };
 
@@ -60,7 +65,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
         const mv = (m && typeof m === 'object' && 'success' in m && (m as { success: boolean }).success === true) ? (m as { data?: unknown }).data : null;
         const ev = (e && typeof e === 'object' && 'success' in e && (e as { success: boolean }).success === true) ? (e as { data?: unknown }).data : null;
         if (!mounted) return;
-        if (typeof pv === 'string' && (pv === 'openai' || pv === 'anthropic' || pv === 'openrouter')) setProvider(pv);
+        if (typeof pv === 'string' && (pv === 'openai' || pv === 'anthropic' || pv === 'openrouter' || pv === 'groq')) setProvider(pv);
         if (typeof mv === 'string' && mv.trim()) setModel(mv);
         if (typeof ev === 'string' && ev.trim()) setReasoningEffort(ev);
         else setReasoningEffort('high');
@@ -99,6 +104,7 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
     { value: 'openai', label: 'OpenAI' },
     { value: 'anthropic', label: 'Anthropic' },
     { value: 'openrouter', label: 'OpenRouter' },
+    { value: 'groq', label: 'Groq' },
   ]), []);
 
   const modelOptions = useMemo(() => models.map(m => ({ value: m.id, label: m.label || m.id })), [models]);

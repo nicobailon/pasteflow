@@ -17,6 +17,7 @@ import type { DatabaseBridge } from '../db/database-bridge';
 import type { RendererPreviewProxy } from '../preview-proxy';
 import type { PreviewController } from '../preview-controller';
 import type { AgentContextEnvelope } from '../../shared-types/agent-context';
+
 import { chatBodySchema } from './schemas';
 
 // --- Logging helpers (non-invasive, dev-friendly) ---
@@ -74,7 +75,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     let modelMessages: ModelMessage[];
     try {
       modelMessages = convertToModelMessages(uiMessages);
-    } catch (e) {
+    } catch {
       try { console.warn('[AI][chat] invalid messages format'); } catch { /* noop */ }
       return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid chat messages format'));
     }
@@ -256,7 +257,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     if (isReasoningModel) {
       const needsUserTail = finalModelMessages.length === 0 || finalModelMessages[finalModelMessages.length - 1]?.role !== 'user';
       if (needsUserTail) {
-        finalModelMessages = finalModelMessages.concat([{ role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage]);
+        finalModelMessages = [...finalModelMessages, { role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage];
       }
     }
 
@@ -289,24 +290,45 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
               }
             } as unknown as Record<string, unknown>;
           }
-          return undefined;
-        } catch { return undefined; }
+          return;
+        } catch { return; }
       })();
 
       // For reasoning models, pick a sensible default per-step budget based on effort
-      // if cfg.MAX_OUTPUT_TOKENS is not set. For non-reasoning, use cfg or provider default.
+      // if cfg.MAX_OUTPUT_TOKENS is not set. For non-reasoning, use model-specific limits.
+      const { getEffectiveMaxOutputTokens } = await import('../agent/config');
+      const modelSpecificLimit = getEffectiveMaxOutputTokens(cfg, provider, effectiveModelId);
+
       const stepBudget: number | undefined = ((): number | undefined => {
+        // If user has explicitly set MAX_OUTPUT_TOKENS, respect it
         const cfgVal = Number(cfg.MAX_OUTPUT_TOKENS);
-        if (Number.isFinite(cfgVal)) return cfgVal;
-        if (!isReasoningModel) return undefined;
-        const effort = prefEffort; // 'minimal'|'low'|'medium'|'high'
-        switch (effort) {
-          case 'minimal': return 768;
-          case 'low': return 1024;
-          case 'medium': return 1536;
-          case 'high': return 3072;
-          default: return 2048;
+        if (Number.isFinite(cfgVal) && cfgVal !== 128_000) { // 128000 is the old default
+          return cfgVal;
         }
+
+        // For reasoning models, use effort-based budgets within model limits
+        if (isReasoningModel) {
+          const effort = prefEffort; // 'minimal'|'low'|'medium'|'high'
+          const effortBudget = (() => {
+            switch (effort) {
+              case 'minimal': { return 768;
+              }
+              case 'low': { return 1024;
+              }
+              case 'medium': { return 1536;
+              }
+              case 'high': { return 3072;
+              }
+              default: { return 2048;
+              }
+            }
+          })();
+          // Use the smaller of effort budget or model limit
+          return Math.min(effortBudget, modelSpecificLimit);
+        }
+
+        // For non-reasoning models, use model-specific limit
+        return modelSpecificLimit;
       })();
 
       return streamText({
@@ -394,7 +416,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     let cause: unknown = error;
     try {
       const err = error as any;
-      const status = Number(err?.status || err?.statusCode || err?.response?.status || err?.cause?.status || NaN);
+      const status = Number(err?.status || err?.statusCode || err?.response?.status || err?.cause?.status || Number.NaN);
       const name = String(err?.name || 'Error');
       const msg = String(err?.message || '');
       const code = String(err?.code || err?.data?.error?.code || err?.cause?.data?.error?.code || '');
@@ -411,7 +433,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
 
         // Determine which tool likely caused the error by message heuristics
         const enabledToolsSet = await getEnabledToolsSet(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
-        const enabledNames = Array.from(enabledToolsSet);
+        const enabledNames = [...enabledToolsSet];
         const badTool = extractToolNameFromError(cause, enabledNames);
         if (badTool && enabledToolsSet.has(badTool)) {
           try { console.warn('[AI][tool:quarantine]', { tool: badTool, reason: 'invalid-function-parameters' }); } catch { /* noop */ }
@@ -470,7 +492,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           if (modelIdIsReasoning) {
             const needsUserTail = finalRetryMessages.length === 0 || finalRetryMessages[finalRetryMessages.length - 1]?.role !== 'user';
             if (needsUserTail) {
-              finalRetryMessages = finalRetryMessages.concat([{ role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage]);
+              finalRetryMessages = [...finalRetryMessages, { role: 'user', content: [{ type: 'text', text: ' ' }] } as unknown as ModelMessage];
             }
           }
 
@@ -526,22 +548,51 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
                     }
                   } as unknown as Record<string, unknown>;
                 }
-                return undefined;
-              } catch { return undefined; }
+                return;
+              } catch { return; }
             })();
 
+            const { getEffectiveMaxOutputTokens } = await import('../agent/config');
+            const retryModelSpecificLimit = getEffectiveMaxOutputTokens(cfg, provider, effectiveModelId);
+
+            // Read reasoning effort preference for retry (default: high)
+            let retryPrefEffort: 'minimal'|'low'|'medium'|'high' = 'high';
+            try {
+              const v = await (deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference('agent.reasoningEffort');
+              const s = typeof v === 'string' ? v.toLowerCase() : '';
+              if (s === 'minimal' || s === 'low' || s === 'medium' || s === 'high') retryPrefEffort = s as any;
+            } catch { /* noop */ }
+
             const retryBudget: number | undefined = ((): number | undefined => {
+              // If user has explicitly set MAX_OUTPUT_TOKENS, respect it
               const cfgVal = Number(cfg.MAX_OUTPUT_TOKENS);
-              if (Number.isFinite(cfgVal)) return cfgVal;
-              if (!modelIdIsReasoning) return undefined;
-              const effort = prefEffort;
-              switch (effort) {
-                case 'minimal': return 768;
-                case 'low': return 1024;
-                case 'medium': return 1536;
-                case 'high': return 3072;
-                default: return 2048;
+              if (Number.isFinite(cfgVal) && cfgVal !== 128_000) { // 128000 is the old default
+                return cfgVal;
               }
+
+              // For reasoning models, use effort-based budgets within model limits
+              if (modelIdIsReasoning) {
+                const effort = retryPrefEffort;
+                const effortBudget = (() => {
+                  switch (effort) {
+                    case 'minimal': { return 768;
+                    }
+                    case 'low': { return 1024;
+                    }
+                    case 'medium': { return 1536;
+                    }
+                    case 'high': { return 3072;
+                    }
+                    default: { return 2048;
+                    }
+                  }
+                })();
+                // Use the smaller of effort budget or model limit
+                return Math.min(effortBudget, retryModelSpecificLimit);
+              }
+
+              // For non-reasoning models, use model-specific limit
+              return retryModelSpecificLimit;
             })();
 
             return streamText({

@@ -1,12 +1,15 @@
+import { createOpenAI, openai as openaiDirect } from "@ai-sdk/openai";
+import { createAnthropic, anthropic as anthropicDirect } from "@ai-sdk/anthropic";
+import { createGroq, groq as groqDirect } from "@ai-sdk/groq";
+import type { LanguageModel } from "ai";
+
 import type { DatabaseBridge } from "../db/database-bridge";
 import { isSecretBlob, decryptSecret } from "../secret-prefs";
+
 import type { AgentConfig } from "./config";
 import type { ProviderId } from "./models-catalog";
 import { getStaticModels } from "./models-catalog";
 
-import { createOpenAI, openai as openaiDirect } from "@ai-sdk/openai";
-import { createAnthropic, anthropic as anthropicDirect } from "@ai-sdk/anthropic";
-import type { LanguageModel } from "ai";
 
 type DbGetter = { getPreference: (k: string) => Promise<unknown> };
 
@@ -14,6 +17,7 @@ export type ProviderCredentials = {
   openai?: { apiKey?: string | null };
   anthropic?: { apiKey?: string | null };
   openrouter?: { apiKey?: string | null; baseUrl?: string | null };
+  groq?: { apiKey?: string | null };
 };
 
 export async function loadProviderCredentials(db: DbGetter): Promise<ProviderCredentials> {
@@ -21,11 +25,12 @@ export async function loadProviderCredentials(db: DbGetter): Promise<ProviderCre
     try { return await db.getPreference(k); } catch { return undefined; }
   };
 
-  const [okey, akey, orKey, orBase] = await Promise.all([
+  const [okey, akey, orKey, orBase, groqKey] = await Promise.all([
     safeGet("integrations.openai.apiKey"),
     safeGet("integrations.anthropic.apiKey"),
     safeGet("integrations.openrouter.apiKey"),
     safeGet("integrations.openrouter.baseUrl"),
+    safeGet("integrations.groq.apiKey"),
   ]);
 
   const unwrap = (v: unknown): string | null => {
@@ -40,6 +45,7 @@ export async function loadProviderCredentials(db: DbGetter): Promise<ProviderCre
     openai: { apiKey: unwrap(okey) },
     anthropic: { apiKey: unwrap(akey) },
     openrouter: { apiKey: unwrap(orKey), baseUrl: typeof orBase === "string" && orBase.trim() ? orBase.trim() : "https://openrouter.ai/api/v1" },
+    groq: { apiKey: unwrap(groqKey) },
   };
 }
 
@@ -74,6 +80,16 @@ export async function resolveModelForRequest(input: ResolveModelInput): Promise<
     }
     // Fall back to env only or when createAnthropic is unavailable
     return { model: anthropicDirect(modelId) } as any;
+  }
+
+  if (provider === "groq") {
+    const key = creds.groq?.apiKey || null;
+    if (key && typeof createGroq === 'function') {
+      const client = createGroq({ apiKey: key });
+      return { model: client(modelId) } as any;
+    }
+    // Fall back to direct client when createGroq is unavailable
+    return { model: groqDirect(modelId) } as any;
   }
 
   if (provider === "openrouter") {
@@ -123,9 +139,13 @@ export function pickSafeDefaultModel(provider: ProviderId, cfg: AgentConfig): st
 function canonicalizeModelId(provider: ProviderId, id: string): string {
   try {
     const raw = String(id || "").trim();
-    if (!raw) return provider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-4o-mini";
+    if (!raw) {
+      if (provider === "openrouter") return "openai/gpt-4o-mini";
+      if (provider === "groq") return "moonshotai/kimi-k2-instruct-0905";
+      return "gpt-4o-mini";
+    }
 
-    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const norm = (s: string) => s.toLowerCase().replace(/[^\da-z]/g, "");
     const target = norm(raw);
     const cat = getStaticModels(provider);
 
@@ -151,6 +171,8 @@ function canonicalizeModelId(provider: ProviderId, id: string): string {
 
     return raw; // pass through; provider will validate
   } catch {
-    return provider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-4o-mini";
+    if (provider === "openrouter") return "openai/gpt-4o-mini";
+    if (provider === "groq") return "moonshotai/kimi-k2-instruct-0905";
+    return "gpt-4o-mini";
   }
 }

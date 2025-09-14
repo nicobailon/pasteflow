@@ -26,6 +26,16 @@ export async function handleValidateModel(deps: { db: DatabaseBridge }, req: Req
   const body = validateModelBody.safeParse(req.body);
   if (!body.success) return res.status(400).json(toApiError('VALIDATION_ERROR', 'Invalid request body'));
   const { provider, model, apiKey, baseUrl, temperature, maxOutputTokens } = body.data;
+
+  // Validate maxOutputTokens against model-specific limits
+  if (maxOutputTokens) {
+    const { getMaxOutputTokensForModel } = await import('../agent/models-catalog');
+    const modelLimit = getMaxOutputTokensForModel(provider, model);
+    if (maxOutputTokens > modelLimit) {
+      return res.status(400).json(toApiError('VALIDATION_ERROR',
+        `maxOutputTokens (${maxOutputTokens}) exceeds the limit for ${provider}:${model} (${modelLimit})`));
+    }
+  }
   try {
     const { createOpenAI } = await import('@ai-sdk/openai');
     const { createAnthropic } = await import('@ai-sdk/anthropic');
