@@ -173,6 +173,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     });
 
     // Filter tool set to only enabled tools
+    // Enable tools (including for GPT-5 Mini) — provider supports tool calls via Responses API
     const tools = Object.fromEntries(
       Object.entries(toolsAll).filter(([k]) => enabledTools.has(k))
     ) as ToolSet;
@@ -259,20 +260,83 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
       }
     }
 
+    // Read reasoning effort preference (default: high)
+    let prefEffort: 'minimal'|'low'|'medium'|'high' = 'high';
+    try {
+      const v = await (deps.db as unknown as { getPreference: (k: string) => Promise<unknown> }).getPreference('agent.reasoningEffort');
+      const s = typeof v === 'string' ? v.toLowerCase() : '';
+      if (s === 'minimal' || s === 'low' || s === 'medium' || s === 'high') prefEffort = s as any;
+    } catch { /* noop */ }
+
     let start = Date.now();
     if (res.headersSent) return;
+    let lastFinishReason: string | undefined;
     const createStream = async (_attempt: number) => {
       start = Date.now();
       try { console.log('[AI][chat:stream:start]', { sessionId }); } catch { /* noop */ }
+      // Provider-specific tuning for reasoning models to ensure answer text is produced
+      const providerOptions = (() => {
+        try {
+          if (provider === 'openai' && isReasoningModel) {
+            return {
+              openai: {
+                // Keep text concise and reserve budget for message output
+                textVerbosity: 'medium',
+                reasoningEffort: prefEffort,
+                parallelToolCalls: false,
+                serviceTier: 'auto',
+                instructions: 'After reasoning, provide the final answer as visible text (not only reasoning). Keep it concise.'
+              }
+            } as unknown as Record<string, unknown>;
+          }
+          return undefined;
+        } catch { return undefined; }
+      })();
+
+      // For reasoning models, pick a sensible default per-step budget based on effort
+      // if cfg.MAX_OUTPUT_TOKENS is not set. For non-reasoning, use cfg or provider default.
+      const stepBudget: number | undefined = ((): number | undefined => {
+        const cfgVal = Number(cfg.MAX_OUTPUT_TOKENS);
+        if (Number.isFinite(cfgVal)) return cfgVal;
+        if (!isReasoningModel) return undefined;
+        const effort = prefEffort; // 'minimal'|'low'|'medium'|'high'
+        switch (effort) {
+          case 'minimal': return 768;
+          case 'low': return 1024;
+          case 'medium': return 1536;
+          case 'high': return 3072;
+          default: return 2048;
+        }
+      })();
+
       return streamText({
         model,
         system,
         messages: finalModelMessages,
         tools,
+        toolChoice: (isReasoningModel ? 'none' : undefined) as any,
         temperature: shouldOmitTemperature ? undefined : (typeof cfgTemperature === 'number' ? cfgTemperature : undefined),
-        maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
+        maxOutputTokens: stepBudget,
+        providerOptions,
+        // Do not impose a custom stop condition; let provider handle steps
         abortSignal: controller.signal,
         onAbort: () => {},
+        onStepFinish: (step: unknown) => {
+          try {
+            const get = (o: any, k: string) => (o && typeof o === 'object') ? o[k] : undefined;
+            const finishReason = get(step, 'finishReason');
+            if (typeof finishReason === 'string') lastFinishReason = finishReason;
+            const usage = get(step, 'usage');
+            const toolCalls = get(step, 'toolCalls');
+            console.log('[AI][step:finish]', { finishReason, usage, toolCallsCount: Array.isArray(toolCalls) ? toolCalls.length : undefined });
+          } catch { /* noop */ }
+        },
+        onChunk: (ev: unknown) => {
+          try {
+            const t = String((ev as { chunk?: { type?: string } } | null | undefined)?.chunk?.type || '');
+            if (t) console.log('[AI][chunk]', t);
+          } catch { /* noop */ }
+        },
         onFinish: async (info: unknown) => {
           try {
             const { input, output, total } = extractUsage(info);
@@ -309,7 +373,12 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
 
     if (res.headersSent) return;
     try { console.log('[AI][chat:stream:pipe]', { sessionId }); } catch { /* noop */ }
-    result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
+
+    result.pipeUIMessageStreamToResponse(res, {
+      originalMessages: uiMessages as unknown as UIMessage[],
+      sendReasoning: true,
+      consumeSseStream: consumeStream,
+    });
 
     // Persist/refresh session shell with last known messages snapshot (cap messages)
     try {
@@ -444,15 +513,64 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           if (res.headersSent) return; // safety
           const createStream = async (_attempt: number) => {
             start = Date.now();
+            const providerOptions = (() => {
+              try {
+                if (provider === 'openai' && modelIdIsReasoning) {
+                  return {
+                    openai: {
+                      textVerbosity: 'medium',
+                      reasoningEffort: 'high',
+                      parallelToolCalls: false,
+                      serviceTier: 'auto',
+                      instructions: 'After reasoning, provide the final answer as visible text (not only reasoning). Keep it concise.'
+                    }
+                  } as unknown as Record<string, unknown>;
+                }
+                return undefined;
+              } catch { return undefined; }
+            })();
+
+            const retryBudget: number | undefined = ((): number | undefined => {
+              const cfgVal = Number(cfg.MAX_OUTPUT_TOKENS);
+              if (Number.isFinite(cfgVal)) return cfgVal;
+              if (!modelIdIsReasoning) return undefined;
+              const effort = prefEffort;
+              switch (effort) {
+                case 'minimal': return 768;
+                case 'low': return 1024;
+                case 'medium': return 1536;
+                case 'high': return 3072;
+                default: return 2048;
+              }
+            })();
+
             return streamText({
               model,
               system,
               messages: finalRetryMessages,
               tools,
+              toolChoice: (modelIdIsReasoning ? 'none' : undefined) as any,
               temperature: shouldOmitTemperature ? undefined : cfgTemperature,
-              maxOutputTokens: cfg.MAX_OUTPUT_TOKENS,
+              maxOutputTokens: retryBudget,
+              providerOptions,
+              // Do not impose a custom stop condition; let provider handle steps
               abortSignal: controller.signal,
               onAbort: () => {},
+              onStepFinish: (step: unknown) => {
+                try {
+                  const get = (o: any, k: string) => (o && typeof o === 'object') ? o[k] : undefined;
+                  const finishReason = get(step, 'finishReason');
+                  const usage = get(step, 'usage');
+                  const toolCalls = get(step, 'toolCalls');
+                  console.log('[AI][step:finish]', { finishReason, usage, toolCallsCount: Array.isArray(toolCalls) ? toolCalls.length : undefined });
+                } catch { /* noop */ }
+              },
+              onChunk: (ev: unknown) => {
+                try {
+                  const t = String((ev as { chunk?: { type?: string } } | null | undefined)?.chunk?.type || '');
+                  if (t) console.log('[AI][chunk]', t);
+                } catch { /* noop */ }
+              },
               onFinish: async (info: unknown) => {
                 try {
                   const { input, output, total } = extractUsage(info);
@@ -478,7 +596,21 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           });
 
           if (res.headersSent) return;
-          result.pipeUIMessageStreamToResponse(res, { consumeSseStream: consumeStream });
+          result.pipeUIMessageStreamToResponse(res, {
+            originalMessages: parsed.data.messages as unknown as UIMessage[],
+            sendReasoning: true,
+            onFinish: (ev: unknown) => {
+              try {
+                const get = (o: any, k: string) => (o && typeof o === 'object') ? o[k] : undefined;
+                const rm = get(ev, 'responseMessage');
+                const parts = Array.isArray(get(rm, 'parts')) ? get(rm, 'parts') as any[] : [];
+                const types = parts.map(p => String((p && p.type) || 'unknown'));
+                const sample = parts.slice(0, 3);
+                console.log('[AI][ui:onFinish]', { partTypes: types, sample });
+              } catch { /* noop */ }
+            },
+            consumeSseStream: consumeStream,
+          });
 
           try {
             const maxMsgs = Number(process.env.PF_AGENT_MAX_SESSION_MESSAGES ?? 50);

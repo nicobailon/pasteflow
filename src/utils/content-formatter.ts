@@ -323,9 +323,9 @@ export const getSelectedFilesContent = (
     result = `${instructionsText}\n\n${result}`;
   }
 
-  // Add user instructions if provided
+  // Place user instructions at the beginning instead of the end
   if (userInstructions) {
-    result = `${result}\n\n${userInstructions}`;
+    result = `${userInstructions}\n\n${result}`;
   }
 
   return result;
@@ -399,9 +399,9 @@ export const getSimpleFileContent = (
     })
     .join('\n\n');
 
-  // Add user instructions if provided
+  // Place user instructions at the beginning instead of the end
   if (userInstructions) {
-    content += `\n\n${userInstructions}`;
+    content = `${userInstructions}\n\n${content}`;
   }
 
   return content;

@@ -59,9 +59,10 @@ export async function resolveModelForRequest(input: ResolveModelInput): Promise<
     const key = creds.openai?.apiKey || process.env.OPENAI_API_KEY || null;
     if (key && typeof createOpenAI === 'function') {
       const client = createOpenAI({ apiKey: key });
+      // Use Responses API by default for GPT‑5 family (client(modelId)).
       return { model: client(modelId) } as any;
     }
-    // Fall back to env-only direct helper or when createOpenAI is unavailable in test/mocks
+    // Fallback when createOpenAI is unavailable in test/mocks
     return { model: openaiDirect(modelId) } as any;
   }
 
@@ -78,25 +79,34 @@ export async function resolveModelForRequest(input: ResolveModelInput): Promise<
   if (provider === "openrouter") {
     const key = creds.openrouter?.apiKey || null;
     const baseURL = creds.openrouter?.baseUrl || "https://openrouter.ai/api/v1";
+    const isReasoning = (() => {
+      try {
+        const s = modelId.toLowerCase();
+        return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
+      } catch { return false; }
+    })();
     if (typeof createOpenAI !== 'function') {
       // Fallback to direct helper when createOpenAI is not available in mocks/tests
       return { model: openaiDirect(modelId) } as any;
     }
-    if (!key) {
-      // Return an OpenAI client without key to force validation errors on use
-      const client = createOpenAI({ apiKey: "" as unknown as string, baseURL });
-      // Explicitly use .chat() to force Chat Completions API
-      return { model: client.chat(modelId) } as any;
-    }
-    const client = createOpenAI({ apiKey: key, baseURL });
-    // Explicitly use .chat() to force Chat Completions API
-    return { model: client.chat(modelId) } as any;
+    // Use Responses API for reasoning models to enable reasoning-first streaming
+    // and Chat Completions for pure chat models for compatibility.
+    const client = createOpenAI({ apiKey: key || ("" as unknown as string), baseURL });
+    return { model: isReasoning ? client(modelId) : client.chat(modelId) } as any;
   }
 
   // Unknown provider: attempt OpenAI as default
-  const client = createOpenAI({ apiKey: (await loadProviderCredentials(db)).openai?.apiKey || undefined });
-  // Explicitly use .chat() to force Chat Completions API
-  return { model: client.chat(modelId) };
+  {
+    const client = createOpenAI({ apiKey: (await loadProviderCredentials(db)).openai?.apiKey || undefined });
+    const isReasoning = (() => {
+      try {
+        const s = modelId.toLowerCase();
+        return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
+      } catch { return false; }
+    })();
+    // Use Responses API for reasoning models; Chat Completions for chat-only models
+    return { model: isReasoning ? client(modelId) : client.chat(modelId) };
+  }
 }
 
 export function pickSafeDefaultModel(provider: ProviderId, cfg: AgentConfig): string {

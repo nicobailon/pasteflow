@@ -15,6 +15,7 @@ type CatalogModel = {
 export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const [provider, setProvider] = useState<ProviderId>("openai");
   const [model, setModel] = useState<string>("gpt-4o-mini");
+  const [reasoningEffort, setReasoningEffort] = useState<string>("high");
   const [models, setModels] = useState<CatalogModel[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -54,11 +55,15 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
       try {
         const p: unknown = await window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.provider' });
         const m: unknown = await window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' });
+        const e: unknown = await window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.reasoningEffort' });
         const pv = (p && typeof p === 'object' && 'success' in p && (p as { success: boolean }).success === true) ? (p as { data?: unknown }).data : null;
         const mv = (m && typeof m === 'object' && 'success' in m && (m as { success: boolean }).success === true) ? (m as { data?: unknown }).data : null;
+        const ev = (e && typeof e === 'object' && 'success' in e && (e as { success: boolean }).success === true) ? (e as { data?: unknown }).data : null;
         if (!mounted) return;
         if (typeof pv === 'string' && (pv === 'openai' || pv === 'anthropic' || pv === 'openrouter')) setProvider(pv);
         if (typeof mv === 'string' && mv.trim()) setModel(mv);
+        if (typeof ev === 'string' && ev.trim()) setReasoningEffort(ev);
+        else setReasoningEffort('high');
       } catch { /* noop */ }
     })();
     return () => { mounted = false; };
@@ -98,6 +103,14 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
 
   const modelOptions = useMemo(() => models.map(m => ({ value: m.id, label: m.label || m.id })), [models]);
 
+  // Heuristic: show reasoning effort when current model is reasoning-capable
+  const isReasoningModel = useMemo(() => {
+    try {
+      const s = String(model || '').toLowerCase();
+      return !!s && (s.includes('o1') || s.includes('o3') || (s.includes('gpt-5') && !s.includes('chat')));
+    } catch { return false; }
+  }, [model]);
+
   async function updateProvider(next: ProviderId) {
     try {
       await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.provider', value: next });
@@ -110,6 +123,14 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
     try {
       await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.defaultModel', value: next });
       setModel(next);
+    } catch { /* ignore */ }
+  }
+
+  async function updateReasoningEffort(next: string) {
+    try {
+      const normalized = ['minimal','low','medium','high'].includes(next) ? next : 'high';
+      await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.reasoningEffort', value: normalized });
+      setReasoningEffort(normalized);
     } catch { /* ignore */ }
   }
 
@@ -137,6 +158,24 @@ export function ModelSelector({ onOpenSettings }: { onOpenSettings?: () => void 
           variant="minimal"
         />
       </div>
+      {isReasoningModel && (
+        <div style={{ minWidth: 180 }}>
+          <Dropdown
+            options={[
+              { value: 'minimal', label: 'Effort: Minimal' },
+              { value: 'low', label: 'Effort: Low' },
+              { value: 'medium', label: 'Effort: Medium' },
+              { value: 'high', label: 'Effort: High' },
+            ]}
+            value={reasoningEffort}
+            onChange={(v: unknown) => updateReasoningEffort(String(v))}
+            buttonLabel={`Effort: ${String(reasoningEffort || 'high')[0].toUpperCase()}${String(reasoningEffort || 'high').slice(1)}`}
+            position="left"
+            placement="top"
+            variant="minimal"
+          />
+        </div>
+      )}
     </div>
   );
 }

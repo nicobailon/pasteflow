@@ -57,9 +57,28 @@ export function extractVisibleTextFromMessage(m: unknown): string {
       if (String(msg.role || "") === "assistant") return ""; // assistant with non-visible parts (e.g., reasoning)
     }
 
-    // Legacy/alternate shapes: parts array
+    // Legacy/alternate shapes: parts array (robust extraction for UIMessage.parts)
     const parts = Array.isArray((msg as any).parts) ? ((msg as any).parts as readonly any[]) : null;
     if (parts) {
+      try {
+        const outPieces: string[] = [];
+        for (const it of parts) {
+          const t = typeof (it as any)?.type === 'string' ? String((it as any).type).toLowerCase() : '';
+          if (t === 'text' && typeof (it as any)?.text === 'string') {
+            outPieces.push(String((it as any).text));
+            continue;
+          }
+          // Some builds expose text delta as `delta` or `textDelta`
+          if (typeof (it as any)?.delta === 'string') { outPieces.push(String((it as any).delta)); continue; }
+          if (typeof (it as any)?.textDelta === 'string') { outPieces.push(String((it as any).textDelta)); continue; }
+          // Occasional providers put text under alternate keys
+          if (typeof (it as any)?.content === 'string') { outPieces.push(String((it as any).content)); continue; }
+          if (typeof (it as any)?.value === 'string') { outPieces.push(String((it as any).value)); continue; }
+        }
+        const joined = outPieces.join('');
+        if (joined && joined.trim().length > 0) return joined;
+      } catch { /* noop */ }
+      // Last resort via generic collector
       const outText = collectFrom(parts);
       if (outText && outText.trim().length > 0) return outText;
       if (String(msg.role || "") === "assistant") return "";
@@ -147,6 +166,18 @@ export function extractReasoningTextFromMessage(m: unknown): string {
       if (out && out.trim().length > 0) return out;
     }
     if (Array.isArray((msg as any).parts)) {
+      try {
+        const parts = (msg as any).parts as readonly any[];
+        const pieces: string[] = [];
+        for (const it of parts) {
+          const t = typeof (it as any)?.type === 'string' ? String((it as any).type).toLowerCase() : '';
+          if (t === 'reasoning' && typeof (it as any)?.text === 'string') pieces.push(String((it as any).text));
+          if (t === 'reasoning' && typeof (it as any)?.delta === 'string') pieces.push(String((it as any).delta));
+          if (t === 'reasoning' && typeof (it as any)?.textDelta === 'string') pieces.push(String((it as any).textDelta));
+        }
+        const joined = pieces.join('');
+        if (joined && joined.trim().length > 0) return joined;
+      } catch { /* noop */ }
       const out = collectReasoning((msg as any).parts as readonly any[]);
       if (out && out.trim().length > 0) return out;
     }
