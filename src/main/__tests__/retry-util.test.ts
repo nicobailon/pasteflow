@@ -1,4 +1,4 @@
-import { withRateLimitRetries } from "../../main/utils/retry";
+import { withRateLimitRetries } from "../../utils/retry";
 
 describe("withRateLimitRetries", () => {
   it("retries on 429 and eventually succeeds", async () => {
@@ -51,4 +51,3 @@ describe("withRateLimitRetries", () => {
     expect(calls).toBe(1);
   });
 });
-

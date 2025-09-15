@@ -1,5 +1,6 @@
 import type { AgentContextEnvelope } from "../../shared-types/agent-context";
 import type { SystemExecutionContext } from "../../shared-types/system-execution-context";
+
 import { globalSystemContextCache } from "./system-context-cache";
 
 export interface CombinedContext {
@@ -11,11 +12,12 @@ export interface CombinedContext {
 // Removed default summary builder: system prompts are now only the user-defined global/workspace texts
 
 function formatExecutionContext(ctx: SystemExecutionContext): string {
+  const shellVersion = ctx.shell.version ? " " + ctx.shell.version : "";
   const lines = [
     `- Working Directory: ${ctx.directory.cwd}`,
     `- Home Directory: ${ctx.directory.home}`,
     `- Platform: ${ctx.platform.os} (${ctx.platform.arch})`,
-    `- Shell: ${ctx.shell.name}${ctx.shell.version ? ` ${ctx.shell.version}` : ""}`,
+    `- Shell: ${ctx.shell.name}${shellVersion}`,
     `- Timestamp: ${ctx.timestamp}`,
   ];
   return lines.join("\n");
@@ -58,13 +60,13 @@ async function readSystemPromptsConfig(db: DbGetter): Promise<{ global: PromptCo
 
 export async function composeEffectiveSystemPrompt(
   db: DbGetter,
-  ctx: CombinedContext,
-  opts?: { enabledTools?: ReadonlySet<string> }
+  _ctx: CombinedContext,
+  _opts?: { enabledTools?: ReadonlySet<string> }
 ): Promise<string> {
-  const [{ global, workspace, workspaceId }, prefExecEnabledGlobal, prefExecEnabledWs] = await Promise.all([
+  const [{ global, workspace, workspaceId: _workspaceId }, prefExecEnabledGlobal, prefExecEnabledWs] = await Promise.all([
     readSystemPromptsConfig(db),
-    (async () => { try { return await db.getPreference('agent.executionContext.enabled'); } catch { return undefined; } })(),
-    (async () => { try { const raw = await db.getPreference(`agent.executionContext.enabled.${String((await db.getPreference('workspace.active')) || '')}`); return raw; } catch { return undefined; } })(),
+    (async () => { try { return await db.getPreference('agent.executionContext.enabled'); } catch { return; } })(),
+    (async () => { try { return await db.getPreference(`agent.executionContext.enabled.${String((await db.getPreference('workspace.active')) || '')}`); } catch { return; } })(),
   ]);
 
   // Toggle execution context via preference with env fallback
@@ -77,7 +79,8 @@ export async function composeEffectiveSystemPrompt(
       return raw === "1" || raw === "true" || raw === "yes";
     } catch { return false; }
   })();
-  const execEnabled = enabledFromPref != null ? enabledFromPref : !disabledFromEnv;
+  const enabledFromEnv = !disabledFromEnv;
+  const execEnabled = typeof enabledFromPref === "boolean" ? enabledFromPref : enabledFromEnv;
   const executionContext = execEnabled ? await globalSystemContextCache.getContext() : undefined;
   const gText = (global.text || "").trim();
   const wText = (workspace?.text || "").trim();

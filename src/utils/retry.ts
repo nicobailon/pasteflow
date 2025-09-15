@@ -12,19 +12,19 @@ type RetryOptions = {
 };
 
 function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms | 0)));
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.trunc(ms))));
 }
 
-function extractStatus(err: unknown): number | null {
+function extractStatus(error: unknown): number | null {
   try {
     const status = Number(
-      (err as { status?: number } | null | undefined)?.status ??
-        (err as { statusCode?: number } | null | undefined)?.statusCode ??
-        (err as { response?: { status?: number } } | null | undefined)?.response?.status ??
-        (err as { cause?: { status?: number } } | null | undefined)?.cause?.status
+      (error as { status?: number } | null | undefined)?.status ??
+        (error as { statusCode?: number } | null | undefined)?.statusCode ??
+        (error as { response?: { status?: number } } | null | undefined)?.response?.status ??
+        (error as { cause?: { status?: number } } | null | undefined)?.cause?.status
     );
     if (Number.isFinite(status)) return status;
-    const msg = String((err as { message?: string } | null | undefined)?.message || '').toLowerCase();
+    const msg = String((error as { message?: string } | null | undefined)?.message || '').toLowerCase();
     if (/(?:^|\b)(429|too many requests)(?:\b|$)/.test(msg)) return 429;
     return null;
   } catch {
@@ -32,8 +32,8 @@ function extractStatus(err: unknown): number | null {
   }
 }
 
-function defaultIsRetriable(err: unknown): boolean {
-  const status = extractStatus(err);
+function defaultIsRetriable(error: unknown): boolean {
+  const status = extractStatus(error);
   return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
 }
 
@@ -80,15 +80,15 @@ function parseRetryAfterMs(value: string): number | null {
   return null;
 }
 
-function defaultGetRetryAfterMs(err: unknown): number | null {
+function defaultGetRetryAfterMs(error: unknown): number | null {
   try {
     const candidates: unknown[] = [];
-    const response = get(err, 'response');
-    const cause = get(err, 'cause');
+    const response = get(error, 'response');
+    const cause = get(error, 'cause');
     if (isObject(response)) {
       candidates.push(get(response, 'headers'));
     }
-    candidates.push(get(err, 'headers'));
+    candidates.push(get(error, 'headers'));
     const causeResp = get(cause, 'response');
     if (isObject(causeResp)) {
       candidates.push(get(causeResp, 'headers'));
@@ -121,22 +121,22 @@ export async function withRateLimitRetries<T>(
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       return await fn(attempt);
-    } catch (err) {
-      lastError = err;
+    } catch (error) {
+      lastError = error;
       let shouldRetry = false;
       try {
-        shouldRetry = !!isRetriable(err);
+        shouldRetry = !!isRetriable(error);
       } catch {
         shouldRetry = false;
       }
       if (!shouldRetry) {
         // Fallback to default classification if custom checker declined/errored
-        try { shouldRetry = defaultIsRetriable(err); } catch { /* noop */ }
+        try { shouldRetry = defaultIsRetriable(error); } catch { /* noop */ }
       }
       if (!shouldRetry || attempt === attempts) {
-        throw err;
+        throw (error instanceof Error ? error : new Error(String(error)));
       }
-      let delay = getRetryAfterMs(err);
+      let delay = getRetryAfterMs(error);
       if (delay == null) {
         const backoff = baseMs * Math.pow(2, attempt - 1);
         const jitter = Math.floor(Math.random() * 0.25 * backoff); // up to 25% jitter
@@ -145,7 +145,6 @@ export async function withRateLimitRetries<T>(
       delay = Math.min(maxMs, Math.max(0, Math.floor(delay)));
       try {
         if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
           console.warn('[AI] retrying after provider backoff', { attempt, delayMs: delay });
         }
       } catch { /* noop */ }
@@ -154,8 +153,7 @@ export async function withRateLimitRetries<T>(
     }
   }
   // Should be unreachable
-  // eslint-disable-next-line @typescript-eslint/no-throw-literal
-  throw lastError;
+  throw (lastError instanceof Error ? lastError : new Error(String(lastError)));
 }
 
 export type { RetryOptions };

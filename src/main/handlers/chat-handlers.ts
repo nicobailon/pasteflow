@@ -13,7 +13,7 @@ import { getAgentTools } from '../agent/tools';
 import { getEnabledToolsSet } from '../agent/tools-config';
 import type { ContextResult } from '../agent/tool-types';
 import type { ProviderId } from '../agent/models-catalog';
-import { withRateLimitRetries } from '../utils/retry';
+import { withRateLimitRetries } from '../../utils/retry';
 import type { DatabaseBridge } from '../db/database-bridge';
 import type { RendererPreviewProxy } from '../preview-proxy';
 import type { PreviewController } from '../preview-controller';
