@@ -1,0 +1,10 @@
+# Fast pre-commit: lint staged TS/TSX only and guard JS in src
+
+# Lint only staged TS/TSX files (allow warnings; only fail on errors)
+files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx)$' || true)
+if [ -n "$files" ]; then
+  npx eslint --cache --quiet $files || exit 1
+fi
+
+# Ensure no generated JS artifacts are committed under src/
+npm run -s check:no-js-in-src || exit 1

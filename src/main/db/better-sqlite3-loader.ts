@@ -1,11 +1,10 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import type BetterSqlite3 from 'better-sqlite3';
-import { createRequire } from 'node:module';
 
-// Local require compatible with CJS and ESM builds
-const nodeRequire: NodeJS.Require = (typeof module !== 'undefined' && (module as any).require)
-  ? (module as any).require.bind(module)
-  : createRequire(import.meta.url);
+import { getNodeRequire } from '../node-require';
+
+// Local require compatible with CJS (tests) and ESM (runtime) builds
+const nodeRequire = getNodeRequire();
 
 export type { Database, Statement, RunResult } from 'better-sqlite3';
 

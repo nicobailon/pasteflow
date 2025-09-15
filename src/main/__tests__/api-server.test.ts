@@ -7,6 +7,11 @@ import path from 'node:path';
 
 import { PasteFlowAPIServer } from '../api-server';
 import type { WorkspaceState, PreferenceValue } from '../db/database-implementation';
+import { __testOnly as mapperTestUtils } from '../db/mappers';
+
+function createWorkspaceState(): WorkspaceState {
+  return mapperTestUtils.defaultWorkspaceState();
+}
 
 // Minimal in-memory fake database bridge matching the API-server's usage surface
 class FakeDatabaseBridge {
@@ -35,7 +40,7 @@ class FakeDatabaseBridge {
     return [...this.workspaces.values()];
   }
 
-  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = {}) {
+  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = createWorkspaceState()) {
     // Enforce name uniqueness
     for (const ws of this.workspaces.values()) {
       if (ws.name === name) throw new Error(`Workspace with name '${name}' already exists`);
@@ -265,7 +270,10 @@ describe('PasteFlowAPIServer — Day 3 endpoints and error handling', () => {
     expect((res.json as any).data?.name).toBe('ws1');
 
     // Update by id
-    const newState: WorkspaceState = { selectedFiles: [{ path: 'file1.txt' }] };
+    const newState: WorkspaceState = {
+      ...createWorkspaceState(),
+      selectedFiles: [{ path: 'file1.txt' }]
+    };
     res = await requestJson('PUT', port, `/api/v1/workspaces/${id}`, 'testtoken', { state: newState });
     expect(res.status).toBe(200);
     expect((res.json as any).data).toBe(true);

@@ -1,3 +1,5 @@
+import './setup-node-require';
+
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -49,7 +51,9 @@ let database: DatabaseBridge | null = null;
 // HTTP API server instance
 let apiServer: PasteFlowAPIServer | null = null;
 // Terminal manager (lazy)
-let terminalManager: any | null = null;
+type TerminalManagerInstance = import('./terminal/terminal-manager').TerminalManager;
+
+let terminalManager: TerminalManagerInstance | null = null;
 
 // Initialize token service
 const tokenService = getMainTokenService();
@@ -272,8 +276,8 @@ app.whenReady().then(async () => {
           try { console.log('[Migration] agent.requireApproval -> agent.approvalMode:', { legacy, mode }); } catch { /* noop */ }
         }
       }
-    } catch (e) {
-      console.warn('[Migration] approval mode migration skipped:', (e as Error)?.message || e);
+    } catch (error) {
+      console.warn('[Migration] approval mode migration skipped:', (error as Error)?.message || error);
     }
 
     // On fresh app start, clear any previously persisted "active" workspace so
@@ -856,16 +860,14 @@ ipcMain.handle('/workspace/load', async (_e, params: unknown) => {
       // Mark as active and sync allowed paths for API/CLI
       try {
         await database.setPreference('workspace.active', String(ws.id));
-      } catch (prefErr) {
-         
-        console.warn('Failed to set active workspace preference:', prefErr);
+      } catch (error) {
+        console.warn('Failed to set active workspace preference:', error);
       }
       try {
         setAllowedWorkspacePaths([ws.folder_path]);
         getPathValidator([ws.folder_path]);
-      } catch (syncErr) {
-         
-        console.warn('Failed to sync allowed paths for loaded workspace:', syncErr);
+      } catch (error) {
+        console.warn('Failed to sync allowed paths for loaded workspace:', error);
       }
       const shaped = mapWorkspaceDbToIpc(ws);
       return { success: true, data: shaped };
@@ -898,16 +900,14 @@ ipcMain.handle('/workspace/activate', async (_e, params: unknown) => {
       // Mark as active and sync allowed paths for API/CLI silently
       try {
         await database.setPreference('workspace.active', String(ws.id));
-      } catch (prefErr) {
-         
-        console.warn('Failed to set active workspace preference:', prefErr);
+      } catch (error) {
+        console.warn('Failed to set active workspace preference:', error);
       }
       try {
         setAllowedWorkspacePaths([ws.folder_path]);
         getPathValidator([ws.folder_path]);
-      } catch (syncErr) {
-         
-        console.warn('Failed to sync allowed paths for activated workspace:', syncErr);
+      } catch (error) {
+        console.warn('Failed to sync allowed paths for activated workspace:', error);
       }
 
       const shaped = mapWorkspaceDbToIpc(ws);
@@ -1048,8 +1048,8 @@ ipcMain.handle('agent:usage:append', async (_e, params: unknown) => {
       // eslint-disable-next-line no-console
       console.log('[Main][Telemetry] agent:usage:append', { sessionId, input, output, total, latency });
       return { success: true };
-    } catch (err) {
-      return { success: false, error: (err as Error)?.message || 'DB_WRITE_FAILED' };
+    } catch (error) {
+      return { success: false, error: (error as Error)?.message || 'DB_WRITE_FAILED' };
     }
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
@@ -1130,20 +1130,28 @@ ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: s
 /**
  * Terminal IPC (gated by ENABLE_CODE_EXECUTION)
  */
-function getTerminalManagerLazy() {
-  if (!terminalManager) {
-    const { TerminalManager } = require('./terminal/terminal-manager');
-    const tm = new TerminalManager();
-    // Push-based streaming: forward chunks to all windows under terminal:output:${id}
-    try {
-      tm.on('data', (id: string, chunk: string) => {
-        const channel = `terminal:output:${id}`;
-        broadcastUpdate(channel, { chunk });
-      });
-    } catch { /* ignore */ }
-    terminalManager = tm;
+let terminalManagerInit: Promise<TerminalManagerInstance> | null = null;
+
+async function getTerminalManagerLazy(): Promise<TerminalManagerInstance> {
+  if (terminalManager) {
+    return terminalManager;
   }
-  return terminalManager;
+
+  if (!terminalManagerInit) {
+    terminalManagerInit = import('./terminal/terminal-manager').then(({ TerminalManager }) => {
+      const tm = new TerminalManager();
+      try {
+        tm.on('data', (id: string, chunk: string) => {
+          const channel = `terminal:output:${id}`;
+          broadcastUpdate(channel, { chunk });
+        });
+      } catch { /* ignore */ }
+      terminalManager = tm;
+      return tm;
+    });
+  }
+
+  return terminalManagerInit;
 }
 
 ipcMain.handle('terminal:create', async (_e, params: unknown) => {
@@ -1154,7 +1162,7 @@ ipcMain.handle('terminal:create', async (_e, params: unknown) => {
     const { resolveAgentConfig } = await import('./agent/config');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
     if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = getTerminalManagerLazy();
+    const tm = await getTerminalManagerLazy();
     const { id, pid } = tm.create(parsed.data);
     return { success: true, data: { id, pid } };
   } catch (error: unknown) {
@@ -1170,7 +1178,7 @@ ipcMain.handle('terminal:write', async (_e, params: unknown) => {
     const { resolveAgentConfig } = await import('./agent/config');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
     if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = getTerminalManagerLazy();
+    const tm = await getTerminalManagerLazy();
     tm.write(p.data.id, p.data.data);
     return { success: true, data: null };
   } catch (error: unknown) {
@@ -1186,7 +1194,7 @@ ipcMain.handle('terminal:resize', async (_e, params: unknown) => {
     const { resolveAgentConfig } = await import('./agent/config');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
     if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = getTerminalManagerLazy();
+    const tm = await getTerminalManagerLazy();
     tm.resize(p.data.id, p.data.cols, p.data.rows);
     return { success: true, data: null };
   } catch (error: unknown) {
@@ -1202,7 +1210,7 @@ ipcMain.handle('terminal:kill', async (_e, params: unknown) => {
     const { resolveAgentConfig } = await import('./agent/config');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
     if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = getTerminalManagerLazy();
+    const tm = await getTerminalManagerLazy();
     tm.kill(p.data.id);
     return { success: true, data: null };
   } catch (error: unknown) {
@@ -1215,7 +1223,7 @@ ipcMain.handle('terminal:list', async () => {
     const { resolveAgentConfig } = await import('./agent/config');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
     if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = getTerminalManagerLazy();
+    const tm = await getTerminalManagerLazy();
     const items = tm.list();
     return { success: true, data: items };
   } catch (error: unknown) {
@@ -1231,7 +1239,7 @@ ipcMain.handle('terminal:output:get', async (_e, params: unknown) => {
     const { resolveAgentConfig } = await import('./agent/config');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
     if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = getTerminalManagerLazy();
+    const tm = await getTerminalManagerLazy();
     const out = tm.getOutput(p.data.id, { fromCursor: p.data.fromCursor, maxBytes: p.data.maxBytes });
     return { success: true, data: out };
   } catch (error: unknown) {
@@ -1379,7 +1387,13 @@ ipcMain.handle('/instructions/list', async () => {
 
 ipcMain.handle('/instructions/create', async (_e, params: unknown) => {
   try {
-    const p = (await import('zod')).z.object({ id: (await import('zod')).z.string().min(1), name: (await import('zod')).z.string().min(1), content: (await import('zod')).z.string() }).parse(params);
+    const zod = await import('zod');
+    const schema = zod.z.object({
+      id: zod.z.string().min(1),
+      name: zod.z.string().min(1),
+      content: zod.z.string(),
+    });
+    const p = schema.parse(params);
     if (database?.initialized) {
       await database.createInstruction(p.id, p.name, p.content);
       return { success: true, data: null };
@@ -1392,7 +1406,13 @@ ipcMain.handle('/instructions/create', async (_e, params: unknown) => {
 
 ipcMain.handle('/instructions/update', async (_e, params: unknown) => {
   try {
-    const p = (await import('zod')).z.object({ id: (await import('zod')).z.string().min(1), name: (await import('zod')).z.string().min(1), content: (await import('zod')).z.string() }).parse(params);
+    const zod = await import('zod');
+    const schema = zod.z.object({
+      id: zod.z.string().min(1),
+      name: zod.z.string().min(1),
+      content: zod.z.string(),
+    });
+    const p = schema.parse(params);
     if (database?.initialized) {
       await database.updateInstruction(p.id, p.name, p.content);
       return { success: true, data: null };
@@ -1405,7 +1425,9 @@ ipcMain.handle('/instructions/update', async (_e, params: unknown) => {
 
 ipcMain.handle('/instructions/delete', async (_e, params: unknown) => {
   try {
-    const p = (await import('zod')).z.object({ id: (await import('zod')).z.string().min(1) }).parse(params);
+    const zod = await import('zod');
+    const schema = zod.z.object({ id: zod.z.string().min(1) });
+    const p = schema.parse(params);
     if (database?.initialized) {
       await database.deleteInstruction(p.id);
       return { success: true, data: null };

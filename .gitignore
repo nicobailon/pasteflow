@@ -19,6 +19,22 @@ dist-ssr
 *.local
 build
 
+# Prevent accidental check-in of compiled JS in src
+src/**/*.js
+src/**/*.cjs
+src/**/*.mjs
+src/**/*.js.map
+
+# Prevent accidental JS duplicates for TypeScript configs and CLI/scripts
+vite.config.js
+tsup.config.js
+jest.config.js
+jest.setup.js
+build.js
+dev.js
+scripts/**/*.js
+cli/**/*.js
+
 # Electron-builder output
 out/
 release/
@@ -73,3 +89,4 @@ memory-bank/
 notes/
 
 WARP.md
+.eslintcache

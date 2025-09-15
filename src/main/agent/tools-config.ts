@@ -1,4 +1,3 @@
-import type { DatabaseBridge } from "../db/database-bridge";
 import { getToolCatalog } from "./tool-catalog";
 
 export type DbGetter = { getPreference: (k: string) => Promise<unknown> };
@@ -19,11 +18,11 @@ export function listToolNames(): string[] {
 export async function getEnabledToolsSet(db: DbGetter): Promise<Set<string>> {
   const names = listToolNames();
   const out = new Set<string>();
-  const vals = await Promise.all(names.map((n) => db.getPreference(toolEnabledPrefKey(n)).catch(() => undefined)));
-  for (let i = 0; i < names.length; i++) {
+  const vals = await Promise.all(names.map((n) => db.getPreference(toolEnabledPrefKey(n)).catch(() => null)));
+  for (const [i, name] of names.entries()) {
     const v = vals[i];
     const enabled = (typeof v === 'boolean') ? v : true;
-    if (enabled) out.add(names[i]);
+    if (enabled) out.add(name);
   }
   return out;
 }
@@ -32,11 +31,10 @@ export async function getEnabledToolsSet(db: DbGetter): Promise<Set<string>> {
 export async function getEnabledToolsRecord(db: DbGetter): Promise<Record<string, boolean>> {
   const names = listToolNames();
   const rec: Record<string, boolean> = {};
-  const vals = await Promise.all(names.map((n) => db.getPreference(toolEnabledPrefKey(n)).catch(() => undefined)));
-  for (let i = 0; i < names.length; i++) {
+  const vals = await Promise.all(names.map((n) => db.getPreference(toolEnabledPrefKey(n)).catch(() => null)));
+  for (const [i, name] of names.entries()) {
     const v = vals[i];
-    rec[names[i]] = (typeof v === 'boolean') ? v : true;
+    rec[name] = (typeof v === 'boolean') ? v : true;
   }
   return rec;
 }
-

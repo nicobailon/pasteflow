@@ -1,19 +1,16 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import type BetterSqlite3 from 'better-sqlite3';
-import { createRequire } from 'node:module';
 
-// Local require compatible with CJS and ESM builds
-const nodeRequire: NodeJS.Require = (typeof module !== 'undefined' && (module as any).require)
-  ? (module as any).require.bind(module)
-  : createRequire(import.meta.url);
+import { getNodeRequire } from '../node-require';
 
+// Local require compatible with CJS (tests) and ESM (runtime) builds
+const nodeRequire = getNodeRequire();
+
+import type { WorkspaceState } from '../../shared-types';
+export type { WorkspaceState, Instruction } from '../../shared-types';
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
-import type { WorkspaceState, Instruction } from '../../shared-types';
 import type { WorkspaceRecord, PreferenceRecord, InstructionRow } from './types';
 import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
-
-// Re-export for existing consumers
-export type { WorkspaceState, Instruction };
 
 // Runtime-safe loader to avoid ABI mismatch when not running under Electron
 type BetterSqlite3Module = typeof BetterSqlite3;
@@ -276,7 +273,7 @@ export class PasteFlowDatabase {
     // Optional migration: add latency_ms column to usage_summary if missing
     await executeWithRetry(async () => {
       try {
-        const columns = this.db!.prepare("PRAGMA table_info('usage_summary')").all() as Array<{ name: string }>; 
+        const columns = this.db!.prepare("PRAGMA table_info('usage_summary')").all() as { name: string }[];
         const hasLatency = Array.isArray(columns) && columns.some((c) => String(c.name).toLowerCase() === 'latency_ms');
         if (!hasLatency) {
           this.db!.exec("ALTER TABLE usage_summary ADD COLUMN latency_ms INTEGER");
@@ -289,7 +286,7 @@ export class PasteFlowDatabase {
     // Optional migration: add cost_usd column to usage_summary if missing
     await executeWithRetry(async () => {
       try {
-        const columns = this.db!.prepare("PRAGMA table_info('usage_summary')").all() as Array<{ name: string }>;
+        const columns = this.db!.prepare("PRAGMA table_info('usage_summary')").all() as { name: string }[];
         const hasCost = Array.isArray(columns) && columns.some((c) => String(c.name).toLowerCase() === 'cost_usd');
         if (!hasCost) {
           this.db!.exec("ALTER TABLE usage_summary ADD COLUMN cost_usd REAL");
@@ -397,7 +394,7 @@ export class PasteFlowDatabase {
   }
 
   // Phase 4 prepared statements and helpers (inline for simplicity)
-  private stmtUpsertChatSession(): BetterSqlite3.Statement<[string, string, string | null]> {
+  private stmtUpsertChatSession(): BetterSqlite3.Statement<[string, string | null, string | null]> {
     if (!this.db) throw new Error('DB not initialized');
     return this.db.prepare(`
       INSERT INTO chat_sessions (id, workspace_id, messages)
@@ -654,15 +651,14 @@ export class PasteFlowDatabase {
     }, { operation: 'insert_tool_execution' });
   }
 
-  async listToolExecutions(sessionId: string): Promise<Array<{
+  async listToolExecutions(sessionId: string): Promise<{
     id: number; session_id: string; tool_name: string; args: string | null; result: string | null; status: string | null; error: string | null; started_at: number | null; duration_ms: number | null; created_at: number;
-  }>> {
+  }[]> {
     this.ensureInitialized();
-    const result = await executeWithRetry(async () => {
-      const rows = this.stmtListToolExecutions().all(sessionId) as any[];
-      return rows;
-    }, { operation: 'list_tool_executions' });
-    return result.result as any[];
+    const { result } = await executeWithRetry(async () => this.stmtListToolExecutions().all(sessionId) as unknown[], { operation: 'list_tool_executions' });
+    return (result ?? []) as {
+      id: number; session_id: string; tool_name: string; args: string | null; result: string | null; status: string | null; error: string | null; started_at: number | null; duration_ms: number | null; created_at: number;
+    }[];
   }
 
   async insertUsageSummary(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null): Promise<void> {
@@ -710,13 +706,10 @@ export class PasteFlowDatabase {
     }, { operation: 'insert_usage_summary_with_latency_and_cost' });
   }
 
-  async listUsageSummaries(sessionId: string): Promise<Array<{ id: number; session_id: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; created_at: number }>> {
+  async listUsageSummaries(sessionId: string): Promise<{ id: number; session_id: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; created_at: number }[]> {
     this.ensureInitialized();
-    const result = await executeWithRetry(async () => {
-      const rows = this.stmtListUsageSummaries().all(sessionId) as any[];
-      return rows;
-    }, { operation: 'list_usage_summaries' });
-    return result.result as any[];
+    const { result } = await executeWithRetry(async () => this.stmtListUsageSummaries().all(sessionId) as unknown[], { operation: 'list_usage_summaries' });
+    return (result ?? []) as { id: number; session_id: string; input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; created_at: number }[];
   }
 
   async pruneToolExecutions(olderThanTs: number): Promise<number> {

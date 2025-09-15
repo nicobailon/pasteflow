@@ -75,8 +75,9 @@ async function detectShell(): Promise<SystemExecutionContext["shell"]> {
 
 function extractVersion(line: string): string | undefined {
   try {
-    const m = line.match(/\b(\d+\.\d+(?:\.\d+)?(?:[\w.-]+)?)/);
+    // Match versions like 1.2 or 1.2.3 with optional suffixes (e.g., -alpha.1)
+    // Optimized quantifiers per eslint-plugin-unicorn/better-regex.
+    const m = line.match(/\b(\d+(?:\.\d+){1,2}(?:[\w.-]+)?)/);
     return m?.[1];
   } catch { return undefined; }
 }
-

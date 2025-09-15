@@ -7,6 +7,11 @@ import path from 'node:path';
 
 import { PasteFlowAPIServer } from '../api-server';
 import type { WorkspaceState, PreferenceValue } from '../db/database-implementation';
+import { __testOnly as mapperTestUtils } from '../db/mappers';
+
+function createWorkspaceState(): WorkspaceState {
+  return mapperTestUtils.defaultWorkspaceState();
+}
 
 // Minimal in-memory fake database bridge matching the API-server's usage surface
 class FakeDatabaseBridge {
@@ -35,7 +40,7 @@ class FakeDatabaseBridge {
     return [...this.workspaces.values()];
   }
 
-  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = {}) {
+  async createWorkspace(name: string, folderPath: string, state: WorkspaceState = createWorkspaceState()) {
     // Enforce name uniqueness
     for (const ws of this.workspaces.values()) {
       if (ws.name === name) throw new Error(`Workspace with name '${name}' already exists`);
@@ -218,151 +223,161 @@ describe('PasteFlowAPIServer — Phase 3 Selection & Aggregation', () => {
     // Arrange server
     const db = new FakeDatabaseBridge();
     const server = new PasteFlowAPIServer(db as unknown as any, 0);
-    server.start();
-    const port = await waitForPort(server);
+    try {
+      server.start();
+      const port = await waitForPort(server);
 
-    // Arrange workspace and files
-    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ws-'));
-    const textPath = path.join(workspaceDir, 'hello.txt');
-    fs.writeFileSync(textPath, 'hello\nworld\n', 'utf8');
-    const binPath = path.join(workspaceDir, 'image.png');
-    fs.writeFileSync(binPath, Buffer.from([0, 1, 2, 3])); // binary by ext
+      // Arrange workspace and files
+      const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ws-'));
+      const textPath = path.join(workspaceDir, 'hello.txt');
+      fs.writeFileSync(textPath, 'hello\nworld\n', 'utf8');
+      const binPath = path.join(workspaceDir, 'image.png');
+      fs.writeFileSync(binPath, Buffer.from([0, 1, 2, 3])); // binary by ext
 
-    // Open (creates/activates workspace and sets allowedPaths)
-    let res = await requestJson('POST', port, '/api/v1/folders/open', 'testtoken', { folderPath: workspaceDir, name: 'ws3' });
-    expect(res.status).toBe(200);
-    expect((res.json as any).data?.folderPath).toBe(workspaceDir);
+      // Open (creates/activates workspace and sets allowedPaths)
+      let res = await requestJson('POST', port, '/api/v1/folders/open', 'testtoken', { folderPath: workspaceDir, name: 'ws3' });
+      expect(res.status).toBe(200);
+      expect((res.json as any).data?.folderPath).toBe(workspaceDir);
 
-    // Select a text file (with lines) - existence check enforced
-    res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', {
-      items: [{ path: textPath, lines: [{ start: 1, end: 1 }] }]
-    });
-    expect(res.status).toBe(200);
-    expect((res.json as any).data).toBe(true);
+      // Select a text file (with lines) - existence check enforced
+      res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', {
+        items: [{ path: textPath, lines: [{ start: 1, end: 1 }] }]
+      });
+      expect(res.status).toBe(200);
+      expect((res.json as any).data).toBe(true);
 
-    // Verify /files/selected contains our file (sanitized absolute path)
-    res = await requestJson('GET', port, '/api/v1/files/selected', 'testtoken');
-    expect(res.status).toBe(200);
-    const selected = (res.json as any).data as { path: string; lines?: { start: number; end: number }[] }[];
-    expect(selected.length).toBe(1);
+      // Verify /files/selected contains our file (sanitized absolute path)
+      res = await requestJson('GET', port, '/api/v1/files/selected', 'testtoken');
+      expect(res.status).toBe(200);
+      const selected = (res.json as any).data as { path: string; lines?: { start: number; end: number }[] }[];
+      expect(selected.length).toBe(1);
 
-    // Aggregate content
-    res = await requestJson('GET', port, '/api/v1/content', 'testtoken');
-    expect(res.status).toBe(200);
-    expect((res.json as any).data?.fileCount).toBe(1);
-    expect(((res.json as any).data?.content || '') as string).toContain('hello');
+      // Aggregate content
+      res = await requestJson('GET', port, '/api/v1/content', 'testtoken');
+      expect(res.status).toBe(200);
+      expect((res.json as any).data?.fileCount).toBe(1);
+      expect(((res.json as any).data?.content || '') as string).toContain('hello');
 
-    // Export aggregated content inside workspace
-    const outPath = path.join(workspaceDir, 'export.txt');
-    res = await requestJson('POST', port, '/api/v1/content/export', 'testtoken', { outputPath: outPath, overwrite: true });
-    expect(res.status).toBe(200);
-    const bytes = (res.json as any).data?.bytes as number;
-    expect(bytes).toBeGreaterThan(0);
-    expect(fs.existsSync(outPath)).toBe(true);
+      // Export aggregated content inside workspace
+      const outPath = path.join(workspaceDir, 'export.txt');
+      res = await requestJson('POST', port, '/api/v1/content/export', 'testtoken', { outputPath: outPath, overwrite: true });
+      expect(res.status).toBe(200);
+      const bytes = (res.json as any).data?.bytes as number;
+      expect(bytes).toBeGreaterThan(0);
+      expect(fs.existsSync(outPath)).toBe(true);
 
-    // Clear selection
-    res = await requestJson('POST', port, '/api/v1/files/clear', 'testtoken', {});
-    expect(res.status).toBe(200);
-    res = await requestJson('GET', port, '/api/v1/files/selected', 'testtoken');
-    expect((res.json as any).data.length).toBe(0);
-
-    server.close();
+      // Clear selection
+      res = await requestJson('POST', port, '/api/v1/files/clear', 'testtoken', {});
+      expect(res.status).toBe(200);
+      res = await requestJson('GET', port, '/api/v1/files/selected', 'testtoken');
+      expect((res.json as any).data.length).toBe(0);
+    } finally {
+      server.close();
+    }
   }));
 
   test('no active workspace → 400 NO_ACTIVE_WORKSPACE on /files/select', withTempHome(async () => {
     const db = new FakeDatabaseBridge();
     const server = new PasteFlowAPIServer(db as unknown as any, 0);
-    server.start();
-    const port = await waitForPort(server);
+    try {
+      server.start();
+      const port = await waitForPort(server);
 
-    const somePath = path.join(os.tmpdir(), 'pf-non-ws', 'file.txt');
-    const res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', {
-      items: [{ path: somePath, lines: [{ start: 1, end: 1 }] }]
-    });
-    expect(res.status).toBe(400);
-    expect((res.json as any)?.error?.code).toBe('NO_ACTIVE_WORKSPACE');
-
-    server.close();
+      const somePath = path.join(os.tmpdir(), 'pf-non-ws', 'file.txt');
+      const res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', {
+        items: [{ path: somePath, lines: [{ start: 1, end: 1 }] }]
+      });
+      expect(res.status).toBe(400);
+      expect((res.json as any)?.error?.code).toBe('NO_ACTIVE_WORKSPACE');
+    } finally {
+      server.close();
+    }
   }));
 
   test('PATH_DENIED when selecting a file outside workspace', withTempHome(async () => {
     const db = new FakeDatabaseBridge();
     const server = new PasteFlowAPIServer(db as unknown as any, 0);
-    server.start();
-    const port = await waitForPort(server);
+    try {
+      server.start();
+      const port = await waitForPort(server);
 
-    // Open workspace A
-    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ws-'));
-    fs.writeFileSync(path.join(workspaceDir, 'a.txt'), 'a', 'utf8');
-    let res = await requestJson('POST', port, '/api/v1/folders/open', 'testtoken', { folderPath: workspaceDir, name: 'wsA' });
-    expect(res.status).toBe(200);
-    expect((res.json as any).data?.name).toBe('wsA');
+      // Open workspace A
+      const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ws-'));
+      fs.writeFileSync(path.join(workspaceDir, 'a.txt'), 'a', 'utf8');
+      let res = await requestJson('POST', port, '/api/v1/folders/open', 'testtoken', { folderPath: workspaceDir, name: 'wsA' });
+      expect(res.status).toBe(200);
+      expect((res.json as any).data?.name).toBe('wsA');
 
-    // Attempt to select a file in a different temp directory → outside allowedPaths
-    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-out-'));
-    const outsideFile = path.join(outsideDir, 'b.txt');
-    fs.writeFileSync(outsideFile, 'b', 'utf8');
+      // Attempt to select a file in a different temp directory → outside allowedPaths
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-out-'));
+      const outsideFile = path.join(outsideDir, 'b.txt');
+      fs.writeFileSync(outsideFile, 'b', 'utf8');
 
-    res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', {
-      items: [{ path: outsideFile }]
-    });
-    expect(res.status).toBe(403);
-    expect((res.json as any)?.error?.code).toBe('PATH_DENIED');
-
-    server.close();
+      res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', {
+        items: [{ path: outsideFile }]
+      });
+      expect(res.status).toBe(403);
+      expect((res.json as any)?.error?.code).toBe('PATH_DENIED');
+    } finally {
+      server.close();
+    }
   }));
 
   test('FILE_NOT_FOUND when selecting a missing file inside workspace', withTempHome(async () => {
     const db = new FakeDatabaseBridge();
     const server = new PasteFlowAPIServer(db as unknown as any, 0);
-    server.start();
-    const port = await waitForPort(server);
+    try {
+      server.start();
+      const port = await waitForPort(server);
 
-    // Open workspace
-    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ws-'));
-    let res = await requestJson('POST', port, '/api/v1/folders/open', 'testtoken', { folderPath: workspaceDir, name: 'wsB' });
-    expect(res.status).toBe(200);
-    expect((res.json as any).data?.name).toBe('wsB');
+      // Open workspace
+      const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ws-'));
+      let res = await requestJson('POST', port, '/api/v1/folders/open', 'testtoken', { folderPath: workspaceDir, name: 'wsB' });
+      expect(res.status).toBe(200);
+      expect((res.json as any).data?.name).toBe('wsB');
 
-    // Missing file under workspace
-    const missing = path.join(workspaceDir, 'missing.txt');
-    res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', {
-      items: [{ path: missing }]
-    });
-    expect(res.status).toBe(404);
-    expect((res.json as any)?.error?.code).toBe('FILE_NOT_FOUND');
-
-    server.close();
+      // Missing file under workspace
+      const missing = path.join(workspaceDir, 'missing.txt');
+      res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', {
+        items: [{ path: missing }]
+      });
+      expect(res.status).toBe(404);
+      expect((res.json as any)?.error?.code).toBe('FILE_NOT_FOUND');
+    } finally {
+      server.close();
+    }
   }));
 
   test('partial deselect on whole-file selection → 400 VALIDATION_ERROR', withTempHome(async () => {
     const db = new FakeDatabaseBridge();
     const server = new PasteFlowAPIServer(db as unknown as any, 0);
-    server.start();
-    const port = await waitForPort(server);
+    try {
+      server.start();
+      const port = await waitForPort(server);
 
-    // Open workspace and create a file
-    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ws-'));
-    const file = path.join(workspaceDir, 'x.txt');
-    fs.writeFileSync(file, 'line1\nline2\n', 'utf8');
+      // Open workspace and create a file
+      const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ws-'));
+      const file = path.join(workspaceDir, 'x.txt');
+      fs.writeFileSync(file, 'line1\nline2\n', 'utf8');
 
-    // Activate
-    let res = await requestJson('POST', port, '/api/v1/folders/open', 'testtoken', { folderPath: workspaceDir, name: 'wsX' });
-    expect(res.status).toBe(200);
-    expect((res.json as any).data?.folderPath).toBe(workspaceDir);
+      // Activate
+      let res = await requestJson('POST', port, '/api/v1/folders/open', 'testtoken', { folderPath: workspaceDir, name: 'wsX' });
+      expect(res.status).toBe(200);
+      expect((res.json as any).data?.folderPath).toBe(workspaceDir);
 
-    // Select whole-file (no lines)
-    res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', { items: [{ path: file }] });
-    expect(res.status).toBe(200);
-    expect((res.json as any).data).toBe(true);
+      // Select whole-file (no lines)
+      res = await requestJson('POST', port, '/api/v1/files/select', 'testtoken', { items: [{ path: file }] });
+      expect(res.status).toBe(200);
+      expect((res.json as any).data).toBe(true);
 
-    // Attempt partial deselect → service throws, API returns 400 VALIDATION_ERROR
-    res = await requestJson('POST', port, '/api/v1/files/deselect', 'testtoken', {
-      items: [{ path: file, lines: [{ start: 1, end: 1 }] }]
-    });
-    expect(res.status).toBe(400);
-    expect((res.json as any)?.error?.code).toBe('VALIDATION_ERROR');
-
-    server.close();
+      // Attempt partial deselect → service throws, API returns 400 VALIDATION_ERROR
+      res = await requestJson('POST', port, '/api/v1/files/deselect', 'testtoken', {
+        items: [{ path: file, lines: [{ start: 1, end: 1 }] }]
+      });
+      expect(res.status).toBe(400);
+      expect((res.json as any)?.error?.code).toBe('VALIDATION_ERROR');
+    } finally {
+      server.close();
+    }
   }));
 });
