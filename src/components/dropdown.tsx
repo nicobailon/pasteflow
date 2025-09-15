@@ -12,6 +12,7 @@ export interface DropdownOption {
   icon?: JSX.Element;
   disabled?: boolean;
   className?: string;
+  onDisabledClick?: () => void;
 }
 
 export interface DropdownRef {

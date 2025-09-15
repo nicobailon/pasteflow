@@ -194,6 +194,29 @@
   font-weight: var(--dropdown-font-medium);
 }
 
+.dropdown-item.disabled {
+  color: var(--text-secondary);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dropdown-item.disabled:hover {
+  background-color: transparent;
+}
+
+/* Inline hint for disabled items (appears on hover) */
+.dropdown-item .dropdown-item-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.dropdown-item.disabled:hover .dropdown-item-hint {
+  opacity: 0.9;
+}
+
 .dropdown-item:focus-visible {
   outline: 2px solid var(--accent-blue);
   outline-offset: -2px;

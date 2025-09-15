@@ -1,9 +1,12 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { X, Shield, CheckCircle2, Trash2, Copy } from "lucide-react";
-import AgentAlertBanner from "./agent-alert-banner";
-import "./model-settings-modal.css";
+
 import { estimateTokenCount } from "../utils/token-utils";
+
+import AgentAlertBanner from "./agent-alert-banner";
+
+import "./model-settings-modal.css";
 
 type ProviderId = "openai" | "anthropic" | "openrouter" | "groq";
 
@@ -12,12 +15,97 @@ type Props = {
   onClose: () => void;
   sessionId?: string | null;
   workspaceId?: string | null;
+  initialTab?: ProviderId;
 };
+
+// Reused constants and helpers to reduce duplication
+const IPC = { GET: "/prefs/get", SET: "/prefs/set" } as const;
+const STRINGS = {
+  enabled: "Enabled",
+  disabled: "Disabled",
+  copy: "Copy",
+  reset: "Reset",
+  useOnlyThisPrompt: "Use only this prompt",
+  exportInMemory: "(export in memory)",
+} as const;
+
+const secondaryTextStyle: CSSProperties = { fontSize: 12, color: "var(--text-secondary)" };
+const rowBetween: CSSProperties = { justifyContent: "space-between" };
+
+type UsageRow = { input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; cost_usd: number | null };
+
+function summarizeUsage(rows: UsageRow[]) {
+  let inSum = 0;
+  let outSum = 0;
+  let totalSum = 0;
+  let latSum = 0;
+  let latCount = 0;
+  let costSum = 0;
+  let costCount = 0;
+  for (const r of rows) {
+    inSum += r.input_tokens ?? 0;
+    outSum += r.output_tokens ?? 0;
+    totalSum += typeof r.total_tokens === "number" ? r.total_tokens : (r.input_tokens ?? 0) + (r.output_tokens ?? 0);
+    if (typeof r.latency_ms === "number") { latSum += r.latency_ms; latCount += 1; }
+    if (typeof r.cost_usd === "number" && Number.isFinite(r.cost_usd)) { costSum += r.cost_usd; costCount += 1; }
+  }
+  return {
+    totalIn: inSum,
+    totalOut: outSum,
+    total: totalSum,
+    avgLatency: latCount > 0 ? Math.round(latSum / latCount) : null,
+    totalCost: costCount > 0 ? costSum : null,
+  } as const;
+}
+
+function parseApprovalMode(v: unknown): 'never'|'risky'|'always'|null {
+  const s = String(v ?? "").toLowerCase();
+  return s === 'never' || s === 'risky' || s === 'always' ? (s as 'never'|'risky'|'always') : null;
+}
+
+function coerceNumberInRange(v: unknown, min: number, max: number): number | null {
+  const n = Number((v as { data?: unknown })?.data ?? v);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(min, Math.min(max, n));
+}
+
+function defaultExecGlobalFromEnv(): boolean {
+  try {
+    const raw = String(process.env.PF_AGENT_DISABLE_EXECUTION_CONTEXT || "").trim().toLowerCase();
+    const disabled = raw === "1" || raw === "true" || raw === "yes";
+    return !disabled;
+  } catch { return true; }
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  try {
+    if (navigator?.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; }
+  } catch { /* noop: use fallback */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  } catch { /* noop */ }
+}
 
 // System prompt modes removed; replaced with simple Replace Summary toggles
 
-export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspaceId }: Props) {
-  const [tab, setTab] = useState<ProviderId>("openai");
+function useApiInfo() {
+  const info = window.__PF_API_INFO ?? {};
+  const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
+  const authToken = typeof info.authToken === "string" ? info.authToken : "";
+  return { apiBase, authToken } as const;
+}
+
+export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspaceId, initialTab = "openai" }: Props) {
+  const [tab, setTab] = useState<ProviderId>(initialTab);
+  // Sync initial tab when modal opens or prop changes
+  useEffect(() => {
+    if (isOpen && initialTab) setTab(initialTab);
+  }, [isOpen, initialTab]);
   const [status, setStatus] = useState<"idle" | "saving" | "success" | "error" | "testing">("idle");
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"idle" | "saving" | "success" | "error">("idle");
@@ -58,18 +146,12 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
   const [spWorkspaceText, setSpWorkspaceText] = useState<string>("");
   const [spWorkspaceReplace, setSpWorkspaceReplace] = useState<boolean>(false);
   // Tools help is always included server-side; no toggle in UI.
-  const [maxCtxTokens, setMaxCtxTokens] = useState<number>(120_000);
+  const [_maxCtxTokens, setMaxCtxTokens] = useState<number>(120_000);
 
   // Tools enable/disable (per tool)
   type ToolToggle = { name: string; description: string; enabled: boolean };
   const [toolToggles, setToolToggles] = useState<ToolToggle[]>([]);
 
-  function useApiInfo() {
-    const info = window.__PF_API_INFO ?? {};
-    const apiBase = typeof info.apiBase === "string" && info.apiBase ? info.apiBase : "http://localhost:5839";
-    const authToken = typeof info.authToken === "string" ? info.authToken : "";
-    return { apiBase, authToken };
-  }
   const { apiBase, authToken } = useApiInfo();
 
   useEffect(() => {
@@ -77,20 +159,20 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     (async () => {
       try {
         const [okey, akey, orKey, orBase, groqKey, temp, max, w, x, appr, maxCtx, execCtx, execCtxWs, rsnDefault] = await Promise.all([
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openai.apiKey' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.anthropic.apiKey' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.apiKey' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.openrouter.baseUrl' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'integrations.groq.apiKey' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.temperature' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxOutputTokens' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableFileWrite' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.enableCodeExecution' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.approvalMode' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.maxContextTokens' }),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.executionContext.enabled' }),
-          workspaceId ? window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.executionContext.enabled.${workspaceId}` }) : Promise.resolve(null),
-          window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'ui.reasoning.defaultCollapsed' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'integrations.openai.apiKey' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'integrations.anthropic.apiKey' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'integrations.openrouter.apiKey' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'integrations.openrouter.baseUrl' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'integrations.groq.apiKey' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.temperature' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.maxOutputTokens' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.enableFileWrite' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.enableCodeExecution' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.approvalMode' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.maxContextTokens' }),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.executionContext.enabled' }),
+          workspaceId ? window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: `agent.executionContext.enabled.${workspaceId}` }) : Promise.resolve(null),
+          window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'ui.reasoning.defaultCollapsed' }),
         ] as const);
         if (!mounted) return;
         setOpenaiStored(Boolean(okey?.data));
@@ -98,33 +180,27 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
         setOpenrouterStored(Boolean(orKey?.data));
         setGroqStored(Boolean(groqKey?.data));
         if (typeof orBase?.data === 'string' && orBase.data.trim()) setOpenrouterBaseUrl(orBase.data);
-        const t = Number(temp?.data);
-        if (Number.isFinite(t)) setTemperature(Math.max(0, Math.min(2, t)));
-        const m = Number(max?.data);
-        if (Number.isFinite(m)) setMaxOut(Math.max(1, Math.min(128_000, m)));
+        const t = coerceNumberInRange(temp, 0, 2);
+        if (t != null) setTemperature(t);
+        const m = coerceNumberInRange(max, 1, 128_000);
+        if (m != null) setMaxOut(m);
         setEnableWrites(Boolean(w?.data ?? true));
         setEnableExec(Boolean(x?.data ?? true));
-        const am = String(appr?.data || '').toLowerCase();
-        if (am === 'never' || am === 'risky' || am === 'always') setApprovalMode(am as any);
+        const am = parseApprovalMode((appr as any)?.data);
+        if (am) setApprovalMode(am);
         setReasoningDefaultCollapsed(Boolean(rsnDefault?.data));
-        const mc = Number(maxCtx?.data);
-        if (Number.isFinite(mc)) setMaxCtxTokens(Math.max(1000, Math.min(2_000_000, mc)));
+        const mc = coerceNumberInRange(maxCtx, 1000, 2_000_000);
+        if (mc != null) setMaxCtxTokens(mc);
         // Execution context toggles
         const storedExecGlobal = execCtx?.data;
         if (typeof storedExecGlobal === 'boolean') setExecCtxGlobalEnabled(storedExecGlobal);
-        else {
-          try {
-            const raw = String(process.env.PF_AGENT_DISABLE_EXECUTION_CONTEXT || '').trim().toLowerCase();
-            const disabled = raw === '1' || raw === 'true' || raw === 'yes';
-            setExecCtxGlobalEnabled(!disabled);
-          } catch { setExecCtxGlobalEnabled(true); }
-        }
+        else setExecCtxGlobalEnabled(defaultExecGlobalFromEnv());
         const storedExecWs = (execCtxWs as any)?.data;
         if (typeof storedExecWs === 'boolean') setExecCtxWorkspaceEnabled(storedExecWs);
       } catch { /* ignore */ }
     })();
     return () => { mounted = false; };
-  }, [isOpen]);
+  }, [isOpen, workspaceId]);
 
   const canSave = status !== 'saving' && status !== 'testing';
 
@@ -135,19 +211,10 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
         if (!isOpen || !sessionId) { setUsageStats(null); return; }
         const res: any = await (window as any).electron?.ipcRenderer?.invoke?.('agent:usage:list', { sessionId });
         if (res && res.success && Array.isArray(res.data)) {
-          const rows = res.data as Array<{ input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; cost_usd: number | null }>;
-          let inSum = 0, outSum = 0, totalSum = 0;
-          let latSum = 0, latCount = 0;
-          let costSum = 0, costCount = 0;
-          for (const r of rows) {
-            inSum += r.input_tokens ?? 0;
-            outSum += r.output_tokens ?? 0;
-            totalSum += (typeof r.total_tokens === 'number' ? r.total_tokens : ((r.input_tokens ?? 0) + (r.output_tokens ?? 0)));
-            if (typeof r.latency_ms === 'number') { latSum += r.latency_ms; latCount += 1; }
-            if (typeof r.cost_usd === 'number' && Number.isFinite(r.cost_usd)) { costSum += r.cost_usd; costCount += 1; }
-          }
-          setUsageStats({ totalIn: inSum, totalOut: outSum, total: totalSum, avgLatency: latCount > 0 ? Math.round(latSum / latCount) : null, totalCost: costCount > 0 ? costSum : null });
-          try { console.log('[UI][Telemetry] settings: usage stats', { sessionId, rows: rows.length, totalIn: inSum, totalOut: outSum, total: totalSum, avgLatency: latCount > 0 ? Math.round(latSum / latCount) : null }); } catch { /* noop */ }
+          const rows = res.data as UsageRow[];
+          const stats = summarizeUsage(rows);
+          setUsageStats(stats);
+          try { console.log('[UI][Telemetry] settings: usage stats', { sessionId, rows: rows.length, totalIn: stats.totalIn, totalOut: stats.totalOut, total: stats.total, avgLatency: stats.avgLatency }); } catch { /* noop */ }
         } else {
           setUsageStats(null);
           try { console.log('[UI][Telemetry] settings: no usage stats', { sessionId, res }); } catch { /* noop */ }
@@ -164,7 +231,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
         if (!isOpen) return;
         const res = await fetch(`${apiBase}/api/v1/tools`, { headers: { Authorization: authToken ? `Bearer ${authToken}` : '' } });
         const json = await res.json();
-        const tools: Array<{ name: string; description: string }> = Array.isArray(json?.data?.tools) ? json.data.tools : [];
+        const tools: { name: string; description: string }[] = Array.isArray(json?.data?.tools) ? json.data.tools : [];
         const enabledRec: Record<string, boolean> = (json?.data?.enabled && typeof json.data.enabled === 'object') ? json.data.enabled : {};
         const list: ToolToggle[] = tools.map((t) => ({ name: t.name, description: t.description, enabled: enabledRec[t.name] !== false }));
         if (!aborted) setToolToggles(list);
@@ -189,10 +256,10 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     let mounted = true;
     (async () => {
       try {
-        const globalReplaceP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.replace' });
-        const globalTextP = (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.systemPrompt.text' });
-        const wsReplaceP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.replace.${workspaceId}` }) : Promise.resolve(null);
-        const wsTextP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.('/prefs/get', { key: `agent.systemPrompt.text.${workspaceId}` }) : Promise.resolve(null);
+        const globalReplaceP = (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.systemPrompt.replace' });
+        const globalTextP = (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.systemPrompt.text' });
+        const wsReplaceP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: `agent.systemPrompt.replace.${workspaceId}` }) : Promise.resolve(null);
+        const wsTextP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: `agent.systemPrompt.text.${workspaceId}` }) : Promise.resolve(null);
         const [gReplace, gText, wReplace, wText] = await Promise.all([globalReplaceP, globalTextP, wsReplaceP, wsTextP] as const);
         if (!mounted) return;
         const grRaw = typeof gReplace?.data === 'boolean' ? gReplace.data : false;
@@ -221,31 +288,45 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     setStatus('saving');
     setError(null);
     try {
-      await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key, value, encrypted: enc });
+      await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key, value, encrypted: enc });
       // Optimistically update local stored-state indicators so UI reflects changes immediately
       try {
         const truthy = Boolean(value && String(value).trim());
-        if (key === 'integrations.openai.apiKey') {
-          setOpenaiStored(truthy);
-          if (!truthy) setOpenaiInput("");
-        } else if (key === 'integrations.anthropic.apiKey') {
-          setAnthropicStored(truthy);
-          if (!truthy) setAnthropicInput("");
-        } else if (key === 'integrations.openrouter.apiKey') {
-          setOpenrouterStored(truthy);
-          if (!truthy) setOpenrouterInput("");
-        } else if (key === 'integrations.groq.apiKey') {
-          setGroqStored(truthy);
-          if (!truthy) setGroqInput("");
-        } else if (key === 'integrations.openrouter.baseUrl' && typeof value === 'string') {
-          setOpenrouterBaseUrl(value);
+        switch (key) {
+          case 'integrations.openai.apiKey': {
+            setOpenaiStored(truthy);
+            if (!truthy) setOpenaiInput("");
+            break;
+          }
+          case 'integrations.anthropic.apiKey': {
+            setAnthropicStored(truthy);
+            if (!truthy) setAnthropicInput("");
+            break;
+          }
+          case 'integrations.openrouter.apiKey': {
+            setOpenrouterStored(truthy);
+            if (!truthy) setOpenrouterInput("");
+            break;
+          }
+          case 'integrations.groq.apiKey': {
+            setGroqStored(truthy);
+            if (!truthy) setGroqInput("");
+            break;
+          }
+          case 'integrations.openrouter.baseUrl': {
+            if (typeof value === 'string') setOpenrouterBaseUrl(value);
+            break;
+          }
+          default: {
+            break;
+          }
         }
       } catch { /* noop */ }
       setStatus('success');
       setTimeout(() => setStatus('idle'), 1000);
-    } catch (e) {
+    } catch (error) {
       setStatus('error');
-      setError((e as Error)?.message || 'Failed to save');
+      setError((error as Error)?.message || 'Failed to save');
     }
   }
 
@@ -254,7 +335,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     setError(null);
     try {
       // Use current default model for provider
-      const modelPref: unknown = await window.electron?.ipcRenderer?.invoke?.('/prefs/get', { key: 'agent.defaultModel' });
+      const modelPref: unknown = await window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.defaultModel' });
       const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
       const model = (isObj(modelPref) && (modelPref as Record<string, unknown>)['success'] === true && typeof (modelPref as { data?: unknown }).data === 'string')
         ? (modelPref as { data: string }).data
@@ -274,9 +355,9 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
       if (!ok) throw new Error(json?.data?.error || json?.error || 'Validation failed');
       setStatus('success');
       setTimeout(() => setStatus('idle'), 1000);
-    } catch (e) {
+    } catch (error) {
       setStatus('error');
-      setError((e as Error)?.message || 'Validation failed');
+      setError((error as Error)?.message || 'Validation failed');
     }
   }
 
@@ -315,7 +396,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                     {openaiStored && <span className="configured-indicator"><CheckCircle2 size={14} /> Configured</span>}
                   </div>
                   {openaiStored ? (
-                    <div className="actions" style={{ justifyContent: 'space-between' }}>
+                    <div className="actions" style={rowBetween}>
                       <code style={{ fontSize: 12, opacity: 0.8 }}>sk-••••••••</code>
                       <button className="cancel-button" title="Remove key" onClick={() => saveKey('integrations.openai.apiKey', null, false)}>
                         <Trash2 size={14} />
@@ -342,7 +423,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                     {anthropicStored && <span className="configured-indicator"><CheckCircle2 size={14} /> Configured</span>}
                   </div>
                   {anthropicStored ? (
-                    <div className="actions" style={{ justifyContent: 'space-between' }}>
+                    <div className="actions" style={rowBetween}>
                       <code style={{ fontSize: 12, opacity: 0.8 }}>sk-ant-••••••</code>
                       <button className="cancel-button" title="Remove key" onClick={() => saveKey('integrations.anthropic.apiKey', null, false)}>
                         <Trash2 size={14} />
@@ -369,7 +450,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                     {openrouterStored && <span className="configured-indicator"><CheckCircle2 size={14} /> Configured</span>}
                   </div>
                   {openrouterStored ? (
-                    <div className="actions" style={{ justifyContent: 'space-between' }}>
+                    <div className="actions" style={rowBetween}>
                       <code style={{ fontSize: 12, opacity: 0.8 }}>sk-or-••••••</code>
                       <button className="cancel-button" title="Remove key" onClick={() => saveKey('integrations.openrouter.apiKey', null, false)}>
                         <Trash2 size={14} />
@@ -403,7 +484,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                     {groqStored && <span className="configured-indicator"><CheckCircle2 size={14} /> Configured</span>}
                   </div>
                   {groqStored ? (
-                    <div className="actions" style={{ justifyContent: 'space-between' }}>
+                    <div className="actions" style={rowBetween}>
                       <code style={{ fontSize: 12, opacity: 0.8 }}>gsk_••••••••</code>
                       <button className="cancel-button" title="Remove key" onClick={() => saveKey('integrations.groq.apiKey', null, false)}>
                         <Trash2 size={14} />
@@ -419,7 +500,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                     </>
                   )}
                 </div>
-                <div className="help" style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                <div className="help" style={{ ...secondaryTextStyle, marginTop: 8 }}>
                   Supports Kimi K2 0905 model with 16K output tokens and 262K context window.
                 </div>
               </section>
@@ -428,24 +509,32 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
             <section className="settings-section">
               <div className="settings-grid">
                 <div className="field">
-                  <label>Temperature</label>
-                  <input type="number" step={0.1} min={0} max={2} value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} />
+                  <label htmlFor="temperature-input">Temperature</label>
+                  <input id="temperature-input" type="number" step={0.1} min={0} max={2} value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} />
                 </div>
                 <div className="field">
-                  <label>Max output tokens</label>
-                  <input type="number" min={1} max={128000} value={maxOut} onChange={(e) => setMaxOut(Number(e.target.value))} />
+                  <label htmlFor="max-output-input">Max output tokens</label>
+                  <input id="max-output-input" type="number" min={1} max={128_000} value={maxOut} onChange={(e) => setMaxOut(Number(e.target.value))} />
                 </div>
               </div>
             </section>
 
             <section className="settings-section">
               {(() => {
-                const human = approvalMode === 'always' ? 'Always' : approvalMode === 'never' ? 'Never' : 'Risky only';
-                const desc = approvalMode === 'always'
-                  ? 'All terminal commands and apply operations require approval.'
-                  : approvalMode === 'never'
-                  ? 'No approval required for terminal commands or apply operations.'
-                  : 'Approval required for known dangerous terminal commands; safe actions run without prompts.';
+                const human = (() => {
+                  switch (approvalMode) {
+                    case 'always': { return 'Always'; }
+                    case 'never': { return 'Never'; }
+                    default: { return 'Risky only'; }
+                  }
+                })();
+                const desc = (() => {
+                  switch (approvalMode) {
+                    case 'always': { return 'All terminal commands and apply operations require approval.'; }
+                    case 'never': { return 'No approval required for terminal commands or apply operations.'; }
+                    default: { return 'Approval required for known dangerous terminal commands; safe actions run without prompts.'; }
+                  }
+                })();
                 return (
                   <AgentAlertBanner
                     variant="info"
@@ -475,7 +564,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                     <input type="checkbox" checked={reasoningDefaultCollapsed} onChange={(e) => setReasoningDefaultCollapsed(e.target.checked)} />
                     <span style={{ marginLeft: 6 }}>Collapse reasoning by default</span>
                   </label>
-                  <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  <div className="help" style={{ ...secondaryTextStyle, marginTop: 4 }}>
                     Controls whether assistant reasoning is hidden by default. You can still Show/Hide per message.
                   </div>
                 </div>
@@ -484,7 +573,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                     <input type="checkbox" checked={execCtxGlobalEnabled} onChange={(e) => setExecCtxGlobalEnabled(e.target.checked)} />
                     <span style={{ marginLeft: 6 }}>Include System Execution Context (Global)</span>
                   </label>
-                  <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  <div className="help" style={{ ...secondaryTextStyle, marginTop: 4 }}>
                     Adds a short, automatic snapshot to the system prompt so the agent understands your environment (paths, OS, shell, time).
                     <div style={{ marginTop: 4 }}>Example:</div>
                     <pre style={{ margin: '6px 0 0', padding: 6, background: 'var(--surface-muted)', borderRadius: 4, fontSize: 11 }}>
@@ -503,8 +592,8 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                   </label>
                 </div>
                 <div className="field">
-                  <label>Approval mode</label>
-                  <select value={approvalMode} onChange={(e) => setApprovalMode(e.target.value as any)}>
+                  <label htmlFor="approval-mode">Approval mode</label>
+                  <select id="approval-mode" value={approvalMode} onChange={(e) => setApprovalMode(e.target.value as 'never'|'risky'|'always')}>
                     <option value="never">Never</option>
                     <option value="risky">Risky only</option>
                     <option value="always">Always</option>
@@ -518,7 +607,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               <section className="settings-section">
                 <div className="field">
                   <div className="field-label-row">
-                    <label>Tools</label>
+                    <div className="field-label">Tools</div>
                   </div>
                   <div className="settings-grid">
                     {toolToggles.map((t, idx) => (
@@ -535,7 +624,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                               onChange={async (e) => {
                                 const next = e.target.checked;
                                 setToolToggles((prev) => prev.map((p, i) => i === idx ? { ...p, enabled: next } : p));
-                                try { await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.tools.${t.name}.enabled`, value: next }); } catch { /* ignore */ }
+                                try { await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: `agent.tools.${t.name}.enabled`, value: next }); } catch { /* ignore */ }
                               }}
                             />
                             <span style={{ fontSize: 12 }}>{t.enabled ? 'Enabled' : 'Disabled'}</span>
@@ -552,7 +641,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
             <section className="settings-section">
               <div className="field">
                 <div className="field-label-row">
-                  <label>Global System Prompt</label>
+                  <div className="field-label">Global System Prompt</div>
                 </div>
                 <div className="settings-grid">
                   <div className="field">
@@ -566,7 +655,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
 
               <div className="field">
                 <label htmlFor="system-prompt-text-global">Global prompt</label>
-                <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                <div className="help" style={{ ...secondaryTextStyle, marginTop: 4 }}>
                   Leave empty to skip. When not replacing, Global and Workspace prompts are combined.
                 </div>
                 <textarea
@@ -577,25 +666,16 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                   rows={8}
                   placeholder=""
                 />
-                <div className="actions" style={{ justifyContent: 'space-between' }}>
+                <div className="actions" style={rowBetween}>
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                     {spGlobalCharCount.toLocaleString()} chars · ~{spGlobalTokenCount.toLocaleString()} tokens
                   </div>
                   <div className="actions">
-                    <button className="secondary" onClick={async () => {
-                      try {
-                        const toCopy = spGlobalText;
-                        if (navigator?.clipboard?.writeText) await navigator.clipboard.writeText(toCopy);
-                        else {
-                          const ta = document.createElement('textarea');
-                          ta.value = toCopy; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-                        }
-                      } catch { /* ignore */ }
-                    }} title="Copy global system prompt">
-                      <Copy size={14} /> Copy
+                    <button className="secondary" onClick={async () => { await copyToClipboard(spGlobalText); }} title="Copy global system prompt">
+                      <Copy size={14} /> {STRINGS.copy}
                     </button>
                     <button className="cancel-button" onClick={() => { setSpGlobalReplace(false); setSpGlobalText(''); }} title="Reset global to default">
-                      Reset
+                      {STRINGS.reset}
                     </button>
                   </div>
                 </div>
@@ -603,7 +683,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
 
               <div className="field" style={{ marginTop: 16 }}>
                 <div className="field-label-row">
-                  <label>Workspace System Prompt</label>
+                  <div className="field-label">Workspace System Prompt</div>
                 </div>
                 <div className="settings-grid">
                   <div className="field">
@@ -617,8 +697,8 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
 
               <div className="field">
                 <label htmlFor="system-prompt-text-workspace">Workspace prompt</label>
-                <div className="help" style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
-                  Applies only to the active workspace. Leave empty to skip. Combined with Global unless "Use only this prompt" is set.
+                <div className="help" style={{ ...secondaryTextStyle, marginTop: 4 }}>
+                  Applies only to the active workspace. Leave empty to skip. Combined with Global unless &quot;Use only this prompt&quot; is set.
                 </div>
                 <textarea
                   id="system-prompt-text-workspace"
@@ -629,25 +709,16 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                   placeholder={workspaceId ? '' : 'Open a workspace to edit its prompt'}
                   disabled={!workspaceId}
                 />
-                <div className="actions" style={{ justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                <div className="actions" style={rowBetween}>
+                  <div style={secondaryTextStyle}>
                     {spWorkspaceCharCount.toLocaleString()} chars · ~{spWorkspaceTokenCount.toLocaleString()} tokens
                   </div>
                   <div className="actions">
-                    <button className="secondary" disabled={!workspaceId} onClick={async () => {
-                      try {
-                        const toCopy = spWorkspaceText;
-                        if (navigator?.clipboard?.writeText) await navigator.clipboard.writeText(toCopy);
-                        else {
-                          const ta = document.createElement('textarea');
-                          ta.value = toCopy; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-                        }
-                      } catch { /* ignore */ }
-                    }} title="Copy workspace system prompt">
-                      <Copy size={14} /> Copy
+                    <button className="secondary" disabled={!workspaceId} onClick={async () => { await copyToClipboard(spWorkspaceText); }} title="Copy workspace system prompt">
+                      <Copy size={14} /> {STRINGS.copy}
                     </button>
                     <button className="cancel-button" disabled={!workspaceId} onClick={() => { setSpWorkspaceReplace(false); setSpWorkspaceText(''); }} title="Reset workspace to default">
-                      Reset
+                      {STRINGS.reset}
                     </button>
                   </div>
                 </div>
@@ -660,18 +731,18 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               <section className="settings-section">
                 <div className="settings-grid">
                   <div className="field">
-                    <label>Session Tokens</label>
-                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                    <div className="field-label">Session Tokens</div>
+                  <div style={secondaryTextStyle}>
                       Input: {usageStats.totalIn.toLocaleString()} · Output: {usageStats.totalOut.toLocaleString()} · Total: {usageStats.total.toLocaleString()}
                     </div>
                   </div>
                   <div className="field">
-                    <label>Average Latency</label>
-                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{usageStats.avgLatency != null ? (usageStats.avgLatency >= 1000 ? `${(usageStats.avgLatency/1000).toFixed(2)}s` : `${usageStats.avgLatency}ms`) : '—'}</div>
+                    <div className="field-label">Average Latency</div>
+                    <div style={secondaryTextStyle}>{usageStats.avgLatency == null ? '—' : (usageStats.avgLatency >= 1000 ? `${(usageStats.avgLatency/1000).toFixed(2)}s` : `${usageStats.avgLatency}ms`)}</div>
                   </div>
                   <div className="field">
-                    <label>Session Cost</label>
-                    <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{usageStats.totalCost != null ? `$${usageStats.totalCost.toFixed(4)}` : '—'}</div>
+                    <div className="field-label">Session Cost</div>
+                    <div style={secondaryTextStyle}>{usageStats.totalCost == null ? '—' : `$${usageStats.totalCost.toFixed(4)}`}</div>
                   </div>
                 </div>
               </section>
@@ -695,8 +766,8 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                       if (file) setExportPath(String(file));
                       else if (payload) setExportPath('(export in memory)');
                       setExporting('success'); setTimeout(() => setExporting('idle'), 1000);
-                    } catch (e) {
-                      setExporting('error'); setError((e as Error)?.message || 'Export failed');
+                    } catch (error) {
+                      setExporting('error'); setError((error as Error)?.message || 'Export failed');
                     }
                   }}
                 >
@@ -717,25 +788,25 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
             <button className="apply-button" disabled={!canSave} onClick={async () => {
               setStatus('saving'); setError(null);
               try {
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.temperature', value: temperature });
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.maxOutputTokens', value: maxOut });
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableFileWrite', value: enableWrites });
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.enableCodeExecution', value: enableExec });
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.executionContext.enabled', value: execCtxGlobalEnabled });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'agent.temperature', value: temperature });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'agent.maxOutputTokens', value: maxOut });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'agent.enableFileWrite', value: enableWrites });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'agent.enableCodeExecution', value: enableExec });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'agent.executionContext.enabled', value: execCtxGlobalEnabled });
                 if (workspaceId) {
-                  await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.executionContext.enabled.${workspaceId}`, value: execCtxWorkspaceEnabled });
+                  await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: `agent.executionContext.enabled.${workspaceId}`, value: execCtxWorkspaceEnabled });
                 }
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.approvalMode', value: approvalMode });
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'ui.reasoning.defaultCollapsed', value: reasoningDefaultCollapsed });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'agent.approvalMode', value: approvalMode });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'ui.reasoning.defaultCollapsed', value: reasoningDefaultCollapsed });
                 // System prompts: save global and workspace separately
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.systemPrompt.replace', value: spGlobalReplace });
-                await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: 'agent.systemPrompt.text', value: spGlobalText });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'agent.systemPrompt.replace', value: spGlobalReplace });
+                await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: 'agent.systemPrompt.text', value: spGlobalText });
                 if (workspaceId) {
-                  await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.systemPrompt.replace.${workspaceId}`, value: spWorkspaceReplace });
-                  await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key: `agent.systemPrompt.text.${workspaceId}`, value: spWorkspaceText });
+                  await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: `agent.systemPrompt.replace.${workspaceId}`, value: spWorkspaceReplace });
+                  await window.electron?.ipcRenderer?.invoke?.(IPC.SET, { key: `agent.systemPrompt.text.${workspaceId}`, value: spWorkspaceText });
                 }
                 setStatus('success'); setTimeout(() => setStatus('idle'), 1000);
-              } catch (e) { setStatus('error'); setError((e as Error)?.message || 'Failed to save'); }
+              } catch (error) { setStatus('error'); setError((error as Error)?.message || 'Failed to save'); }
             }}>Save</button>
           </div>
         </Dialog.Content>
