@@ -222,6 +222,25 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     setError(null);
     try {
       await window.electron?.ipcRenderer?.invoke?.('/prefs/set', { key, value, encrypted: enc });
+      // Optimistically update local stored-state indicators so UI reflects changes immediately
+      try {
+        const truthy = Boolean(value && String(value).trim());
+        if (key === 'integrations.openai.apiKey') {
+          setOpenaiStored(truthy);
+          if (!truthy) setOpenaiInput("");
+        } else if (key === 'integrations.anthropic.apiKey') {
+          setAnthropicStored(truthy);
+          if (!truthy) setAnthropicInput("");
+        } else if (key === 'integrations.openrouter.apiKey') {
+          setOpenrouterStored(truthy);
+          if (!truthy) setOpenrouterInput("");
+        } else if (key === 'integrations.groq.apiKey') {
+          setGroqStored(truthy);
+          if (!truthy) setGroqInput("");
+        } else if (key === 'integrations.openrouter.baseUrl' && typeof value === 'string') {
+          setOpenrouterBaseUrl(value);
+        }
+      } catch { /* noop */ }
       setStatus('success');
       setTimeout(() => setStatus('idle'), 1000);
     } catch (e) {
