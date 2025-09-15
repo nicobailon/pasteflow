@@ -155,6 +155,7 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
   const hadErrorRef = useRef(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"openai" | "anthropic" | "openrouter" | "groq">("openai");
   const [skipApprovals, setSkipApprovals] = useState<boolean>(false);
   const { hasOpenAIKey, checkKeyPresence } = useAgentProviderStatus();
 
@@ -769,7 +770,7 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
             </div>
           </div>
           <div className="agent-input-underbar">
-            <ModelSelector onOpenSettings={() => setShowModelSettings(true)} />
+            <ModelSelector onOpenSettings={(tab) => { if (tab) setSettingsInitialTab(tab); setShowModelSettings(true); }} />
           </div>
         </form>
       </div>
@@ -777,7 +778,7 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
       <AgentResizeHandle onMouseDown={handleResizeStart} />
 
       <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
-      <ModelSettingsModal isOpen={showModelSettings} onClose={() => setShowModelSettings(false)} sessionId={sessionId} workspaceId={activeWorkspaceId || null} />
+      <ModelSettingsModal isOpen={showModelSettings} onClose={() => setShowModelSettings(false)} sessionId={sessionId} workspaceId={activeWorkspaceId || null} initialTab={settingsInitialTab} />
       <AgentThreadList
         isOpen={showThreads}
         onClose={() => setShowThreads(false)}
