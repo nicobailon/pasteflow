@@ -3,12 +3,6 @@ import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
 
 import express, { Express, Request, Response, NextFunction } from 'express';
-import { createRequire } from 'node:module';
-
-// Local require compatible with CJS and ESM builds
-const nodeRequire: NodeJS.Require = (typeof module !== 'undefined' && (module as any).require)
-  ? (module as any).require.bind(module)
-  : createRequire(import.meta.url);
 
 import { getMainTokenService } from '../services/token-service-main';
 import type { FileTreeMode, SystemPrompt, RolePrompt, Instruction } from '../types/file-types';
@@ -16,10 +10,10 @@ import type { FileTreeMode, SystemPrompt, RolePrompt, Instruction } from '../typ
 import { DatabaseBridge } from './db/database-bridge';
 import { WorkspaceState } from './db/database-implementation';
 import { AuthManager } from './auth-manager';
-import { setAllowedWorkspacePaths, getAllowedWorkspacePaths } from './workspace-context';
+import { getAllowedWorkspacePaths } from './workspace-context';
 import { toApiError, ok } from './error-normalizer';
 import { validateAndResolvePath, statFile as fileServiceStatFile, readTextFile } from './file-service';
-import { applySelect, applyDeselect } from './selection-service';
+import { applySelect, applyDeselect, SelectionServiceError } from './selection-service';
 import { aggregateSelectedContent, scanAllFilesForTree } from './content-aggregation';
 import { writeExport } from './export-writer';
 import { RendererPreviewProxy } from './preview-proxy';
@@ -32,6 +26,10 @@ import {
   previewStartBody,
   previewIdParam
 } from './api-route-handlers';
+import { getNodeRequire } from './node-require';
+
+// Local require compatible with CJS (tests) and ESM (runtime) builds
+const nodeRequire = getNodeRequire();
 
 interface AggregationOptions {
   folderPath: string;
@@ -207,6 +205,9 @@ export class PasteFlowAPIServer {
 
       return res.json(ok(true));
     } catch (error) {
+      if (error instanceof SelectionServiceError) {
+        return res.status(400).json(toApiError('VALIDATION_ERROR', error.message, { reason: error.code }));
+      }
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
     }
   }
@@ -237,6 +238,9 @@ export class PasteFlowAPIServer {
 
       return res.json(ok(true));
     } catch (error) {
+      if (error instanceof SelectionServiceError) {
+        return res.status(400).json(toApiError('VALIDATION_ERROR', error.message, { reason: error.code }));
+      }
       return res.status(500).json(toApiError('DB_OPERATION_FAILED', (error as Error).message));
     }
   }
@@ -338,27 +342,37 @@ export class PasteFlowAPIServer {
       }
 
       // Sanitize selection to absolute paths within workspace
-      const pruned: { path: string }[] = [];
+      const pruned: { path: string; lines?: { start: number; end: number }[] }[] = [];
       for (const s of options.selection || []) {
         const v = validateAndResolvePath(s.path);
         if (!v.ok) continue;
-        pruned.push({ path: v.absolutePath });
+        pruned.push({ path: v.absolutePath, lines: s.lines });
       }
 
       let items: { path: string; isFile?: boolean }[] = [];
 
-      if (mode === 'selected') {
-        items = pruned.map((s) => ({ path: s.path, isFile: true }));
-      } else if (mode === 'selected-with-roots') {
-      const { getAllDirectories } = nodeRequire('../file-ops/path');
-        const dirs: string[] = getAllDirectories(pruned, root);
-        items = [
-          ...dirs.map((d) => ({ path: d, isFile: false })),
-          ...pruned.map((s) => ({ path: s.path, isFile: true })),
-        ];
-      } else if (mode === 'complete') {
-        const all = await scanAllFilesForTree(options.folderPath, options.exclusionPatterns);
-        items = all.map((p) => ({ path: p, isFile: true }));
+      switch (mode) {
+        case 'selected': {
+          items = pruned.map((s) => ({ path: s.path, isFile: true }));
+          break;
+        }
+        case 'selected-with-roots': {
+          const { getAllDirectories } = nodeRequire('../file-ops/path');
+          const dirs: string[] = getAllDirectories(pruned, root);
+          items = [
+            ...dirs.map((directory) => ({ path: directory, isFile: false })),
+            ...pruned.map((s) => ({ path: s.path, isFile: true })),
+          ];
+          break;
+        }
+        case 'complete': {
+          const all = await scanAllFilesForTree(options.folderPath, options.exclusionPatterns);
+          items = all.map((p) => ({ path: p, isFile: true }));
+          break;
+        }
+        default: {
+          break;
+        }
       }
 
       const { generateAsciiFileTree } = nodeRequire('../file-ops/ascii-tree');
@@ -406,7 +420,7 @@ export class PasteFlowAPIServer {
       const activeBackend = await tokenService.getActiveBackend();
 
       // Process files sequentially, respecting limits
-      const files: Array<{
+      const files: {
         path: string;
         relativePath?: string;
         ranges: { start: number; end: number }[] | null;
@@ -415,7 +429,7 @@ export class PasteFlowAPIServer {
         partial: boolean;
         skipped: boolean;
         reason: null | 'binary' | 'not-found' | 'outside-workspace' | 'too-large' | 'file-error' | 'read-error' | 'directory';
-      }> = [];
+      }[] = [];
 
       let includedFiles = 0;
       let totalBytes = 0;

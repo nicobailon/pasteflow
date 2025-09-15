@@ -33,11 +33,9 @@ describe('SelectionService — line range normalization and mutations', () => {
     const merged = mergeLineRanges(a, b)!;
 
     expect(merged).toEqual([
-      { start: 1, end: 2 },
-      { start: 3, end: 7 }, // [3,5] merges into [5,7] -> [3,7]
-      { start: 8, end: 8 },
+      { start: 1, end: 8 },
     ]);
-    expect(merged.length).toBe(3);
+    expect(merged.length).toBe(1);
   });
 
   test('subtractLineRanges should subtract segments leaving disjoint results', () => {

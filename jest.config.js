@@ -8,6 +8,7 @@ const common = {
     '^@shared/(.*)$': '<rootDir>/src/shared/$1',
     '^@file-ops/(.*)$': '<rootDir>/src/file-ops/$1',
     '^@lib/(.*)$': '<rootDir>/src/lib/$1',
+    'electron': '<rootDir>/src/__tests__/__mocks__/electron.ts',
 
     '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.ts',
     '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/file-mock.ts',
@@ -62,11 +63,19 @@ module.exports = {
     // Main (ESM) project – fixes import.meta coverage issues
     {
       displayName: 'main',
-      preset: 'ts-jest',
+      preset: 'ts-jest/presets/default-esm',
       testEnvironment: 'node',
       ...common,
       // Treat TS as ESM so ts-jest doesn't force CJS and break import.meta
       extensionsToTreatAsEsm: ['.ts', '.tsx'],
+      globals: {
+        ...common.globals,
+        'ts-jest': {
+          tsconfig: 'tsconfig.jest.main.json',
+          useESM: true,
+          diagnostics: { warnOnly: true },
+        },
+      },
       transform: {
         '^.+\\.(ts|tsx)$': [
           'ts-jest',
