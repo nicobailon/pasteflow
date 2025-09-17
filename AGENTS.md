@@ -49,3 +49,9 @@
 - write idiomatic react
 - use component composition 
 - use computed values, you don't need use effect
+
+## Agent Approvals UI (Phase 3)
+- Renderer approvals experience is gated by the `agent.approvals.v2Enabled` preference (and `AGENT_APPROVAL_V2` env flag).
+- When enabled, the panel uses `useAgentApprovals` to manage state/actions and renders `AgentApprovalList` between notifications and messages.
+- Preload exposes typed helpers under `window.electron.approvals` for `list`, `apply`, `reject`, `cancel`, `rules`, and live watch events; always call these instead of raw channels.
+- Legacy `AgentToolCalls` auto-approval behavior is disabled when the new UI flag is on; use the approvals list instead.

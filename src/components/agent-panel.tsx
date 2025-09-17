@@ -18,11 +18,13 @@ import ModelSettingsModal from "./model-settings-modal";
 import AgentThreadList from "./agent-thread-list";
 import AgentPanelHeader from "./agent-panel-header";
 import AgentNotifications from "./agent-notifications";
+import AgentApprovalList from "./agent-approvals/agent-approval-list";
 import AgentMessages from "./agent-messages";
 import AgentDisabledOverlay from "./agent-disabled-overlay";
 import AgentStatusBanner from "./agent-status-banner";
 import AgentResizeHandle from "./agent-resize-handle";
 import "./agent-panel.css";
+import useAgentApprovals from "../hooks/use-agent-approvals";
 
 // (types migrated to hooks/util files; keeping panel lean)
 
@@ -156,7 +158,7 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<"openai" | "anthropic" | "openrouter" | "groq">("openai");
-  const [skipApprovals, setSkipApprovals] = useState<boolean>(false);
+  const [approvalsFeatureEnabled, setApprovalsFeatureEnabled] = useState<boolean>(false);
   const { hasOpenAIKey, checkKeyPresence } = useAgentProviderStatus();
 
   // Panel enabled only when a workspace is active and a folder is selected
@@ -414,18 +416,67 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
 
   const { usageRows, modelId, refreshUsage, sessionTotals } = useAgentUsage({ sessionId, status: status as string | null });
 
+  const approvalsState = useAgentApprovals({ sessionId, enabled: approvalsFeatureEnabled && panelEnabled });
+  const bypassApprovals = approvalsState.bypassEnabled;
+  const approvalItems = approvalsState.approvals;
+  const approvalsLoading = approvalsState.loading;
+  const approvalsError = approvalsState.lastError;
+  const approveApproval = approvalsState.approve;
+  const rejectApproval = approvalsState.reject;
+  const cancelPreview = approvalsState.cancel;
+  const setBypass = approvalsState.setBypass;
+
   // Usage list and provider/model handled by useAgentUsage
 
-  // Load skip approvals preference
   useEffect(() => {
     (async () => {
       try {
-        const res: unknown = await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_GET, { key: 'agent.skipApprovals' });
-        const saved = (res && typeof res === 'object' && 'success' in res && (res as { success: boolean }).success === true)
-          ? (res as { data?: unknown }).data : null;
-        setSkipApprovals(Boolean(saved));
-      } catch { /* ignore */ }
+        const res: unknown = await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_GET, { key: 'agent.approvals.v2Enabled' });
+        const enabled = (() => {
+          if (res && typeof res === 'object' && 'success' in res && (res as { success?: boolean }).success === true) {
+            const data = (res as { data?: unknown }).data;
+            if (typeof data === 'boolean') return data;
+            if (typeof data === 'string') {
+              const norm = data.trim().toLowerCase();
+              if (norm === 'true' || norm === '1' || norm === 'yes') return true;
+              if (norm === 'false' || norm === '0' || norm === 'no') return false;
+            }
+            return Boolean(data);
+          }
+          if (typeof res === 'boolean') return res;
+          if (typeof res === 'string') {
+            const norm = res.trim().toLowerCase();
+            if (norm === 'true' || norm === '1' || norm === 'yes') return true;
+            if (norm === 'false' || norm === '0' || norm === 'no') return false;
+          }
+          return false;
+        })();
+        setApprovalsFeatureEnabled(enabled);
+      } catch {
+        setApprovalsFeatureEnabled(false);
+      }
     })();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      (async () => {
+        try {
+          const res: unknown = await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_GET, { key: 'agent.approvals.v2Enabled' });
+          const data = (res && typeof res === 'object' && 'success' in res && (res as { success: boolean }).success === true)
+            ? (res as { data?: unknown }).data : res;
+          const enabled = typeof data === 'boolean' ? data : Boolean(data);
+          setApprovalsFeatureEnabled(enabled);
+        } catch {
+          // ignore
+        }
+      })();
+    };
+    const ipc = window.electron?.ipcRenderer;
+    ipc?.on?.('/prefs/get:update', handler);
+    return () => {
+      try { ipc?.removeListener?.('/prefs/get:update', handler); } catch { /* ignore */ }
+    };
   }, []);
 
 
@@ -680,11 +731,8 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
       <AgentPanelHeader
         panelEnabled={panelEnabled}
         status={status as string | null}
-        skipApprovals={skipApprovals}
-        onToggleSkipApprovals={async (next) => {
-          setSkipApprovals(next);
-          try { await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_SET, { key: 'agent.skipApprovals', value: next }); } catch { /* ignore */ }
-        }}
+        bypassApprovals={bypassApprovals}
+        onToggleBypass={async (next) => { void setBypass(next); }}
         onOpenThreads={() => { void (async () => { const ws = await resolveWorkspaceId(); if (ws) setActiveWorkspaceId(ws); bumpThreadsRefreshKey(); setShowThreads(true); })(); }}
         onToggleTerminal={() => { try { window.dispatchEvent(new CustomEvent('pasteflow:toggle-terminal')); } catch { /* noop */ } }}
         onNewChat={() => { void handleNewChat(); }}
@@ -714,18 +762,27 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
           errorInfo={errorInfo}
           onDismissError={() => { setErrorStatus(null); setErrorInfo(null); }}
         />
+        {approvalsFeatureEnabled ? (
+          <AgentApprovalList
+            approvals={approvalItems}
+            bypassEnabled={bypassApprovals}
+            loading={approvalsLoading}
+            error={approvalsError}
+            onApprove={approveApproval}
+            onReject={rejectApproval}
+            onCancel={(previewId) => cancelPreview(previewId)}
+          />
+        ) : null}
         {/* Attachments and mini file list removed in simplified panel */}
         <AgentMessages
           messages={messages as unknown[]}
           interruptions={interruptions}
           usageRows={usageRows}
           sessionId={sessionId}
-          skipApprovals={skipApprovals}
-          onToggleSkipApprovals={async (v) => {
-            setSkipApprovals(Boolean(v));
-            try { await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_SET, { key: 'agent.skipApprovals', value: Boolean(v) }); } catch { /* ignore */ }
-          }}
+          bypassApprovals={bypassApprovals}
+          onToggleBypass={async (v) => { void setBypass(Boolean(v)); }}
           modelId={modelId}
+          approvalsEnabled={approvalsFeatureEnabled}
         />
         <AgentStatusBanner status={status as string | null} />
 

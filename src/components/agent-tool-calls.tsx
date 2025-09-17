@@ -13,7 +13,24 @@ type AgentToolCallsProps = {
   sessionId?: string | null;
   skipApprovals?: boolean;
   onToggleSkipApprovals?: (value: boolean) => void;
+  approvalsEnabled?: boolean;
 };
+
+function summarizeInvocation(invocation: ToolInvocation): string {
+  const name = (invocation.toolName || invocation.name || "tool").toLowerCase();
+  if (name === "search") {
+    try {
+      const result = invocation.result as any;
+      const parts: string[] = ["search"];
+      if (typeof result?.totalMatches === "number") parts.push(String(result.totalMatches));
+      if (result?.truncated) parts.push("truncated");
+      return parts.join(": ");
+    } catch {
+      // ignore summary failures
+    }
+  }
+  return invocation.toolName || invocation.name || "tool";
+}
 
 function getToolInvocationsFromMessage(message: any): ToolInvocation[] {
   // Try common shapes produced by Vercel AI SDK UI stream
@@ -27,39 +44,26 @@ function getToolInvocationsFromMessage(message: any): ToolInvocation[] {
         out.push({ toolName: p?.toolName || p?.name, args: p?.args, result: p?.result, state: p?.state });
       }
     }
-    if (out.length) return out;
+    if (out.length > 0) return out;
   }
   return [];
 }
 
-export default function AgentToolCalls({ message, sessionId, skipApprovals = false, onToggleSkipApprovals }: AgentToolCallsProps) {
+export default function AgentToolCalls({ message, sessionId, skipApprovals = false, onToggleSkipApprovals, approvalsEnabled = false }: AgentToolCallsProps) {
   const invocations = getToolInvocationsFromMessage(message);
+  const hasInvocations = invocations.length > 0;
   const [open, setOpen] = useState<boolean>(false);
   const [dismissed, setDismissed] = useState<Record<number, boolean>>({});
   const [busyIdx, setBusyIdx] = useState<number | null>(null);
   const [turnSkip, setTurnSkip] = useState<Record<number, boolean>>({});
-  if (!invocations || invocations.length === 0) return null;
 
-  const toSummary = (i: ToolInvocation): string => {
-    const name = (i.toolName || i.name || "tool").toLowerCase();
-    if (name === "search") {
-      try {
-        const r = i.result as any;
-        const parts: string[] = ["search"];
-        if (typeof r?.totalMatches === "number") parts.push(String(r.totalMatches));
-        if (r?.truncated) parts.push("truncated");
-        return parts.join(": ");
-      } catch { /* ignore */ }
-    }
-    return i.toolName || i.name || "tool";
-  };
-
-  const summary = invocations.map((i) => toSummary(i)).join(", ");
+  const summary = invocations.map((invocation) => summarizeInvocation(invocation)).join(", ");
 
   // Auto-approve risky terminal calls when global skip is enabled
   useEffect(() => {
+    if (!hasInvocations) return;
+    if (approvalsEnabled) return;
     if (!skipApprovals || !sessionId) return;
-    if (!Array.isArray(invocations)) return;
     // Find first pending approval-required terminal call not yet handled
     const idx = invocations.findIndex((i, index) => {
       if (dismissed[index]) return false;
@@ -81,16 +85,18 @@ export default function AgentToolCalls({ message, sessionId, skipApprovals = fal
         const payload = { sessionId, tool: 'terminal', args };
         const out = await (window as any).electron?.ipcRenderer?.invoke?.('agent:execute-tool', payload);
         (i as any).result = out?.data ?? out;
-      } catch (e) {
+      } catch (error) {
         const i = invocations[idx];
-        (i as any).result = { type: 'error', message: (e as Error)?.message || 'Failed to execute' };
+        (i as any).result = { type: 'error', message: (error as Error)?.message || 'Failed to execute' };
       } finally {
         setBusyIdx(null);
         setDismissed((prev) => ({ ...prev, [idx]: true }));
       }
     };
     void approve();
-  }, [skipApprovals, sessionId, invocations, dismissed, busyIdx]);
+  }, [approvalsEnabled, skipApprovals, sessionId, invocations, dismissed, busyIdx, hasInvocations]);
+
+  if (!hasInvocations) return null;
 
   return (
     <div style={{ marginTop: 6, border: "1px solid var(--border-color, #ddd)", borderRadius: 4 }}>
@@ -114,14 +120,14 @@ export default function AgentToolCalls({ message, sessionId, skipApprovals = fal
           {invocations.map((i, idx) => (
             <div key={idx} style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{i.toolName || i.name}</div>
-              {typeof i.args !== "undefined" && (
+              {i.args !== undefined && (
                 <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{safeJson(i.args)}</pre>
               )}
-              {typeof i.result !== "undefined" && (
+              {i.result !== undefined && (
                 <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{safeJson(i.result)}</pre>
               )}
               {/* Approval UX for terminal tool */}
-              {(() => {
+              {approvalsEnabled ? null : (() => {
                 const name = String(i.toolName || i.name || '').toLowerCase();
                 const res = i.result as any;
                 if (name === 'terminal' && res && typeof res === 'object' && (
@@ -138,8 +144,8 @@ export default function AgentToolCalls({ message, sessionId, skipApprovals = fal
                       const out = await (window as any).electron?.ipcRenderer?.invoke?.('agent:execute-tool', payload);
                       // Show result inline after approval
                       (i as any).result = out?.data ?? out;
-                    } catch (e) {
-                      (i as any).result = { type: 'error', message: (e as Error)?.message || 'Failed to execute' };
+                    } catch (error) {
+                      (i as any).result = { type: 'error', message: (error as Error)?.message || 'Failed to execute' };
                     } finally {
                       setBusyIdx(null);
                       setDismissed((prev) => ({ ...prev, [idx]: true }));
@@ -158,7 +164,7 @@ export default function AgentToolCalls({ message, sessionId, skipApprovals = fal
                             setTurnSkip((prev) => ({ ...prev, [idx]: v }));
                             onToggleSkipApprovals?.(v);
                           }} />
-                          <span style={{ fontSize: 12 }}>Skip permissions</span>
+                          <span style={{ fontSize: 12 }}>Bypass approvals</span>
                         </label>
                       </div>
                     </div>

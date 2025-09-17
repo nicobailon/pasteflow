@@ -1,0 +1,205 @@
+.agent-approval-list {
+  border: 1px solid var(--border-color, #d9d9e3);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--bg-surface, #ffffff);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-approval-list__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-approval-list__header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.agent-approval-list__count {
+  font-size: 12px;
+  color: var(--text-secondary, #6c6c80);
+}
+
+.agent-approval-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-approval-list__status {
+  font-size: 13px;
+  color: var(--text-secondary, #6c6c80);
+}
+
+.agent-approval-list__status--error {
+  color: var(--text-error, #b3261e);
+}
+
+.agent-approval-list__status--info {
+  color: var(--text-secondary, #6c6c80);
+}
+
+.agent-approval-list__busy {
+  font-size: 12px;
+  color: var(--text-secondary, #6c6c80);
+}
+
+.agent-approval-card {
+  border: 1px solid var(--border-color, #d9d9e3);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-muted, #fafbff);
+}
+
+.agent-approval-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-approval-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.agent-approval-card__tool {
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--text-secondary, #6c6c80);
+}
+
+.agent-approval-card__action {
+  font-size: 13px;
+}
+
+.agent-approval-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-secondary, #6c6c80);
+  text-align: right;
+}
+
+.agent-approval-card__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-approval-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-approval-card__summary {
+  margin: 0;
+  font-size: 13px;
+}
+
+.agent-approval-card__badge {
+  font-size: 11px;
+  color: var(--text-secondary, #6c6c80);
+}
+
+.agent-approval-card__detail {
+  margin: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg-surface, #ffffff);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  font-size: 12px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.agent-approval-card__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-approval-card__feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.agent-approval-card__feedback textarea {
+  resize: vertical;
+  min-height: 70px;
+  padding: 8px;
+  border: 1px solid var(--border-color, #d9d9e3);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.agent-approval-card__buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-approval-card__button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.agent-approval-card__button--primary {
+  background: var(--primary, #4b6fff);
+  color: #ffffff;
+}
+
+.agent-approval-card__button--primary:disabled {
+  background: var(--disabled, #ccccd4);
+  cursor: not-allowed;
+}
+
+.agent-approval-card__button--secondary {
+  background: var(--bg-surface, #ffffff);
+  color: var(--text-primary, #1a1a1f);
+  border-color: var(--border-color, #d9d9e3);
+}
+
+.agent-approval-card__button--tertiary {
+  background: transparent;
+  color: var(--text-secondary, #6c6c80);
+  border-color: var(--border-color, #d9d9e3);
+}
+
+.agent-approval-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary, #6c6c80);
+  border: 1px dashed var(--border-color, #d9d9e3);
+  border-radius: 6px;
+}
+
+.agent-approval-empty__message {
+  margin: 0 0 8px 0;
+}
+
+.agent-approval-empty__toggle {
+  border: 1px solid var(--border-color, #d9d9e3);
+  border-radius: 4px;
+  padding: 6px 12px;
+  background: var(--bg-surface, #ffffff);
+  cursor: pointer;
+  font-size: 12px;
+}

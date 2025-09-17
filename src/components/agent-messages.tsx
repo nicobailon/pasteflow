@@ -26,9 +26,10 @@ interface AgentMessagesProps {
   readonly interruptions: ReadonlyMap<number, { readonly target: 'pre-assistant' | 'assistant'; readonly ts: number }>;
   readonly usageRows: readonly UsageRow[];
   readonly sessionId: string | null;
-  readonly skipApprovals: boolean;
-  readonly onToggleSkipApprovals: (v: boolean) => void;
+  readonly bypassApprovals: boolean;
+  readonly onToggleBypass: (v: boolean) => void;
   readonly modelId: string | null;
+  readonly approvalsEnabled: boolean;
 }
 
 const AgentMessages: React.FC<AgentMessagesProps> = ({
@@ -36,9 +37,10 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
   interruptions,
   usageRows,
   sessionId,
-  skipApprovals,
-  onToggleSkipApprovals,
+  bypassApprovals,
+  onToggleBypass,
   modelId,
+  approvalsEnabled,
 }) => {
   // Preference: default collapsed/expanded for reasoning blocks
   const [defaultReasoningCollapsed, setDefaultReasoningCollapsed] = React.useState<boolean>(false);
@@ -178,8 +180,9 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
                 <AgentToolCalls
                   message={m}
                   sessionId={sessionId || undefined}
-                  skipApprovals={skipApprovals}
-                  onToggleSkipApprovals={async (v) => onToggleSkipApprovals(Boolean(v))}
+                  skipApprovals={bypassApprovals}
+                  onToggleSkipApprovals={async (v) => onToggleBypass(Boolean(v))}
+                  approvalsEnabled={approvalsEnabled}
                 />
               ) : null}
               {role === 'user' && (() => {
