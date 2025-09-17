@@ -186,6 +186,14 @@ export const AgentExecuteToolSchema = z.object({
 export const AgentGetHistorySchema = z.object({ sessionId: z.string().min(1) });
 export const AgentExportSessionSchema = z.object({ sessionId: z.string().min(1), outPath: z.string().optional() });
 
+export const AgentApprovalListSchema = z.object({ sessionId: z.string().uuid() });
+export const AgentApprovalApplySchema = z.object({ approvalId: z.string().uuid() });
+export const AgentApprovalApplyWithContentSchema = z.object({ approvalId: z.string().uuid(), content: z.unknown() });
+export const AgentApprovalRejectSchema = z.object({ approvalId: z.string().uuid(), feedbackText: z.string().optional(), feedbackMeta: z.unknown().optional() });
+export const AgentApprovalCancelSchema = z.object({ previewId: z.string().uuid() });
+export const AgentApprovalRulesSetSchema = z.object({ rules: z.array(z.object({ kind: z.enum(['tool','path','terminal']) }).passthrough()) });
+export const AgentApprovalRulesGetSchema = z.object({});
+
 export type AgentStartSessionType = z.infer<typeof AgentStartSessionSchema>;
 export type AgentExecuteToolType = z.infer<typeof AgentExecuteToolSchema>;
 export type AgentGetHistoryType = z.infer<typeof AgentGetHistorySchema>;

@@ -678,6 +678,15 @@ export class PasteFlowDatabase {
     `);
   }
 
+  private stmtGetApprovalById(): BetterSqlite3.Statement<[string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      SELECT id, preview_id, session_id, status, created_at, resolved_at, resolved_by, auto_reason, feedback_text, feedback_meta
+      FROM agent_tool_approvals
+      WHERE id = ?
+    `);
+  }
+
   private stmtListPreviews(): BetterSqlite3.Statement<[string]> {
     if (!this.db) throw new Error('DB not initialized');
     return this.db.prepare(`
@@ -1066,6 +1075,20 @@ export class PasteFlowDatabase {
     }
 
     return mapPreviewRow(result, `getPreviewById(${id})`);
+  }
+
+  async getApprovalById(id: string): Promise<ApprovalRow | null> {
+    this.ensureInitialized();
+    const { result } = await executeWithRetry(async () => {
+      const row = this.stmtGetApprovalById().get(id) as unknown;
+      return row ?? null;
+    }, { operation: 'get_agent_tool_approval' });
+
+    if (!result) {
+      return null;
+    }
+
+    return mapApprovalRow(result, `getApprovalById(${id})`);
   }
 
   async listPreviews(sessionId: ChatSessionId): Promise<readonly PreviewRow[]> {

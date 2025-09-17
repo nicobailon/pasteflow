@@ -330,6 +330,11 @@ export class DatabaseBridge {
     return this.db.getPreviewById(id);
   }
 
+  async getApprovalById(id: string): Promise<ApprovalRow | null> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.getApprovalById(id);
+  }
+
   async listPreviews(sessionId: ChatSessionId): Promise<readonly PreviewRow[]> {
     if (!this.db) throw new Error('Database not initialized');
     return this.db.listPreviews(sessionId);
