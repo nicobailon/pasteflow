@@ -7,7 +7,7 @@ jest.mock("../../services/token-service-main", () => ({
   }),
 }));
 
-describe("Agent tools - context (summary|expand|search)", () => {
+describe("Agent tools - context (summary|expand|search|tools)", () => {
   beforeEach(() => {
     jest.resetModules();
   });
@@ -102,5 +102,15 @@ describe("Agent tools - context (summary|expand|search)", () => {
     expect(log).toBeTruthy();
     expect(typeof log!.meta.startedAt).toBe("number");
     expect(typeof log!.meta.durationMs).toBe("number");
+  });
+
+  it("tools action returns the catalog", async () => {
+    const tools = getAgentTools();
+    const res = await tools.context.execute({ action: "tools" });
+    expect(Array.isArray(res.tools)).toBe(true);
+    expect(res.tools.length).toBeGreaterThan(0);
+    const catalog = res.tools as { name: string }[];
+    const names = catalog.map((tool) => tool.name);
+    expect(names).toContain("file");
   });
 });

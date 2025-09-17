@@ -2,6 +2,7 @@ import type { AgentContextEnvelope } from "../../shared-types/agent-context";
 import type { SystemExecutionContext } from "../../shared-types/system-execution-context";
 
 import { globalSystemContextCache } from "./system-context-cache";
+import { getToolPrompts } from "./tool-prompts";
 
 export interface CombinedContext {
   initial?: AgentContextEnvelope["initial"];
@@ -61,7 +62,7 @@ async function readSystemPromptsConfig(db: DbGetter): Promise<{ global: PromptCo
 export async function composeEffectiveSystemPrompt(
   db: DbGetter,
   _ctx: CombinedContext,
-  _opts?: { enabledTools?: ReadonlySet<string> }
+  opts?: { enabledTools?: ReadonlySet<string> }
 ): Promise<string> {
   const [{ global, workspace, workspaceId: _workspaceId }, prefExecEnabledGlobal, prefExecEnabledWs] = await Promise.all([
     readSystemPromptsConfig(db),
@@ -93,7 +94,13 @@ export async function composeEffectiveSystemPrompt(
   const parts: string[] = [];
   if (gText) parts.push(gText);
   if (wText) parts.push(wText);
-  const base = parts.join("\n\n");
+  let base = parts.join("\n\n");
+
+  const toolGuidance = buildToolGuidance(opts?.enabledTools);
+  if (toolGuidance) {
+    base = base ? `${base}\n\n${toolGuidance}` : toolGuidance;
+  }
+
   const effective = appendExecContext(base, executionContext);
 
   try {
@@ -105,6 +112,22 @@ export async function composeEffectiveSystemPrompt(
   } catch { /* noop */ }
 
   return effective;
+}
+
+function buildToolGuidance(enabledTools?: ReadonlySet<string>): string | null {
+  const prompts = getToolPrompts();
+  const entries = Object.entries(prompts);
+  if (entries.length === 0) return null;
+
+  const lines: string[] = [];
+  for (const [name, guidance] of entries) {
+    if (enabledTools && !enabledTools.has(name)) continue;
+    if (!guidance) continue;
+    lines.push(`- ${name}: ${guidance}`);
+  }
+
+  if (lines.length === 0) return null;
+  return `Tool Guidance:\n${lines.join("\n")}`;
 }
 
 function appendExecContext(base: string, ctx: SystemExecutionContext | undefined): string {
