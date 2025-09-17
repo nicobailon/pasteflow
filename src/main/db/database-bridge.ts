@@ -4,12 +4,46 @@ import { app } from 'electron';
 
 import { PasteFlowDatabase, WorkspaceState, PreferenceValue } from './database-implementation';
 import { DatabaseLogs, type LogEntry, type LogEntryInput, type LogListOptions } from './database-logs';
+import type { PreviewEnvelope, PreviewId, ChatSessionId } from '../agent/preview-registry';
+import type { PreviewRow, ApprovalRow, ApprovalStatus } from './database-implementation';
 
 // Define precise error types for SQLite
 interface SQLiteError extends Error {
   code?: 'SQLITE_BUSY' | 'SQLITE_LOCKED' | 'SQLITE_CONSTRAINT' | 'SQLITE_CORRUPT' | string;
   errno?: number;
   syscall?: string;
+}
+
+export interface InsertApprovalInput {
+  id: string;
+  previewId: string;
+  sessionId: string;
+  status: ApprovalStatus;
+  createdAt: number;
+  resolvedAt?: number | null;
+  resolvedBy?: string | null;
+  autoReason?: string | null;
+  feedbackText?: string | null;
+  feedbackMeta?: unknown | null;
+}
+
+export interface UpdateApprovalStatusInput {
+  id: string;
+  status: ApprovalStatus;
+  resolvedAt?: number | null;
+  resolvedBy?: string | null;
+  autoReason?: string | null;
+}
+
+export interface UpdateApprovalFeedbackInput {
+  id: string;
+  feedbackText?: string | null;
+  feedbackMeta?: unknown | null;
+}
+
+export interface ApprovalsExportResult {
+  previews: readonly PreviewRow[];
+  approvals: readonly ApprovalRow[];
 }
 
 /**
@@ -245,12 +279,12 @@ export class DatabaseBridge {
   // Phase 4: Sessions & telemetry
   async upsertChatSession(sessionId: string, messagesJson: string, workspaceId: string | null = null) {
     if (!this.db) throw new Error('Database not initialized');
-    return (this.db as any).upsertChatSession(sessionId, messagesJson, workspaceId);
+    return this.db.upsertChatSession(sessionId, messagesJson, workspaceId);
   }
 
   async getChatSession(sessionId: string) {
     if (!this.db) throw new Error('Database not initialized');
-    return (this.db as any).getChatSession(sessionId);
+    return this.db.getChatSession(sessionId);
   }
 
   async insertToolExecution(entry: {
@@ -264,17 +298,71 @@ export class DatabaseBridge {
     durationMs?: number | null;
   }) {
     if (!this.db) throw new Error('Database not initialized');
-    return (this.db as any).insertToolExecution(entry);
+    return this.db.insertToolExecution(entry);
+  }
+
+  async insertToolExecutionReturningId(entry: {
+    sessionId: string;
+    toolName: string;
+    args?: unknown;
+    result?: unknown;
+    status?: string;
+    error?: string | null;
+    startedAt?: number | null;
+    durationMs?: number | null;
+  }): Promise<number> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.insertToolExecutionReturningId(entry);
   }
 
   async listToolExecutions(sessionId: string) {
     if (!this.db) throw new Error('Database not initialized');
-    return (this.db as any).listToolExecutions(sessionId);
+    return this.db.listToolExecutions(sessionId);
+  }
+
+  async insertPreview(preview: PreviewEnvelope & { toolExecutionId: number }): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.insertPreview(preview);
+  }
+
+  async getPreviewById(id: PreviewId): Promise<PreviewRow | null> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.getPreviewById(id);
+  }
+
+  async listPreviews(sessionId: ChatSessionId): Promise<readonly PreviewRow[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.listPreviews(sessionId);
+  }
+
+  async insertApproval(input: InsertApprovalInput): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.insertApproval(input);
+  }
+
+  async updateApprovalStatus(input: UpdateApprovalStatusInput): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.updateApprovalStatus(input);
+  }
+
+  async updateApprovalFeedback(input: UpdateApprovalFeedbackInput): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.updateApprovalFeedback(input);
+  }
+
+  async listPendingApprovals(sessionId: ChatSessionId): Promise<readonly ApprovalRow[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.listPendingApprovals(sessionId);
+  }
+
+  async listApprovalsForExport(sessionId: ChatSessionId): Promise<ApprovalsExportResult> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.listApprovalsForExport(sessionId);
   }
 
   async insertUsageSummary(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null) {
     if (!this.db) throw new Error('Database not initialized');
-    return (this.db as any).insertUsageSummary(sessionId, inputTokens, outputTokens, totalTokens);
+    return this.db.insertUsageSummary(sessionId, inputTokens, outputTokens, totalTokens);
   }
 
   async insertUsageSummaryWithLatency(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null, latencyMs: number | null) {
@@ -300,17 +388,22 @@ export class DatabaseBridge {
 
   async listUsageSummaries(sessionId: string) {
     if (!this.db) throw new Error('Database not initialized');
-    return (this.db as any).listUsageSummaries(sessionId);
+    return this.db.listUsageSummaries(sessionId);
   }
 
   async pruneToolExecutions(olderThanTs: number) {
     if (!this.db) throw new Error('Database not initialized');
-    return (this.db as any).pruneToolExecutions(olderThanTs);
+    return this.db.pruneToolExecutions(olderThanTs);
   }
 
   async pruneUsageSummary(olderThanTs: number) {
     if (!this.db) throw new Error('Database not initialized');
-    return (this.db as any).pruneUsageSummary(olderThanTs);
+    return this.db.pruneUsageSummary(olderThanTs);
+  }
+
+  async ensureAgentApprovalSchema(): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.ensureAgentApprovalSchema();
   }
 
   // Atomic operations

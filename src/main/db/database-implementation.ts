@@ -1,16 +1,16 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import type BetterSqlite3 from 'better-sqlite3';
-
 import { getNodeRequire } from '../node-require';
+import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
+import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
+import type { WorkspaceRecord, PreferenceRecord, InstructionRow } from './types';
+import type { PreviewEnvelope, PreviewId, ChatSessionId } from '../agent/preview-registry';
+import { assertPreviewEnvelope } from '../agent/preview-registry';
+import type { WorkspaceState } from '../../shared-types';
+export type { WorkspaceState, Instruction } from '../../shared-types';
 
 // Local require compatible with CJS (tests) and ESM (runtime) builds
 const nodeRequire = getNodeRequire();
-
-import type { WorkspaceState } from '../../shared-types';
-export type { WorkspaceState, Instruction } from '../../shared-types';
-import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
-import type { WorkspaceRecord, PreferenceRecord, InstructionRow } from './types';
-import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
 
 // Runtime-safe loader to avoid ABI mismatch when not running under Electron
 type BetterSqlite3Module = typeof BetterSqlite3;
@@ -49,6 +49,192 @@ export interface ParsedWorkspace {
   last_accessed: number;
 }
 
+
+const APPROVAL_STATUS_VALUES = [
+  'pending',
+  'approved',
+  'applied',
+  'rejected',
+  'auto_approved',
+  'failed',
+] as const;
+
+export type ApprovalStatus = (typeof APPROVAL_STATUS_VALUES)[number];
+
+export type PreviewRow = Readonly<{
+  id: string;
+  tool_execution_id: number;
+  session_id: string;
+  tool: string;
+  action: string;
+  summary: string;
+  detail: string | null;
+  args: string | null;
+  hash: string;
+  created_at: number;
+}>;
+
+export type ApprovalRow = Readonly<{
+  id: string;
+  preview_id: string;
+  session_id: string;
+  status: ApprovalStatus;
+  created_at: number;
+  resolved_at: number | null;
+  resolved_by: string | null;
+  auto_reason: string | null;
+  feedback_text: string | null;
+  feedback_meta: string | null;
+}>;
+
+const APPROVAL_STATUS_SET: ReadonlySet<ApprovalStatus> = new Set(APPROVAL_STATUS_VALUES);
+
+const AGENT_APPROVAL_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_tool_previews (
+    id TEXT PRIMARY KEY,
+    tool_execution_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    action TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    detail TEXT,
+    args TEXT,
+    hash TEXT UNIQUE NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(tool_execution_id) REFERENCES tool_executions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_tool_approvals (
+    id TEXT PRIMARY KEY,
+    preview_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending','approved','applied','rejected','auto_approved','failed')),
+    created_at INTEGER NOT NULL,
+    resolved_at INTEGER,
+    resolved_by TEXT,
+    auto_reason TEXT,
+    feedback_text TEXT,
+    feedback_meta TEXT,
+    FOREIGN KEY(preview_id) REFERENCES agent_tool_previews(id) ON DELETE CASCADE
+  );
+`;
+
+const AGENT_APPROVAL_INDEX_SQL: readonly { sql: string; operation: string }[] = [
+  {
+    sql: `CREATE INDEX IF NOT EXISTS idx_agent_previews_session_created ON agent_tool_previews(session_id, created_at DESC);`,
+    operation: 'create_agent_preview_session_index',
+  },
+  {
+    sql: `CREATE INDEX IF NOT EXISTS idx_agent_previews_hash ON agent_tool_previews(hash);`,
+    operation: 'create_agent_preview_hash_index',
+  },
+  {
+    sql: `CREATE INDEX IF NOT EXISTS idx_agent_approvals_session_status ON agent_tool_approvals(session_id, status);`,
+    operation: 'create_agent_approval_session_status_index',
+  },
+  {
+    sql: `CREATE INDEX IF NOT EXISTS idx_agent_approvals_resolved_at ON agent_tool_approvals(resolved_at);`,
+    operation: 'create_agent_approval_resolved_at_index',
+  },
+];
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toNonEmptyString(value: unknown, context: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new TypeError(`${context} must be a non-empty string`);
+  }
+  return value;
+}
+
+function toNullableString(value: unknown, context: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') {
+    throw new TypeError(`${context} must be a string or null`);
+  }
+  return value;
+}
+
+function toInteger(value: unknown, context: string): number {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  throw new TypeError(`${context} must be an integer`);
+}
+
+function toNullableInteger(value: unknown, context: string): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return toInteger(value, context);
+}
+
+function serializeJson(value: unknown, context: string): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    throw new TypeError(`Failed to serialize ${context}: ${(error as Error).message}`);
+  }
+}
+
+function assertApprovalStatus(value: unknown, context: string): asserts value is ApprovalStatus {
+  if (typeof value !== 'string' || !APPROVAL_STATUS_SET.has(value as ApprovalStatus)) {
+    throw new TypeError(`${context} must be a valid approval status`);
+  }
+}
+
+function mapPreviewRow(value: unknown, context: string): PreviewRow {
+  if (!isObjectRecord(value)) {
+    throw new Error(`${context} expected an object for preview row`);
+  }
+
+  const normalized: PreviewRow = Object.freeze({
+    id: toNonEmptyString(value.id, `${context}.id`),
+    tool_execution_id: toInteger(value.tool_execution_id, `${context}.tool_execution_id`),
+    session_id: toNonEmptyString(value.session_id, `${context}.session_id`),
+    tool: toNonEmptyString(value.tool, `${context}.tool`),
+    action: toNonEmptyString(value.action, `${context}.action`),
+    summary: toNonEmptyString(value.summary, `${context}.summary`),
+    detail: toNullableString(value.detail, `${context}.detail`),
+    args: toNullableString(value.args, `${context}.args`),
+    hash: toNonEmptyString(value.hash, `${context}.hash`),
+    created_at: toInteger(value.created_at, `${context}.created_at`),
+  });
+
+  return normalized;
+}
+
+function mapApprovalRow(value: unknown, context: string): ApprovalRow {
+  if (!isObjectRecord(value)) {
+    throw new Error(`${context} expected an object for approval row`);
+  }
+
+  const status = toNonEmptyString(value.status, `${context}.status`);
+  assertApprovalStatus(status, `${context}.status`);
+
+  const normalized: ApprovalRow = Object.freeze({
+    id: toNonEmptyString(value.id, `${context}.id`),
+    preview_id: toNonEmptyString(value.preview_id, `${context}.preview_id`),
+    session_id: toNonEmptyString(value.session_id, `${context}.session_id`),
+    status,
+    created_at: toInteger(value.created_at, `${context}.created_at`),
+    resolved_at: toNullableInteger(value.resolved_at, `${context}.resolved_at`),
+    resolved_by: toNullableString(value.resolved_by, `${context}.resolved_by`),
+    auto_reason: toNullableString(value.auto_reason, `${context}.auto_reason`),
+    feedback_text: toNullableString(value.feedback_text, `${context}.feedback_text`),
+    feedback_meta: toNullableString(value.feedback_meta, `${context}.feedback_meta`),
+  });
+
+  return normalized;
+}
 
 interface PreparedStatements {
   listWorkspaces: BetterSqlite3.Statement<[]>;
@@ -270,6 +456,8 @@ export class PasteFlowDatabase {
       maxRetries: 3
     });
 
+    await this.ensureAgentApprovalSchema();
+
     // Optional migration: add latency_ms column to usage_summary if missing
     await executeWithRetry(async () => {
       try {
@@ -298,6 +486,41 @@ export class PasteFlowDatabase {
 
     // Prepare statements with retry
     await this.prepareStatements();
+  }
+
+  public async ensureAgentApprovalSchema(): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database connection not established');
+    }
+
+    await executeWithRetry(async () => {
+      this.db!.exec(AGENT_APPROVAL_SCHEMA_SQL);
+    }, {
+      operation: 'ensure_agent_approval_schema',
+      maxRetries: 2,
+    });
+
+    await this.ensureAgentApprovalIndexes();
+  }
+
+  private async ensureAgentApprovalIndexes(): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database connection not established');
+    }
+
+    for (const { sql, operation } of AGENT_APPROVAL_INDEX_SQL) {
+      try {
+        await executeWithRetry(async () => {
+          this.db!.exec(sql);
+        }, { operation, maxRetries: 1 });
+      } catch (error) {
+        try {
+          console.warn(`[AgentApprovals] Failed to ensure index ${operation}: ${(error as Error).message}`);
+        } catch {
+          // Logging best-effort; ignore failures
+        }
+      }
+    }
   }
 
   private async prepareStatements(): Promise<void> {
@@ -424,6 +647,121 @@ export class PasteFlowDatabase {
     return this.db.prepare(`
       SELECT id, session_id, tool_name, args, result, status, error, started_at, duration_ms, created_at
       FROM tool_executions WHERE session_id = ? ORDER BY created_at ASC
+    `);
+  }
+
+  private stmtInsertPreview(): BetterSqlite3.Statement<[
+    string,
+    number,
+    string,
+    string,
+    string,
+    string,
+    string | null,
+    string | null,
+    string,
+    number,
+  ]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      INSERT INTO agent_tool_previews (id, tool_execution_id, session_id, tool, action, summary, detail, args, hash, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+  }
+
+  private stmtGetPreviewById(): BetterSqlite3.Statement<[string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      SELECT id, tool_execution_id, session_id, tool, action, summary, detail, args, hash, created_at
+      FROM agent_tool_previews
+      WHERE id = ?
+    `);
+  }
+
+  private stmtListPreviews(): BetterSqlite3.Statement<[string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      SELECT id, tool_execution_id, session_id, tool, action, summary, detail, args, hash, created_at
+      FROM agent_tool_previews
+      WHERE session_id = ?
+      ORDER BY created_at DESC
+    `);
+  }
+
+  private stmtInsertApproval(): BetterSqlite3.Statement<[
+    string,
+    string,
+    string,
+    string,
+    number,
+    number | null,
+    string | null,
+    string | null,
+    string | null,
+    string | null,
+  ]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      INSERT INTO agent_tool_approvals (id, preview_id, session_id, status, created_at, resolved_at, resolved_by, auto_reason, feedback_text, feedback_meta)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+  }
+
+  private stmtUpdateApprovalStatus(): BetterSqlite3.Statement<[
+    string,
+    number | null,
+    string | null,
+    string | null,
+    string,
+  ]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      UPDATE agent_tool_approvals
+      SET status = ?, resolved_at = ?, resolved_by = ?, auto_reason = ?
+      WHERE id = ?
+    `);
+  }
+
+  private stmtUpdateApprovalFeedback(): BetterSqlite3.Statement<[
+    string | null,
+    string | null,
+    string,
+  ]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      UPDATE agent_tool_approvals
+      SET feedback_text = ?, feedback_meta = ?
+      WHERE id = ?
+    `);
+  }
+
+  private stmtListPendingApprovals(): BetterSqlite3.Statement<[string, string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      SELECT id, preview_id, session_id, status, created_at, resolved_at, resolved_by, auto_reason, feedback_text, feedback_meta
+      FROM agent_tool_approvals
+      WHERE session_id = ? AND status = ?
+      ORDER BY created_at ASC
+    `);
+  }
+
+  private stmtListApprovalsForExportPreviews(): BetterSqlite3.Statement<[string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      SELECT id, tool_execution_id, session_id, tool, action, summary, detail, args, hash, created_at
+      FROM agent_tool_previews
+      WHERE session_id = ?
+      ORDER BY created_at ASC
+    `);
+  }
+
+  private stmtListApprovalsForExportApprovals(): BetterSqlite3.Statement<[string]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      SELECT id, preview_id, session_id, status, created_at, resolved_at, resolved_by, auto_reason, feedback_text, feedback_meta
+      FROM agent_tool_approvals
+      WHERE session_id = ?
+      ORDER BY created_at ASC
     `);
   }
 
@@ -641,14 +979,46 @@ export class PasteFlowDatabase {
       this.stmtInsertToolExecution().run(
         entry.sessionId,
         entry.toolName,
-        entry.args === undefined ? null : JSON.stringify(entry.args),
-        entry.result === undefined ? null : JSON.stringify(entry.result),
+        serializeJson(entry.args, 'insertToolExecution.args'),
+        serializeJson(entry.result, 'insertToolExecution.result'),
         entry.status ?? null,
         entry.error ?? null,
         entry.startedAt ?? null,
         entry.durationMs ?? null,
       );
     }, { operation: 'insert_tool_execution' });
+  }
+
+  async insertToolExecutionReturningId(entry: {
+    sessionId: string;
+    toolName: string;
+    args?: unknown;
+    result?: unknown;
+    status?: string;
+    error?: string | null;
+    startedAt?: number | null;
+    durationMs?: number | null;
+  }): Promise<number> {
+    this.ensureInitialized();
+    const { result } = await executeWithRetry(async () => {
+      const runResult = this.stmtInsertToolExecution().run(
+        entry.sessionId,
+        entry.toolName,
+        serializeJson(entry.args, 'insertToolExecutionReturningId.args'),
+        serializeJson(entry.result, 'insertToolExecutionReturningId.result'),
+        entry.status ?? null,
+        entry.error ?? null,
+        entry.startedAt ?? null,
+        entry.durationMs ?? null,
+      ) as { lastInsertRowid: number | bigint };
+      const rawId = runResult.lastInsertRowid;
+      const numericId = Number(rawId);
+      if (!Number.isInteger(numericId) || numericId <= 0) {
+        throw new TypeError('Failed to retrieve inserted tool execution id');
+      }
+      return numericId;
+    }, { operation: 'insert_tool_execution_returning_id' });
+    return result as number;
   }
 
   async listToolExecutions(sessionId: string): Promise<{
@@ -659,6 +1029,166 @@ export class PasteFlowDatabase {
     return (result ?? []) as {
       id: number; session_id: string; tool_name: string; args: string | null; result: string | null; status: string | null; error: string | null; started_at: number | null; duration_ms: number | null; created_at: number;
     }[];
+  }
+
+  async insertPreview(preview: PreviewEnvelope & { toolExecutionId: number }): Promise<void> {
+    this.ensureInitialized();
+    assertPreviewEnvelope(preview);
+    if (!Number.isInteger(preview.toolExecutionId) || preview.toolExecutionId <= 0) {
+      throw new Error('preview.toolExecutionId must be a positive integer');
+    }
+
+    await executeWithRetry(async () => {
+      this.stmtInsertPreview().run(
+        preview.id,
+        preview.toolExecutionId,
+        preview.sessionId,
+        preview.tool,
+        preview.action,
+        preview.summary,
+        serializeJson(preview.detail, 'insertPreview.detail'),
+        serializeJson(preview.originalArgs, 'insertPreview.originalArgs'),
+        preview.hash,
+        preview.createdAt,
+      );
+    }, { operation: 'insert_agent_tool_preview' });
+  }
+
+  async getPreviewById(id: PreviewId): Promise<PreviewRow | null> {
+    this.ensureInitialized();
+    const { result } = await executeWithRetry(async () => {
+      const row = this.stmtGetPreviewById().get(id) as unknown;
+      return row ?? null;
+    }, { operation: 'get_agent_tool_preview' });
+
+    if (!result) {
+      return null;
+    }
+
+    return mapPreviewRow(result, `getPreviewById(${id})`);
+  }
+
+  async listPreviews(sessionId: ChatSessionId): Promise<readonly PreviewRow[]> {
+    this.ensureInitialized();
+    const { result } = await executeWithRetry(async () => this.stmtListPreviews().all(sessionId) as unknown, { operation: 'list_agent_tool_previews' });
+    const rows = Array.isArray(result) ? result : [];
+    const mapped = rows.map((row, index) => mapPreviewRow(row, `listPreviews[${index}]`));
+    return Object.freeze(mapped) as readonly PreviewRow[];
+  }
+
+  async insertApproval(input: {
+    id: string;
+    previewId: string;
+    sessionId: string;
+    status: ApprovalStatus;
+    createdAt: number;
+    resolvedAt?: number | null;
+    resolvedBy?: string | null;
+    autoReason?: string | null;
+    feedbackText?: string | null;
+    feedbackMeta?: unknown | null;
+  }): Promise<void> {
+    this.ensureInitialized();
+
+    const { id, previewId, sessionId, status, createdAt } = input;
+    if (!id || !previewId || !sessionId) {
+      throw new Error('insertApproval requires non-empty id, previewId, and sessionId');
+    }
+    if (!Number.isInteger(createdAt) || createdAt < 0) {
+      throw new Error('insertApproval.createdAt must be a non-negative integer');
+    }
+    assertApprovalStatus(status, 'insertApproval.status');
+
+    const resolvedAt = input.resolvedAt ?? null;
+    if (resolvedAt !== null && (!Number.isInteger(resolvedAt) || resolvedAt < 0)) {
+      throw new Error('insertApproval.resolvedAt must be a non-negative integer when provided');
+    }
+
+    const feedbackMeta = serializeJson(input.feedbackMeta ?? null, 'insertApproval.feedbackMeta');
+
+    await executeWithRetry(async () => {
+      this.stmtInsertApproval().run(
+        id,
+        previewId,
+        sessionId,
+        status,
+        createdAt,
+        resolvedAt,
+        input.resolvedBy ?? null,
+        input.autoReason ?? null,
+        input.feedbackText ?? null,
+        feedbackMeta,
+      );
+    }, { operation: 'insert_agent_tool_approval' });
+  }
+
+  async updateApprovalStatus(input: {
+    id: string;
+    status: ApprovalStatus;
+    resolvedAt?: number | null;
+    resolvedBy?: string | null;
+    autoReason?: string | null;
+  }): Promise<void> {
+    this.ensureInitialized();
+
+    if (!input.id) {
+      throw new Error('updateApprovalStatus requires id');
+    }
+    assertApprovalStatus(input.status, 'updateApprovalStatus.status');
+
+    const resolvedAt = input.resolvedAt ?? null;
+    if (resolvedAt !== null && (!Number.isInteger(resolvedAt) || resolvedAt < 0)) {
+      throw new Error('updateApprovalStatus.resolvedAt must be a non-negative integer when provided');
+    }
+
+    await executeWithRetry(async () => {
+      this.stmtUpdateApprovalStatus().run(
+        input.status,
+        resolvedAt,
+        input.resolvedBy ?? null,
+        input.autoReason ?? null,
+        input.id,
+      );
+    }, { operation: 'update_agent_tool_approval_status' });
+  }
+
+  async updateApprovalFeedback(input: { id: string; feedbackText?: string | null; feedbackMeta?: unknown | null }): Promise<void> {
+    this.ensureInitialized();
+    if (!input.id) {
+      throw new Error('updateApprovalFeedback requires id');
+    }
+    const feedbackMeta = serializeJson(input.feedbackMeta ?? null, 'updateApprovalFeedback.feedbackMeta');
+
+    await executeWithRetry(async () => {
+      this.stmtUpdateApprovalFeedback().run(
+        input.feedbackText ?? null,
+        feedbackMeta,
+        input.id,
+      );
+    }, { operation: 'update_agent_tool_approval_feedback' });
+  }
+
+  async listPendingApprovals(sessionId: ChatSessionId): Promise<readonly ApprovalRow[]> {
+    this.ensureInitialized();
+    const { result } = await executeWithRetry(async () => this.stmtListPendingApprovals().all(sessionId, 'pending') as unknown, { operation: 'list_pending_agent_approvals' });
+    const rows = Array.isArray(result) ? result : [];
+    const mapped = rows.map((row, index) => mapApprovalRow(row, `listPendingApprovals[${index}]`));
+    return Object.freeze(mapped) as readonly ApprovalRow[];
+  }
+
+  async listApprovalsForExport(sessionId: ChatSessionId): Promise<{ previews: readonly PreviewRow[]; approvals: readonly ApprovalRow[] }> {
+    this.ensureInitialized();
+
+    const { result: previewResult } = await executeWithRetry(async () => this.stmtListApprovalsForExportPreviews().all(sessionId) as unknown, { operation: 'list_agent_previews_for_export' });
+    const { result: approvalResult } = await executeWithRetry(async () => this.stmtListApprovalsForExportApprovals().all(sessionId) as unknown, { operation: 'list_agent_approvals_for_export' });
+
+    const previewsArray = Array.isArray(previewResult) ? previewResult : [];
+    const approvalsArray = Array.isArray(approvalResult) ? approvalResult : [];
+
+    const previews = Object.freeze(previewsArray.map((row, index) => mapPreviewRow(row, `listApprovalsForExport.previews[${index}]`))) as readonly PreviewRow[];
+    const approvals = Object.freeze(approvalsArray.map((row, index) => mapApprovalRow(row, `listApprovalsForExport.approvals[${index}]`))) as readonly ApprovalRow[];
+
+    return Object.freeze({ previews, approvals });
   }
 
   async insertUsageSummary(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null): Promise<void> {

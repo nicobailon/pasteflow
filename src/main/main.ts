@@ -280,6 +280,13 @@ app.whenReady().then(async () => {
       console.warn('[Migration] approval mode migration skipped:', (error as Error)?.message || error);
     }
 
+    try {
+      await database.ensureAgentApprovalSchema();
+      console.log('[Migration] agent approvals schema ensured');
+    } catch (error) {
+      console.warn('[Migration] agent approvals schema ensure skipped:', (error as Error)?.message || error);
+    }
+
     // On fresh app start, clear any previously persisted "active" workspace so
     // CLI status reflects the UI (no folder loaded) until the user explicitly
     // opens a folder or loads a workspace.
