@@ -50,7 +50,8 @@ function buildHunkViewModels(hunks: readonly UnifiedDiffHunk[]): readonly HunkVi
     const rows: LineEntry[] = [];
     let oldLine = hunk.oldStart;
     let newLine = hunk.newStart;
-    hunk.body.forEach((rawLine, rowIndex) => {
+    for (let rowIndex = 0; rowIndex < hunk.body.length; rowIndex += 1) {
+      const rawLine = hunk.body[rowIndex];
       const marker = rawLine.charAt(0);
       const text = rawLine.slice(1);
       switch (marker) {
@@ -117,7 +118,7 @@ function buildHunkViewModels(hunks: readonly UnifiedDiffHunk[]): readonly HunkVi
           break;
         }
       }
-    });
+    }
     return Object.freeze({
       index,
       header: hunk.header,
@@ -202,9 +203,10 @@ export default function DiffPreview({ detail, collapsedByDefault = true }: DiffP
 
   let bodyContent: JSX.Element | null = null;
   if (hunks.length > 0) {
+    const renderedHunks = hunks.map((entry) => renderHunk(entry));
     bodyContent = (
       <div className="diff-preview__hunks">
-        {hunks.map(renderHunk)}
+        {renderedHunks}
       </div>
     );
   } else if (diffText) {
