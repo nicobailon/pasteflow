@@ -94,9 +94,10 @@ const AgentApprovalList = ({
     body = (
       <div className="agent-approval-list__items">
         {sortedApprovals.map((approval) => {
-          const cancelHandler = approval.streaming === "ready"
-            ? undefined
-            : () => handleCancel(approval.previewId as string);
+          const streaming = approval.streaming;
+          const cancelHandler = (streaming === "pending" || streaming === "running")
+            ? () => handleCancel(approval.previewId as string)
+            : undefined;
           return (
             <AgentApprovalCard
               key={approval.id}

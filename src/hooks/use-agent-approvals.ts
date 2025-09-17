@@ -3,8 +3,17 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { ApplyResult, AutoRule, ServiceResult, StoredApproval, StoredPreview } from "../main/agent/approvals-service";
 import type { ChatSessionId, PreviewId, ToolArgsSnapshot, ToolName } from "../main/agent/preview-registry";
 import type { ApprovalStatus } from "../main/db/database-implementation";
-
-type ServiceError = { readonly code: string; readonly message: string };
+import {
+  deriveStreamingState,
+  isPlainRecord,
+  normalizeServiceResult,
+  parseServiceError,
+  parseStoredApproval,
+  parseStoredPreview,
+  serializeAutoRule,
+  type ServiceError,
+  type StreamingState,
+} from "../utils/approvals-parsers";
 
 type BridgeServiceResult<T> = ServiceResult<T>;
 
@@ -29,10 +38,6 @@ type ApprovalsBridge = {
 };
 
 type PrefsInvoker = (channel: string, payload?: unknown) => Promise<unknown>;
-
-type PlainRecord = Record<string, unknown>;
-
-type StreamingState = "pending" | "running" | "ready" | "failed";
 
 export type ApprovalVm = Readonly<{
   id: string;
@@ -78,120 +83,8 @@ interface UseAgentApprovalsResult {
   readonly lastError: ServiceError | null;
 }
 
-function isRecord(value: unknown): value is PlainRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toRecord(value: unknown): Readonly<Record<string, unknown>> {
-  if (!isRecord(value)) return Object.freeze({});
-  const copy: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(value)) {
-    copy[key] = val;
-  }
-  return Object.freeze(copy);
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === "string";
-}
-
-function isNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function parseServiceError(value: unknown): ServiceError {
-  if (isRecord(value)) {
-    const code = isString(value.code) ? value.code : "UNKNOWN";
-    const message = isString(value.message) ? value.message : "Unknown error";
-    return { code, message } as const;
-  }
-  return { code: "UNKNOWN", message: "Unknown error" } as const;
-}
-
-function normalizeServiceResult<T>(value: unknown): BridgeServiceResult<T> {
-  if (!isRecord(value)) {
-    return { ok: false, error: { code: "INVALID_RESPONSE", message: "Service response malformed" } };
-  }
-  if (value.ok === true) {
-    return { ok: true, data: value.data as T };
-  }
-  return { ok: false, error: parseServiceError(value.error) };
-}
-
-function isValidToolName(value: unknown): value is ToolName {
-  return value === "file" || value === "edit" || value === "terminal" || value === "search" || value === "context";
-}
-
-function parseStoredPreview(value: unknown): StoredPreview | null {
-  if (!isRecord(value)) return null;
-  const id = value.id;
-  const sessionId = value.sessionId;
-  const toolExecutionId = value.toolExecutionId;
-  const tool = value.tool;
-  const action = value.action;
-  const summary = value.summary;
-  const detail = value.detail ?? null;
-  const originalArgs = value.originalArgs ?? {};
-  const createdAt = value.createdAt;
-  const hash = value.hash;
-  if (!isString(id) || !isString(sessionId) || !isNumber(toolExecutionId) || !isValidToolName(tool) || !isString(action) || !isString(summary) || !isString(hash) || !isNumber(createdAt)) {
-    return null;
-  }
-  if (!(detail === null || isRecord(detail))) return null;
-  if (!isRecord(originalArgs)) return null;
-  return {
-    id: id as PreviewId,
-    sessionId: sessionId as ChatSessionId,
-    toolExecutionId,
-    tool: tool as ToolName,
-    action,
-    summary,
-    detail: detail === null ? null : Object.freeze({ ...detail }),
-    originalArgs: Object.freeze({ ...originalArgs }) as ToolArgsSnapshot,
-    createdAt,
-    hash,
-  } as StoredPreview;
-}
-
-function isApprovalStatus(value: unknown): value is ApprovalStatus {
-  return value === "pending" || value === "approved" || value === "applied" || value === "rejected" || value === "auto_approved" || value === "failed";
-}
-
-function parseStoredApproval(value: unknown): StoredApproval | null {
-  if (!isRecord(value)) return null;
-  const id = value.id;
-  const previewId = value.previewId;
-  const sessionId = value.sessionId;
-  const status = value.status;
-  const createdAt = value.createdAt;
-  const resolvedAt = value.resolvedAt ?? null;
-  const resolvedBy = value.resolvedBy ?? null;
-  const autoReason = value.autoReason ?? null;
-  const feedbackText = value.feedbackText ?? null;
-  const feedbackMeta = value.feedbackMeta ?? null;
-  if (!isString(id) || !isString(previewId) || !isString(sessionId) || !isApprovalStatus(status) || !isNumber(createdAt)) {
-    return null;
-  }
-  if (!(resolvedAt === null || isNumber(resolvedAt))) return null;
-  if (!(resolvedBy === null || isString(resolvedBy))) return null;
-  if (!(autoReason === null || isString(autoReason))) return null;
-  if (!(feedbackText === null || isString(feedbackText))) return null;
-  if (!(feedbackMeta === null || isRecord(feedbackMeta))) return null;
-  return {
-    id,
-    previewId: previewId as PreviewId,
-    sessionId: sessionId as ChatSessionId,
-    status,
-    createdAt,
-    resolvedAt,
-    resolvedBy,
-    autoReason,
-    feedbackText,
-    feedbackMeta: feedbackMeta === null ? null : Object.freeze({ ...feedbackMeta }),
-  } as StoredApproval;
-}
-
-function makeVm(preview: StoredPreview, approval: StoredApproval, streaming: StreamingState = "ready"): ApprovalVm {
+function makeVm(preview: StoredPreview, approval: StoredApproval, overrideStreaming?: StreamingState): ApprovalVm {
+  const streaming = overrideStreaming ?? deriveStreamingState(preview.detail ?? null);
   return Object.freeze({
     id: approval.id,
     previewId: preview.id,
@@ -240,7 +133,7 @@ function reducer(state: ReducerState, action: ReducerAction): ReducerState {
 
 function getApprovalsBridge(): ApprovalsBridge | null {
   const candidate = (window as unknown as { electron?: { approvals?: unknown } }).electron?.approvals;
-  if (!candidate || !isRecord(candidate)) return null;
+  if (!candidate || !isPlainRecord(candidate)) return null;
   const required = ["list", "apply", "applyWithContent", "reject", "cancel", "getRules", "setRules", "watch"] as const;
   for (const key of required) {
     if (typeof candidate[key] !== "function") return null;
@@ -255,17 +148,17 @@ function getPrefsInvoker(): PrefsInvoker | null {
 
 function parseBoolPreference(value: unknown): boolean {
   if (typeof value === "boolean") return value;
-  if (isRecord(value) && "success" in value && (value.success === true)) {
+  if (isPlainRecord(value) && "success" in value && (value as { success?: boolean }).success === true) {
     const data = (value as { data?: unknown }).data;
     if (typeof data === "boolean") return data;
-    if (isString(data)) {
+    if (typeof data === "string") {
       const norm = data.trim().toLowerCase();
       if (norm === "true" || norm === "1" || norm === "yes") return true;
       if (norm === "false" || norm === "0" || norm === "no") return false;
     }
     return Boolean(data);
   }
-  if (isString(value)) {
+  if (typeof value === "string") {
     const norm = value.trim().toLowerCase();
     if (norm === "true" || norm === "1" || norm === "yes") return true;
     if (norm === "false" || norm === "0" || norm === "no") return false;
@@ -358,10 +251,10 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
       setLastError(null);
     }).catch((error: unknown) => {
       if (cancelled) return;
-      const err = isRecord(error) && isString(error.message)
-        ? { code: 'LIST_FAILED', message: error.message }
-        : { code: 'LIST_FAILED', message: 'Failed to load approvals' };
-      setLastError(err);
+      const message = typeof (error as { message?: unknown })?.message === 'string'
+        ? String((error as { message: string }).message)
+        : 'Failed to load approvals';
+      setLastError({ code: 'LIST_FAILED', message });
       dispatch({ type: 'reset', items: [] });
     }).finally(() => {
       if (!cancelled) setLoading(false);
@@ -401,7 +294,7 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
       },
       onError: (payload) => {
         if (!payload) return;
-        const err = isRecord(payload) ? parseServiceError(payload) : { code: 'WATCH_FAILED', message: 'Approvals watch failed' };
+        const err = isPlainRecord(payload) ? parseServiceError(payload) : { code: 'WATCH_FAILED', message: 'Approvals watch failed' };
         setLastError(err);
       },
     });
@@ -473,7 +366,7 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
     if (!bridge) {
       return { ok: false, error: { code: 'UNAVAILABLE', message: 'Approvals bridge unavailable' } } as BridgeServiceResult<null>;
     }
-    const serializedRules = Array.isArray(rules) ? rules.map((rule) => toRecord(rule)) : [];
+    const serializedRules = Array.isArray(rules) ? rules.map((rule) => serializeAutoRule(rule)) : [];
     const result = await bridge.setRules({ rules: serializedRules });
     return normalizeServiceResult<null>(result);
   }, []);
@@ -492,4 +385,4 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
   };
 }
 
-export type { StreamingState };
+export { type StreamingState } from "../utils/approvals-parsers";

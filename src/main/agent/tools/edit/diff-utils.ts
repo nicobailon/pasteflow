@@ -1,12 +1,6 @@
-export type TextOccurrence = { start: number; end: number };
+import { parseUnifiedDiff, type UnifiedDiffHunk } from "../../../../utils/unified-diff";
 
-type UnifiedHunk = {
-  oldStart: number;
-  oldCount: number;
-  newStart: number;
-  newCount: number;
-  body: string[];
-};
+export type TextOccurrence = { start: number; end: number };
 
 export function findAllOccurrences(content: string, pattern: string, opts: { isRegex: boolean }): TextOccurrence[] {
   const out: TextOccurrence[] = [];
@@ -64,36 +58,7 @@ export function replaceByPolicy(
   return { modified, replacedIndex: occs.length > 0 ? 1 : -1, replacements: occs.length };
 }
 
-export function parseUnifiedDiff(diffText: string): { hunks: UnifiedHunk[]; error?: string } {
-  const lines = diffText.split(/\r?\n/);
-  const hunks: UnifiedHunk[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const l = lines[i];
-    if (l.startsWith("@@")) {
-      const m = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/.exec(l);
-      if (!m) return { hunks, error: "Invalid hunk header" };
-      const oldStart = Number(m[1]);
-      const oldCount = Number(m[2] || "1");
-      const newStart = Number(m[3]);
-      const newCount = Number(m[4] || "1");
-      i++;
-      const body: string[] = [];
-      while (i < lines.length && !lines[i].startsWith("@@")) {
-        const hl = lines[i];
-        if (/^([ +\\-])/.test(hl)) body.push(hl);
-        else break;
-        i++;
-      }
-      hunks.push({ oldStart, oldCount, newStart, newCount, body });
-    } else {
-      i++;
-    }
-  }
-  return { hunks };
-}
-
-export function applyHunks(original: string, hunks: UnifiedHunk[]): { result: string; applied: boolean; error?: string } {
+export function applyHunks(original: string, hunks: readonly UnifiedDiffHunk[]): { result: string; applied: boolean; error?: string } {
   const origLines = original.split(/\r?\n/);
   const out: string[] = [];
   let cursor = 0;

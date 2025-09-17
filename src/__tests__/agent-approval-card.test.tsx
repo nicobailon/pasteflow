@@ -35,6 +35,8 @@ describe("AgentApprovalCard", () => {
 
     expect(screen.getByText("Run npm test")).toBeInTheDocument();
     expect(screen.getByText(/command/)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /view in timeline/i });
+    expect(link).toHaveAttribute("href", expect.stringContaining("approval-timeline"));
   });
 
   it("calls approve and reject handlers", () => {

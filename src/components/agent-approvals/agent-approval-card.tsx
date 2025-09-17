@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 
-import type { ApprovalVm } from "../../hooks/use-agent-approvals";
+import type { ApprovalVm, StreamingState } from "../../hooks/use-agent-approvals";
 import { getApprovalButtons } from "./button-config";
+import DiffPreview from "./diff-preview";
+import JsonPreview from "./json-preview";
+import TerminalOutputView from "./terminal-output-view";
 
 interface AgentApprovalCardProps {
   readonly approval: ApprovalVm;
@@ -28,6 +31,76 @@ function extractPrimaryPath(detail: Readonly<Record<string, unknown>> | null): s
   return typeof pathLike === "string" ? pathLike : null;
 }
 
+function readString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const coerced = Number(value);
+    if (Number.isFinite(coerced)) return coerced;
+  }
+  return null;
+}
+
+function readTokenCounts(value: unknown): Readonly<{ original?: number; modified?: number }> | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const original = readNumber(record.original);
+  const modified = readNumber(record.modified);
+  if (original == null && modified == null) return null;
+  const payload: { original?: number; modified?: number } = {};
+  if (original != null) payload.original = original;
+  if (modified != null) payload.modified = modified;
+  return Object.freeze(payload);
+}
+
+function extractDiffPreview(detail: Readonly<Record<string, unknown>> | null) {
+  if (!detail) return null;
+  const diff = readString(detail.diff ?? detail.patch ?? detail.delta);
+  const original = readString(detail.original);
+  const modified = readString(detail.modified);
+  const tokenCounts = readTokenCounts(detail.tokenCounts ?? null);
+  const existed = typeof detail.existed === "boolean" ? detail.existed : null;
+  const applied = typeof detail.applied === "boolean" ? detail.applied : null;
+  const error = readString(detail.error ?? detail.reason);
+  const bytes = readNumber(detail.bytes);
+  if (!diff && !original && !modified && !tokenCounts && existed == null && applied == null && error == null) {
+    return null;
+  }
+  return Object.freeze({
+    diff,
+    original,
+    modified,
+    tokenCounts,
+    existed,
+    applied,
+    error,
+    bytes,
+  });
+}
+
+function extractTerminalPreview(detail: Readonly<Record<string, unknown>> | null) {
+  if (!detail) return null;
+  const sessionId = readString(detail.sessionId)
+    ?? readString(detail.terminalSessionId)
+    ?? readString(detail.id)
+    ?? null;
+  if (!sessionId) return null;
+  const initialText = readString(detail.output ?? detail.tail ?? detail.preview ?? detail.log) ?? "";
+  const command = readString(detail.command ?? detail.cmd ?? detail.previewCommand);
+  const cwd = readString(detail.cwd ?? detail.directory ?? detail.path);
+  return Object.freeze({ sessionId, command, cwd, initialText });
+}
+
+const STREAMING_LABELS: Record<StreamingState, string> = Object.freeze({
+  pending: "Preview queued…",
+  running: "Streaming preview…",
+  ready: "",
+  failed: "Preview failed",
+});
+
 const AgentApprovalCard = ({
   approval,
   bypassEnabled,
@@ -38,16 +111,39 @@ const AgentApprovalCard = ({
 }: AgentApprovalCardProps) => {
   const [feedback, setFeedback] = useState<string>("");
 
-  const jsonDetail = useMemo(() => {
-    try {
-      return approval.detail ? JSON.stringify(approval.detail, null, 2) : "";
-    } catch {
-      return "";
-    }
-  }, [approval.detail]);
-
   const primaryPath = useMemo(() => extractPrimaryPath(approval.detail), [approval.detail]);
   const timestamp = useMemo(() => formatTimestamp(approval.createdAt), [approval.createdAt]);
+
+  const detailElement = useMemo(() => {
+    const detail = approval.detail ?? null;
+    if (!detail) return null;
+
+    if (approval.tool === "edit") {
+      const diffDetail = extractDiffPreview(detail);
+      if (diffDetail) {
+        return <DiffPreview detail={diffDetail} collapsedByDefault />;
+      }
+    }
+
+    if (approval.tool === "terminal") {
+      const terminal = extractTerminalPreview(detail);
+      if (terminal) {
+        const isActive = approval.streaming === "running";
+        return (
+          <TerminalOutputView
+            sessionId={terminal.sessionId}
+            previewId={String(approval.previewId)}
+            command={terminal.command}
+            cwd={terminal.cwd}
+            initialText={terminal.initialText}
+            isActive={isActive}
+          />
+        );
+      }
+    }
+
+    return <JsonPreview value={detail} />;
+  }, [approval.detail, approval.tool, approval.previewId, approval.streaming]);
 
   const buttons = useMemo(() => getApprovalButtons({
     approval,
@@ -79,9 +175,21 @@ const AgentApprovalCard = ({
         {approval.autoReason ? (
           <div className="agent-approval-card__badge" aria-label="Auto approval reason">Auto rule: {approval.autoReason}</div>
         ) : null}
-        {jsonDetail ? (
-          <pre className="agent-approval-card__detail" aria-label="Preview details">{jsonDetail}</pre>
+        <a
+          className="agent-approval-card__link"
+          href={`#approval-timeline-${String(approval.previewId)}`}
+        >
+          View in timeline
+        </a>
+        {STREAMING_LABELS[approval.streaming] ? (
+          <div
+            className={`agent-approval-card__streaming agent-approval-card__streaming--${approval.streaming}`}
+            role={approval.streaming === "failed" ? "alert" : "status"}
+          >
+            {STREAMING_LABELS[approval.streaming]}
+          </div>
         ) : null}
+        {detailElement}
       </div>
       <footer className="agent-approval-card__footer">
         <label className="agent-approval-card__feedback" htmlFor={`approval-feedback-${approval.id}`}>

@@ -191,7 +191,10 @@ export const AgentApprovalApplySchema = z.object({ approvalId: z.string().uuid()
 export const AgentApprovalApplyWithContentSchema = z.object({ approvalId: z.string().uuid(), content: z.unknown() });
 export const AgentApprovalRejectSchema = z.object({ approvalId: z.string().uuid(), feedbackText: z.string().optional(), feedbackMeta: z.unknown().optional() });
 export const AgentApprovalCancelSchema = z.object({ previewId: z.string().uuid() });
-export const AgentApprovalRulesSetSchema = z.object({ rules: z.array(z.object({ kind: z.enum(['tool','path','terminal']) }).passthrough()) });
+export const AgentApprovalRulesSetSchema = z.object({
+  rules: z.array(z.object({ kind: z.enum(['tool','path','terminal']) }).passthrough()),
+  autoCap: z.number().int().min(0).max(100).optional(),
+});
 export const AgentApprovalRulesGetSchema = z.object({});
 
 export type AgentStartSessionType = z.infer<typeof AgentStartSessionSchema>;

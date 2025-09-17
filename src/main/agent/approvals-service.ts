@@ -155,7 +155,7 @@ export class ApprovalsService extends EventEmitter {
   private readonly security: AgentSecurityManager;
   private readonly broadcast?: (event: ApprovalEventPayload) => void;
   private readonly logger: Pick<typeof console, "log" | "warn" | "error">;
-  private readonly autoApplyCap: number;
+  private autoApplyCap: number;
   private readonly autoApplyCounts = new Map<ChatSessionId, number>();
 
   constructor(deps: ApprovalsServiceDeps) {
@@ -499,5 +499,19 @@ export class ApprovalsService extends EventEmitter {
 
   resetAutoApply(sessionId: ChatSessionId): void {
     this.autoApplyCounts.delete(sessionId);
+  }
+
+  updateAutoApplyCap(value: number | null | undefined): void {
+    const cap = typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : this.autoApplyCap;
+    this.autoApplyCap = cap > 0 ? cap : 0;
+    if (this.autoApplyCap === 0) {
+      this.autoApplyCounts.clear();
+      return;
+    }
+    for (const [sessionId, count] of this.autoApplyCounts.entries()) {
+      if (count > this.autoApplyCap) {
+        this.autoApplyCounts.set(sessionId, this.autoApplyCap);
+      }
+    }
   }
 }

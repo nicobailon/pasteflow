@@ -253,4 +253,17 @@ describe("ApprovalsService", () => {
     expect(match).not.toBeNull();
     expect(match?.reason).toBe("skipAll");
   });
+
+  it("updates auto apply cap dynamically", () => {
+    const service = createService();
+    const session = makeSessionId();
+
+    service.updateAutoApplyCap(1);
+    expect(service.trackAutoApply(session)).toBe(true);
+    expect(service.trackAutoApply(session)).toBe(false);
+
+    service.resetAutoApply(session);
+    service.updateAutoApplyCap(0);
+    expect(service.trackAutoApply(session)).toBe(false);
+  });
 });

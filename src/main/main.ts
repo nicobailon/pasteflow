@@ -15,7 +15,7 @@ import { getPathValidator } from '../security/path-validator';
 import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
 import { getMainTokenService } from '../services/token-service-main';
 import { ApprovalsService } from './agent/approvals-service';
-import type { ApprovalEventPayload } from './agent/approvals-service';
+import type { ApprovalEventPayload, StoredApproval, StoredPreview } from './agent/approvals-service';
 import { AgentSecurityManager } from './agent/security-manager';
 import { capturePreviewIfAny, isApprovalsFeatureEnabled } from './agent/preview-capture';
 import { handleApprovalList, handleApprovalApply, handleApprovalApplyWithContent, handleApprovalReject, handleApprovalCancel, handleApprovalRulesGet, handleApprovalRulesSet } from './approvals-ipc';
@@ -329,6 +329,19 @@ app.whenReady().then(async () => {
       console.warn('Failed to clear active workspace on startup:', error);
     }
 
+    let autoCapPreference: number | null = null;
+    try {
+      const pref = await database.getPreference('agent.approvals.autoCap');
+      if (typeof pref === 'number' && Number.isFinite(pref)) {
+        autoCapPreference = pref;
+      } else if (typeof pref === 'string') {
+        const parsed = Number(pref);
+        if (Number.isFinite(parsed)) autoCapPreference = parsed;
+      }
+    } catch {
+      autoCapPreference = null;
+    }
+
     try {
       securityManager = await AgentSecurityManager.create({ db: database });
       approvalsService = new ApprovalsService({
@@ -344,6 +357,7 @@ app.whenReady().then(async () => {
           }
         },
         logger: console,
+        autoApplyCap: autoCapPreference ?? undefined,
       });
       console.log('[Approvals] Service initialized');
     } catch (error) {
@@ -1245,7 +1259,17 @@ ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: s
       if (!row) return { success: false, error: 'NOT_FOUND' };
       const tools = await database.listToolExecutions(sessionId);
       const usage = await database.listUsageSummaries(sessionId);
-      const payload = { session: row, toolExecutions: tools, usage };
+      let approvalsPayload: { previews: readonly StoredPreview[]; approvals: readonly StoredApproval[] } | null = null;
+      if (approvalsService && (await isApprovalsFeatureEnabled(database))) {
+        const approvalsResult = await approvalsService.listApprovals(sessionId as ChatSessionId);
+        if (approvalsResult.ok) {
+          approvalsPayload = approvalsResult.data;
+        }
+      }
+      const payload: Record<string, unknown> = { session: row, toolExecutions: tools, usage };
+      if (approvalsPayload) {
+        payload.approvals = approvalsPayload;
+      }
       const fs = await import('node:fs');
       const p = await import('node:path');
       const { app } = await import('electron');

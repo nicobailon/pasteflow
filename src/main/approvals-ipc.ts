@@ -79,6 +79,10 @@ export async function handleApprovalRulesSet(params: unknown, deps: ApprovalsDep
   if (!parsed.success) return INVALID_PARAMS;
   try {
     await deps.database.setPreference("agent.approvals.rules", parsed.data.rules as unknown as PreferenceValue);
+    if (typeof parsed.data.autoCap === 'number' && Number.isFinite(parsed.data.autoCap)) {
+      await deps.database.setPreference("agent.approvals.autoCap", parsed.data.autoCap as unknown as PreferenceValue);
+      deps.approvalsService?.updateAutoApplyCap(parsed.data.autoCap);
+    }
     return { ok: true, data: null };
   } catch (error) {
     return { ok: false, error: { code: "RULES_WRITE_FAILED", message: (error as Error)?.message ?? "Failed to persist approvals rules" } };

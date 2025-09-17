@@ -55,3 +55,10 @@
 - When enabled, the panel uses `useAgentApprovals` to manage state/actions and renders `AgentApprovalList` between notifications and messages.
 - Preload exposes typed helpers under `window.electron.approvals` for `list`, `apply`, `reject`, `cancel`, `rules`, and live watch events; always call these instead of raw channels.
 - Legacy `AgentToolCalls` auto-approval behavior is disabled when the new UI flag is on; use the approvals list instead.
+
+## Agent Approvals Enhancements (Phase 4)
+- Approval cards render rich previews for edits and terminal output (diff chunks collapse/expand, JSON fallback for unknown previews).
+- Streaming state is tracked (`pending` → `running` → `ready`/`failed`) so Apply buttons stay disabled until previews finish; the Cancel action wires to `agent:approval:cancel-stream`.
+- Auto-approval rules live in **Settings → Auto approvals** with a simple rule builder (`tool`, `path`, `terminal`) and a per-session auto-apply cap persisted via IPC.
+- The **Approvals Timeline** appears above the message history, showing preview/decision events with anchors (cards link to `#approval-timeline-{id}` for quick navigation).
+- Session exports now bundle approvals data (`{ approvals: { previews, approvals } }`); the export section surfaces counts and links back to the timeline.
