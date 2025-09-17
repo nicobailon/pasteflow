@@ -8,7 +8,7 @@ const common = {
     '^@shared/(.*)$': '<rootDir>/src/shared/$1',
     '^@file-ops/(.*)$': '<rootDir>/src/file-ops/$1',
     '^@lib/(.*)$': '<rootDir>/src/lib/$1',
-    'electron': '<rootDir>/src/__tests__/__mocks__/electron.ts',
+    '^electron$': '<rootDir>/src/__tests__/__mocks__/electron.ts',
 
     '\\.(css|scss)$': '<rootDir>/src/__tests__/__mocks__/styleMock.ts',
     '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/file-mock.ts',

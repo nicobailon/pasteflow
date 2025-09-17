@@ -14,8 +14,5 @@ export function getToolPrompts(): Record<string, string> {
       "Use context.summary to understand current initial/dynamic context, context.expand to fetch specific file ranges with token counts, and context.search to locate snippets.",
     terminal:
       "Use terminal.start/interact/output/list/kill to run commands when necessary. Risky commands may require approval. Avoid destructive commands and be explicit with flags.",
-    generateFromTemplate:
-      "Use generateFromTemplate to scaffold components/hooks/API routes/tests. Review generated content and adapt it before writing files.",
   } as const as Record<string, string>;
 }
-

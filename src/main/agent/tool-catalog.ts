@@ -63,13 +63,5 @@ export function getToolCatalog(): readonly ToolCatalogEntry[] {
         { name: 'kill', required: ['sessionId'] },
       ],
     },
-    {
-      name: 'generateFromTemplate',
-      description: 'Scaffold previews for components, hooks, API routes, and tests (no writes).',
-      actions: [
-        { name: 'generate', required: ['type', 'name'] },
-      ],
-    },
   ] as const;
 }
-

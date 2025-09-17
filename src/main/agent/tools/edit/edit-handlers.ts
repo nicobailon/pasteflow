@@ -22,31 +22,38 @@ export async function handleEditUnified(
   const val = validateAndResolvePath(path);
   if (!val.ok) throw new Error(val.message);
 
+  const loadOriginal = async () => {
+    const res = await readTextFile(val.absolutePath);
+    if (res.ok) {
+      if (res.isLikelyBinary) throw new Error(BINARY_FILE_MSG);
+      return { content: res.content, existed: true as const };
+    }
+    if (res.code === 'FILE_NOT_FOUND') {
+      return { content: "", existed: false as const };
+    }
+    throw new Error(res.message);
+  };
+
+  const previewBase = await loadOriginal();
+  const previewDiff = applyUnifiedDiffSafe(previewBase.content, diff);
+  const [origRes, modRes] = await Promise.all([
+    deps.tokenService.countTokens(previewBase.content),
+    deps.tokenService.countTokens(previewDiff.result),
+  ]);
+  const previewPayload = {
+    type: "preview" as const,
+    path: val.absolutePath,
+    applied: previewDiff.applied,
+    error: previewDiff.error || undefined,
+    diff,
+    original: clipText(previewBase.content, 20_000),
+    modified: clipText(previewDiff.result, 20_000),
+    tokenCounts: { original: origRes.count, modified: modRes.count },
+    existed: previewBase.existed,
+  } as const;
+
   if (!apply) {
-    const r = await readTextFile(val.absolutePath);
-    if (!r.ok) throw new Error(r.message);
-    if (r.isLikelyBinary) throw new Error(BINARY_FILE_MSG);
-    const original = r.content;
-    const { result: modified, applied, error: applyError } = applyUnifiedDiffSafe(original, diff);
-    const [origRes, modRes] = await Promise.all([
-      deps.tokenService.countTokens(original),
-      deps.tokenService.countTokens(modified),
-    ]);
-    const originalTokens = origRes.count;
-    const modifiedTokens = modRes.count;
-    return record(
-      { path, diff, apply },
-      {
-        type: "preview" as const,
-        path: val.absolutePath,
-        applied,
-        error: applyError || undefined,
-        diff,
-        original: clipText(original, 20_000),
-        modified: clipText(modified, 20_000),
-        tokenCounts: { original: originalTokens, modified: modifiedTokens },
-      }
-    );
+    return record({ path, diff, apply }, previewPayload);
   }
   if (!deps.config?.ENABLE_FILE_WRITE) {
     return record(
@@ -60,10 +67,9 @@ export async function handleEditUnified(
       { type: "error" as const, code: "APPROVAL_NEEDED", message: "Apply requires approval" }
     );
   }
-  const r0 = await readTextFile(val.absolutePath);
-  if (!r0.ok) throw new Error(r0.message);
-  if (r0.isLikelyBinary) throw new Error(BINARY_FILE_MSG);
-  const appliedRes = applyUnifiedDiffSafe(r0.content, diff);
+
+  const applyBase = await loadOriginal();
+  const appliedRes = applyUnifiedDiffSafe(applyBase.content, diff);
   if (!appliedRes.applied) {
     return record(
       { path, diff, apply },
@@ -72,7 +78,10 @@ export async function handleEditUnified(
   }
   const w = await writeTextFile(val.absolutePath, appliedRes.result);
   if (!w.ok) throw new Error(w.message);
-  return record({ path, diff, apply }, { type: "applied" as const, path: val.absolutePath, bytes: w.bytes });
+  return record(
+    { path, diff, apply },
+    { type: "applied" as const, path: val.absolutePath, bytes: w.bytes, existed: applyBase.existed }
+  );
 }
 
 export async function handleEditBlock(

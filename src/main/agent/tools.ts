@@ -7,7 +7,6 @@ import { createSearchTool } from "./tools/search-tool";
 import { createEditTool } from "./tools/edit/edit-tool";
 import { createContextTool } from "./tools/context-tool";
 import { createTerminalTool } from "./tools/terminal-tool";
-import { createTemplateTool } from "./tools/template-tool";
 import type { BaseToolFactoryDeps } from "./tools/shared/tool-factory-types";
 
 export function getAgentTools(deps?: {
@@ -33,7 +32,5 @@ export function getAgentTools(deps?: {
   const edit = createEditTool(baseDeps);
   const context = createContextTool(baseDeps);
   const terminal = createTerminalTool(baseDeps);
-  const generateFromTemplate = createTemplateTool(baseDeps);
-
-  return { file, search, edit, context, terminal, generateFromTemplate } as const;
+  return { file, search, edit, context, terminal } as const;
 }

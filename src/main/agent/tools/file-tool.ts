@@ -1,6 +1,6 @@
 import { tool, jsonSchema } from "ai";
 
-import { validateAndResolvePath, readTextFile, statFile as statFileFs } from "../../file-service";
+import { validateAndResolvePath, readTextFile, statFile as statFileFs, writeTextFile, deletePath, movePath } from "../../file-service";
 
 import { BINARY_FILE_MSG } from "./shared/constants";
 import type { BaseToolFactoryDeps } from "./shared/tool-factory-types";
@@ -21,9 +21,9 @@ function describeFileTool() {
       { name: "read", required: ["path"], optional: ["lines"] },
       { name: "info", required: ["path"], optional: [] },
       { name: "list", required: ["directory"], optional: ["recursive", "maxResults"] },
-      { name: "write", required: ["path", "content"], optional: [], gatedBy: "ENABLE_FILE_WRITE/APPROVAL_MODE" },
-      { name: "move", required: ["from", "to"], optional: [], gatedBy: "ENABLE_FILE_WRITE/APPROVAL_MODE" },
-      { name: "delete", required: ["path"], optional: [], gatedBy: "ENABLE_FILE_WRITE/APPROVAL_MODE" },
+      { name: "write", required: ["path", "content"], optional: ["apply"], gatedBy: "ENABLE_FILE_WRITE/APPROVAL_MODE" },
+      { name: "move", required: ["from", "to"], optional: ["apply"], gatedBy: "ENABLE_FILE_WRITE/APPROVAL_MODE" },
+      { name: "delete", required: ["path"], optional: ["apply"], gatedBy: "ENABLE_FILE_WRITE/APPROVAL_MODE" },
     ],
   } as const;
 }
@@ -118,21 +118,167 @@ async function handleFileList(
   return record({ directory: dirVal.absolutePath, items: out, truncated });
 }
 
-async function handleFileDestructive(
+async function handleFileWrite(
   params: any,
   deps: BaseToolFactoryDeps,
   record: (result: unknown) => Promise<unknown>
 ) {
-  const enabled = deps.config?.ENABLE_FILE_WRITE === true;
-  if (!enabled) return record({ type: "error" as const, code: "WRITE_DISABLED", message: "File writes are disabled" });
+  const pathParam = typeof params.path === "string" ? params.path.trim() : "";
+  const content = typeof params.content === "string" ? params.content : null;
+  const apply = params.apply === true;
+  if (!pathParam) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'path' is required for action=write" });
+  }
+  if (content === null) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'content' must be a string for action=write" });
+  }
+
+  const val = validateAndResolvePath(pathParam);
+  if (!val.ok) throw new Error(val.message);
+
+  const stat = await statFileFs(val.absolutePath);
+  if (stat.ok && stat.data.isDirectory) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "Cannot write to a directory" });
+  }
+
+  const { count } = await deps.tokenService.countTokens(content);
+  const bytes = Buffer.byteLength(content, "utf8");
+
+  if (!apply) {
+    const exists = stat.ok;
+    return record({
+      type: "preview" as const,
+      path: val.absolutePath,
+      exists,
+      bytes,
+      tokenCount: count,
+    });
+  }
+
+  if (!deps.config?.ENABLE_FILE_WRITE) {
+    return record({ type: "error" as const, code: "WRITE_DISABLED", message: "File writes are disabled" });
+  }
   if (deps.config?.APPROVAL_MODE === "always") {
-    return record({ type: "error" as const, code: "APPROVAL_NEEDED", message: "Operation requires approval" });
+    return record({ type: "error" as const, code: "APPROVAL_NEEDED", message: "Write requires approval" });
   }
-  if (params && typeof params === "object" && ("content" in params || "from" in params || "to" in params)) {
-    // Placeholder for future implementation: keep behavior explicit
-    return record({ type: "error" as const, code: "NOT_IMPLEMENTED", message: "Write path not implemented" });
+
+  const res = await writeTextFile(val.absolutePath, content);
+  if (!res.ok) throw new Error(res.message);
+  return record({
+    type: "applied" as const,
+    path: val.absolutePath,
+    bytes: res.bytes,
+    tokenCount: count,
+    existed: stat.ok,
+  });
+}
+
+async function handleFileMove(
+  params: any,
+  deps: BaseToolFactoryDeps,
+  record: (result: unknown) => Promise<unknown>
+) {
+  const from = typeof params.from === "string" ? params.from.trim() : "";
+  const to = typeof params.to === "string" ? params.to.trim() : "";
+  const apply = params.apply === true;
+  if (!from || !to) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'from' and 'to' are required for action=move" });
   }
-  return record({ type: "error" as const, code: "NOT_IMPLEMENTED", message: "Write path not implemented" });
+
+  const fromVal = validateAndResolvePath(from);
+  if (!fromVal.ok) throw new Error(fromVal.message);
+  const toVal = validateAndResolvePath(to);
+  if (!toVal.ok) throw new Error(toVal.message);
+
+  const sourceStat = await statFileFs(fromVal.absolutePath);
+  if (!sourceStat.ok) throw new Error(sourceStat.message);
+  if (sourceStat.data.isDirectory) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "Moving directories is not supported" });
+  }
+
+  const destStat = await statFileFs(toVal.absolutePath);
+  const destExists = destStat.ok;
+  if (destExists && destStat.data.isDirectory) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "Destination is an existing directory" });
+  }
+  if (destExists && toVal.absolutePath !== fromVal.absolutePath) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "Destination already exists" });
+  }
+
+  if (!apply) {
+    return record({
+      type: "preview" as const,
+      from: fromVal.absolutePath,
+      to: toVal.absolutePath,
+      bytes: sourceStat.data.size,
+      destinationExists: destExists,
+    });
+  }
+
+  if (!deps.config?.ENABLE_FILE_WRITE) {
+    return record({ type: "error" as const, code: "WRITE_DISABLED", message: "File writes are disabled" });
+  }
+  if (deps.config?.APPROVAL_MODE === "always") {
+    return record({ type: "error" as const, code: "APPROVAL_NEEDED", message: "Move requires approval" });
+  }
+
+  const moveRes = await movePath(fromVal.absolutePath, toVal.absolutePath);
+  if (!moveRes.ok) throw new Error(moveRes.message);
+  return record({
+    type: "applied" as const,
+    from: fromVal.absolutePath,
+    to: toVal.absolutePath,
+    bytes: moveRes.bytes ?? sourceStat.data.size,
+  });
+}
+
+async function handleFileDelete(
+  params: any,
+  deps: BaseToolFactoryDeps,
+  record: (result: unknown) => Promise<unknown>
+) {
+  const pathParam = typeof params.path === "string" ? params.path.trim() : "";
+  const apply = params.apply === true;
+  if (!pathParam) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "'path' is required for action=delete" });
+  }
+
+  const val = validateAndResolvePath(pathParam);
+  if (!val.ok) throw new Error(val.message);
+  const stat = await statFileFs(val.absolutePath);
+  if (!stat.ok) {
+    if (!apply) {
+      return record({ type: "preview" as const, path: val.absolutePath, exists: false });
+    }
+    throw new Error(stat.message);
+  }
+  if (stat.data.isDirectory) {
+    return record({ type: "error" as const, code: "VALIDATION_ERROR", message: "Deleting directories is not supported" });
+  }
+
+  if (!apply) {
+    return record({
+      type: "preview" as const,
+      path: val.absolutePath,
+      exists: true,
+      bytes: stat.data.size,
+    });
+  }
+
+  if (!deps.config?.ENABLE_FILE_WRITE) {
+    return record({ type: "error" as const, code: "WRITE_DISABLED", message: "File writes are disabled" });
+  }
+  if (deps.config?.APPROVAL_MODE === "always") {
+    return record({ type: "error" as const, code: "APPROVAL_NEEDED", message: "Delete requires approval" });
+  }
+
+  const del = await deletePath(val.absolutePath);
+  if (!del.ok) throw new Error(del.message);
+  return record({
+    type: "applied" as const,
+    path: val.absolutePath,
+    bytes: del.bytes ?? stat.data.size,
+  });
 }
 
 export function createFileTool(deps: BaseToolFactoryDeps) {
@@ -189,9 +335,9 @@ export function createFileTool(deps: BaseToolFactoryDeps) {
       if (action === "read") return handleFileRead(params, deps, record);
       if (action === "info") return handleFileInfo(params, record);
       if (action === "list") return handleFileList(params, deps, record);
-      if (action === "write" || action === "move" || action === "delete") {
-        return handleFileDestructive(params, deps, record);
-      }
+      if (action === "write") return handleFileWrite(params, deps, record);
+      if (action === "move") return handleFileMove(params, deps, record);
+      if (action === "delete") return handleFileDelete(params, deps, record);
 
       return record({ type: "error" as const, code: "INVALID_ACTION", message: `Unknown file.action: ${action}` });
     },

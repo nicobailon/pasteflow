@@ -24,6 +24,10 @@ Build precise, token-efficient context from any codebase. Select exact files and
 - **Per-Item Breakdown**: File and line-range level token counts via API and CLI
 - **Batch Processing**: Efficient token counting for large file lists
 
+### Agent Tools
+- **Writable File Operations**: The `file` tool now previews and applies writes, moves, and deletes (when enabled). Previews surface byte + token counts and respect approval mode before mutating files.
+- **Diff-First Scaffolding**: `edit.diff` previews can target non-existent files and create them when applied, replacing the old template scaffolding workflow.
+
 ### Pack Workflow
 - Progressive preview: background processing without blocking the UI
 - Smooth flow: Pack → Preview → Copy

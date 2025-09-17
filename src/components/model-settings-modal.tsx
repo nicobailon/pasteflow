@@ -243,7 +243,6 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
           { name: 'edit', description: 'Editing utilities', enabled: true },
           { name: 'context', description: 'Context utilities', enabled: true },
           { name: 'terminal', description: 'Terminal control', enabled: true },
-          { name: 'generateFromTemplate', description: 'Scaffold previews', enabled: true },
         ]);
       }
     })();

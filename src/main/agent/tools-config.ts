@@ -10,7 +10,7 @@ export function listToolNames(): string[] {
   try {
     return getToolCatalog().map((t) => t.name);
   } catch {
-    return ["file", "search", "edit", "context", "terminal", "generateFromTemplate"];
+    return ["file", "search", "edit", "context", "terminal"];
   }
 }
 

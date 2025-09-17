@@ -1,10 +1,66 @@
 import { getAgentTools } from "../../main/agent/tools";
+import { getEnvAgentConfig } from "../../main/agent/config";
 
 // Mocks
-jest.mock("../../main/file-service", () => ({
-  validateAndResolvePath: (p: string) => ({ ok: true, absolutePath: p }),
-  readTextFile: async (_p: string) => ({ ok: true, content: "line1\nline2", isLikelyBinary: false }),
-}));
+jest.mock("../../main/file-service", () => {
+  const memory = new Map<string, string>([["/repo/a.txt", "line1\nline2"]]);
+  const statFor = (path: string) => {
+    const content = memory.get(path);
+    if (!content) {
+      return { ok: false as const, code: 'FILE_NOT_FOUND' as const, message: 'File not found' };
+    }
+    const bytes = Buffer.byteLength(content, 'utf8');
+    return {
+      ok: true as const,
+      data: {
+        name: path.split('/').pop() || path,
+        path,
+        size: bytes,
+        isDirectory: false,
+        isBinary: false,
+        mtimeMs: Date.now(),
+        fileType: null,
+      },
+    };
+  };
+
+  return {
+    validateAndResolvePath: (p: string) => ({ ok: true as const, absolutePath: p }),
+    readTextFile: async (p: string) => {
+      const content = memory.get(p);
+      if (!content) {
+        return { ok: false as const, code: 'FILE_NOT_FOUND' as const, message: 'File not found' };
+      }
+      return { ok: true as const, content, isLikelyBinary: false };
+    },
+    writeTextFile: async (p: string, content: string) => {
+      memory.set(p, content);
+      return { ok: true as const, bytes: Buffer.byteLength(content, 'utf8') };
+    },
+    statFile: statFor,
+    deletePath: async (p: string) => {
+      const entry = memory.get(p);
+      if (!entry) {
+        return { ok: false as const, code: 'FILE_NOT_FOUND' as const, message: 'File not found' };
+      }
+      memory.delete(p);
+      return { ok: true as const, removed: 'file' as const, bytes: Buffer.byteLength(entry, 'utf8') };
+    },
+    movePath: async (from: string, to: string) => {
+      const entry = memory.get(from);
+      if (!entry) {
+        return { ok: false as const, code: 'FILE_NOT_FOUND' as const, message: 'Source file not found' };
+      }
+      if (memory.has(to) && to !== from) {
+        return { ok: false as const, code: 'VALIDATION_ERROR' as const, message: 'Destination already exists' };
+      }
+      memory.delete(from);
+      memory.set(to, entry);
+      return { ok: true as const, bytes: Buffer.byteLength(entry, 'utf8') };
+    },
+    __getMemory: () => memory,
+  };
+});
 
 jest.mock("../../services/token-service-main", () => ({
   getMainTokenService: () => ({
@@ -51,5 +107,42 @@ describe("Agent tools - file + edit", () => {
     expect(out.applied).toBe(false);
     expect(String(out.error || "")).toContain("mismatch");
   });
-});
 
+  it("file.write previews new file and apply requires write permission", async () => {
+    const tools = getAgentTools();
+    const preview: any = await tools.file.execute({ action: 'write', path: '/repo/new-file.ts', content: 'export const x = 1;\n' });
+    expect(preview.type).toBe('preview');
+    expect(preview.exists).toBe(false);
+    expect(preview.bytes).toBeGreaterThan(0);
+
+    const applied: any = await tools.file.execute({ action: 'write', path: '/repo/new-file.ts', content: 'export const x = 1;\n', apply: true });
+    expect(applied?.type).toBe('error');
+    expect(applied?.code).toBe('WRITE_DISABLED');
+  });
+
+  it("file.write applies when writes enabled", async () => {
+    const baseConfig = getEnvAgentConfig();
+    const tools = getAgentTools({ config: { ...baseConfig, ENABLE_FILE_WRITE: true, APPROVAL_MODE: 'never' } });
+    const applied: any = await tools.file.execute({ action: 'write', path: '/repo/new-file.ts', content: 'export const y = 2;\n', apply: true });
+    expect(applied.type).toBe('applied');
+    const fileService = jest.requireMock("../../main/file-service") as any;
+    expect(fileService.__getMemory().get('/repo/new-file.ts')).toContain('export const y = 2');
+  });
+
+  it("edit.diff can create a brand new file when writes enabled", async () => {
+    const baseConfig = getEnvAgentConfig();
+    const tools = getAgentTools({ config: { ...baseConfig, ENABLE_FILE_WRITE: true, APPROVAL_MODE: 'never' } });
+    const diff = [
+      "@@ -0,0 +1,3 @@",
+      "+export function Example() {",
+      "+  return 'ok';",
+      "+}",
+    ].join("\n");
+
+    const applied: any = await tools.edit.execute({ path: '/repo/new-component.ts', diff, apply: true });
+    expect(applied.type).toBe('applied');
+    const fileService = jest.requireMock("../../main/file-service") as any;
+    const contents = fileService.__getMemory().get('/repo/new-component.ts');
+    expect(contents).toContain("return 'ok'");
+  });
+});

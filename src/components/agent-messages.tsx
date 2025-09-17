@@ -16,7 +16,6 @@ const FALLBACK_TOOL_CATALOG: readonly { name: string; description: string }[] = 
   { name: 'edit', description: 'Edit: diff/block/multi; apply gated' },
   { name: 'context', description: 'Context utilities: summary/expand/search/tools' },
   { name: 'terminal', description: 'Terminal: start/interact/output/list/kill (gated)' },
-  { name: 'generateFromTemplate', description: 'Scaffold component/hook/api-route/test (no writes)' },
 ] as const;
 
 // Deduplicate noisy diagnostic logs per assistant message id
