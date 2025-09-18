@@ -55,7 +55,8 @@ module.exports = {
         '<rootDir>/src/__tests__/test-utils/',
         '<rootDir>/src/__tests__/test-helpers/',
         '<rootDir>/src/__tests__/helpers/',
-        '<rootDir>/src/__tests__/__mocks__/'
+        '<rootDir>/src/__tests__/__mocks__/',
+        '<rootDir>/tests/e2e/'
       ],
       // Coverage is managed at the root level
     },

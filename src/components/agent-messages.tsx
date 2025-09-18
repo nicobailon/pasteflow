@@ -30,7 +30,6 @@ interface AgentMessagesProps {
   readonly bypassApprovals: boolean;
   readonly onToggleBypass: (v: boolean) => void;
   readonly modelId: string | null;
-  readonly approvalsEnabled: boolean;
 }
 
 const AgentMessages: React.FC<AgentMessagesProps> = ({
@@ -41,7 +40,6 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
   bypassApprovals,
   onToggleBypass,
   modelId,
-  approvalsEnabled,
 }) => {
   // Preference: default collapsed/expanded for reasoning blocks
   const [defaultReasoningCollapsed, setDefaultReasoningCollapsed] = React.useState<boolean>(false);
@@ -100,8 +98,8 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
 
   return (
     <div className="agent-messages" aria-live="polite">
-      {approvalsEnabled && sessionId ? (
-        <ApprovalTimeline sessionId={sessionId} approvalsEnabled={approvalsEnabled} />
+      {sessionId ? (
+        <ApprovalTimeline sessionId={sessionId} approvalsEnabled={true} />
       ) : null}
       {messages.length === 0 ? (
         <div className="agent-banner">Start a conversation or send packed content.</div>
@@ -186,7 +184,6 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
                   sessionId={sessionId || undefined}
                   skipApprovals={bypassApprovals}
                   onToggleSkipApprovals={async (v) => onToggleBypass(Boolean(v))}
-                  approvalsEnabled={approvalsEnabled}
                 />
               ) : null}
               {role === 'user' && (() => {

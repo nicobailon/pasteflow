@@ -12,7 +12,7 @@ import { composeEffectiveSystemPrompt } from '../agent/system-prompt';
 import { getAgentTools } from '../agent/tools';
 import type { AgentSecurityManager } from '../agent/security-manager';
 import type { ApprovalsService } from '../agent/approvals-service';
-import { capturePreviewIfAny, isApprovalsFeatureEnabled } from '../agent/preview-capture';
+import { capturePreviewIfAny } from '../agent/preview-capture';
 import { getEnabledToolsSet } from '../agent/tools-config';
 import type { ContextResult } from '../agent/tool-types';
 import type { ChatSessionId } from '../agent/preview-registry';
@@ -185,9 +185,6 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
       return AgentSecurityManager.create({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> } });
     })();
     const approvalsService = deps.approvalsService;
-    const approvalsEnabled = approvalsService
-      ? ((await isApprovalsFeatureEnabled(deps.db)) && cfg.APPROVAL_MODE !== 'never')
-      : false;
     const toolsAll = getAgentTools({
       signal: controller.signal,
       security,
@@ -224,7 +221,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
           }
         }
 
-        if (approvalsService && approvalsEnabled && executionId !== null) {
+        if (approvalsService && executionId !== null) {
           await capturePreviewIfAny({
             service: approvalsService,
             toolExecutionId: executionId,
@@ -232,7 +229,6 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
             toolName: String(name),
             args,
             result: typedResult,
-            approvalsEnabled,
             logger,
           });
         }

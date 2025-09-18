@@ -81,9 +81,25 @@ export class DatabaseBridge {
   async initialize(maxRetries = 3, retryDelay = 1000): Promise<void> {
     if (this.initialized) return;
 
-    const userDataPath = app.getPath('userData');
+    const overrideUserData = typeof process.env.PF_USER_DATA_DIR === 'string' && process.env.PF_USER_DATA_DIR.trim().length > 0
+      ? path.resolve(process.env.PF_USER_DATA_DIR)
+      : null;
+    const userDataPath = (() => {
+      if (overrideUserData) return overrideUserData;
+      try {
+        if (typeof app?.getPath === 'function') {
+          return app.getPath('userData');
+        }
+      } catch {
+        // fall back to working directory
+      }
+      return path.resolve(process.cwd(), '.pasteflow-user-data');
+    })();
     const dbPath = path.join(userDataPath, 'pasteflow.db');
-    
+
+    if (overrideUserData) {
+      console.log('[DatabaseBridge] Using PF_USER_DATA_DIR override:', overrideUserData);
+    }
     console.log('Initializing PasteFlow database at:', dbPath);
     
     let lastError: Error | undefined;
@@ -330,6 +346,11 @@ export class DatabaseBridge {
     return this.db.getPreviewById(id);
   }
 
+  async updatePreviewDetail(input: { id: PreviewId; patch: Readonly<Record<string, unknown>> }): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.updatePreviewDetail(input);
+  }
+
   async getApprovalById(id: string): Promise<ApprovalRow | null> {
     if (!this.db) throw new Error('Database not initialized');
     return this.db.getApprovalById(id);
@@ -363,6 +384,11 @@ export class DatabaseBridge {
   async listApprovalsForExport(sessionId: ChatSessionId): Promise<ApprovalsExportResult> {
     if (!this.db) throw new Error('Database not initialized');
     return this.db.listApprovalsForExport(sessionId);
+  }
+
+  async pruneApprovals(olderThanTs: number): Promise<{ previews: number; approvals: number }> {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.pruneApprovals(olderThanTs);
   }
 
   async insertUsageSummary(sessionId: string, inputTokens: number | null, outputTokens: number | null, totalTokens: number | null) {

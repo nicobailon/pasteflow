@@ -1,6 +1,5 @@
 import { makePreviewId, hashPreview, nowUnixMs, type PreviewEnvelope, type ToolArgsSnapshot, type ToolName, type ChatSessionId } from "./preview-registry";
 import type { ApprovalsService } from "./approvals-service";
-import type { DatabaseBridge } from "../db/database-bridge";
 
 const TOOL_NAMES: readonly ToolName[] = ["file", "edit", "terminal", "search", "context"];
 
@@ -80,13 +79,11 @@ export type CapturePreviewOptions = {
   toolName: string;
   args: unknown;
   result: unknown;
-  approvalsEnabled: boolean;
   logger?: Pick<typeof console, "log" | "warn" | "error">;
 };
 
 export async function capturePreviewIfAny(options: CapturePreviewOptions): Promise<void> {
-  const { approvalsEnabled, result, service, logger } = options;
-  if (!approvalsEnabled) return;
+  const { result, service, logger } = options;
   if (!isPreviewResult(result)) return;
 
   try {
@@ -138,26 +135,4 @@ export async function capturePreviewIfAny(options: CapturePreviewOptions): Promi
   } catch (error) {
     logger?.warn?.("[Approvals] capturePreviewIfAny error", error);
   }
-}
-
-export async function isApprovalsFeatureEnabled(db: DatabaseBridge): Promise<boolean> {
-  const envFlag = typeof process.env.AGENT_APPROVAL_V2 === "string" ? process.env.AGENT_APPROVAL_V2.trim().toLowerCase() : undefined;
-  if (envFlag === "true" || envFlag === "1" || envFlag === "yes") {
-    return true;
-  }
-  if (envFlag === "false" || envFlag === "0" || envFlag === "no") {
-    return false;
-  }
-  try {
-    const pref = await db.getPreference("agent.approvals.v2Enabled");
-    if (typeof pref === "boolean") return pref;
-    if (typeof pref === "string") {
-      const normalized = pref.trim().toLowerCase();
-      if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
-      if (normalized === "false" || normalized === "0" || normalized === "no") return false;
-    }
-  } catch {
-    // ignore preference errors
-  }
-  return false;
 }

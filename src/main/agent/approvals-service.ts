@@ -1,10 +1,14 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 
 import type { AgentSecurityManager } from "./security-manager";
 import { getAgentTools } from "./tools";
 import type { PreviewEnvelope, PreviewId, ChatSessionId, ToolName, ToolArgsSnapshot, UnixMs } from "./preview-registry";
 import { assertPreviewEnvelope, nowUnixMs } from "./preview-registry";
+import { logApprovalEvent } from "./approvals-telemetry";
 import type { DatabaseBridge, InsertApprovalInput, UpdateApprovalFeedbackInput, UpdateApprovalStatusInput } from "../db/database-bridge";
+import { appendApprovalFeedbackMessage } from "./chat-storage";
 import type { PreviewRow, ApprovalRow, ApprovalStatus } from "../db/database-implementation";
 
 export type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
@@ -23,6 +27,14 @@ export type AutoRule =
   | { kind: "tool"; tool: ToolName; action?: string | readonly string[] }
   | { kind: "path"; pattern: string; tool?: ToolName }
   | { kind: "terminal"; commandIncludes?: string };
+
+export interface ToolCancellationAdapters {
+  readonly terminal?: {
+    kill(sessionId: string): Promise<void> | void;
+    onSessionCompleted?(handler: (sessionId: string) => void): () => void;
+    onSessionOutput?(handler: (sessionId: string, chunk: string) => void): () => void;
+  };
+}
 
 export interface StoredPreview {
   readonly id: PreviewId;
@@ -60,6 +72,7 @@ export interface ApprovalsServiceDeps {
   readonly broadcast?: (event: ApprovalEventPayload) => void;
   readonly logger?: Pick<typeof console, "log" | "warn" | "error">;
   readonly autoApplyCap?: number;
+  readonly cancellationAdapters?: ToolCancellationAdapters;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,6 +83,52 @@ const TOOL_NAME_SET: ReadonlySet<ToolName> = new Set(["file", "edit", "terminal"
 
 function isToolNameValue(value: unknown): value is ToolName {
   return typeof value === "string" && TOOL_NAME_SET.has(value as ToolName);
+}
+
+const FILE_PATH_KEYS = Object.freeze(["path", "file", "targetPath", "destination", "filePath", "absolutePath"]) as readonly string[];
+
+async function computeFileHash(filePath: string): Promise<string | null> {
+  try {
+    const data = await fs.readFile(filePath);
+    return createHash("sha1").update(data).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+function computeTextHash(text: string): string {
+  return createHash("sha1").update(text).digest("hex");
+}
+
+function extractDiffHash(detail: Readonly<Record<string, unknown>> | null): string | null {
+  if (!detail) return null;
+  const candidate = detail.diff ?? detail.patch ?? detail.delta;
+  if (typeof candidate === "string" && candidate.trim().length > 0) {
+    return computeTextHash(candidate);
+  }
+  return null;
+}
+
+function resolvePreviewFilePath(preview: StoredPreview): string | null {
+  const detail = preview.detail ?? null;
+  if (detail && isRecord(detail)) {
+    for (const key of FILE_PATH_KEYS) {
+      const value = (detail as Record<string, unknown>)[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value;
+      }
+    }
+  }
+  const original = preview.originalArgs;
+  if (isRecord(original)) {
+    for (const key of FILE_PATH_KEYS) {
+      const value = original[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value;
+      }
+    }
+  }
+  return null;
 }
 
 function parseJsonRecord(value: string | null, context: string): Readonly<Record<string, unknown>> | null {
@@ -157,6 +216,8 @@ export class ApprovalsService extends EventEmitter {
   private readonly logger: Pick<typeof console, "log" | "warn" | "error">;
   private autoApplyCap: number;
   private readonly autoApplyCounts = new Map<ChatSessionId, number>();
+  private readonly cancellationAdapters: ToolCancellationAdapters;
+  private readonly terminalSessionIndex = new Map<string, PreviewId>();
 
   constructor(deps: ApprovalsServiceDeps) {
     super();
@@ -166,6 +227,8 @@ export class ApprovalsService extends EventEmitter {
     this.logger = deps.logger ?? console;
     const cap = typeof deps.autoApplyCap === "number" && Number.isFinite(deps.autoApplyCap) ? deps.autoApplyCap : 5;
     this.autoApplyCap = cap > 0 ? Math.floor(cap) : 5;
+    this.cancellationAdapters = deps.cancellationAdapters ?? {};
+    this.setupTerminalAdapters();
   }
 
   async recordPreview(params: { preview: PreviewEnvelope; toolExecutionId: number }): Promise<ServiceResult<StoredPreview>> {
@@ -180,6 +243,7 @@ export class ApprovalsService extends EventEmitter {
         throw new Error("Preview not found after insert");
       }
       const stored = toStoredPreview(storedRow);
+      this.indexPreview(stored);
       return { ok: true, data: stored } as const;
     } catch (error) {
       this.logger.warn?.("[ApprovalsService] Failed to record preview", error);
@@ -227,7 +291,7 @@ export class ApprovalsService extends EventEmitter {
     }
   }
 
-  async applyApproval(params: { approvalId: string; editedPayload?: unknown }): Promise<ServiceResult<ApplyResult>> {
+  async applyApproval(params: { approvalId: string; editedPayload?: unknown; feedbackText?: string | null; feedbackMeta?: unknown; resolvedBy?: string | null }): Promise<ServiceResult<ApplyResult>> {
     try {
       const approvalRow = await this.db.getApprovalById(params.approvalId);
       if (!approvalRow) {
@@ -247,6 +311,23 @@ export class ApprovalsService extends EventEmitter {
         return { ok: false, error: { code: "PREVIEW_MISSING", message: "Preview not found for approval" } } as const;
       }
       const preview = toStoredPreview(previewRow);
+
+      const feedbackText = typeof params.feedbackText === "string" ? params.feedbackText.trim() : "";
+      const feedbackMeta = params.feedbackMeta ?? null;
+      const resolvedBy = typeof params.resolvedBy === "string" && params.resolvedBy.trim().length > 0
+        ? params.resolvedBy.trim()
+        : "user";
+
+      const isFileLikeTool = preview.tool === "file" || preview.tool === "edit";
+      const targetPath = isFileLikeTool ? resolvePreviewFilePath(preview) : null;
+      let beforeHash: string | null = null;
+      let afterHash: string | null = null;
+      let diffHash: string | null = null;
+
+      if (isFileLikeTool && targetPath) {
+        beforeHash = await computeFileHash(targetPath);
+        diffHash = extractDiffHash(preview.detail ?? null);
+      }
 
       const config = this.security.getConfig();
       if (!config.ENABLE_FILE_WRITE && preview.tool === "file") {
@@ -297,13 +378,60 @@ export class ApprovalsService extends EventEmitter {
         id: approval.id,
         status: "applied",
         resolvedAt: nowUnixMs(),
-        resolvedBy: "system",
+        resolvedBy,
       } satisfies UpdateApprovalStatusInput);
+
+      if (feedbackText.length > 0 || feedbackMeta != null) {
+        const updateFeedback: UpdateApprovalFeedbackInput = {
+          id: approval.id,
+          feedbackText: feedbackText.length > 0 ? feedbackText : null,
+          feedbackMeta: feedbackMeta ?? null,
+        };
+        try {
+          await this.db.updateApprovalFeedback(updateFeedback);
+        } catch (error) {
+          this.logger.warn?.("[ApprovalsService] Failed to persist approval feedback during apply", error);
+        }
+      }
 
       const updatedRow = await this.db.getApprovalById(approval.id);
       if (updatedRow) {
         const updated = toStoredApproval(updatedRow);
         this.emitEvent({ type: "agent:approval:update", approval: updated });
+      }
+
+      this.unindexPreview(preview);
+      logApprovalEvent({ type: "apply", previewId: preview.id, sessionId: preview.sessionId, status: "applied" });
+
+      if (feedbackText.length > 0) {
+        try {
+          await appendApprovalFeedbackMessage(preview.sessionId, approval.id, feedbackText, {
+            resolvedBy,
+            meta: feedbackMeta ?? null,
+          });
+        } catch (error) {
+          this.logger.warn?.("[ApprovalsService] Failed to append approval feedback to chat", error);
+          try {
+            await this.updatePreviewDetail(preview.id, { feedbackPersisted: false });
+          } catch (patchError) {
+            this.logger.warn?.("[ApprovalsService] Failed to mark feedbackPersisted flag", patchError);
+          }
+        }
+      }
+
+      if (isFileLikeTool && targetPath) {
+        afterHash = await computeFileHash(targetPath);
+        const detailPatch: Record<string, unknown> = {};
+        if (beforeHash) detailPatch.beforeHash = beforeHash;
+        if (afterHash) detailPatch.afterHash = afterHash;
+        if (diffHash) detailPatch.diffHash = diffHash;
+        if (Object.keys(detailPatch).length > 0) {
+          try {
+            await this.updatePreviewDetail(preview.id, detailPatch);
+          } catch (error) {
+            this.logger.warn?.("[ApprovalsService] Failed to record file hashes", error);
+          }
+        }
       }
 
       return { ok: true, data: { status: "applied", approvalId: approval.id, previewId: approval.previewId, result } } as const;
@@ -313,25 +441,32 @@ export class ApprovalsService extends EventEmitter {
     }
   }
 
-  async rejectApproval(params: { approvalId: string; feedbackText?: string | null; feedbackMeta?: unknown }): Promise<ServiceResult<StoredApproval>> {
+  async rejectApproval(params: { approvalId: string; feedbackText?: string | null; feedbackMeta?: unknown; resolvedBy?: string | null }): Promise<ServiceResult<StoredApproval>> {
     try {
       const approvalRow = await this.db.getApprovalById(params.approvalId);
       if (!approvalRow) {
         return { ok: false, error: { code: "NOT_FOUND", message: "Approval not found" } } as const;
       }
+      const previewForRejection = await this.safeGetPreview(params.approvalId as PreviewId);
+
+      const feedbackText = typeof params.feedbackText === "string" ? params.feedbackText.trim() : "";
+      const feedbackMeta = params.feedbackMeta ?? null;
+      const resolvedBy = typeof params.resolvedBy === "string" && params.resolvedBy.trim().length > 0
+        ? params.resolvedBy.trim()
+        : "user";
 
       await this.db.updateApprovalStatus({
         id: params.approvalId,
         status: "rejected",
         resolvedAt: nowUnixMs(),
-        resolvedBy: "user",
+        resolvedBy,
       } satisfies UpdateApprovalStatusInput);
 
-      if (params.feedbackText || params.feedbackMeta) {
+      if (feedbackText.length > 0 || feedbackMeta != null) {
         const updateFeedback: UpdateApprovalFeedbackInput = {
           id: params.approvalId,
-          feedbackText: params.feedbackText ?? null,
-          feedbackMeta: params.feedbackMeta ?? null,
+          feedbackText: feedbackText.length > 0 ? feedbackText : null,
+          feedbackMeta: feedbackMeta ?? null,
         };
         await this.db.updateApprovalFeedback(updateFeedback);
       }
@@ -342,6 +477,25 @@ export class ApprovalsService extends EventEmitter {
       }
       const stored = toStoredApproval(row);
       this.emitEvent({ type: "agent:approval:update", approval: stored });
+      this.unindexPreview(previewForRejection ?? undefined);
+      if (previewForRejection) {
+        logApprovalEvent({ type: "reject", previewId: previewForRejection.id, sessionId: previewForRejection.sessionId, status: stored.status });
+        if (feedbackText.length > 0) {
+          try {
+            await appendApprovalFeedbackMessage(previewForRejection.sessionId, stored.id, feedbackText, {
+              resolvedBy,
+              meta: feedbackMeta ?? null,
+            });
+          } catch (error) {
+            this.logger.warn?.("[ApprovalsService] Failed to append rejection feedback to chat", error);
+            try {
+              await this.updatePreviewDetail(previewForRejection.id, { feedbackPersisted: false });
+            } catch (patchError) {
+              this.logger.warn?.("[ApprovalsService] Failed to mark feedbackPersisted flag after rejection", patchError);
+            }
+          }
+        }
+      }
       return { ok: true, data: stored } as const;
     } catch (error) {
       this.logger.error?.("[ApprovalsService] rejectApproval failed", error);
@@ -351,16 +505,36 @@ export class ApprovalsService extends EventEmitter {
 
   async cancelPreview(params: { previewId: PreviewId }): Promise<ServiceResult<null>> {
     try {
+      const preview = await this.requirePreview(params.previewId);
       const approvalRow = await this.db.getApprovalById(params.previewId);
       if (!approvalRow) {
         return { ok: false, error: { code: "NOT_FOUND", message: "Approval not found" } } as const;
       }
+      const sessionIdValue = preview.detail?.["sessionId"];
+      if (preview.tool === "terminal" && (typeof sessionIdValue === "string" || typeof sessionIdValue === "number")) {
+        try {
+          await this.cancellationAdapters.terminal?.kill?.(String(sessionIdValue));
+        } catch (error) {
+          this.logger.warn?.("[ApprovalsService] terminal cancellation failed", error);
+        }
+      }
+
+      const resolvedAt = nowUnixMs();
       await this.db.updateApprovalStatus({
         id: approvalRow.id,
         status: "failed",
-        resolvedAt: nowUnixMs(),
+        resolvedAt,
+        resolvedBy: "user",
         autoReason: "cancelled",
       });
+
+      try {
+        await this.updatePreviewDetail(preview.id, { streaming: "failed", cancelledAt: resolvedAt });
+      } catch (error) {
+        this.logger.warn?.("[ApprovalsService] Failed to persist cancellation detail", error);
+      }
+      this.unindexPreview(preview);
+      logApprovalEvent({ type: "cancel", previewId: preview.id, sessionId: preview.sessionId, status: "failed" });
       const row = await this.db.getApprovalById(params.previewId);
       if (row) {
         this.emitEvent({ type: "agent:approval:update", approval: toStoredApproval(row) });
@@ -393,6 +567,10 @@ export class ApprovalsService extends EventEmitter {
       }
       const stored = toStoredApproval(updatedRow);
       this.emitEvent({ type: "agent:approval:update", approval: stored });
+      const preview = await this.safeGetPreview(params.approvalId as PreviewId);
+      if (preview) {
+        logApprovalEvent({ type: "auto_approve", previewId: preview.id, sessionId: preview.sessionId, status: stored.status });
+      }
       return { ok: true, data: stored } as const;
     } catch (error) {
       this.logger.warn?.("[ApprovalsService] markAutoApproved failed", error);
@@ -461,6 +639,96 @@ export class ApprovalsService extends EventEmitter {
     return toStoredPreview(row);
   }
 
+  private async updatePreviewDetail(id: PreviewId, patch: Readonly<Record<string, unknown>>): Promise<void> {
+    await this.db.updatePreviewDetail({ id, patch });
+  }
+
+  private async updateStreamingState(previewId: PreviewId, state: "running" | "ready" | "failed", patch: Readonly<Record<string, unknown>> = Object.freeze({})): Promise<void> {
+    const detailPatch = Object.freeze({ streaming: state, ...patch });
+    await this.updatePreviewDetail(previewId, detailPatch);
+  }
+
+  private setupTerminalAdapters(): void {
+    const terminalAdapter = this.cancellationAdapters.terminal;
+    if (!terminalAdapter) return;
+
+    if (typeof terminalAdapter.onSessionCompleted === "function") {
+      terminalAdapter.onSessionCompleted(async (sessionId) => {
+        try {
+          await this.handleTerminalSessionCompleted(sessionId);
+        } catch (error) {
+          this.logger.warn?.("[ApprovalsService] terminal session completion handling failed", error);
+        }
+      });
+    }
+
+    if (typeof terminalAdapter.onSessionOutput === "function") {
+      terminalAdapter.onSessionOutput(async (sessionId, chunk) => {
+        try {
+          await this.handleTerminalSessionOutput(sessionId, chunk);
+        } catch (error) {
+          this.logger.warn?.("[ApprovalsService] terminal output handling failed", error);
+        }
+      });
+    }
+  }
+
+  private indexPreview(preview: StoredPreview): void {
+    const sessionValue = preview.detail?.["sessionId"];
+    if (typeof sessionValue === "string" && sessionValue.trim().length > 0) {
+      this.terminalSessionIndex.set(sessionValue, preview.id);
+      return;
+    }
+    if (typeof sessionValue === "number" && Number.isFinite(sessionValue)) {
+      this.terminalSessionIndex.set(String(sessionValue), preview.id);
+    }
+  }
+
+  private unindexPreview(preview: StoredPreview | null | undefined): void {
+    if (!preview?.detail) return;
+    const sessionValue = preview.detail["sessionId"];
+    if (typeof sessionValue === "string" && sessionValue.trim().length > 0) {
+      this.terminalSessionIndex.delete(sessionValue);
+      return;
+    }
+    if (typeof sessionValue === "number" && Number.isFinite(sessionValue)) {
+      this.terminalSessionIndex.delete(String(sessionValue));
+    }
+  }
+
+  private async handleTerminalSessionCompleted(sessionId: string): Promise<void> {
+    if (!sessionId) return;
+    const previewId = this.terminalSessionIndex.get(sessionId);
+    if (!previewId) return;
+    this.terminalSessionIndex.delete(sessionId);
+    try {
+      await this.updateStreamingState(previewId, "ready", Object.freeze({ completedAt: nowUnixMs() }));
+    } catch (error) {
+      this.logger.warn?.("[ApprovalsService] Failed to persist terminal completion state", error);
+    }
+  }
+
+  private async handleTerminalSessionOutput(sessionId: string, _chunk: string | undefined): Promise<void> {
+    if (!sessionId) return;
+    const previewId = this.terminalSessionIndex.get(sessionId);
+    if (!previewId) return;
+    try {
+      await this.updateStreamingState(previewId, "running", Object.freeze({ lastOutputAt: nowUnixMs() }));
+    } catch (error) {
+      this.logger.warn?.("[ApprovalsService] Failed to persist terminal output state", error);
+    }
+  }
+
+  private async safeGetPreview(id: PreviewId): Promise<StoredPreview | null> {
+    try {
+      const row = await this.db.getPreviewById(id);
+      return row ? toStoredPreview(row) : null;
+    } catch (error) {
+      this.logger.warn?.("[ApprovalsService] Failed to fetch preview during terminal event", error);
+      return null;
+    }
+  }
+
   private emitEvent(event: ApprovalEventPayload): void {
     this.broadcast?.(event);
     this.emit(event.type, event);
@@ -473,6 +741,8 @@ export class ApprovalsService extends EventEmitter {
       resolvedAt: nowUnixMs(),
       autoReason: reason,
     });
+    const preview = await this.safeGetPreview(approvalId as PreviewId);
+    this.unindexPreview(preview);
     const row = await this.db.getApprovalById(approvalId);
     if (row) {
       this.emitEvent({ type: "agent:approval:update", approval: toStoredApproval(row) });

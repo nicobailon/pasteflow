@@ -78,6 +78,7 @@ dist/
 
 # test coverage
 coverage/
+test-results/
 
 # cursor / cline
 .cursor-tasks.md

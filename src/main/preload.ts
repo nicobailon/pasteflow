@@ -193,9 +193,9 @@ contextBridge.exposeInMainWorld('electron', {
 
     return {
       list: async (payload: { sessionId: string }) => invoke('agent:approval:list', payload),
-      apply: async (payload: { approvalId: string }) => invoke('agent:approval:apply', payload),
-      applyWithContent: async (payload: { approvalId: string; content: unknown }) => invoke('agent:approval:apply-with-content', payload),
-      reject: async (payload: { approvalId: string; feedbackText?: string; feedbackMeta?: unknown }) => invoke('agent:approval:reject', payload),
+      apply: async (payload: { approvalId: string; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }) => invoke('agent:approval:apply', payload),
+      applyWithContent: async (payload: { approvalId: string; content: unknown; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }) => invoke('agent:approval:apply-with-content', payload),
+      reject: async (payload: { approvalId: string; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }) => invoke('agent:approval:reject', payload),
       cancel: async (payload: { previewId: string }) => invoke('agent:approval:cancel-stream', payload),
       getRules: async () => invoke('agent:approval:rules:get'),
       setRules: async (payload: { rules: readonly unknown[] }) => invoke('agent:approval:rules:set', payload),

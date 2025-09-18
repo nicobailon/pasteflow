@@ -11,17 +11,20 @@ export type ApprovalButtonDescriptor = Readonly<{
 export interface ApprovalButtonOptions {
   readonly approval: ApprovalVm;
   readonly streaming: StreamingState;
-  readonly bypassEnabled: boolean;
   readonly onApprove: () => void;
   readonly onApproveWithEdits?: () => void;
   readonly onReject: () => void;
   readonly onCancel?: () => void;
 }
 
+function isEditableTool(tool: ApprovalVm["tool"]): boolean {
+  return tool === "edit" || tool === "file";
+}
+
 export function getApprovalButtons(options: ApprovalButtonOptions): readonly ApprovalButtonDescriptor[] {
   const {
+    approval,
     streaming,
-    bypassEnabled,
     onApprove,
     onApproveWithEdits,
     onReject,
@@ -29,21 +32,24 @@ export function getApprovalButtons(options: ApprovalButtonOptions): readonly App
   } = options;
 
   const isReady = streaming === "ready";
+  const isTerminalRunning = approval.tool === "terminal" && streaming === "running";
+  const canEdit = isEditableTool(approval.tool) && typeof onApproveWithEdits === "function";
+
   const buttons: ApprovalButtonDescriptor[] = [];
 
   buttons.push({
     id: "approve",
     kind: "primary",
-    label: bypassEnabled ? "Apply now" : "Approve",
+    label: "Approve",
     disabled: !isReady,
     onSelect: onApprove,
   });
 
-  if (typeof onApproveWithEdits === "function") {
+  if (canEdit && typeof onApproveWithEdits === "function") {
     buttons.push({
       id: "approveWithEdits",
-      kind: "secondary",
-      label: "Apply with edits",
+      kind: "primary",
+      label: "Approve with edits",
       disabled: !isReady,
       onSelect: onApproveWithEdits,
     });
@@ -57,11 +63,11 @@ export function getApprovalButtons(options: ApprovalButtonOptions): readonly App
     onSelect: onReject,
   });
 
-  if (typeof onCancel === "function") {
+  if (isTerminalRunning && typeof onCancel === "function") {
     buttons.push({
       id: "cancel",
-      kind: "tertiary",
-      label: "Cancel preview",
+      kind: "secondary",
+      label: "Cancel",
       disabled: false,
       onSelect: onCancel,
     });

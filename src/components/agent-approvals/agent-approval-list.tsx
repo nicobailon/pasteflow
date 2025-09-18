@@ -5,6 +5,7 @@ import type { ApplyResult, ServiceResult, StoredApproval } from "../../main/agen
 
 import AgentApprovalCard from "./agent-approval-card";
 import AgentApprovalEmptyState from "./agent-approval-empty-state";
+import AutoApprovedTray from "./auto-approved-tray";
 import "./agent-approvals.css";
 
 export interface AgentApprovalListProps {
@@ -12,7 +13,9 @@ export interface AgentApprovalListProps {
   readonly bypassEnabled: boolean;
   readonly loading: boolean;
   readonly error: { readonly code: string; readonly message: string } | null;
-  readonly onApprove: (approvalId: string) => Promise<ServiceResult<ApplyResult>>;
+  readonly autoApproved: readonly ApprovalVm[];
+  readonly onApprove: (approvalId: string, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => Promise<ServiceResult<ApplyResult>>;
+  readonly onApproveWithEdits: (approvalId: string, content: Readonly<Record<string, unknown>>, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => Promise<ServiceResult<ApplyResult>>;
   readonly onReject: (approvalId: string, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => Promise<ServiceResult<StoredApproval>>;
   readonly onCancel: (previewId: string) => Promise<ServiceResult<null>>;
 }
@@ -22,17 +25,19 @@ const AgentApprovalList = ({
   bypassEnabled,
   loading,
   error,
+  autoApproved,
   onApprove,
+  onApproveWithEdits,
   onReject,
   onCancel,
 }: AgentApprovalListProps) => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
 
-  const handleApprove = useCallback(async (approvalId: string) => {
+  const handleApprove = useCallback(async (approvalId: string, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => {
     setBusyId(approvalId);
     try {
-      const result = await onApprove(approvalId);
+      const result = await onApprove(approvalId, options);
       if (result.ok) {
         setLastMessage(null);
       } else {
@@ -59,6 +64,20 @@ const AgentApprovalList = ({
     });
     }
   }, [onReject]);
+
+  const handleApproveWithEdits = useCallback(async (approvalId: string, content: Readonly<Record<string, unknown>>, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => {
+    setBusyId(approvalId);
+    try {
+      const result = await onApproveWithEdits(approvalId, content, options);
+      if (result.ok) {
+        setLastMessage(null);
+      } else {
+        setLastMessage(result.error.message);
+      }
+    } finally {
+      setBusyId((prev) => (prev === approvalId ? null : prev));
+    }
+  }, [onApproveWithEdits]);
 
   const handleCancel = useCallback(async (previewId: string) => {
     setBusyId(previewId);
@@ -102,8 +121,8 @@ const AgentApprovalList = ({
             <AgentApprovalCard
               key={approval.id}
               approval={approval}
-              bypassEnabled={bypassEnabled}
-              onApprove={() => handleApprove(approval.id)}
+              onApprove={(options) => handleApprove(approval.id, options)}
+              onApproveWithEdits={(content, options) => handleApproveWithEdits(approval.id, content, options)}
               onReject={(options) => handleReject(approval.id, options)}
               onCancel={cancelHandler}
             />
@@ -127,6 +146,7 @@ const AgentApprovalList = ({
         <h2>Pending approvals</h2>
         <span className="agent-approval-list__count">{sortedApprovals.length}</span>
       </header>
+      {autoApproved.length > 0 ? <AutoApprovedTray autoApproved={autoApproved} /> : null}
       {body}
       {infoMessage}
       {busyNotice}

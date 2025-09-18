@@ -158,7 +158,6 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<"openai" | "anthropic" | "openrouter" | "groq">("openai");
-  const [approvalsFeatureEnabled, setApprovalsFeatureEnabled] = useState<boolean>(false);
   const { hasOpenAIKey, checkKeyPresence } = useAgentProviderStatus();
 
   // Panel enabled only when a workspace is active and a folder is selected
@@ -416,68 +415,19 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
 
   const { usageRows, modelId, refreshUsage, sessionTotals } = useAgentUsage({ sessionId, status: status as string | null });
 
-  const approvalsState = useAgentApprovals({ sessionId, enabled: approvalsFeatureEnabled && panelEnabled });
+  const approvalsState = useAgentApprovals({ sessionId, enabled: panelEnabled });
   const bypassApprovals = approvalsState.bypassEnabled;
   const approvalItems = approvalsState.approvals;
+  const autoApprovedItems = approvalsState.autoApproved;
   const approvalsLoading = approvalsState.loading;
   const approvalsError = approvalsState.lastError;
   const approveApproval = approvalsState.approve;
+  const approveApprovalWithEdits = approvalsState.approveWithEdits;
   const rejectApproval = approvalsState.reject;
   const cancelPreview = approvalsState.cancel;
   const setBypass = approvalsState.setBypass;
 
   // Usage list and provider/model handled by useAgentUsage
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res: unknown = await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_GET, { key: 'agent.approvals.v2Enabled' });
-        const enabled = (() => {
-          if (res && typeof res === 'object' && 'success' in res && (res as { success?: boolean }).success === true) {
-            const data = (res as { data?: unknown }).data;
-            if (typeof data === 'boolean') return data;
-            if (typeof data === 'string') {
-              const norm = data.trim().toLowerCase();
-              if (norm === 'true' || norm === '1' || norm === 'yes') return true;
-              if (norm === 'false' || norm === '0' || norm === 'no') return false;
-            }
-            return Boolean(data);
-          }
-          if (typeof res === 'boolean') return res;
-          if (typeof res === 'string') {
-            const norm = res.trim().toLowerCase();
-            if (norm === 'true' || norm === '1' || norm === 'yes') return true;
-            if (norm === 'false' || norm === '0' || norm === 'no') return false;
-          }
-          return false;
-        })();
-        setApprovalsFeatureEnabled(enabled);
-      } catch {
-        setApprovalsFeatureEnabled(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    const handler = () => {
-      (async () => {
-        try {
-          const res: unknown = await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_GET, { key: 'agent.approvals.v2Enabled' });
-          const data = (res && typeof res === 'object' && 'success' in res && (res as { success: boolean }).success === true)
-            ? (res as { data?: unknown }).data : res;
-          const enabled = typeof data === 'boolean' ? data : Boolean(data);
-          setApprovalsFeatureEnabled(enabled);
-        } catch {
-          // ignore
-        }
-      })();
-    };
-    const ipc = window.electron?.ipcRenderer;
-    ipc?.on?.('/prefs/get:update', handler);
-    return () => {
-      try { ipc?.removeListener?.('/prefs/get:update', handler); } catch { /* ignore */ }
-    };
-  }, []);
 
 
 
@@ -597,6 +547,22 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
       setNotices((prev) => prev.filter((n) => n.id !== nId));
     }, durationMs);
   }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      try {
+        const detail = (event as CustomEvent<{ message?: string; variant?: 'info' | 'warning' | 'error' }>).detail;
+        if (!detail?.message) return;
+        const variant = detail.variant === 'info' ? 'info' : 'warning';
+        const duration = detail.variant === 'error' ? 2600 : 1800;
+        showTransientNotice(detail.message, variant, duration);
+      } catch {
+        // noop
+      }
+    };
+    window.addEventListener('agent:approvals:toast', handler as EventListener);
+    return () => window.removeEventListener('agent:approvals:toast', handler as EventListener);
+  }, [showTransientNotice]);
 
   // Wire "Send to Agent" global event to chat
   useSendToAgentBridge({
@@ -762,17 +728,17 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
           errorInfo={errorInfo}
           onDismissError={() => { setErrorStatus(null); setErrorInfo(null); }}
         />
-        {approvalsFeatureEnabled ? (
-          <AgentApprovalList
-            approvals={approvalItems}
-            bypassEnabled={bypassApprovals}
-            loading={approvalsLoading}
-            error={approvalsError}
-            onApprove={approveApproval}
-            onReject={rejectApproval}
-            onCancel={(previewId) => cancelPreview(previewId)}
-          />
-        ) : null}
+        <AgentApprovalList
+          approvals={approvalItems}
+          bypassEnabled={bypassApprovals}
+          loading={approvalsLoading}
+          error={approvalsError}
+          autoApproved={autoApprovedItems}
+          onApprove={approveApproval}
+          onApproveWithEdits={(approvalId, content, options) => approveApprovalWithEdits(approvalId, content, options)}
+          onReject={rejectApproval}
+          onCancel={(previewId) => cancelPreview(previewId)}
+        />
         {/* Attachments and mini file list removed in simplified panel */}
         <AgentMessages
           messages={messages as unknown[]}
@@ -782,7 +748,6 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
           bypassApprovals={bypassApprovals}
           onToggleBypass={async (v) => { void setBypass(Boolean(v)); }}
           modelId={modelId}
-          approvalsEnabled={approvalsFeatureEnabled}
         />
         <AgentStatusBanner status={status as string | null} />
 

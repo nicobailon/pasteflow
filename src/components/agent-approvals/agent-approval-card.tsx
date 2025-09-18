@@ -1,17 +1,23 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import type { ApprovalVm, StreamingState } from "../../hooks/use-agent-approvals";
 import { getApprovalButtons } from "./button-config";
 import DiffPreview from "./diff-preview";
 import JsonPreview from "./json-preview";
 import TerminalOutputView from "./terminal-output-view";
+import EditApprovalModal from "./edit-approval-modal";
+import { isPlainRecord } from "../../utils/approvals-parsers";
+
+interface FeedbackOptions {
+  readonly feedbackText?: string;
+  readonly feedbackMeta?: Record<string, unknown> | null;
+}
 
 interface AgentApprovalCardProps {
   readonly approval: ApprovalVm;
-  readonly bypassEnabled: boolean;
-  readonly onApprove: () => void;
-  readonly onApproveWithEdits?: () => void;
-  readonly onReject: (options: { readonly feedbackText?: string; readonly feedbackMeta?: Record<string, unknown> | null }) => void;
+  readonly onApprove: (options: FeedbackOptions) => void;
+  readonly onApproveWithEdits?: (content: Readonly<Record<string, unknown>>, options: FeedbackOptions) => void;
+  readonly onReject: (options: FeedbackOptions) => void;
   readonly onCancel?: () => void;
 }
 
@@ -103,16 +109,22 @@ const STREAMING_LABELS: Record<StreamingState, string> = Object.freeze({
 
 const AgentApprovalCard = ({
   approval,
-  bypassEnabled,
   onApprove,
   onApproveWithEdits,
   onReject,
   onCancel,
 }: AgentApprovalCardProps) => {
   const [feedback, setFeedback] = useState<string>("");
+  const [editModalOpen, setEditModalOpen] = useState<boolean>(false);
 
   const primaryPath = useMemo(() => extractPrimaryPath(approval.detail), [approval.detail]);
   const timestamp = useMemo(() => formatTimestamp(approval.createdAt), [approval.createdAt]);
+  const editableArgs = useMemo(() => {
+    if (isPlainRecord(approval.originalArgs)) {
+      return { ...approval.originalArgs } as Readonly<Record<string, unknown>>;
+    }
+    return Object.freeze({}) as Readonly<Record<string, unknown>>;
+  }, [approval.originalArgs]);
 
   const detailElement = useMemo(() => {
     const detail = approval.detail ?? null;
@@ -145,18 +157,42 @@ const AgentApprovalCard = ({
     return <JsonPreview value={detail} />;
   }, [approval.detail, approval.tool, approval.previewId, approval.streaming]);
 
+  const buildFeedbackOptions = useCallback((): FeedbackOptions => {
+    const trimmed = feedback.trim();
+    if (trimmed.length === 0) return {};
+    return { feedbackText: trimmed, feedbackMeta: null };
+  }, [feedback]);
+
+  const handleReject = useCallback(() => {
+    onReject(buildFeedbackOptions());
+  }, [buildFeedbackOptions, onReject]);
+
+  const handleApprove = useCallback(() => {
+    onApprove(buildFeedbackOptions());
+  }, [buildFeedbackOptions, onApprove]);
+
+  const handleApproveWithEdits = useCallback(() => {
+    setEditModalOpen(true);
+  }, []);
+
+  const handleModalClose = useCallback(() => {
+    setEditModalOpen(false);
+  }, []);
+
+  const handleModalSubmit = useCallback((content: Readonly<Record<string, unknown>>) => {
+    setEditModalOpen(false);
+    if (!onApproveWithEdits) return;
+    onApproveWithEdits(content, buildFeedbackOptions());
+  }, [buildFeedbackOptions, onApproveWithEdits]);
+
   const buttons = useMemo(() => getApprovalButtons({
     approval,
     streaming: approval.streaming,
-    bypassEnabled,
-    onApprove,
-    onApproveWithEdits,
-    onReject: () => {
-      const trimmed = feedback.trim();
-      onReject({ feedbackText: trimmed.length > 0 ? trimmed : undefined, feedbackMeta: null });
-    },
+    onApprove: handleApprove,
+    onApproveWithEdits: onApproveWithEdits ? handleApproveWithEdits : undefined,
+    onReject: handleReject,
     onCancel,
-  }), [approval, approval.streaming, bypassEnabled, onApprove, onApproveWithEdits, onReject, onCancel, feedback]);
+  }), [approval, approval.streaming, handleApprove, onApproveWithEdits, handleApproveWithEdits, handleReject, onCancel]);
 
   return (
     <article className="agent-approval-card" aria-label={`Approval request for ${approval.summary}`}>
@@ -216,6 +252,15 @@ const AgentApprovalCard = ({
           ))}
         </div>
       </footer>
+      {onApproveWithEdits ? (
+        <EditApprovalModal
+          open={editModalOpen}
+          onClose={handleModalClose}
+          initialContent={editableArgs}
+          approvalSummary={approval.summary}
+          onSubmit={handleModalSubmit}
+        />
+      ) : null}
     </article>
   );
 };

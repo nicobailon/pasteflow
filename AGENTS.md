@@ -50,15 +50,11 @@
 - use component composition 
 - use computed values, you don't need use effect
 
-## Agent Approvals UI (Phase 3)
-- Renderer approvals experience is gated by the `agent.approvals.v2Enabled` preference (and `AGENT_APPROVAL_V2` env flag).
-- When enabled, the panel uses `useAgentApprovals` to manage state/actions and renders `AgentApprovalList` between notifications and messages.
-- Preload exposes typed helpers under `window.electron.approvals` for `list`, `apply`, `reject`, `cancel`, `rules`, and live watch events; always call these instead of raw channels.
-- Legacy `AgentToolCalls` auto-approval behavior is disabled when the new UI flag is on; use the approvals list instead.
-
-## Agent Approvals Enhancements (Phase 4)
-- Approval cards render rich previews for edits and terminal output (diff chunks collapse/expand, JSON fallback for unknown previews).
-- Streaming state is tracked (`pending` → `running` → `ready`/`failed`) so Apply buttons stay disabled until previews finish; the Cancel action wires to `agent:approval:cancel-stream`.
-- Auto-approval rules live in **Settings → Auto approvals** with a simple rule builder (`tool`, `path`, `terminal`) and a per-session auto-apply cap persisted via IPC.
-- The **Approvals Timeline** appears above the message history, showing preview/decision events with anchors (cards link to `#approval-timeline-{id}` for quick navigation).
-- Session exports now bundle approvals data (`{ approvals: { previews, approvals } }`); the export section surfaces counts and links back to the timeline.
+## Agent Approvals (Phase 5)
+- Approvals are always on; the panel mounts `useAgentApprovals` unconditionally and renders `AgentApprovalList` between notifications and messages.
+- Approval cards provide: `Approve`, `Approve with edits` (diff/file previews launch a JSON modal), `Reject` (with optional feedback), and `Cancel` for running terminal previews. Buttons stay disabled until streaming reaches `ready`.
+- Reviewer feedback is persisted through the main process. Successful apply/reject calls append synthetic reviewer messages in chat and surface feedback in the approvals export payload.
+- Auto-approved items are summarised in an "Auto-approved" tray above the pending list. Each entry links back to the timeline anchor for the preview.
+- Timeline coverage remains: `ApprovalTimeline` always renders for active sessions and mirrors apply/reject/cancel updates from the main process.
+- Preload continues to expose typed helpers under `window.electron.approvals` for `list`, `apply`, `applyWithContent`, `reject`, `cancel`, `getRules`, `setRules`, and `watch`—always use these IPC-safe wrappers.
+- Session exports now embed approvals data with preview detail hashes (`beforeHash`, `afterHash`, `diffHash`) and reviewer feedback for downstream auditing.

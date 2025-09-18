@@ -3,11 +3,6 @@ import type { DatabaseBridge } from "../db/database-bridge";
 import { makePreviewId } from "../agent/preview-registry";
 import { handleApprovalList, handleApprovalApply, handleApprovalRulesGet, handleApprovalRulesSet } from "../approvals-ipc";
 
-const mockIsApprovalsEnabled = jest.fn();
-jest.mock("../agent/preview-capture", () => ({
-  isApprovalsFeatureEnabled: (async (db: unknown) => mockIsApprovalsEnabled(db))
-}));
-
 function createDeps(overrides?: {
   service?: Partial<ApprovalsService> | null;
   database?: Partial<DatabaseBridge> | null;
@@ -29,12 +24,8 @@ function createDeps(overrides?: {
 }
 
 describe("approval IPC handlers", () => {
-  beforeEach(() => {
-    mockIsApprovalsEnabled.mockReset();
-  });
 
   it("returns service unavailable when approvals service missing", async () => {
-    mockIsApprovalsEnabled.mockResolvedValue(true);
     const result = await handleApprovalList({ sessionId: "00000000-0000-4000-8000-000000000010" }, createDeps({ service: null }));
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected service unavailable");
@@ -42,7 +33,6 @@ describe("approval IPC handlers", () => {
   });
 
   it("validates request payloads", async () => {
-    mockIsApprovalsEnabled.mockResolvedValue(true);
     const deps = createDeps();
     const result = await handleApprovalList({ sessionId: "not-a-uuid" }, deps);
     expect(result.ok).toBe(false);
@@ -50,17 +40,7 @@ describe("approval IPC handlers", () => {
     expect(result.error.code).toBe("INVALID_PARAMS");
   });
 
-  it("blocks when feature disabled", async () => {
-    mockIsApprovalsEnabled.mockResolvedValue(false);
-    const deps = createDeps();
-    const result = await handleApprovalList({ sessionId: "00000000-0000-4000-8000-000000000000" }, deps);
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected feature disabled");
-    expect(result.error.code).toBe("FEATURE_DISABLED");
-  });
-
   it("delegates to approvals service on success", async () => {
-    mockIsApprovalsEnabled.mockResolvedValue(true);
     const listApprovals = jest.fn(async () => ({ ok: true, data: { previews: [1], approvals: [2] } } as any));
     const deps = createDeps({ service: { listApprovals } as Partial<ApprovalsService> });
     const response = await handleApprovalList({ sessionId: "00000000-0000-4000-8000-000000000001" }, deps);
@@ -69,12 +49,11 @@ describe("approval IPC handlers", () => {
   });
 
   it("applies approval via service", async () => {
-    mockIsApprovalsEnabled.mockResolvedValue(true);
     const applyApproval = jest.fn(async ({ approvalId }: { approvalId: string }) => ({ ok: true as const, data: { status: "applied" as const, approvalId, previewId: makePreviewId(), result: {} } })) as ApprovalsService["applyApproval"];
     const deps = createDeps({ service: { applyApproval } });
     const res = await handleApprovalApply({ approvalId: "00000000-0000-4000-8000-000000000002" }, deps);
     expect(res.ok).toBe(true);
-    expect(applyApproval).toHaveBeenCalledWith({ approvalId: "00000000-0000-4000-8000-000000000002" });
+    expect(applyApproval).toHaveBeenCalledWith(expect.objectContaining({ approvalId: "00000000-0000-4000-8000-000000000002" }));
   });
 
   it("reads approval rules when available", async () => {

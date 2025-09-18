@@ -1,18 +1,18 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import AgentApprovalCard from "../components/agent-approvals/agent-approval-card";
 import type { ApprovalVm } from "../hooks/use-agent-approvals";
 
-const sampleApproval: ApprovalVm = {
+const baseApproval: ApprovalVm = {
   id: "00000000-0000-0000-0000-000000000222",
-  previewId: "00000000-0000-0000-0000-000000000222" as unknown as ApprovalVm["previewId"],
-  sessionId: "00000000-0000-0000-0000-000000000001" as unknown as ApprovalVm["sessionId"],
+  previewId: "00000000-0000-0000-0000-000000000222" as ApprovalVm["previewId"],
+  sessionId: "00000000-0000-0000-0000-000000000001" as ApprovalVm["sessionId"],
   toolExecutionId: 5,
-  tool: "terminal",
-  action: "run",
-  summary: "Run npm test",
-  detail: Object.freeze({ command: "npm test", path: "/repo" }),
-  originalArgs: Object.freeze({ command: "npm test" }),
+  tool: "file",
+  action: "write",
+  summary: "Write file",
+  detail: Object.freeze({ path: "/repo/index.ts" }),
+  originalArgs: Object.freeze({ path: "/repo/index.ts", content: "console.log('hello');" }),
   createdAt: 1700000001000,
   hash: "hash",
   status: "pending",
@@ -22,43 +22,75 @@ const sampleApproval: ApprovalVm = {
   streaming: "ready",
 };
 
-describe("AgentApprovalCard", () => {
-  it("renders summary and detail information", () => {
-    render(
-      <AgentApprovalCard
-        approval={sampleApproval}
-        bypassEnabled={false}
-        onApprove={() => {}}
-        onReject={() => {}}
-      />
-    );
+function renderCard(overrides?: Partial<ApprovalVm>, handlers?: {
+  onApprove?: jest.Mock;
+  onApproveWithEdits?: jest.Mock;
+  onReject?: jest.Mock;
+  onCancel?: jest.Mock;
+}) {
+  const approval = Object.freeze({ ...baseApproval, ...overrides }) as ApprovalVm;
+  const onApprove = handlers?.onApprove ?? jest.fn();
+  const onApproveWithEdits = handlers?.onApproveWithEdits ?? jest.fn();
+  const onReject = handlers?.onReject ?? jest.fn();
+  const onCancel = handlers?.onCancel ?? jest.fn();
+  render(
+    <AgentApprovalCard
+      approval={approval}
+      onApprove={onApprove}
+      onApproveWithEdits={onApproveWithEdits}
+      onReject={onReject}
+      onCancel={onCancel}
+    />
+  );
+  return { approval, onApprove, onApproveWithEdits, onReject, onCancel };
+}
 
-    expect(screen.getByText("Run npm test")).toBeInTheDocument();
-    expect(screen.getByText(/command/)).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /view in timeline/i });
-    expect(link).toHaveAttribute("href", expect.stringContaining("approval-timeline"));
+describe("AgentApprovalCard", () => {
+  it("renders summary and path details", () => {
+    renderCard();
+    expect(screen.getByText("Write file")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view in timeline/i })).toHaveAttribute("href", expect.stringContaining("approval-timeline"));
   });
 
-  it("calls approve and reject handlers", () => {
-    const approve = jest.fn();
-    const reject = jest.fn();
+  it("sends trimmed feedback on approve", () => {
+    const { onApprove } = renderCard();
+    const textarea = screen.getByLabelText(/Feedback/);
+    fireEvent.change(textarea, { target: { value: "  Approved with notes  " } });
+    fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
+    expect(onApprove).toHaveBeenCalledWith({ feedbackText: "Approved with notes", feedbackMeta: null });
+  });
 
-    render(
-      <AgentApprovalCard
-        approval={sampleApproval}
-        bypassEnabled={false}
-        onApprove={approve}
-        onReject={reject}
-      />
+  it("opens edit modal and submits edited payload", async () => {
+    const { onApproveWithEdits } = renderCard({ tool: "edit" });
+    fireEvent.click(screen.getByRole("button", { name: /approve with edits/i }));
+    const editor = await screen.findByLabelText(/JSON overrides/i);
+    fireEvent.change(editor, { target: { value: '{"path":"/repo/index.ts","content":"updated"}' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /apply edits/i }));
+    });
+    expect(onApproveWithEdits).toHaveBeenCalledWith(
+      { path: "/repo/index.ts", content: "updated" },
+      {}
     );
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: /Approve/i }));
-    expect(approve).toHaveBeenCalled();
-
+  it("invokes reject handler with feedback", () => {
+    const { onReject } = renderCard();
     const textarea = screen.getByLabelText(/Feedback/);
     fireEvent.change(textarea, { target: { value: "Needs revision" } });
-    fireEvent.click(screen.getByRole("button", { name: /Reject/i }));
+    fireEvent.click(screen.getByRole("button", { name: /reject/i }));
+    expect(onReject).toHaveBeenCalledWith({ feedbackText: "Needs revision", feedbackMeta: null });
+  });
 
-    expect(reject).toHaveBeenCalledWith({ feedbackText: "Needs revision", feedbackMeta: null });
+  it("exposes cancel action for running terminal previews", () => {
+    const { onCancel } = renderCard({ tool: "terminal", streaming: "running", detail: Object.freeze({ sessionId: "abc", command: "ls" }) });
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("disables approve buttons until preview ready", () => {
+    renderCard({ streaming: "pending" });
+    expect(screen.getByRole("button", { name: /^approve$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /approve with edits/i })).toBeDisabled();
   });
 });

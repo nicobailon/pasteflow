@@ -1,6 +1,7 @@
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+
 import { app } from "electron";
 
 type UIMessage = any; // `@ai-sdk/react` UI message object; kept loose for Phase 1
@@ -40,8 +41,7 @@ export type AgentThreadFileV1 = {
 const THREADS_DIR_NAME = ".agent-threads";
 
 export function getThreadsRoot(): string {
-  const root = path.join(app.getPath("userData"), THREADS_DIR_NAME);
-  return root;
+  return path.join(app.getPath("userData"), THREADS_DIR_NAME);
 }
 
 export function getWorkspaceKey(ws: WorkspaceRef): string {
@@ -49,13 +49,11 @@ export function getWorkspaceKey(ws: WorkspaceRef): string {
     ? String(ws.id)
     : safeSha1(ws.folderPath || ws.name || randomUUID());
   // Make filename/dir-safe: allow alnum, dash, underscore
-  return raw.replace(/[^a-zA-Z0-9_-]/g, "-");
+  return raw.replace(/[^\w-]/g, "-");
 }
 
 export function getWorkspaceDir(ws: WorkspaceRef): string {
-  const root = getThreadsRoot();
-  const dir = path.join(root, getWorkspaceKey(ws));
-  return dir;
+  return path.join(getThreadsRoot(), getWorkspaceKey(ws));
 }
 
 // Note: all directories in this module are created via async fs.promises.mkdir
@@ -259,8 +257,8 @@ export async function saveSnapshot(input: {
   messages: UIMessage[];
   meta?: Partial<AgentThreadFileV1["meta"]>;
 }): Promise<{ ok: true; filePath: string; created: boolean } | { ok: false; error: string }> {
-  const { sessionId, workspace, messages } = input;
-  const metaInput = input.meta || {};
+  const { sessionId, workspace, messages, meta: rawMeta } = input;
+  const metaInput = rawMeta ?? {};
   const root = getThreadsRoot();
   const fp = getThreadFilePath(workspace, sessionId);
   if (!isWithinRoot(fp, root)) {
@@ -292,10 +290,12 @@ export async function saveSnapshot(input: {
   const provider = metaInput.provider ?? existing?.meta.provider;
   const messageCount = truncated.length;
 
+  const { id: workspaceId, name: workspaceName, folderPath } = workspace;
+
   const toWrite: AgentThreadFileV1 = {
     version: 1,
     sessionId,
-    workspace: { id: workspace.id, name: workspace.name, folderPath: workspace.folderPath },
+    workspace: { id: workspaceId, name: workspaceName, folderPath },
     meta: {
       title,
       createdAt,
@@ -311,4 +311,69 @@ export async function saveSnapshot(input: {
 
   await safeWriteJsonAtomic(fp, toWrite);
   return { ok: true, filePath: fp, created };
+}
+
+type FeedbackAppendOptions = {
+  readonly resolvedBy?: string | null;
+  readonly meta?: unknown;
+};
+
+function isFeedbackOptions(value: unknown): value is FeedbackAppendOptions {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    Object.prototype.hasOwnProperty.call(record, "resolvedBy") ||
+    Object.prototype.hasOwnProperty.call(record, "meta")
+  );
+}
+
+export async function appendApprovalFeedbackMessage(sessionId: string, approvalId: string, text: string, metaOrOptions?: unknown): Promise<void> {
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (!trimmed) return;
+
+  const thread = await loadThread(sessionId);
+  if (!thread) return;
+
+  const options: FeedbackAppendOptions = isFeedbackOptions(metaOrOptions)
+    ? metaOrOptions as FeedbackAppendOptions
+    : { meta: metaOrOptions };
+
+  const workspace = thread.workspace;
+  if (!workspace || typeof workspace !== "object") return;
+
+  const root = getThreadsRoot();
+  const fp = getThreadFilePath(workspace as WorkspaceRef, sessionId);
+  if (!isWithinRoot(fp, root)) return;
+
+  const now = Date.now();
+  const messages = Array.isArray(thread.messages) ? [...thread.messages] : [];
+
+  const feedbackMessage: Record<string, unknown> = {
+    id: `approval-feedback-${approvalId}-${now}`,
+    role: "user",
+    name: (typeof options.resolvedBy === "string" && options.resolvedBy.trim().length > 0) ? options.resolvedBy.trim() : "reviewer",
+    content: trimmed,
+    createdAt: now,
+    metadata: {
+      kind: "approval-feedback",
+      approvalId,
+      resolvedBy: options.resolvedBy ?? null,
+      meta: options.meta ?? null,
+    },
+  };
+
+  messages.push(feedbackMessage);
+
+  const updated: AgentThreadFileV1 = {
+    ...thread,
+    messages,
+    meta: {
+      ...thread.meta,
+      updatedAt: now,
+      messageCount: messages.length,
+    },
+  };
+
+  await safeWriteJsonAtomic(fp, updated);
 }

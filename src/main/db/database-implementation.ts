@@ -16,7 +16,9 @@ const nodeRequire = getNodeRequire();
 type BetterSqlite3Module = typeof BetterSqlite3;
 function loadBetterSqlite3(): BetterSqlite3Module {
   // Ensure we are running under Electron's embedded Node (correct ABI)
-  if (!process.versions?.electron) {
+  const runningUnderElectron = Boolean(process.versions?.electron);
+  const allowNode = process.env.ELECTRON_RUN_AS_NODE === '1' || process.env.PF_ALLOW_NODE_SQLITE === '1';
+  if (!runningUnderElectron && !allowNode) {
     throw new Error('better-sqlite3 must be loaded from Electron main process. Launch via Electron (npm start / dev:electron), not plain node.');
   }
    
@@ -678,6 +680,18 @@ export class PasteFlowDatabase {
     `);
   }
 
+  private stmtUpdatePreviewDetail(): BetterSqlite3.Statement<[
+    string | null,
+    string,
+  ]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      UPDATE agent_tool_previews
+      SET detail = ?
+      WHERE id = ?
+    `);
+  }
+
   private stmtGetApprovalById(): BetterSqlite3.Statement<[string]> {
     if (!this.db) throw new Error('DB not initialized');
     return this.db.prepare(`
@@ -741,6 +755,25 @@ export class PasteFlowDatabase {
       UPDATE agent_tool_approvals
       SET feedback_text = ?, feedback_meta = ?
       WHERE id = ?
+    `);
+  }
+
+  private stmtDeleteResolvedApprovalsBefore(): BetterSqlite3.Statement<[number]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      DELETE FROM agent_tool_approvals
+      WHERE resolved_at IS NOT NULL AND resolved_at < ?
+    `);
+  }
+
+  private stmtDeleteOldPreviewsBefore(): BetterSqlite3.Statement<[number]> {
+    if (!this.db) throw new Error('DB not initialized');
+    return this.db.prepare(`
+      DELETE FROM agent_tool_previews
+      WHERE created_at < ?
+        AND id NOT IN (
+          SELECT preview_id FROM agent_tool_approvals WHERE status = 'pending'
+        )
     `);
   }
 
@@ -1189,6 +1222,60 @@ export class PasteFlowDatabase {
         input.id,
       );
     }, { operation: 'update_agent_tool_approval_feedback' });
+  }
+
+  async updatePreviewDetail(input: { id: PreviewId; patch: Readonly<Record<string, unknown>> }): Promise<void> {
+    this.ensureInitialized();
+    if (!input.id) {
+      throw new Error('updatePreviewDetail requires id');
+    }
+
+    const existing = await this.getPreviewById(input.id);
+    if (!existing) {
+      throw new Error('Preview not found');
+    }
+
+    let currentDetail: Record<string, unknown> = {};
+    if (existing.detail) {
+      try {
+        const parsed = JSON.parse(existing.detail);
+        if (isObjectRecord(parsed)) {
+          currentDetail = { ...parsed };
+        }
+      } catch (error) {
+        console.warn('[AgentApprovals] Failed to parse existing preview detail during update', error);
+      }
+    }
+
+    const mergedDetail = { ...currentDetail, ...input.patch };
+    const serializedDetail = serializeJson(mergedDetail, 'updatePreviewDetail.detail');
+
+    await executeWithRetry(async () => {
+      this.stmtUpdatePreviewDetail().run(
+        serializedDetail,
+        input.id,
+      );
+    }, { operation: 'update_agent_tool_preview_detail' });
+  }
+
+  async pruneApprovals(olderThanTs: number): Promise<{ previews: number; approvals: number }> {
+    this.ensureInitialized();
+    if (!Number.isInteger(olderThanTs) || olderThanTs < 0) {
+      throw new Error('pruneApprovals requires a non-negative integer timestamp');
+    }
+
+    const approvalsResult = await executeWithRetry(async () => this.stmtDeleteResolvedApprovalsBefore().run(olderThanTs), {
+      operation: 'prune_agent_tool_approvals_resolved',
+    });
+
+    const previewsResult = await executeWithRetry(async () => this.stmtDeleteOldPreviewsBefore().run(olderThanTs), {
+      operation: 'prune_agent_tool_previews',
+    });
+
+    const approvals = typeof approvalsResult.result?.changes === 'number' ? approvalsResult.result.changes : 0;
+    const previews = typeof previewsResult.result?.changes === 'number' ? previewsResult.result.changes : 0;
+
+    return { approvals, previews };
   }
 
   async listPendingApprovals(sessionId: ChatSessionId): Promise<readonly ApprovalRow[]> {

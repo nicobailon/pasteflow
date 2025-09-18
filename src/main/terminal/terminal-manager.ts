@@ -1,6 +1,13 @@
 import { EventEmitter } from "node:events";
 import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
 
+let nodePtyModule: (typeof import("node-pty")) | null = null;
+try {
+  nodePtyModule = await import("node-pty");
+} catch {
+  nodePtyModule = null;
+}
+
 type Session = {
   id: string;
   pid: number;
@@ -28,6 +35,12 @@ export type TerminalSessionMeta = {
 
 export type OutputChunk = { chunk: string; nextCursor: number; truncated: boolean };
 
+/**
+ * Manages terminal sessions proxied through node-pty or child processes.
+ *
+ * @fires data (id: string, chunk: string)
+ * @fires exit (id: string)
+ */
 export class TerminalManager extends EventEmitter {
   private sessions = new Map<string, Session>();
   private maxBufferBytes = 4 * 1024 * 1024; // 4MB ring
@@ -50,7 +63,7 @@ export class TerminalManager extends EventEmitter {
     const { command, args } = opts.command ? { command: opts.command, args: opts.args ?? [] } : this.defaultShell();
     const cols = Math.max(20, Math.floor(opts.cols ?? 80));
     const rows = Math.max(5, Math.floor(opts.rows ?? 24));
-    const env = { ...process.env, ...(opts.env || {}) } as Record<string, string>;
+    const env = { ...process.env, ...opts.env } as Record<string, string>;
     const cwd = opts.cwd || process.cwd();
 
     const session: Session = {
@@ -80,15 +93,17 @@ export class TerminalManager extends EventEmitter {
 
     // Try node-pty first (if installed); fallback to child_process
     try {
-      if (this.hasPty !== false) {
-        const ptyMod = require('node-pty');
+      if (this.hasPty !== false && nodePtyModule) {
         this.hasPty = true;
         const shell = command;
-        const pty = ptyMod.spawn(shell, args, { cols, rows, cwd, env });
+        const pty = nodePtyModule.spawn(shell, args, { cols, rows, cwd, env });
         session.pty = pty;
         session.pid = typeof pty.pid === 'number' ? pty.pid : -1;
         pty.onData((d: string) => handleData(d));
-        pty.onExit(() => { session.pid = -1; });
+        pty.onExit(() => {
+          session.pid = -1;
+          try { this.emit('exit', id); } catch { /* noop */ }
+        });
         this.sessions.set(id, session);
         return { id, pid: session.pid };
       }
@@ -102,7 +117,10 @@ export class TerminalManager extends EventEmitter {
     session.pid = proc.pid ?? -1;
     proc.stdout.on('data', (d) => handleData(d as Buffer));
     proc.stderr.on('data', (d) => handleData(d as Buffer));
-    proc.on('exit', () => { session.pid = -1; });
+    proc.on('exit', () => {
+      session.pid = -1;
+      try { this.emit('exit', id); } catch { /* noop */ }
+    });
     this.sessions.set(id, session);
     return { id, pid: session.pid };
   }
@@ -131,13 +149,14 @@ export class TerminalManager extends EventEmitter {
   kill(id: string): void {
     const s = this.sessions.get(id);
     if (!s) return;
-    try { s.pty?.kill?.(); } catch {}
+    try { s.pty?.kill?.(); } catch { /* ignore kill failure */ }
     try { s.proc?.kill?.('SIGTERM'); } catch { /* ignore */ }
     this.sessions.delete(id);
+    try { this.emit('exit', id); } catch { /* noop */ }
   }
 
   list(): TerminalSessionMeta[] {
-    return Array.from(this.sessions.values()).map((s) => ({ id: s.id, pid: s.pid, cwd: s.cwd, cols: s.cols, rows: s.rows, createdAt: s.createdAt, name: s.name }));
+    return [...this.sessions.values()].map((s) => ({ id: s.id, pid: s.pid, cwd: s.cwd, cols: s.cols, rows: s.rows, createdAt: s.createdAt, name: s.name }));
   }
 
   getOutput(id: string, opts?: { fromCursor?: number; maxBytes?: number }): OutputChunk {

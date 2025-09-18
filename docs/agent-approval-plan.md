@@ -10,7 +10,7 @@ Objective: deliver a consent-first approval flow comparable to Cline’s rich ex
 - **Multi-modal feedback ready**: the UI should capture optional textual notes (and later attachments) for future agent turns.
 - **Streaming aware**: approvals gracefully handle long-running tool output or partial previews without freezing the UI.
 - **Auditability**: all approvals are persisted with status changes, who approved, and the applied tool call.
-- **Feature-gated rollout**: the new stack runs behind an `AGENT_APPROVAL_V2` pref/env flag so we can flip between the legacy `AgentToolCalls` UX and the new approvals list until QA is complete.
+- **Immediate cutover**: the approvals list replaces the legacy `AgentToolCalls` UX with no feature flag, no fallback, and no rollback path. Perform a one-way migration and remove related prefs/env flags.
 
 ---
 
@@ -64,7 +64,7 @@ We already funnel agent traffic through `src/main/handlers/chat-handlers.ts` (HT
    - Expose memoised actions (`approve`, `approveWithEdits`, `reject`, `cancel`, `setBypass`, `setRules`) that call IPC and optimistically update state.
    - Use `useReducer` or `useSyncExternalStore` to avoid stale closures; ensure state types are readonly to satisfy `TYPESCRIPT.md`.
 2. Enhance `src/main/preload.ts` with typed wrappers for the new IPC channels. Provide helper functions (e.g., `ipc.approvals.list(payload)`) that validate payloads via the same Zod schemas used in main (shared through a `common` module or duplicated carefully without `any`). Ensure listeners are properly deregistered when React unmounts.
-3. In `src/components/agent-panel.tsx`, read the `AGENT_APPROVAL_V2` flag (via `/prefs/get`) and conditionally render an `AgentApprovalsPane` component between notifications and messages. When disabled, continue rendering `AgentToolCalls` so legacy behaviour remains.
+3. In `src/components/agent-panel.tsx`, render the `AgentApprovalsPane` component unconditionally between notifications and messages. Remove any `AGENT_APPROVAL_V2` checks and delete the legacy `AgentToolCalls` approvals path.
 4. Migrate the “Skip approvals” toggle to call the hook’s `setBypass` action rather than manipulating tool invocations directly. Persist the toggle value to `agent.approvals.skipAll` using `/prefs/set`.
 5. Remove auto-approval side effects from `AgentToolCalls.tsx` (it becomes a pure log). Any automatic apply should now flow through the approvals service to keep behaviour consistent.
 
@@ -130,16 +130,17 @@ We already funnel agent traffic through `src/main/handlers/chat-handlers.ts` (HT
 
 ---
 
-## 11. Feature Flag, Testing & Rollout
-1. Introduce an `AGENT_APPROVAL_V2` feature flag (env + preference). Default off; when disabled, skip creating preview/approval rows and continue using the legacy `AgentToolCalls` flow for safety.
-2. Testing (follow `TESTING.md`: behaviour-first, ≥2 assertions per test, minimal mocks):
-   - **Main process**: new Jest suites covering preview persistence, approval state transitions, auto-apply caps, IPC validation, and bypass toggle behaviour.
+## 11. Testing & Rollout (Immediate Cutover)
+1. Remove the `AGENT_APPROVAL_V2` feature flag entirely (env + preference) and delete all conditional code paths. Always create preview/approval rows and route the renderer to the approvals list.
+2. Delete the legacy `AgentToolCalls` approvals UX and any gating logic in `src/components/agent-panel.tsx`; render the approvals pane unconditionally between notifications and messages.
+3. Preferences migration: drop any `AGENT_APPROVAL_V2`/`agent.approvals.v2Enabled` keys on startup; approvals are always-on. Keep `agent.approvals.skipAll` (bypass) semantics as specified.
+4. Testing (follow `TESTING.md`: behaviour-first, ≥2 assertions per test, minimal mocks):
+   - **Main process**: Jest suites for preview persistence, approval state transitions, auto-apply caps, IPC validation, bypass toggle behaviour.
    - **Database**: extend `src/main/db/__tests__` to cover new statements and ensure constraints (unique hash, foreign keys) fire as expected.
-   - **Renderer**: add React Testing Library coverage for `AgentApprovalCard`, list filtering, streaming states, and the `useAgentApprovals` hook (mock preload once per file).
-   - **End-to-end** (optional): Playwright smoke test to simulate an edit diff, require approval, approve, and verify the file changed.
-   - Add regression coverage ensuring legacy behaviour stays intact when the flag is off.
-3. Documentation: update `AGENTS.md` with a user-facing overview, refresh release notes, and provide an internal runbook for the consent flow.
-4. Manual QA checklist: verify diff/command previews, streaming cancel, auto-approval rules, feedback propagation, export payloads, and preference migration from `agent.skipApprovals`.
+   - **Renderer**: RTL coverage for `AgentApprovalCard`, list filtering, streaming states, `useAgentApprovals` hook.
+   - **End-to-end**: Playwright smoke test to simulate an edit diff, require approval, approve (with/without edits), and verify the file changed. No flag toggling.
+5. Documentation: update `AGENTS.md` with a user-facing overview, refresh release notes to clearly state the breaking change (no legacy approvals path, no rollback), and provide an internal runbook for the consent flow.
+6. Manual QA checklist: verify diff/command previews, streaming cancel, auto-approval rules, feedback propagation, export payloads, and preference migration from `agent.skipApprovals`.
 
 ---
 
@@ -148,6 +149,6 @@ We already funnel agent traffic through `src/main/handlers/chat-handlers.ts` (HT
 2. **Main-process lifecycle**: preview capture, approval creation, IPC apply/reject logic, auto-apply evaluation.
 3. **Renderer MVP**: hook + list + basic card rendering + approve/reject actions (text feedback only).
 4. **Enhancements**: diff rendering polish, streaming/stop wiring, auto-approval UI, timeline/export updates.
-5. **Testing & rollout**: automated coverage, migration scripts, documentation updates (`AGENTS.md`, release notes), gradual enablement of `AGENT_APPROVAL_V2`.
+5. **Testing & rollout**: automated coverage, migration scripts, documentation updates (`AGENTS.md`, release notes), immediate cutover to approvals v2; remove legacy path and the feature flag.
 
 Outcome: a modern approval experience matching Cline’s depth—dynamic actions, rich context, auditable decisions, and streaming-aware interactivity—implemented within PasteFlow’s Electron + React architecture and tool execution pipeline.

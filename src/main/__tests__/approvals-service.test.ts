@@ -1,17 +1,28 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { ApprovalsService } from "../agent/approvals-service";
-import type { ApprovalEventPayload } from "../agent/approvals-service";
+import type { ApprovalEventPayload, ToolCancellationAdapters } from "../agent/approvals-service";
 import type { AgentSecurityManager } from "../agent/security-manager";
 import type { PreviewEnvelope, ToolArgsSnapshot, PreviewId, ChatSessionId } from "../agent/preview-registry";
 import { makePreviewId, makeSessionId, nowUnixMs, hashPreview } from "../agent/preview-registry";
 import type { DatabaseBridge, InsertApprovalInput } from "../db/database-bridge";
 import type { PreviewRow, ApprovalRow, ApprovalStatus } from "../db/database-implementation";
 import { getAgentTools } from "../agent/tools";
+jest.mock("../agent/chat-storage", () => ({
+  appendApprovalFeedbackMessage: jest.fn(async () => { /* noop */ }),
+}));
+
+import { appendApprovalFeedbackMessage } from "../agent/chat-storage";
 
 jest.mock("../agent/tools", () => ({
   getAgentTools: jest.fn(() => ({})),
 }));
 
 const mockedGetAgentTools = getAgentTools as jest.MockedFunction<typeof getAgentTools>;
+const mockedAppendFeedback = appendApprovalFeedbackMessage as jest.MockedFunction<typeof appendApprovalFeedbackMessage>;
 
 class InMemoryBridge {
   private previews = new Map<string, PreviewRow>();
@@ -61,6 +72,17 @@ class InMemoryBridge {
 
   async getApprovalById(id: string): Promise<ApprovalRow | null> {
     return this.approvals.get(id) ?? null;
+  }
+
+  async updatePreviewDetail(input: { id: PreviewId; patch: Readonly<Record<string, unknown>> }): Promise<void> {
+    const existing = this.previews.get(input.id);
+    if (!existing) throw new Error("Preview not found");
+    const current = existing.detail ? JSON.parse(existing.detail) as Record<string, unknown> : {};
+    const merged = { ...current, ...input.patch };
+    this.previews.set(input.id, {
+      ...existing,
+      detail: JSON.stringify(merged),
+    });
   }
 
   async updateApprovalStatus(input: { id: string; status: ApprovalStatus; resolvedAt?: number | null; resolvedBy?: string | null; autoReason?: string | null }): Promise<void> {
@@ -164,14 +186,16 @@ describe("ApprovalsService", () => {
     db = new InMemoryBridge();
     broadcast = jest.fn();
     mockedGetAgentTools.mockReset();
+    mockedAppendFeedback.mockReset();
   });
 
-  function createService(overrides?: { security?: TestSecurity }) {
+  function createService(overrides?: { security?: TestSecurity; cancellationAdapters?: ToolCancellationAdapters }) {
     return new ApprovalsService({
       db: db as unknown as DatabaseBridge,
       security: (overrides?.security ?? createSecurity()) as unknown as AgentSecurityManager,
       broadcast,
       logger: console,
+      cancellationAdapters: overrides?.cancellationAdapters,
     });
   }
 
@@ -196,6 +220,42 @@ describe("ApprovalsService", () => {
     expect(list.data.approvals[0].status).toBe("pending");
   });
 
+  it("cancels terminal preview and invokes kill adapter", async () => {
+    const kill = jest.fn();
+    const service = createService({
+      cancellationAdapters: {
+        terminal: {
+          kill,
+        },
+      },
+    });
+    const preview = buildPreview({ tool: "terminal", detail: { sessionId: "tm-1", command: "sleep 10" } });
+
+    const recorded = await service.recordPreview({ preview, toolExecutionId: 1 });
+    expect(recorded.ok).toBe(true);
+    const created = await service.createApproval({ previewId: preview.id, sessionId: preview.sessionId });
+    expect(created.ok).toBe(true);
+
+    const result = await service.cancelPreview({ previewId: preview.id });
+    expect(result.ok).toBe(true);
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(kill).toHaveBeenCalledWith("tm-1");
+
+    const approvalRow = await db.getApprovalById(preview.id);
+    expect(approvalRow?.status).toBe("failed");
+    expect(typeof approvalRow?.resolved_at).toBe("number");
+    expect(approvalRow?.auto_reason).toBe("cancelled");
+
+    const storedPreview = await db.getPreviewById(preview.id);
+    expect(storedPreview).not.toBeNull();
+    const detail = storedPreview && storedPreview.detail ? JSON.parse(storedPreview.detail) : {};
+    expect(detail.streaming).toBe("failed");
+    expect(typeof detail.cancelledAt).toBe("number");
+
+    const updateEvent = broadcast.mock.calls.find((call) => call[0].type === "agent:approval:update");
+    expect(updateEvent).toBeDefined();
+  });
+
   it("blocks apply when file writes disabled", async () => {
     const security = createSecurity({ ENABLE_FILE_WRITE: false });
     const service = createService({ security });
@@ -218,17 +278,17 @@ describe("ApprovalsService", () => {
     await service.createApproval({ previewId: preview.id, sessionId: preview.sessionId });
 
     const executedArgs: unknown[] = [];
-    mockedGetAgentTools.mockImplementation(({ onToolExecute }: { onToolExecute?: (name: string, args: unknown, result: unknown, meta?: Record<string, unknown>) => Promise<void> | void }) => ({
+    mockedGetAgentTools.mockImplementation((deps: any) => ({
       file: {
         execute: async (args: unknown) => {
           executedArgs.push(args);
-          if (onToolExecute) {
-            await onToolExecute("file", args, { type: "applied" }, {});
+          if (typeof deps?.onToolExecute === "function") {
+            await deps.onToolExecute("file", args, { type: "applied" }, {});
           }
           return { type: "applied" };
         },
       },
-    }));
+    } as unknown as ReturnType<typeof getAgentTools>));
 
     const result = await service.applyApproval({ approvalId: preview.id });
     expect(result.ok).toBe(true);
@@ -243,6 +303,87 @@ describe("ApprovalsService", () => {
     expect(stored.data.approvals[0].status).toBe("applied");
     expect(db.toolExecutions).toHaveLength(1);
     expect(broadcast).toHaveBeenCalled();
+  });
+
+  it("records file hashes during apply", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "approvals-hash-"));
+    const filePath = path.join(tempDir, "sample.txt");
+    try {
+      await fs.writeFile(filePath, "before-hash");
+
+      const service = createService();
+      const preview = buildPreview({
+        detail: { path: filePath },
+        args: Object.freeze({ path: filePath, content: "after-hash" }) as ToolArgsSnapshot,
+      });
+      await service.recordPreview({ preview, toolExecutionId: 11 });
+      await service.createApproval({ previewId: preview.id, sessionId: preview.sessionId });
+
+      mockedGetAgentTools.mockImplementation(() => ({
+        file: {
+          execute: async () => {
+            await fs.writeFile(filePath, "after-hash");
+            return { status: "ok" };
+          },
+        },
+      } as unknown as ReturnType<typeof getAgentTools>));
+
+      const result = await service.applyApproval({ approvalId: preview.id });
+      expect(result.ok).toBe(true);
+
+      const storedPreviewRow = await db.getPreviewById(preview.id);
+      expect(storedPreviewRow).not.toBeNull();
+      const detail = storedPreviewRow?.detail ? JSON.parse(storedPreviewRow.detail) as Record<string, unknown> : {};
+      const expectedBefore = createHash("sha1").update("before-hash").digest("hex");
+      const expectedAfter = createHash("sha1").update("after-hash").digest("hex");
+      expect(detail.beforeHash).toBe(expectedBefore);
+      expect(detail.afterHash).toBe(expectedAfter);
+      expect(detail.diffHash === undefined || typeof detail.diffHash === "string").toBe(true);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("appends approval feedback to chat storage", async () => {
+    const service = createService();
+    const preview = buildPreview({ tool: "terminal", detail: { command: "echo" } });
+    await service.recordPreview({ preview, toolExecutionId: 18 });
+    await service.createApproval({ previewId: preview.id, sessionId: preview.sessionId });
+
+    mockedGetAgentTools.mockImplementation(() => ({
+      terminal: {
+        execute: async () => ({ status: "ok" }),
+      },
+    } as unknown as ReturnType<typeof getAgentTools>));
+
+    const result = await service.applyApproval({ approvalId: preview.id, feedbackText: "Looks good", resolvedBy: "Reviewer", feedbackMeta: { note: true } });
+    expect(result.ok).toBe(true);
+    expect(mockedAppendFeedback).toHaveBeenCalledWith(
+      preview.sessionId,
+      preview.id,
+      "Looks good",
+      expect.objectContaining({ resolvedBy: "Reviewer", meta: { note: true } })
+    );
+  });
+
+  it("marks feedbackPersisted false when chat append fails", async () => {
+    mockedAppendFeedback.mockRejectedValueOnce(new Error("append failed"));
+    const service = createService();
+    const preview = buildPreview({ tool: "terminal", detail: { command: "echo" } });
+    await service.recordPreview({ preview, toolExecutionId: 19 });
+    await service.createApproval({ previewId: preview.id, sessionId: preview.sessionId });
+
+    mockedGetAgentTools.mockImplementation(() => ({
+      terminal: { execute: async () => ({ status: "ok" }) },
+    } as unknown as ReturnType<typeof getAgentTools>));
+
+    const result = await service.applyApproval({ approvalId: preview.id, feedbackText: "Needs work" });
+    expect(result.ok).toBe(true);
+
+    const previewRow = await db.getPreviewById(preview.id);
+    expect(previewRow).not.toBeNull();
+    const detail = previewRow?.detail ? JSON.parse(previewRow.detail) as Record<string, unknown> : {};
+    expect(detail.feedbackPersisted).toBe(false);
   });
 
   it("evaluates skip-all preference for auto rules", async () => {

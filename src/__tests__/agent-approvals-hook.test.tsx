@@ -9,9 +9,9 @@ declare global {
     electron?: {
       approvals?: {
         list: jest.Mock<Promise<unknown>, [payload: { sessionId: string }] >;
-        apply: jest.Mock<Promise<unknown>, [payload: { approvalId: string }] >;
-        applyWithContent: jest.Mock<Promise<unknown>, [payload: { approvalId: string; content: unknown }] >;
-        reject: jest.Mock<Promise<unknown>, [payload: { approvalId: string; feedbackText?: string; feedbackMeta?: unknown }] >;
+        apply: jest.Mock<Promise<unknown>, [payload: { approvalId: string; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }] >;
+        applyWithContent: jest.Mock<Promise<unknown>, [payload: { approvalId: string; content: unknown; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }] >;
+        reject: jest.Mock<Promise<unknown>, [payload: { approvalId: string; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }] >;
         cancel: jest.Mock<Promise<unknown>, [payload: { previewId: string }] >;
         getRules: jest.Mock<Promise<unknown>, []>;
         setRules: jest.Mock<Promise<unknown>, [payload: { rules: readonly unknown[] }]>;
@@ -56,17 +56,21 @@ const approvalPayload = {
 };
 
 describe("useAgentApprovals", () => {
+  let applyMock: jest.Mock;
+  let rejectMock: jest.Mock;
   let watchHandlers: {
     onNew?: (payload: unknown) => void;
     onUpdate?: (payload: unknown) => void;
   } = {};
 
   beforeEach(() => {
+    applyMock = jest.fn(async () => ({ ok: true, data: { status: "applied", approvalId: previewId, previewId, result: null } }));
+    rejectMock = jest.fn(async () => ({ ok: true, data: { ...approvalPayload, status: "rejected" } }));
     const approvals = {
       list: jest.fn(async () => ({ ok: true, data: { previews: [previewPayload], approvals: [approvalPayload] } })),
-      apply: jest.fn(async () => ({ ok: true, data: { status: "applied", approvalId: previewId, previewId, result: null } })),
+      apply: applyMock,
       applyWithContent: jest.fn(async () => ({ ok: true, data: { status: "applied", approvalId: previewId, previewId, result: null } })),
-      reject: jest.fn(async () => ({ ok: true, data: { ...approvalPayload, status: "rejected" } })),
+      reject: rejectMock,
       cancel: jest.fn(async () => ({ ok: true, data: null })),
       getRules: jest.fn(async () => ({ ok: true, data: [] })),
       setRules: jest.fn(async () => ({ ok: true, data: null })),
@@ -89,10 +93,12 @@ describe("useAgentApprovals", () => {
       removeListener: jest.fn(),
     };
     (window as Window & { electron?: any }).electron = { approvals, ipcRenderer: ipc };
+    (window as Window & { __PF_USER__?: unknown }).__PF_USER__ = { displayName: "Tester" };
   });
 
   afterEach(() => {
     delete (window as Window & { electron?: unknown }).electron;
+    delete (window as Window & { __PF_USER__?: unknown }).__PF_USER__;
     watchHandlers = {};
   });
 
@@ -105,6 +111,26 @@ describe("useAgentApprovals", () => {
 
     expect(result.current.approvals[0].summary).toContain("file write preview");
     expect(result.current.bypassEnabled).toBe(false);
+  });
+
+  it("removes pending item and tracks auto-approved updates", async () => {
+    const { result } = renderHook(() => useAgentApprovals({ sessionId, enabled: true }));
+    await waitFor(() => {
+      expect(result.current.approvals.length).toBe(1);
+    });
+
+    await act(async () => {
+      watchHandlers.onUpdate?.({
+        type: "agent:approval:update",
+        approval: { ...approvalPayload, status: "auto_approved", autoReason: "rule" },
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.approvals.length).toBe(0);
+      expect(result.current.autoApproved.length).toBe(1);
+      expect(result.current.autoApproved[0].autoReason).toBe("rule");
+    });
   });
 
   it("removes approval when update marks it resolved", async () => {
@@ -123,6 +149,19 @@ describe("useAgentApprovals", () => {
     await waitFor(() => {
       expect(result.current.approvals.length).toBe(0);
     });
+  });
+
+  it("sends resolvedBy value when approving", async () => {
+    const { result } = renderHook(() => useAgentApprovals({ sessionId, enabled: true }));
+    await waitFor(() => {
+      expect(result.current.approvals.length).toBe(1);
+    });
+
+    await act(async () => {
+      await result.current.approve(previewId, { feedbackText: "Looks good" });
+    });
+
+    expect(applyMock).toHaveBeenCalledWith(expect.objectContaining({ resolvedBy: "Tester", feedbackText: "Looks good" }));
   });
 
   it("updates bypass preference via setBypass", async () => {

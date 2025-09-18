@@ -150,8 +150,9 @@ class MockDatabase {
     const statement: MockStatement = {
         run: jest.fn().mockImplementation((...args: PositionalArguments | [BindParameters?]): RunResult => {
           const normalizedSql = sql.toLowerCase();
-          const contains = (fragment: string): boolean => normalizedSql.includes(fragment);
-          const hasAll = (...tokens: string[]): boolean => tokens.every(token => contains(token));
+    const contains = (fragment: string): boolean => normalizedSql.includes(fragment);
+    const hasAll = (...tokens: string[]): boolean => tokens.every(token => contains(token));
+
           // Handle both positional and named parameters
           let params: BindParameters | undefined;
           if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null && !isBufferLike(args[0])) {
@@ -257,9 +258,14 @@ class MockDatabase {
               feedback_meta: (positionalArgs[1] ?? null) as string | null,
               id: positionalArgs[2] as string,
             };
+          } else if (hasAll('update agent_tool_previews', 'set detail')) {
+            params = {
+              detail: positionalArgs[0] ?? null,
+              id: positionalArgs[1] as string,
+            } as unknown as BindParameters;
           }
         }
-        
+
         // Simulate database operations
         // Handle UPDATE with folder_path - must be before general update check
           if (hasAll('update workspaces', 'folder_path = ?')) {
@@ -474,6 +480,55 @@ class MockDatabase {
             }
             return { lastInsertRowid: 0, changes: 0 };
           }
+
+          if (hasAll('update agent_tool_previews', 'set detail')) {
+            const previews = this.mockData.get('agent_tool_previews') as PreviewTableRow[];
+            let detailValue: string | null = null;
+            let idValue: string | null = null;
+            if (params) {
+              detailValue = params.detail === undefined || params.detail === null ? null : String(params.detail);
+              idValue = params.id === undefined || params.id === null ? null : String(params.id);
+            } else if (args.length >= 2) {
+              detailValue = args[0] === undefined || args[0] === null ? null : String(args[0]);
+              idValue = args[1] === undefined || args[1] === null ? null : String(args[1]);
+            }
+            if (!idValue) {
+              return { lastInsertRowid: 0, changes: 0 };
+            }
+            const index = previews.findIndex((row) => row.id === idValue);
+            if (index >= 0) {
+              previews[index] = {
+                ...previews[index],
+                detail: detailValue,
+              };
+              return { lastInsertRowid: 0, changes: 1 };
+            }
+            return { lastInsertRowid: 0, changes: 0 };
+          }
+
+          if (hasAll('delete from agent_tool_approvals', 'resolved_at', '<')) {
+            const approvals = this.mockData.get('agent_tool_approvals') as ApprovalTableRow[];
+            const cutoff = params && params.cutoff !== undefined
+              ? Number(params.cutoff)
+              : (args.length > 0 ? Number(args[0]) : Number(params?.['$cutoff'] ?? Number.MAX_SAFE_INTEGER));
+            const before = approvals.length;
+            const filtered = approvals.filter((row) => row.resolved_at === null || row.resolved_at >= cutoff);
+            this.mockData.set('agent_tool_approvals', filtered);
+            return { lastInsertRowid: 0, changes: before - filtered.length };
+          }
+
+          if (hasAll('delete from agent_tool_previews', 'created_at <')) {
+            const previews = this.mockData.get('agent_tool_previews') as PreviewTableRow[];
+            const approvals = this.mockData.get('agent_tool_approvals') as ApprovalTableRow[];
+            const cutoff = params && params.cutoff !== undefined
+              ? Number(params.cutoff)
+              : (args.length > 0 ? Number(args[0]) : Number(params?.['$cutoff'] ?? Number.MAX_SAFE_INTEGER));
+            const pendingIds = new Set(approvals.filter((row) => row.status === 'pending').map((row) => row.preview_id));
+            const before = previews.length;
+            const filtered = previews.filter((row) => !(row.created_at < cutoff && !pendingIds.has(row.id)));
+            this.mockData.set('agent_tool_previews', filtered);
+            return { lastInsertRowid: 0, changes: before - filtered.length };
+          }
           
           return { lastInsertRowid: 1, changes: 1 };
         }),
@@ -489,19 +544,21 @@ class MockDatabase {
           } else if (args.length > 0) {
             // Convert positional arguments based on SQL structure
             const positionalArgs = args as PositionalArguments;
-            if (contains('where name = ? or id = ?')) {
-              // The same value is passed twice for both name and id
-              const value = positionalArgs[0] as string;
-              params = { 
-                name: value, 
-                id: value 
-              };
-          } else if (contains('where key = ?')) {
-            params = { key: positionalArgs[0] as string };
-          } else if (hasAll('from agent_tool_previews', 'where id = ?')) {
-            params = { id: positionalArgs[0] as string };
-          }
+          if (contains('where name = ? or id = ?')) {
+            // The same value is passed twice for both name and id
+            const value = positionalArgs[0] as string;
+            params = { 
+              name: value, 
+              id: value 
+            };
+        } else if (contains('where key = ?')) {
+          params = { key: positionalArgs[0] as string };
+        } else if (hasAll('from agent_tool_previews', 'where id = ?')) {
+          params = { id: positionalArgs[0] as string };
+        } else if (hasAll('from agent_tool_approvals', 'where id = ?')) {
+          params = { id: positionalArgs[0] as string };
         }
+      }
 
           if (contains('select count(*)')) {
             const tableMatch = /from\s+(\w+)/i.exec(sql);
@@ -575,6 +632,20 @@ class MockDatabase {
             return undefined;
           }
 
+          if (hasAll('select', 'from agent_tool_approvals') && contains('where id =')) {
+            const approvals = this.mockData.get('agent_tool_approvals') as ApprovalTableRow[];
+            let id: string | undefined;
+            if (params?.id) {
+              id = String(params.id);
+            } else if (params?.['$id']) {
+              id = String(params['$id']);
+            }
+            if (id) {
+              return approvals.find(approval => approval.id === id);
+            }
+            return undefined;
+          }
+
           if (hasAll('select name', 'from workspaces')) {
             const workspaces = this.mockData.get('workspaces') as WorkspaceRow[];
             let name: string | undefined;
@@ -628,6 +699,26 @@ class MockDatabase {
             return executions;
           }
 
+          if (hasAll('select', 'from agent_tool_previews', 'where id =')) {
+            const previews = this.mockData.get('agent_tool_previews') as PreviewTableRow[];
+            let idValue: string | undefined;
+            if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null && !Array.isArray(args[0])) {
+              const named = args[0] as BindParameters;
+              if (named.id !== undefined && named.id !== null) {
+                idValue = String(named.id);
+              } else if (named['$id'] !== undefined && named['$id'] !== null) {
+                idValue = String(named['$id']);
+              }
+            } else if (args.length > 0) {
+              idValue = String((args as PositionalArguments)[0]);
+            }
+            if (!idValue) {
+              return [];
+            }
+            const match = previews.find((row) => row.id === idValue);
+            return match ? [match] : [];
+          }
+
           if (hasAll('select', 'from agent_tool_previews')) {
             const previews = this.mockData.get('agent_tool_previews') as PreviewTableRow[];
             let sessionId: string | undefined;
@@ -649,6 +740,26 @@ class MockDatabase {
               return filtered.sort((a, b) => a.created_at - b.created_at);
             }
             return previews;
+          }
+
+          if (hasAll('select', 'from agent_tool_approvals', 'where id =')) {
+            const approvals = this.mockData.get('agent_tool_approvals') as ApprovalTableRow[];
+            let idValue: string | undefined;
+            if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null && !Array.isArray(args[0])) {
+              const named = args[0] as BindParameters;
+              if (named.id !== undefined && named.id !== null) {
+                idValue = String(named.id);
+              } else if (named['$id'] !== undefined && named['$id'] !== null) {
+                idValue = String(named['$id']);
+              }
+            } else if (args.length > 0) {
+              idValue = String((args as PositionalArguments)[0]);
+            }
+            if (!idValue) {
+              return [];
+            }
+            const match = approvals.find((row) => row.id === idValue);
+            return match ? [match] : [];
           }
 
           if (hasAll('select', 'from agent_tool_approvals')) {

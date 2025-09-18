@@ -17,7 +17,7 @@ import { getMainTokenService } from '../services/token-service-main';
 import { ApprovalsService } from './agent/approvals-service';
 import type { ApprovalEventPayload, StoredApproval, StoredPreview } from './agent/approvals-service';
 import { AgentSecurityManager } from './agent/security-manager';
-import { capturePreviewIfAny, isApprovalsFeatureEnabled } from './agent/preview-capture';
+import { capturePreviewIfAny } from './agent/preview-capture';
 import { handleApprovalList, handleApprovalApply, handleApprovalApplyWithContent, handleApprovalReject, handleApprovalCancel, handleApprovalRulesGet, handleApprovalRulesSet } from './approvals-ipc';
 
 import * as zSchemas from './ipc/schemas';
@@ -313,9 +313,20 @@ app.whenReady().then(async () => {
           await database.setPreference('agent.skipApprovals', null as unknown as PreferenceValue);
           console.log('[Migration] agent.skipApprovals -> agent.approvals.skipAll', { legacy: normalized });
         }
+    }
+  } catch (error) {
+    console.warn('[Migration] approvals skip toggle migration skipped:', (error as Error)?.message || error);
+  }
+
+    try {
+      const legacyFlagKey = ['agent', 'approvals', 'v2Enabled'].join('.');
+      const legacyPreference = await database.getPreference(legacyFlagKey);
+      if (legacyPreference !== null && legacyPreference !== undefined) {
+        await database.setPreference(legacyFlagKey, null as unknown as PreferenceValue);
+        console.log('[Approvals] Cleared legacy approvals flag preference');
       }
     } catch (error) {
-      console.warn('[Migration] approvals skip toggle migration skipped:', (error as Error)?.message || error);
+      console.warn('[Approvals] Legacy approvals flag cleanup skipped', error);
     }
 
     // On fresh app start, clear any previously persisted "active" workspace so
@@ -358,6 +369,58 @@ app.whenReady().then(async () => {
         },
         logger: console,
         autoApplyCap: autoCapPreference ?? undefined,
+        cancellationAdapters: {
+          terminal: {
+            kill: async (sessionId: string) => {
+              try {
+                const tm = await getTerminalManagerLazy();
+                tm.kill(sessionId);
+              } catch (error) {
+                console.warn('[Approvals] Failed to kill terminal session via adapter', error);
+              }
+            },
+            onSessionCompleted: (handler) => {
+              let disposed = false;
+              (async () => {
+                try {
+                  const tm = await getTerminalManagerLazy();
+                  if (disposed) return;
+                  tm.on('exit', handler);
+                } catch (error) {
+                  console.warn('[Approvals] Failed to attach terminal completion handler', error);
+                }
+              })();
+              return () => {
+                disposed = true;
+                getTerminalManagerLazy().then((tm) => {
+                  tm.off('exit', handler);
+                }).catch((error) => {
+                  console.warn('[Approvals] Failed to detach terminal completion handler', error);
+                });
+              };
+            },
+            onSessionOutput: (handler) => {
+              let disposed = false;
+              (async () => {
+                try {
+                  const tm = await getTerminalManagerLazy();
+                  if (disposed) return;
+                  tm.on('data', handler);
+                } catch (error) {
+                  console.warn('[Approvals] Failed to attach terminal output handler', error);
+                }
+              })();
+              return () => {
+                disposed = true;
+                getTerminalManagerLazy().then((tm) => {
+                  tm.off('data', handler);
+                }).catch((error) => {
+                  console.warn('[Approvals] Failed to detach terminal output handler', error);
+                });
+              };
+            },
+          },
+        },
       });
       console.log('[Approvals] Service initialized');
     } catch (error) {
@@ -1142,9 +1205,6 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
     const { getAgentTools } = await import('./agent/tools');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
     const security = securityManager ?? await AgentSecurityManager.create({ db: database ? { getPreference: (k: string) => database!.getPreference(k) } : null });
-    const approvalsEnabled = Boolean(
-      approvalsService && (await isApprovalsFeatureEnabled(database!)) && cfg.APPROVAL_MODE !== 'never'
-    );
     const tools = getAgentTools({
       security,
       config: cfg,
@@ -1180,7 +1240,7 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
           }
         }
 
-        if (approvalsService && approvalsEnabled && executionId !== null) {
+        if (approvalsService && executionId !== null) {
           await capturePreviewIfAny({
             service: approvalsService,
             toolExecutionId: executionId,
@@ -1188,7 +1248,6 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
             toolName: String(name),
             args,
             result: typedResult,
-            approvalsEnabled,
             logger: console,
           });
         }
@@ -1220,11 +1279,6 @@ ipcMain.handle('agent:approval:rules:set', (_event, params: unknown) => handleAp
 ipcMain.on('agent:approval:watch', async (event) => {
   if (!approvalsService) {
     event.sender.send('agent:approval:watch:error', { code: 'SERVICE_UNAVAILABLE', message: 'Approvals service unavailable' });
-    return;
-  }
-  const enabled = database ? await isApprovalsFeatureEnabled(database) : false;
-  if (!enabled) {
-    event.sender.send('agent:approval:watch:error', { code: 'FEATURE_DISABLED', message: 'Approvals disabled' });
     return;
   }
   const id = event.sender.id;
@@ -1260,7 +1314,7 @@ ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: s
       const tools = await database.listToolExecutions(sessionId);
       const usage = await database.listUsageSummaries(sessionId);
       let approvalsPayload: { previews: readonly StoredPreview[]; approvals: readonly StoredApproval[] } | null = null;
-      if (approvalsService && (await isApprovalsFeatureEnabled(database))) {
+      if (approvalsService) {
         const approvalsResult = await approvalsService.listApprovals(sessionId as ChatSessionId);
         if (approvalsResult.ok) {
           approvalsPayload = approvalsResult.data;

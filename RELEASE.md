@@ -6,6 +6,7 @@ This document explains how to build and release PasteFlow for distribution.
 
 - Agent template scaffolding has been removed. Use `edit.diff` to scaffold files as needed.
 - The `file` agent tool now supports write/move/delete operations with preview/apply gating, so builds should include updated permissions when enabling file writes.
+- Approvals Phase 5 is live: the v2 approvals panel is always enabled (no feature flag) and exports include reviewer feedback plus file hashes for applied edits.
 
 ## Building the Application Locally
 
