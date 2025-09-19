@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import type { ApplyResult, AutoRule, ServiceResult, StoredApproval, StoredPreview } from "../main/agent/approvals-service";
-import type { ChatSessionId, PreviewId, ToolArgsSnapshot, ToolName } from "../main/agent/preview-registry";
+import type { ChatSessionId, PreviewId, ToolArgsSnapshot, ToolName, UnixMs } from "../main/agent/preview-registry";
 import type { ApprovalStatus } from "../main/db/database-implementation";
 import {
   deriveStreamingState,
@@ -14,9 +14,12 @@ import {
   type ServiceError,
   type StreamingState,
 } from "../utils/approvals-parsers";
+
 import useCurrentUserDisplayName from "./use-current-user-display-name";
 
 type BridgeServiceResult<T> = ServiceResult<T>;
+
+const BRIDGE_UNAVAILABLE_MESSAGE = "Approvals bridge unavailable";
 
 type ApprovalWatchPayload =
   | { readonly type: "agent:approval:new"; readonly preview: unknown; readonly approval: unknown }
@@ -161,6 +164,174 @@ function getPrefsInvoker(): PrefsInvoker | null {
   return typeof invoker === "function" ? invoker : null;
 }
 
+function makeBridgeUnavailableResult<T>(): BridgeServiceResult<T> {
+  return {
+    ok: false as const,
+    error: { code: "UNAVAILABLE", message: BRIDGE_UNAVAILABLE_MESSAGE },
+  };
+}
+
+const AUTO_APPROVED_HISTORY_LIMIT = 5;
+
+type AutoApprovedSetter = (value: readonly ApprovalVm[] | ((prev: readonly ApprovalVm[]) => readonly ApprovalVm[])) => void;
+
+function toStoredPreview(vm: ApprovalVm): StoredPreview {
+  return {
+    id: vm.previewId,
+    sessionId: vm.sessionId,
+    toolExecutionId: vm.toolExecutionId,
+    tool: vm.tool,
+    action: vm.action,
+    summary: vm.summary,
+    detail: vm.detail,
+    originalArgs: vm.originalArgs,
+    createdAt: vm.createdAt as UnixMs,
+    hash: vm.hash,
+  };
+}
+
+function makeAutoApprovedVm(existing: ApprovalVm, approval: StoredApproval): ApprovalVm {
+  return Object.freeze({
+    ...existing,
+    status: approval.status,
+    autoReason: approval.autoReason,
+    feedbackText: approval.feedbackText,
+    feedbackMeta: approval.feedbackMeta,
+  });
+}
+
+function buildApprovalCollections(previewsRaw: readonly unknown[], approvalsRaw: readonly unknown[]): {
+  readonly pending: ApprovalVm[];
+  readonly autoApproved: ApprovalVm[];
+} {
+  const previewMap = new Map<string, StoredPreview>();
+  for (const previewValue of previewsRaw) {
+    const preview = parseStoredPreview(previewValue);
+    if (preview) {
+      previewMap.set(preview.id as string, preview);
+    }
+  }
+  const pending: ApprovalVm[] = [];
+  const autoApproved: ApprovalVm[] = [];
+  for (const approvalValue of approvalsRaw) {
+    const approval = parseStoredApproval(approvalValue);
+    if (!approval) {
+      continue;
+    }
+    const preview = previewMap.get(approval.previewId as string);
+    if (!preview) {
+      continue;
+    }
+    if (approval.status === 'pending') {
+      pending.push(makeVm(preview, approval));
+      continue;
+    }
+    if (approval.status === 'auto_approved') {
+      autoApproved.push(makeVm(preview, approval));
+    }
+  }
+  return { pending, autoApproved };
+}
+
+function handleListResponse(
+  response: unknown,
+  handlers: {
+    readonly dispatch: (action: ReducerAction) => void;
+    readonly setAutoApproved: AutoApprovedSetter;
+    readonly setLastError: (error: ServiceError | null) => void;
+  },
+): void {
+  const parsed = normalizeServiceResult<{ previews: unknown; approvals: unknown }>(response);
+  if (!parsed.ok) {
+    handlers.setLastError(parsed.error);
+    handlers.dispatch({ type: 'reset', items: [] });
+    return;
+  }
+  const previewsRaw = Array.isArray(parsed.data?.previews) ? parsed.data.previews : [];
+  const approvalsRaw = Array.isArray(parsed.data?.approvals) ? parsed.data.approvals : [];
+  const { pending, autoApproved } = buildApprovalCollections(previewsRaw, approvalsRaw);
+  handlers.dispatch({ type: 'reset', items: pending });
+  handlers.setAutoApproved(autoApproved.length > 0 ? autoApproved : []);
+  handlers.setLastError(null);
+}
+
+function handleListFailure(
+  error: unknown,
+  handlers: {
+    readonly dispatch: (action: ReducerAction) => void;
+    readonly setAutoApproved: AutoApprovedSetter;
+    readonly setLastError: (error: ServiceError) => void;
+  },
+): void {
+  const message = typeof (error as { message?: unknown })?.message === 'string'
+    ? String((error as { message: string }).message)
+    : 'Failed to load approvals';
+  handlers.setLastError({ code: 'LIST_FAILED', message });
+  handlers.dispatch({ type: 'reset', items: [] });
+  handlers.setAutoApproved([]);
+}
+
+function handleNewApprovalEvent(
+  payload: ApprovalWatchPayload | undefined,
+  sessionId: string,
+  dispatch: (action: ReducerAction) => void,
+): void {
+  if (!payload || payload.type !== 'agent:approval:new') return;
+  const preview = parseStoredPreview((payload as { preview: unknown }).preview);
+  const approval = parseStoredApproval((payload as { approval: unknown }).approval);
+  if (!preview || !approval) return;
+  if (preview.sessionId !== sessionId || approval.sessionId !== sessionId) return;
+  if (approval.status !== 'pending') return;
+  dispatch({ type: 'upsert', item: makeVm(preview, approval) });
+}
+
+function handleUpdateApprovalEvent(
+  payload: ApprovalWatchPayload | undefined,
+  sessionId: string,
+  stateRef: { readonly current: ReducerState },
+  dispatch: (action: ReducerAction) => void,
+  setAutoApproved: AutoApprovedSetter,
+): void {
+  if (!payload || payload.type !== 'agent:approval:update') return;
+  const approval = parseStoredApproval((payload as { approval: unknown }).approval);
+  if (!approval || approval.sessionId !== sessionId) return;
+  const existing = stateRef.current.get(approval.previewId as string);
+  if (!existing) return;
+  if (approval.status !== 'pending') {
+    dispatch({ type: 'remove', id: approval.previewId as string });
+    if (approval.status === 'auto_approved') {
+      const autoVm = makeAutoApprovedVm(existing, approval);
+      setAutoApproved((prev) => {
+        const next = [autoVm, ...prev];
+        return next.slice(0, AUTO_APPROVED_HISTORY_LIMIT);
+      });
+    }
+    return;
+  }
+  const merged = makeVm(toStoredPreview(existing), approval, existing.streaming);
+  dispatch({ type: 'upsert', item: merged });
+}
+
+function handleWatchErrorEvent(payload: unknown, setLastError: (error: ServiceError) => void): void {
+  if (!payload) return;
+  const err = isPlainRecord(payload) ? parseServiceError(payload) : { code: 'WATCH_FAILED', message: 'Approvals watch failed' };
+  setLastError(err);
+}
+
+function createWatchHandlers(params: {
+  readonly sessionId: string;
+  readonly dispatch: (action: ReducerAction) => void;
+  readonly stateRef: { readonly current: ReducerState };
+  readonly setAutoApproved: AutoApprovedSetter;
+  readonly setLastError: (error: ServiceError) => void;
+}): Parameters<ApprovalsBridge['watch']>[0] {
+  return {
+    onNew: (payload) => handleNewApprovalEvent(payload, params.sessionId, params.dispatch),
+    onUpdate: (payload) => handleUpdateApprovalEvent(payload, params.sessionId, params.stateRef, params.dispatch, params.setAutoApproved),
+    onError: (payload) => handleWatchErrorEvent(payload, params.setLastError),
+  };
+}
+
 function parseBoolPreference(value: unknown): boolean {
   if (typeof value === "boolean") return value;
   if (isPlainRecord(value) && "success" in value && (value as { success?: boolean }).success === true) {
@@ -241,107 +412,28 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
     }
     let cancelled = false;
     setLoading(true);
-    bridge.list({ sessionId }).then((response) => {
-      if (cancelled) return;
-      const parsed = normalizeServiceResult<{ previews: unknown; approvals: unknown }>(response);
-      if (!parsed.ok) {
-        setLastError(parsed.error);
-        dispatch({ type: 'reset', items: [] });
-        return;
-      }
-      const previewsRaw = Array.isArray(parsed.data?.previews) ? parsed.data.previews : [];
-      const approvalsRaw = Array.isArray(parsed.data?.approvals) ? parsed.data.approvals : [];
-      const previewMap = new Map<string, StoredPreview>();
-      for (const previewValue of previewsRaw) {
-        const preview = parseStoredPreview(previewValue);
-        if (preview) previewMap.set(preview.id as string, preview);
-      }
-      const items: ApprovalVm[] = [];
-      const autoList: ApprovalVm[] = [];
-      for (const approvalValue of approvalsRaw) {
-        const approval = parseStoredApproval(approvalValue);
-        if (!approval) continue;
-        const preview = previewMap.get(approval.previewId as string);
-        if (!preview) continue;
-        if (approval.status === 'pending') {
-          items.push(makeVm(preview, approval));
-          continue;
-        }
-        if (approval.status === 'auto_approved') {
-          autoList.push(makeVm(preview, approval));
-        }
-      }
-      dispatch({ type: 'reset', items });
-      if (autoList.length > 0) {
-        setAutoApproved(autoList);
-      } else {
-        setAutoApproved([]);
-      }
-      setLastError(null);
-    }).catch((error: unknown) => {
-      if (cancelled) return;
-      const message = typeof (error as { message?: unknown })?.message === 'string'
-        ? String((error as { message: string }).message)
-        : 'Failed to load approvals';
-      setLastError({ code: 'LIST_FAILED', message });
-      dispatch({ type: 'reset', items: [] });
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+    bridge.list({ sessionId })
+      .then((response) => {
+        if (cancelled) return;
+        handleListResponse(response, { dispatch, setAutoApproved, setLastError });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        handleListFailure(error, { dispatch, setAutoApproved, setLastError });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    const stop = bridge.watch({
-      onNew: (payload) => {
-        if (!payload || payload.type !== 'agent:approval:new') return;
-        const preview = parseStoredPreview((payload as { preview: unknown }).preview);
-        const approval = parseStoredApproval((payload as { approval: unknown }).approval);
-        if (!preview || !approval) return;
-        if (preview.sessionId !== sessionId || approval.sessionId !== sessionId) return;
-        if (approval.status !== 'pending') return;
-        dispatch({ type: 'upsert', item: makeVm(preview, approval) });
-      },
-      onUpdate: (payload) => {
-        if (!payload || payload.type !== 'agent:approval:update') return;
-        const approval = parseStoredApproval((payload as { approval: unknown }).approval);
-        if (!approval || approval.sessionId !== sessionId) return;
-        const existing = stateRef.current.get(approval.previewId as string);
-        if (!existing) return;
-        if (approval.status !== 'pending') {
-          dispatch({ type: 'remove', id: approval.previewId as string });
-          if (approval.status === 'auto_approved' && existing) {
-            const autoVm: ApprovalVm = Object.freeze({
-              ...existing,
-              status: approval.status,
-              autoReason: approval.autoReason,
-              feedbackText: approval.feedbackText,
-              feedbackMeta: approval.feedbackMeta,
-            });
-            setAutoApproved((prev) => {
-              const next = [autoVm, ...prev];
-              return next.slice(0, 5);
-            });
-          }
-          return;
-        }
-        const merged = makeVm({
-          id: existing.previewId,
-          sessionId: existing.sessionId,
-          toolExecutionId: existing.toolExecutionId,
-          tool: existing.tool,
-          action: existing.action,
-          summary: existing.summary,
-          detail: existing.detail,
-          originalArgs: existing.originalArgs,
-          createdAt: existing.createdAt,
-          hash: existing.hash,
-        } as StoredPreview, approval, existing.streaming);
-        dispatch({ type: 'upsert', item: merged });
-      },
-      onError: (payload) => {
-        if (!payload) return;
-        const err = isPlainRecord(payload) ? parseServiceError(payload) : { code: 'WATCH_FAILED', message: 'Approvals watch failed' };
-        setLastError(err);
-      },
-    });
+    const stop = bridge.watch(
+      createWatchHandlers({
+        sessionId,
+        dispatch,
+        stateRef,
+        setAutoApproved,
+        setLastError,
+      }),
+    );
     stopRef.current = stop;
 
     return () => {
@@ -360,11 +452,13 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
   const approve = useCallback(async (approvalId: string, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => {
     const bridge = getApprovalsBridge();
     if (!bridge) {
-      const error = { ok: false, error: { code: 'UNAVAILABLE', message: 'Approvals bridge unavailable' } } as BridgeServiceResult<ApplyResult>;
-      emitApprovalsToast(error.error.message);
-      return error;
+      emitApprovalsToast(BRIDGE_UNAVAILABLE_MESSAGE);
+      return makeBridgeUnavailableResult<ApplyResult>();
     }
-    const result = normalizeServiceResult<ApplyResult>(await bridge.apply({ approvalId, feedbackText: options?.feedbackText, feedbackMeta: options?.feedbackMeta, resolvedBy: displayName }));
+    const { feedbackText, feedbackMeta } = options ?? {};
+    const result = normalizeServiceResult<ApplyResult>(
+      await bridge.apply({ approvalId, feedbackText, feedbackMeta, resolvedBy: displayName }),
+    );
     if (!result.ok) {
       emitApprovalsToast(result.error.message ?? 'Failed to approve request');
     }
@@ -374,11 +468,19 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
   const approveWithEdits = useCallback(async (approvalId: string, content: unknown, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => {
     const bridge = getApprovalsBridge();
     if (!bridge) {
-      const error = { ok: false, error: { code: 'UNAVAILABLE', message: 'Approvals bridge unavailable' } } as BridgeServiceResult<ApplyResult>;
-      emitApprovalsToast(error.error.message);
-      return error;
+      emitApprovalsToast(BRIDGE_UNAVAILABLE_MESSAGE);
+      return makeBridgeUnavailableResult<ApplyResult>();
     }
-    const result = normalizeServiceResult<ApplyResult>(await bridge.applyWithContent({ approvalId, content, feedbackText: options?.feedbackText, feedbackMeta: options?.feedbackMeta, resolvedBy: displayName }));
+    const { feedbackText, feedbackMeta } = options ?? {};
+    const result = normalizeServiceResult<ApplyResult>(
+      await bridge.applyWithContent({
+        approvalId,
+        content,
+        feedbackText,
+        feedbackMeta,
+        resolvedBy: displayName,
+      }),
+    );
     if (!result.ok) {
       emitApprovalsToast(result.error.message ?? 'Failed to approve with edits');
     }
@@ -388,11 +490,18 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
   const reject = useCallback(async (approvalId: string, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => {
     const bridge = getApprovalsBridge();
     if (!bridge) {
-      const error = { ok: false, error: { code: 'UNAVAILABLE', message: 'Approvals bridge unavailable' } } as BridgeServiceResult<StoredApproval>;
-      emitApprovalsToast(error.error.message);
-      return error;
+      emitApprovalsToast(BRIDGE_UNAVAILABLE_MESSAGE);
+      return makeBridgeUnavailableResult<StoredApproval>();
     }
-    const result = normalizeServiceResult<StoredApproval>(await bridge.reject({ approvalId, feedbackText: options?.feedbackText, feedbackMeta: options?.feedbackMeta, resolvedBy: displayName }));
+    const { feedbackText, feedbackMeta } = options ?? {};
+    const result = normalizeServiceResult<StoredApproval>(
+      await bridge.reject({
+        approvalId,
+        feedbackText,
+        feedbackMeta,
+        resolvedBy: displayName,
+      }),
+    );
     if (!result.ok) {
       emitApprovalsToast(result.error.message ?? 'Failed to reject approval');
     }
@@ -402,9 +511,8 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
   const cancel = useCallback(async (previewId: string) => {
     const bridge = getApprovalsBridge();
     if (!bridge) {
-      const error = { ok: false, error: { code: 'UNAVAILABLE', message: 'Approvals bridge unavailable' } } as BridgeServiceResult<null>;
-      emitApprovalsToast(error.error.message);
-      return error;
+      emitApprovalsToast(BRIDGE_UNAVAILABLE_MESSAGE);
+      return makeBridgeUnavailableResult<null>();
     }
     const result = normalizeServiceResult<null>(await bridge.cancel({ previewId }));
     if (!result.ok) {
@@ -428,9 +536,8 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
   const setRules = useCallback(async (rules: readonly AutoRule[]) => {
     const bridge = getApprovalsBridge();
     if (!bridge) {
-      const error = { ok: false, error: { code: 'UNAVAILABLE', message: 'Approvals bridge unavailable' } } as BridgeServiceResult<null>;
-      emitApprovalsToast(error.error.message, 'warning');
-      return error;
+      emitApprovalsToast(BRIDGE_UNAVAILABLE_MESSAGE, 'warning');
+      return makeBridgeUnavailableResult<null>();
     }
     const serializedRules = Array.isArray(rules) ? rules.map((rule) => serializeAutoRule(rule)) : [];
     const result = normalizeServiceResult<null>(await bridge.setRules({ rules: serializedRules }));
