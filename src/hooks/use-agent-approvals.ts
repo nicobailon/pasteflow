@@ -294,13 +294,15 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
         if (!payload || payload.type !== 'agent:approval:new') return;
         const preview = parseStoredPreview((payload as { preview: unknown }).preview);
         const approval = parseStoredApproval((payload as { approval: unknown }).approval);
-        if (!preview || !approval || approval.status !== 'pending') return;
+        if (!preview || !approval) return;
+        if (preview.sessionId !== sessionId || approval.sessionId !== sessionId) return;
+        if (approval.status !== 'pending') return;
         dispatch({ type: 'upsert', item: makeVm(preview, approval) });
       },
       onUpdate: (payload) => {
         if (!payload || payload.type !== 'agent:approval:update') return;
         const approval = parseStoredApproval((payload as { approval: unknown }).approval);
-        if (!approval) return;
+        if (!approval || approval.sessionId !== sessionId) return;
         const existing = stateRef.current.get(approval.previewId as string);
         if (!existing) return;
         if (approval.status !== 'pending') {
