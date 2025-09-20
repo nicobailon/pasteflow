@@ -54,7 +54,7 @@
 - Approvals are always on; the panel mounts `useAgentApprovals` unconditionally and renders `AgentApprovalList` between notifications and messages.
 - Approval cards provide: `Approve`, `Approve with edits` (diff/file previews launch a JSON modal), `Reject` (with optional feedback), and `Cancel` for running terminal previews. Buttons stay disabled until streaming reaches `ready`.
 - Reviewer feedback is persisted through the main process. Successful apply/reject calls append synthetic reviewer messages in chat and surface feedback in the approvals export payload.
-- Auto-approved items are summarised in an "Auto-approved" tray above the pending list. Each entry links back to the timeline anchor for the preview.
-- Timeline coverage remains: `ApprovalTimeline` always renders for active sessions and mirrors apply/reject/cancel updates from the main process.
-- Preload continues to expose typed helpers under `window.electron.approvals` for `list`, `apply`, `applyWithContent`, `reject`, `cancel`, `getRules`, `setRules`, and `watch`—always use these IPC-safe wrappers.
+- Auto-approved items are summarised in an "Auto-approved" tray above the pending list.
+- A collapsible Tool Approval Strip renders above the agent input with per-tool auto-approve toggles; preferences persist via '/prefs/get' and '/prefs/set'.
+- Preload continues to expose typed helpers under `window.electron.approvals` for `list`, `apply`, `applyWithContent`, `reject`, `cancel`, and `watch`—always use these IPC-safe wrappers.
 - Session exports now embed approvals data with preview detail hashes (`beforeHash`, `afterHash`, `diffHash`) and reviewer feedback for downstream auditing.

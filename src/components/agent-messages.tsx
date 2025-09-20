@@ -7,7 +7,6 @@ import type { UsageRow } from "../types/agent-types";
 import { extractVisibleTextFromMessage, extractReasoningTextFromMessage, condenseUserMessageForDisplay, estimateTokensForText, formatLatency, estimateCostUSD } from "../utils/agent-message-utils";
 
 import AgentToolCalls from "./agent-tool-calls";
-import ApprovalTimeline from "./agent-approvals/approval-timeline";
 
 // Local fallback tool catalog (renderer-only) mirrors main/agent/tool-catalog.ts
 // Kept in renderer to avoid cross-bundle imports in Vite/Electron.
@@ -98,9 +97,6 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
 
   return (
     <div className="agent-messages" aria-live="polite">
-      {sessionId ? (
-        <ApprovalTimeline sessionId={sessionId} approvalsEnabled={true} />
-      ) : null}
       {messages.length === 0 ? (
         <div className="agent-banner">Start a conversation or send packed content.</div>
       ) : (

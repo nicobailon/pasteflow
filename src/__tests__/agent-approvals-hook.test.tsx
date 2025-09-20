@@ -15,7 +15,10 @@ declare global {
         cancel: jest.Mock<Promise<unknown>, [payload: { previewId: string }] >;
         getRules: jest.Mock<Promise<unknown>, []>;
         setRules: jest.Mock<Promise<unknown>, [payload: { rules: readonly unknown[] }]>;
-        watch: jest.Mock<() => () => void, [handlers: { onNew?: (payload: unknown) => void; onUpdate?: (payload: unknown) => void; onReady?: (payload: unknown) => void; onError?: (payload: unknown) => void }]>;
+        watch: jest.Mock<
+          () => () => void,
+          [handlers: { onNew?: (payload: unknown) => void; onUpdate?: (payload: unknown) => void; onEvent?: (payload: unknown) => void; onReady?: (payload: unknown) => void; onError?: (payload: unknown) => void }]
+        >;
       };
       ipcRenderer?: {
         invoke: InvokeFn;
@@ -61,6 +64,7 @@ describe("useAgentApprovals", () => {
   let watchHandlers: {
     onNew?: (payload: unknown) => void;
     onUpdate?: (payload: unknown) => void;
+    onEvent?: (payload: unknown) => void;
   } = {};
 
   beforeEach(() => {

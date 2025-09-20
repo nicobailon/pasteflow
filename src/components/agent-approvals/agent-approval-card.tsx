@@ -1,12 +1,15 @@
-import { useCallback, useMemo, useState } from "react";
+/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
+import { forwardRef, useCallback, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import type { ApprovalVm, StreamingState } from "../../hooks/use-agent-approvals";
+import { isPlainRecord } from "../../utils/approvals-parsers";
+
 import { getApprovalButtons } from "./button-config";
 import DiffPreview from "./diff-preview";
 import JsonPreview from "./json-preview";
 import TerminalOutputView from "./terminal-output-view";
 import EditApprovalModal from "./edit-approval-modal";
-import { isPlainRecord } from "../../utils/approvals-parsers";
 
 interface FeedbackOptions {
   readonly feedbackText?: string;
@@ -107,15 +110,15 @@ const STREAMING_LABELS: Record<StreamingState, string> = Object.freeze({
   failed: "Preview failed",
 });
 
-const AgentApprovalCard = ({
-  approval,
-  onApprove,
-  onApproveWithEdits,
-  onReject,
-  onCancel,
-}: AgentApprovalCardProps) => {
+const STREAMING_TITLES: Partial<Record<StreamingState, string>> = Object.freeze({
+  pending: "Preview is queued",
+  running: "Preview still running",
+});
+
+const AgentApprovalCard = forwardRef<HTMLDivElement, AgentApprovalCardProps>(({ approval, onApprove, onApproveWithEdits, onReject, onCancel }, ref) => {
   const [feedback, setFeedback] = useState<string>("");
   const [editModalOpen, setEditModalOpen] = useState<boolean>(false);
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const primaryPath = useMemo(() => extractPrimaryPath(approval.detail), [approval.detail]);
   const timestamp = useMemo(() => formatTimestamp(approval.createdAt), [approval.createdAt]);
@@ -175,15 +178,56 @@ const AgentApprovalCard = ({
     setEditModalOpen(true);
   }, []);
 
-  const handleModalClose = useCallback(() => {
+  const closeEditModal = useCallback(() => {
     setEditModalOpen(false);
+    requestAnimationFrame(() => {
+      editButtonRef.current?.focus();
+    });
   }, []);
 
+  const handleModalClose = useCallback(() => {
+    closeEditModal();
+  }, [closeEditModal]);
+
   const handleModalSubmit = useCallback((content: Readonly<Record<string, unknown>>) => {
-    setEditModalOpen(false);
+    closeEditModal();
     if (!onApproveWithEdits) return;
     onApproveWithEdits(content, buildFeedbackOptions());
-  }, [buildFeedbackOptions, onApproveWithEdits]);
+  }, [buildFeedbackOptions, closeEditModal, onApproveWithEdits]);
+
+  const handleCardKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target && target.tagName === "TEXTAREA") return;
+
+    const isReady = approval.streaming === "ready";
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      if (isReady) {
+        onApprove(buildFeedbackOptions());
+      }
+      return;
+    }
+
+    if (event.shiftKey && event.key === "Enter" && onApproveWithEdits) {
+      event.preventDefault();
+      if (isReady) {
+        setEditModalOpen(true);
+      }
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onReject(buildFeedbackOptions());
+      return;
+    }
+
+    if (event.key === "j" || event.key === "k") {
+      event.preventDefault();
+      const dir = event.key === "j" ? 1 : -1;
+      window.dispatchEvent(new CustomEvent("agent:approvals:move-focus", { detail: { dir, from: approval.id } }));
+    }
+  }, [approval.id, approval.streaming, buildFeedbackOptions, onApprove, onApproveWithEdits, onReject]);
 
   const buttons = useMemo(() => getApprovalButtons({
     approval,
@@ -195,7 +239,13 @@ const AgentApprovalCard = ({
   }), [approval, approval.streaming, handleApprove, onApproveWithEdits, handleApproveWithEdits, handleReject, onCancel]);
 
   return (
-    <article className="agent-approval-card" aria-label={`Approval request for ${approval.summary}`}>
+    <article
+      ref={ref}
+      className="agent-approval-card"
+      aria-label={`Approval request for ${approval.summary}`}
+      tabIndex={0}
+      onKeyDown={handleCardKeyDown}
+    >
       <header className="agent-approval-card__header">
         <div className="agent-approval-card__title" aria-label="Tool and action">
           <span className="agent-approval-card__tool">{approval.tool}</span>
@@ -208,20 +258,21 @@ const AgentApprovalCard = ({
       </header>
       <div className="agent-approval-card__body">
         <p className="agent-approval-card__summary">{approval.summary}</p>
+        {approval.tool === "terminal" ? (
+          <div className="agent-approval-card__warning" role="alert">Command execution requires explicit approval.</div>
+        ) : null}
         {approval.autoReason ? (
           <div className="agent-approval-card__badge" aria-label="Auto approval reason">Auto rule: {approval.autoReason}</div>
         ) : null}
-        <a
-          className="agent-approval-card__link"
-          href={`#approval-timeline-${String(approval.previewId)}`}
-        >
-          View in timeline
-        </a>
         {STREAMING_LABELS[approval.streaming] ? (
           <div
             className={`agent-approval-card__streaming agent-approval-card__streaming--${approval.streaming}`}
             role={approval.streaming === "failed" ? "alert" : "status"}
+            title={STREAMING_TITLES[approval.streaming]}
           >
+            {(approval.streaming === "pending" || approval.streaming === "running") ? (
+              <span className="spinner" aria-hidden="true" />
+            ) : null}
             {STREAMING_LABELS[approval.streaming]}
           </div>
         ) : null}
@@ -246,6 +297,7 @@ const AgentApprovalCard = ({
               className={`agent-approval-card__button agent-approval-card__button--${button.kind}`}
               onClick={button.onSelect}
               disabled={button.disabled}
+              ref={button.id === "approveWithEdits" ? editButtonRef : undefined}
             >
               {button.label}
             </button>
@@ -259,10 +311,13 @@ const AgentApprovalCard = ({
           initialContent={editableArgs}
           approvalSummary={approval.summary}
           onSubmit={handleModalSubmit}
+          focusReturnRef={editButtonRef}
         />
       ) : null}
     </article>
   );
-};
+});
+
+AgentApprovalCard.displayName = "AgentApprovalCard";
 
 export default AgentApprovalCard;

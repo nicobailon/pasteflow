@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('electron', {
       '/prefs/get:update',
       'agent:approval:new',
       'agent:approval:update',
+      'agent:auto_approval_cap_reached',
       'agent:approval:watch:ready',
       'agent:approval:watch:error',
     ];
@@ -169,6 +170,7 @@ contextBridge.exposeInMainWorld('electron', {
     type WatchHandlers = {
       readonly onNew?: Handler;
       readonly onUpdate?: Handler;
+      readonly onEvent?: Handler;
       readonly onReady?: Handler;
       readonly onError?: Handler;
     };
@@ -197,18 +199,18 @@ contextBridge.exposeInMainWorld('electron', {
       applyWithContent: async (payload: { approvalId: string; content: unknown; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }) => invoke('agent:approval:apply-with-content', payload),
       reject: async (payload: { approvalId: string; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }) => invoke('agent:approval:reject', payload),
       cancel: async (payload: { previewId: string }) => invoke('agent:approval:cancel-stream', payload),
-      getRules: async () => invoke('agent:approval:rules:get'),
-      setRules: async (payload: { rules: readonly unknown[] }) => invoke('agent:approval:rules:set', payload),
       watch: (handlers: WatchHandlers = {}) => {
         const readyListener = wrapHandler(handlers.onReady, 'agent:approval:watch:ready');
         const errorListener = wrapHandler(handlers.onError, 'agent:approval:watch:error');
         const newListener = wrapHandler(handlers.onNew, 'agent:approval:new');
         const updateListener = wrapHandler(handlers.onUpdate, 'agent:approval:update');
+        const eventListener = wrapHandler(handlers.onEvent, 'agent:auto_approval_cap_reached');
 
         if (readyListener) ipcRenderer.on('agent:approval:watch:ready', readyListener);
         if (errorListener) ipcRenderer.on('agent:approval:watch:error', errorListener);
         if (newListener) ipcRenderer.on('agent:approval:new', newListener);
         if (updateListener) ipcRenderer.on('agent:approval:update', updateListener);
+        if (eventListener) ipcRenderer.on('agent:auto_approval_cap_reached', eventListener);
 
         try {
           ipcRenderer.send('agent:approval:watch');
@@ -222,6 +224,7 @@ contextBridge.exposeInMainWorld('electron', {
           if (errorListener) ipcRenderer.removeListener('agent:approval:watch:error', errorListener);
           if (newListener) ipcRenderer.removeListener('agent:approval:new', newListener);
           if (updateListener) ipcRenderer.removeListener('agent:approval:update', updateListener);
+          if (eventListener) ipcRenderer.removeListener('agent:auto_approval_cap_reached', eventListener);
           try {
             ipcRenderer.send('agent:approval:unwatch');
           } catch (error) {

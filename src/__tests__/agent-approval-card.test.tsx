@@ -1,3 +1,5 @@
+import React from "react";
+import "@testing-library/jest-dom";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import AgentApprovalCard from "../components/agent-approvals/agent-approval-card";
@@ -49,20 +51,19 @@ describe("AgentApprovalCard", () => {
   it("renders summary and path details", () => {
     renderCard();
     expect(screen.getByText("Write file")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /view in timeline/i })).toHaveAttribute("href", expect.stringContaining("approval-timeline"));
   });
 
   it("sends trimmed feedback on approve", () => {
     const { onApprove } = renderCard();
     const textarea = screen.getByLabelText(/Feedback/);
     fireEvent.change(textarea, { target: { value: "  Approved with notes  " } });
-    fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
     expect(onApprove).toHaveBeenCalledWith({ feedbackText: "Approved with notes", feedbackMeta: null });
   });
 
   it("opens edit modal and submits edited payload", async () => {
     const { onApproveWithEdits } = renderCard({ tool: "edit" });
-    fireEvent.click(screen.getByRole("button", { name: /approve with edits/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save with edits/i }));
     const editor = await screen.findByLabelText(/JSON overrides/i);
     fireEvent.change(editor, { target: { value: '{"path":"/repo/index.ts","content":"updated"}' } });
     await act(async () => {
@@ -90,7 +91,7 @@ describe("AgentApprovalCard", () => {
 
   it("disables approve buttons until preview ready", () => {
     renderCard({ streaming: "pending" });
-    expect(screen.getByRole("button", { name: /^approve$/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /approve with edits/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /save with edits/i })).toBeDisabled();
   });
 });

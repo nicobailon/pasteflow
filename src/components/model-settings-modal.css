@@ -226,6 +226,17 @@
   justify-content: space-between;
 }
 
+.auto-rules-notify {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.auto-rules-notify input {
+  margin: 0;
+}
+
 .auto-rules-cap {
   display: flex;
   flex-direction: column;

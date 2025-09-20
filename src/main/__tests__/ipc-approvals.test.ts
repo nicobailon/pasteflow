@@ -1,7 +1,7 @@
 import type { ApprovalsService } from "../agent/approvals-service";
 import type { DatabaseBridge } from "../db/database-bridge";
 import { makePreviewId } from "../agent/preview-registry";
-import { handleApprovalList, handleApprovalApply, handleApprovalRulesGet, handleApprovalRulesSet } from "../approvals-ipc";
+import { handleApprovalList, handleApprovalApply } from "../approvals-ipc";
 
 function createDeps(overrides?: {
   service?: Partial<ApprovalsService> | null;
@@ -56,19 +56,4 @@ describe("approval IPC handlers", () => {
     expect(applyApproval).toHaveBeenCalledWith(expect.objectContaining({ approvalId: "00000000-0000-4000-8000-000000000002" }));
   });
 
-  it("reads approval rules when available", async () => {
-    const getPreference = jest.fn(async () => [{ kind: "tool" }]);
-    const result = await handleApprovalRulesGet(createDeps({ database: { getPreference } as Partial<DatabaseBridge> }));
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("expected success");
-    expect(result.data).toEqual([{ kind: "tool" }]);
-  });
-
-  it("writes approval rules and returns success", async () => {
-    const setPreference = jest.fn(async () => void 0);
-    const result = await handleApprovalRulesSet({ rules: [] }, createDeps({ database: { setPreference } as Partial<DatabaseBridge> }));
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("expected success");
-    expect(setPreference).toHaveBeenCalledWith("agent.approvals.rules", []);
-  });
 });

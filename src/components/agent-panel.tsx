@@ -23,8 +23,11 @@ import AgentMessages from "./agent-messages";
 import AgentDisabledOverlay from "./agent-disabled-overlay";
 import AgentStatusBanner from "./agent-status-banner";
 import AgentResizeHandle from "./agent-resize-handle";
+
 import "./agent-panel.css";
 import useAgentApprovals from "../hooks/use-agent-approvals";
+
+import ToolApprovalStrip from "./agent-approvals/tool-approval-strip";
 
 // (types migrated to hooks/util files; keeping panel lean)
 
@@ -738,6 +741,7 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
           onApproveWithEdits={(approvalId, content, options) => approveApprovalWithEdits(approvalId, content, options)}
           onReject={rejectApproval}
           onCancel={(previewId) => cancelPreview(previewId)}
+          onToggleBypass={(next) => { void setBypass(next); }}
         />
         {/* Attachments and mini file list removed in simplified panel */}
         <AgentMessages
@@ -751,6 +755,7 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
         />
         <AgentStatusBanner status={status as string | null} />
 
+        <ToolApprovalStrip sessionId={sessionId} />
         <form className="agent-input-container" onSubmit={handleSubmit}>
           <div className="autocomplete-container" style={{ position: "relative" }}>
             <textarea

@@ -386,13 +386,12 @@ describe("ApprovalsService", () => {
     expect(detail.feedbackPersisted).toBe(false);
   });
 
-  it("evaluates skip-all preference for auto rules", async () => {
+  it("evaluates skip-all preference for auto policy", async () => {
     const service = createService();
     await db.setPreference("agent.approvals.skipAll", true);
     const preview = buildPreview();
-    const match = await service.evaluateAutoRules(preview);
-    expect(match).not.toBeNull();
-    expect(match?.reason).toBe("skipAll");
+    const policy = await service.evaluateAutoPolicy(preview);
+    expect(policy).toBe("skipAll");
   });
 
   it("updates auto apply cap dynamically", () => {

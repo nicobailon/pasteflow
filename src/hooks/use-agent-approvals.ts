@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
-import type { ApplyResult, AutoRule, ServiceResult, StoredApproval, StoredPreview } from "../main/agent/approvals-service";
+import type { ApplyResult, ServiceResult, StoredApproval, StoredPreview } from "../main/agent/approvals-service";
 import type { ChatSessionId, PreviewId, ToolArgsSnapshot, ToolName, UnixMs } from "../main/agent/preview-registry";
 import type { ApprovalStatus } from "../main/db/database-implementation";
 import {
@@ -10,7 +10,6 @@ import {
   parseServiceError,
   parseStoredApproval,
   parseStoredPreview,
-  serializeAutoRule,
   type ServiceError,
   type StreamingState,
 } from "../utils/approvals-parsers";
@@ -23,7 +22,8 @@ const BRIDGE_UNAVAILABLE_MESSAGE = "Approvals bridge unavailable";
 
 type ApprovalWatchPayload =
   | { readonly type: "agent:approval:new"; readonly preview: unknown; readonly approval: unknown }
-  | { readonly type: "agent:approval:update"; readonly approval: unknown };
+  | { readonly type: "agent:approval:update"; readonly approval: unknown }
+  | { readonly type: "agent:auto_approval_cap_reached"; readonly sessionId: string; readonly cap: number; readonly count: number };
 
 type ApprovalsBridge = {
   readonly list: (payload: { sessionId: string }) => Promise<unknown>;
@@ -31,11 +31,10 @@ type ApprovalsBridge = {
   readonly applyWithContent: (payload: { approvalId: string; content: unknown; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }) => Promise<unknown>;
   readonly reject: (payload: { approvalId: string; feedbackText?: string; feedbackMeta?: unknown; resolvedBy?: string | null }) => Promise<unknown>;
   readonly cancel: (payload: { previewId: string }) => Promise<unknown>;
-  readonly getRules: () => Promise<unknown>;
-  readonly setRules: (payload: { rules: readonly unknown[] }) => Promise<unknown>;
   readonly watch: (handlers: {
     readonly onNew?: (payload: ApprovalWatchPayload) => void;
     readonly onUpdate?: (payload: ApprovalWatchPayload) => void;
+    readonly onEvent?: (payload: ApprovalWatchPayload) => void;
     readonly onReady?: (payload: unknown) => void;
     readonly onError?: (payload: unknown) => void;
   }) => () => void;
@@ -95,7 +94,6 @@ interface UseAgentApprovalsResult {
   readonly reject: (approvalId: string, options?: { readonly feedbackText?: string; readonly feedbackMeta?: unknown }) => Promise<BridgeServiceResult<StoredApproval>>;
   readonly cancel: (previewId: string) => Promise<BridgeServiceResult<null>>;
   readonly setBypass: (enabled: boolean) => Promise<boolean>;
-  readonly setRules: (rules: readonly AutoRule[]) => Promise<BridgeServiceResult<null>>;
   readonly bypassEnabled: boolean;
   readonly loading: boolean;
   readonly lastError: ServiceError | null;
@@ -152,7 +150,7 @@ function reducer(state: ReducerState, action: ReducerAction): ReducerState {
 function getApprovalsBridge(): ApprovalsBridge | null {
   const candidate = (window as unknown as { electron?: { approvals?: unknown } }).electron?.approvals;
   if (!candidate || !isPlainRecord(candidate)) return null;
-  const required = ["list", "apply", "applyWithContent", "reject", "cancel", "getRules", "setRules", "watch"] as const;
+  const required = ["list", "apply", "applyWithContent", "reject", "cancel", "watch"] as const;
   for (const key of required) {
     if (typeof candidate[key] !== "function") return null;
   }
@@ -318,6 +316,13 @@ function handleWatchErrorEvent(payload: unknown, setLastError: (error: ServiceEr
   setLastError(err);
 }
 
+function handleWatchEvent(payload: ApprovalWatchPayload | unknown): void {
+  if (!payload || !isPlainRecord(payload)) return;
+  if ((payload as ApprovalWatchPayload).type === 'agent:auto_approval_cap_reached') {
+    emitApprovalsToast('Auto-approve cap reached; further requests require manual approval.', 'info');
+  }
+}
+
 function createWatchHandlers(params: {
   readonly sessionId: string;
   readonly dispatch: (action: ReducerAction) => void;
@@ -328,6 +333,7 @@ function createWatchHandlers(params: {
   return {
     onNew: (payload) => handleNewApprovalEvent(payload, params.sessionId, params.dispatch),
     onUpdate: (payload) => handleUpdateApprovalEvent(payload, params.sessionId, params.stateRef, params.dispatch, params.setAutoApproved),
+    onEvent: (payload) => handleWatchEvent(payload),
     onError: (payload) => handleWatchErrorEvent(payload, params.setLastError),
   };
 }
@@ -533,19 +539,6 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
     }
   }, []);
 
-  const setRules = useCallback(async (rules: readonly AutoRule[]) => {
-    const bridge = getApprovalsBridge();
-    if (!bridge) {
-      emitApprovalsToast(BRIDGE_UNAVAILABLE_MESSAGE, 'warning');
-      return makeBridgeUnavailableResult<null>();
-    }
-    const serializedRules = Array.isArray(rules) ? rules.map((rule) => serializeAutoRule(rule)) : [];
-    const result = normalizeServiceResult<null>(await bridge.setRules({ rules: serializedRules }));
-    if (!result.ok) {
-      emitApprovalsToast(result.error.message ?? 'Failed to persist approval rules', 'warning');
-    }
-    return result;
-  }, []);
 
   return {
     approvals,
@@ -554,7 +547,6 @@ export default function useAgentApprovals(options: UseAgentApprovalsOptions): Us
     reject,
     cancel,
     setBypass,
-    setRules,
     bypassEnabled,
     loading,
     lastError,

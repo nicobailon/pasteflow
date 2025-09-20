@@ -5,8 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
-import type { ParsedWorkspace, PreferenceValue } from './db/database-implementation';
-import type { InstructionRow } from './db/types';
+
 
 import { loadGitignore } from '../utils/ignore-utils';
 import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants';
@@ -14,12 +13,14 @@ import { binaryExtensions } from '../shared/excluded-files';
 import { getPathValidator } from '../security/path-validator';
 import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
 import { getMainTokenService } from '../services/token-service-main';
+
+import type { InstructionRow } from './db/types';
+import type { ParsedWorkspace, PreferenceValue } from './db/database-implementation';
 import { ApprovalsService } from './agent/approvals-service';
 import type { ApprovalEventPayload, StoredApproval, StoredPreview } from './agent/approvals-service';
 import { AgentSecurityManager } from './agent/security-manager';
 import { capturePreviewIfAny } from './agent/preview-capture';
-import { handleApprovalList, handleApprovalApply, handleApprovalApplyWithContent, handleApprovalReject, handleApprovalCancel, handleApprovalRulesGet, handleApprovalRulesSet } from './approvals-ipc';
-
+import { handleApprovalList, handleApprovalApply, handleApprovalApplyWithContent, handleApprovalReject, handleApprovalCancel } from './approvals-ipc';
 import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
 import { PasteFlowAPIServer } from './api-server';
@@ -1204,7 +1205,7 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
     const { resolveAgentConfig } = await import('./agent/config');
     const { getAgentTools } = await import('./agent/tools');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    const security = securityManager ?? await AgentSecurityManager.create({ db: database ? { getPreference: (k: string) => database!.getPreference(k) } : null });
+    const security = securityManager ?? await AgentSecurityManager.create({ db: database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined });
     const tools = getAgentTools({
       security,
       config: cfg,
@@ -1272,9 +1273,7 @@ ipcMain.handle('agent:approval:reject', (_event, params: unknown) => handleAppro
 
 ipcMain.handle('agent:approval:cancel-stream', (_event, params: unknown) => handleApprovalCancel(params, { approvalsService, database }));
 
-ipcMain.handle('agent:approval:rules:get', () => handleApprovalRulesGet({ approvalsService, database }));
 
-ipcMain.handle('agent:approval:rules:set', (_event, params: unknown) => handleApprovalRulesSet(params, { approvalsService, database }));
 
 ipcMain.on('agent:approval:watch', async (event) => {
   if (!approvalsService) {

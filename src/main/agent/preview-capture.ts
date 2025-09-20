@@ -1,3 +1,5 @@
+import { notifyPendingApproval } from "../notifications";
+
 import { makePreviewId, hashPreview, nowUnixMs, type PreviewEnvelope, type ToolArgsSnapshot, type ToolName, type ChatSessionId } from "./preview-registry";
 import type { ApprovalsService } from "./approvals-service";
 
@@ -117,15 +119,20 @@ export async function capturePreviewIfAny(options: CapturePreviewOptions): Promi
       return;
     }
 
-    const match = await service.evaluateAutoRules(preview);
-    if (!match) return;
-
-    if (!service.trackAutoApply(preview.sessionId)) {
-      logger?.log?.("[Approvals] auto-apply cap reached", { sessionId: preview.sessionId });
+    const policy = await service.evaluateAutoPolicy(preview);
+    if (policy === "none") {
+      if (await service.shouldNotifyPendingApprovals()) {
+        notifyPendingApproval({ tool: preview.tool, action: preview.action, summary: preview.summary });
+      }
       return;
     }
 
-    const marked = await service.markAutoApproved({ approvalId: preview.id, reason: match.reason });
+    if (!service.trackAutoApply(preview.sessionId)) {
+      service.notifyAutoCapReached(preview.sessionId);
+      return;
+    }
+
+    const marked = await service.markAutoApproved({ approvalId: preview.id, reason: policy });
     if (!marked.ok) {
       logger?.warn?.("[Approvals] auto-approve status update failed", marked.error);
       return;

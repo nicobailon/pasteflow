@@ -34,22 +34,27 @@ export function getApprovalButtons(options: ApprovalButtonOptions): readonly App
   const isReady = streaming === "ready";
   const isTerminalRunning = approval.tool === "terminal" && streaming === "running";
   const canEdit = isEditableTool(approval.tool) && typeof onApproveWithEdits === "function";
+  const isFileLike = isEditableTool(approval.tool);
+  const isTerminal = approval.tool === "terminal";
 
   const buttons: ApprovalButtonDescriptor[] = [];
+
+  const approveLabel = isFileLike ? "Save" : (isTerminal ? "Run Command" : "Approve");
 
   buttons.push({
     id: "approve",
     kind: "primary",
-    label: "Approve",
+    label: approveLabel,
     disabled: !isReady,
     onSelect: onApprove,
   });
 
   if (canEdit && typeof onApproveWithEdits === "function") {
+    const editLabel = isFileLike ? "Save with edits" : "Approve with edits";
     buttons.push({
       id: "approveWithEdits",
       kind: "primary",
-      label: "Approve with edits",
+      label: editLabel,
       disabled: !isReady,
       onSelect: onApproveWithEdits,
     });

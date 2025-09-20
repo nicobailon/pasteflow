@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useMemo, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type CSSProperties } from "react";
 import { X, Shield, CheckCircle2, Trash2, Copy } from "lucide-react";
 
 import { estimateTokenCount } from "../utils/token-utils";
@@ -8,7 +8,6 @@ import AgentAlertBanner from "./agent-alert-banner";
 
 import "./model-settings-modal.css";
 
-import type { AutoRule } from "../main/agent/approvals-service";
 import type { ToolName } from "../main/agent/preview-registry";
 import { parseStoredApproval } from "../utils/approvals-parsers";
 
@@ -93,7 +92,7 @@ function parseRulesResult(value: unknown): RuleDraft[] {
   return drafts;
 }
 
-function ruleDraftToAutoRule(rule: RuleDraft): AutoRule {
+function ruleDraftToAutoRule(rule: RuleDraft): any {
   switch (rule.kind) {
     case "tool": {
       const trimmed = rule.action.trim();
@@ -162,6 +161,18 @@ function coerceNumberInRange(v: unknown, min: number, max: number): number | nul
   return Math.max(min, Math.min(max, n));
 }
 
+function coerceBoolean(value: unknown, fallback = false): boolean {
+  const raw = (value as { data?: unknown })?.data ?? value;
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw > 0;
+  if (typeof raw === "string") {
+    const norm = raw.trim().toLowerCase();
+    if (norm === "true" || norm === "1" || norm === "yes" || norm === "on") return true;
+    if (norm === "false" || norm === "0" || norm === "no" || norm === "off") return false;
+  }
+  return fallback;
+}
+
 function defaultExecGlobalFromEnv(): boolean {
   try {
     const raw = String(process.env.PF_AGENT_DISABLE_EXECUTION_CONTEXT || "").trim().toLowerCase();
@@ -213,6 +224,9 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
   const [autoRulesStatus, setAutoRulesStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [autoCap, setAutoCap] = useState<number>(5);
   const [autoCapDirty, setAutoCapDirty] = useState<boolean>(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(false);
+  const [initialNotificationsEnabled, setInitialNotificationsEnabled] = useState<boolean>(false);
+  const [notificationsDirty, setNotificationsDirty] = useState<boolean>(false);
   const [newRuleKind, setNewRuleKind] = useState<RuleDraft["kind"]>("tool");
   const [newRuleTool, setNewRuleTool] = useState<ToolName>("edit");
   const [newRuleAction, setNewRuleAction] = useState<string>("");
@@ -323,7 +337,10 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
           }
         }
 
-        const capPref = await (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.approvals.autoCap' }).catch(() => null);
+        const [capPref, notifyPref] = await Promise.all([
+          (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.approvals.autoCap' }).catch(() => null),
+          (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.approvals.notifications' }).catch(() => null),
+        ]);
 
         if (mounted === false) return;
         const rulesOk = typeof rulesResult === 'object' && rulesResult && (rulesResult as { ok?: boolean }).ok === true;
@@ -349,6 +366,11 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
           setAutoCap(5);
         }
         setAutoCapDirty(false);
+
+        const notifyValue = coerceBoolean(notifyPref, false);
+        setNotificationsEnabled(notifyValue);
+        setInitialNotificationsEnabled(notifyValue);
+        setNotificationsDirty(false);
       } catch {
         // ignore general load errors; specific sections handle their own fallbacks
       } finally {
@@ -454,6 +476,13 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     setAutoRulesError(null);
   };
 
+  const handleNotificationsChange = useCallback((next: boolean) => {
+    setNotificationsEnabled(next);
+    setNotificationsDirty(next !== initialNotificationsEnabled);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  }, [initialNotificationsEnabled]);
+
   const renderRuleFields = (rule: RuleDraft): JSX.Element => {
     if (rule.kind === 'tool') {
       return (
@@ -515,6 +544,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
     }
     try {
       const approvalsApi = window.electron?.approvals;
+      const prefsInvoker = window.electron?.ipcRenderer?.invoke;
       if (!approvalsApi?.setRules) {
         throw new Error('Approvals API unavailable');
       }
@@ -533,9 +563,19 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
           : 'Failed to save auto-approval rules';
         throw new Error(message);
       }
+
+      if (notificationsDirty) {
+        if (typeof prefsInvoker !== 'function') {
+          throw new TypeError('Preferences API unavailable');
+        }
+        await prefsInvoker(IPC.SET, { key: 'agent.approvals.notifications', value: notificationsEnabled });
+      }
+
       setAutoCap(capped);
       setAutoRulesDirty(false);
       setAutoCapDirty(false);
+      setInitialNotificationsEnabled(notificationsEnabled);
+      setNotificationsDirty(false);
       setAutoRulesStatus('success');
       setAutoRulesError(null);
       setTimeout(() => { setAutoRulesStatus('idle'); }, 1200);
@@ -1174,79 +1214,6 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               </section>
             )}
 
-            <section className="settings-section">
-              <div className="settings-grid">
-                <div className="field">
-                  <div className="field-label">Auto approvals</div>
-                  <div className="help" style={{ fontSize: 12 }}>
-                    Define safe patterns the agent may auto-approve. Rules apply top-to-bottom and always respect global safeguards.
-                  </div>
-                </div>
-              </div>
-              {autoRulesLoading ? (
-                <div className="settings-status">Loading rules…</div>
-              ) : (
-                <>
-                  {autoRulesError ? (
-                    <div className="settings-error" role="alert">{autoRulesError}</div>
-                  ) : null}
-                  <div className="auto-rules-list">
-                    {autoRules.length === 0 ? (
-                      <div className="auto-rules-empty">No auto-approval rules defined.</div>
-                    ) : (
-                      autoRules.map((rule) => (
-                        <div key={rule.id} className="auto-rules-item">
-                          <span className="auto-rules-kind">{rule.kind}</span>
-                          {renderRuleFields(rule)}
-                          <button type="button" className="auto-rules-remove" onClick={() => handleRemoveRule(rule.id)} aria-label="Remove rule">
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  <div className="auto-rules-add">
-                    <div className="auto-rules-add-fields">
-                      <label>
-                        <span>Rule type</span>
-                        <select
-                          value={newRuleKind}
-                          onChange={(event) => {
-                            const next = event.currentTarget.value as RuleDraft['kind'];
-                            resetNewRuleForm();
-                            setNewRuleKind(next);
-                          }}
-                        >
-                          <option value="tool">Tool</option>
-                          <option value="path">Path</option>
-                          <option value="terminal">Terminal</option>
-                        </select>
-                      </label>
-                      {newRuleFields}
-                    </div>
-                    {newRuleError ? <div className="auto-rules-error" role="alert">{newRuleError}</div> : null}
-                    <button type="button" className="secondary" onClick={handleAddRule}>Add rule</button>
-                  </div>
-                  <div className="auto-rules-footer">
-                    <label className="auto-rules-cap">
-                      <span>Auto-approve cap per session</span>
-                      <input type="number" min={0} max={50} value={autoCap} onChange={handleCapChange} />
-                    </label>
-                    <div className="auto-rules-actions-row">
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={(autoRulesDirty === false && autoCapDirty === false) || autoRulesStatus === 'saving'}
-                        onClick={handleSaveRules}
-                      >
-                        {autoRulesStatus === 'saving' ? 'Saving…' : 'Save auto approvals'}
-                      </button>
-                      {autoRulesStatus === 'success' ? <span className="auto-rules-success" role="status">Saved</span> : null}
-                    </div>
-                  </div>
-                </>
-              )}
-            </section>
 
             <section className="settings-section">
               <div className="actions">
@@ -1279,10 +1246,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               </div>
               {approvalCounts ? (
                 <div className="export-note">
-                  Approvals exported: {approvalCounts.total} (pending {approvalCounts.pending}).{' '}
-                  <a className="agent-approval-card__link" href="#approval-timeline" onClick={() => onClose?.()}>
-                    View approvals timeline
-                  </a>
+                  Approvals exported: {approvalCounts.total} (pending {approvalCounts.pending}).
                 </div>
               ) : null}
             </section>

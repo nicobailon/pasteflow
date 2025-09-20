@@ -25,9 +25,6 @@ export default function AutoApprovedTray({ autoApproved }: AutoApprovedTrayProps
             {approval.autoReason ? (
               <div className="auto-approved-tray__reason">Reason: {approval.autoReason}</div>
             ) : null}
-            <a className="auto-approved-tray__link" href={`#approval-timeline-${String(approval.previewId)}`}>
-              Open timeline
-            </a>
           </li>
         ))}
       </ul>

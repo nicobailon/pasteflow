@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import {
   LineRangeSchema,
   SelectedFileReferenceSchema,
@@ -207,11 +208,6 @@ export const AgentApprovalRejectSchema = z.object({
   resolvedBy: z.string().min(1).optional(),
 });
 export const AgentApprovalCancelSchema = z.object({ previewId: z.string().uuid() });
-export const AgentApprovalRulesSetSchema = z.object({
-  rules: z.array(z.object({ kind: z.enum(['tool','path','terminal']) }).passthrough()),
-  autoCap: z.number().int().min(0).max(100).optional(),
-});
-export const AgentApprovalRulesGetSchema = z.object({});
 
 export type AgentStartSessionType = z.infer<typeof AgentStartSessionSchema>;
 export type AgentExecuteToolType = z.infer<typeof AgentExecuteToolSchema>;

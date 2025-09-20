@@ -57,6 +57,11 @@
   flex-direction: column;
   gap: 10px;
   background: var(--background-secondary);
+  outline: none;
+}
+
+.agent-approval-card:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring, #4d90fe);
 }
 
 .agent-approval-card__header {
@@ -102,6 +107,18 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.agent-approval-card__warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--warning-color, #b26b00);
+  background: var(--warning-background, rgba(255, 197, 66, 0.16));
+  border: 1px solid var(--warning-border, rgba(255, 197, 66, 0.4));
+  border-radius: 4px;
+  padding: 6px 8px;
 }
 
 .agent-approval-card__streaming {
@@ -168,6 +185,7 @@
 .agent-approval-card__buttons {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .agent-approval-card__button {
@@ -198,6 +216,22 @@
   background: transparent;
   color: var(--text-secondary, #6c6c80);
   border-color: var(--border-color, #d9d9e3);
+}
+
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-color, #d9d9e3);
+  border-top-color: var(--link-color, #2563eb);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .approval-edit-modal {
@@ -558,125 +592,6 @@
   margin-bottom: 6px;
 }
 
-.approval-timeline {
-  border: 1px solid var(--border-color, #d9d9e3);
-  border-radius: 8px;
-  padding: 12px;
-  margin-top: 12px;
-  background: var(--background-primary);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.approval-timeline__header {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary, #1a1a1f);
-}
-
-.approval-timeline__status {
-  font-size: 12px;
-  color: var(--text-secondary, #6c6c80);
-}
-
-.approval-timeline__error {
-  font-size: 12px;
-  color: var(--error-color);
-}
-
-.approval-timeline__empty {
-  font-size: 12px;
-  color: var(--text-secondary, #6c6c80);
-}
-
-.approval-timeline__entry {
-  border: 1px solid var(--border-color, #d9d9e3);
-  border-radius: 6px;
-  padding: 10px;
-  background: var(--background-secondary);
-}
-
-.approval-timeline__entry-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-
-.approval-timeline__entry-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.approval-timeline__tool {
-  text-transform: uppercase;
-  color: var(--text-secondary, #6c6c80);
-}
-
-.approval-timeline__action {
-  color: var(--text-primary, #1a1a1f);
-}
-
-.approval-timeline__path {
-  font-size: 11px;
-  color: var(--text-secondary, #6c6c80);
-  max-width: 240px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.approval-timeline__status {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--background-primary);
-  border: 1px solid var(--border-color, #d9d9e3);
-  text-transform: capitalize;
-}
-
-.approval-timeline__status--pending {
-  background: var(--status-warning-bg);
-  border-color: var(--status-warning-border);
-}
-
-.approval-timeline__status--approved,
-.approval-timeline__status--applied,
-.approval-timeline__status--auto_approved {
-  background: var(--status-success-bg);
-  border-color: var(--status-success-border);
-}
-
-.approval-timeline__status--rejected,
-.approval-timeline__status--failed {
-  background: var(--status-danger-bg);
-  border-color: var(--status-danger-border);
-}
-
-.approval-timeline__summary {
-  font-size: 12px;
-  margin: 0 0 6px;
-}
-
-.approval-timeline__events {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-}
-
-.approval-timeline__event-label {
-  font-weight: 600;
-  margin-right: 4px;
-}
 
 .agent-approval-card__link {
   font-size: 11px;

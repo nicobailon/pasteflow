@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { RefObject } from "react";
 
 import JsonPreview from "./json-preview";
 import { isPlainRecord } from "../../utils/approvals-parsers";
@@ -11,6 +12,7 @@ export interface EditApprovalModalProps {
   readonly initialContent: Readonly<Record<string, unknown>>;
   readonly onClose: () => void;
   readonly onSubmit: (content: Readonly<Record<string, unknown>>) => void;
+  readonly focusReturnRef?: RefObject<HTMLElement>;
 }
 
 function toEditableRecord(value: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
@@ -28,11 +30,13 @@ function formatInitialText(value: Readonly<Record<string, unknown>>): string {
   }
 }
 
-export default function EditApprovalModal({ open, approvalSummary, initialContent, onClose, onSubmit }: EditApprovalModalProps) {
+export default function EditApprovalModal({ open, approvalSummary, initialContent, onClose, onSubmit, focusReturnRef }: EditApprovalModalProps) {
   const stableInitial = useMemo(() => toEditableRecord(initialContent), [initialContent]);
   const [draft, setDraft] = useState<string>(() => formatInitialText(stableInitial));
   const [error, setError] = useState<string | null>(null);
   const [parsed, setParsed] = useState<Readonly<Record<string, unknown>> | null>(() => stableInitial);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const wasOpenRef = useRef<boolean>(open);
 
   useEffect(() => {
     if (!open) return;
@@ -40,6 +44,27 @@ export default function EditApprovalModal({ open, approvalSummary, initialConten
     setParsed(stableInitial);
     setError(null);
   }, [open, stableInitial]);
+
+  useEffect(() => {
+    if (!open) return;
+    const raf = requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+
+  useEffect(() => {
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = open;
+      return;
+    }
+    if (!open && focusReturnRef?.current) {
+      requestAnimationFrame(() => {
+        focusReturnRef.current?.focus();
+      });
+    }
+    wasOpenRef.current = open;
+  }, [focusReturnRef, open]);
 
   const handleChange = (value: string) => {
     setDraft(value);
@@ -70,7 +95,7 @@ export default function EditApprovalModal({ open, approvalSummary, initialConten
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal-content approval-edit-modal" aria-describedby={undefined}>
+        <Dialog.Content className="modal-content approval-edit-modal" aria-describedby="approval-edit-help">
           <div className="modal-header">
             <Dialog.Title asChild>
               <h2>Edit approval payload</h2>
@@ -81,6 +106,7 @@ export default function EditApprovalModal({ open, approvalSummary, initialConten
           </div>
 
           <div className="approval-edit-modal__body">
+            <p id="approval-edit-help" className="sr-only">Edit JSON payload to override tool arguments before applying the approval.</p>
             <p className="approval-edit-modal__summary" aria-live="polite">{approvalSummary}</p>
             <label className="approval-edit-modal__label" htmlFor="approval-edit-json">
               JSON overrides
@@ -90,6 +116,7 @@ export default function EditApprovalModal({ open, approvalSummary, initialConten
                 value={draft}
                 onChange={(event) => handleChange(event.currentTarget.value)}
                 spellCheck={false}
+                ref={textareaRef}
               />
             </label>
             {error ? <div className="approval-edit-modal__error" role="alert">{error}</div> : null}

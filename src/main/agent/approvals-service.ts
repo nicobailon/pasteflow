@@ -2,14 +2,17 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 
+import type { DatabaseBridge, InsertApprovalInput, UpdateApprovalFeedbackInput, UpdateApprovalStatusInput } from "../db/database-bridge";
+import type { PreviewRow, ApprovalRow, ApprovalStatus } from "../db/database-implementation";
+
 import type { AgentSecurityManager } from "./security-manager";
 import { getAgentTools } from "./tools";
 import type { PreviewEnvelope, PreviewId, ChatSessionId, ToolName, ToolArgsSnapshot, UnixMs } from "./preview-registry";
 import { assertPreviewEnvelope, nowUnixMs } from "./preview-registry";
+import { isRiskyCommand } from "./tools/shared/safety-utils";
 import { logApprovalEvent } from "./approvals-telemetry";
-import type { DatabaseBridge, InsertApprovalInput, UpdateApprovalFeedbackInput, UpdateApprovalStatusInput } from "../db/database-bridge";
 import { appendApprovalFeedbackMessage } from "./chat-storage";
-import type { PreviewRow, ApprovalRow, ApprovalStatus } from "../db/database-implementation";
+
 
 export type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
 
@@ -18,15 +21,6 @@ export type ApplyResult =
   | { status: "blocked"; approvalId: string; previewId: PreviewId; reason: string }
   | { status: "failed"; approvalId: string; previewId: PreviewId; message: string };
 
-export type AutoRuleMatch = {
-  rule: AutoRule;
-  reason: string;
-};
-
-export type AutoRule =
-  | { kind: "tool"; tool: ToolName; action?: string | readonly string[] }
-  | { kind: "path"; pattern: string; tool?: ToolName }
-  | { kind: "terminal"; commandIncludes?: string };
 
 export interface ToolCancellationAdapters {
   readonly terminal?: {
@@ -64,7 +58,8 @@ export interface StoredApproval {
 
 export type ApprovalEventPayload =
   | { type: "agent:approval:new"; preview: StoredPreview; approval: StoredApproval }
-  | { type: "agent:approval:update"; approval: StoredApproval };
+  | { type: "agent:approval:update"; approval: StoredApproval }
+  | { type: "agent:auto_approval_cap_reached"; sessionId: ChatSessionId; cap: number; count: number };
 
 export interface ApprovalsServiceDeps {
   readonly db: DatabaseBridge;
@@ -578,57 +573,50 @@ export class ApprovalsService extends EventEmitter {
     }
   }
 
-  async evaluateAutoRules(preview: PreviewEnvelope): Promise<AutoRuleMatch | null> {
-    const skipAllPref = await this.safeGetPreference("agent.approvals.skipAll");
-    if (skipAllPref === true || skipAllPref === "true") {
-      return { rule: { kind: "tool", tool: preview.tool }, reason: "skipAll" };
-    }
-
-    const rulesPref = await this.safeGetPreference("agent.approvals.rules");
-    if (!Array.isArray(rulesPref)) {
-      return null;
-    }
-
-    for (const candidate of rulesPref) {
-      if (!isRecord(candidate) || typeof candidate.kind !== "string") continue;
-      if (candidate.kind === "tool") {
-        const toolRule = candidate as { kind: "tool"; tool?: string; action?: unknown };
-        if (toolRule.tool && toolRule.tool === preview.tool) {
-          if (toolRule.action === undefined) {
-            return { rule: { kind: "tool", tool: preview.tool }, reason: "tool" };
-          }
-          if (typeof toolRule.action === "string" && toolRule.action === preview.action) {
-            return { rule: { kind: "tool", tool: preview.tool, action: toolRule.action }, reason: "tool-action" };
-          }
-          if (Array.isArray(toolRule.action) && toolRule.action.includes(preview.action)) {
-            return { rule: { kind: "tool", tool: preview.tool, action: toolRule.action as readonly string[] }, reason: "tool-action" };
-          }
-        }
+  async evaluateAutoPolicy(preview: PreviewEnvelope): Promise<"skipAll" | "tool" | "terminal-safe" | "none"> {
+    try {
+      // Global bypass
+      const skipAllPref = await this.safeGetPreference("agent.approvals.skipAll");
+      if (skipAllPref === true || skipAllPref === "true" || skipAllPref === 1 || skipAllPref === "1") {
+        return "skipAll";
       }
-      const detailPath = preview.detail && typeof preview.detail["path"] === "string" ? String(preview.detail["path"]) : null;
-      if (candidate.kind === "path" && detailPath) {
-        const pathRule = candidate as { kind: "path"; pattern?: unknown; tool?: unknown };
-        if (pathRule.tool !== undefined && (!isToolNameValue(pathRule.tool) || pathRule.tool !== preview.tool)) {
-          continue;
-        }
-        if (typeof pathRule.pattern === "string" && detailPath.includes(pathRule.pattern)) {
-          const maybeTool = isToolNameValue(pathRule.tool) ? pathRule.tool : undefined;
-          return { rule: { kind: "path", pattern: pathRule.pattern, tool: maybeTool }, reason: "path" };
-        }
-      }
-      if (candidate.kind === "terminal" && preview.tool === "terminal") {
-        const terminalRule = candidate as { kind: "terminal"; commandIncludes?: unknown };
-        if (typeof terminalRule.commandIncludes === "string") {
-          const commandValue = preview.detail?.["command"] ?? preview.detail?.["cmd"] ?? "";
-          const command = typeof commandValue === "string" ? commandValue : String(commandValue ?? "");
-          if (command.includes(terminalRule.commandIncludes)) {
-            return { rule: { kind: "terminal", commandIncludes: terminalRule.commandIncludes }, reason: "terminal" };
-          }
-        }
-      }
-    }
 
-    return null;
+      const tool = preview.tool;
+
+      // Per-tool toggle
+      const toolPref = await this.safeGetPreference(`agent.approvals.auto.${String(tool)}`);
+      const toolEnabled = toolPref === true || toolPref === "true" || toolPref === 1 || toolPref === "1";
+      if (!toolEnabled) {
+        return "none";
+      }
+
+      // Terminal special handling
+      if (tool === "terminal") {
+        const modePref = await this.safeGetPreference("agent.approvals.terminal.autoMode");
+        const mode = typeof modePref === "string" ? modePref.trim().toLowerCase() : (modePref === true ? "all" : "off");
+
+        if (mode !== "safe" && mode !== "all") {
+          return "none";
+        }
+
+        if (mode === "safe") {
+          const cmdValue = preview.detail?.["command"] ?? preview.detail?.["cmd"] ?? "";
+          const command = typeof cmdValue === "string" ? cmdValue : String(cmdValue ?? "");
+          if (isRiskyCommand(command)) {
+            return "none";
+          }
+          return "terminal-safe";
+        }
+
+        // mode === "all"
+        return "tool";
+      }
+
+      // Non-terminal: per-tool toggle is sufficient
+      return "tool";
+    } catch {
+      return "none";
+    }
   }
 
   private async requirePreview(id: PreviewId): Promise<StoredPreview> {
@@ -756,6 +744,33 @@ export class ApprovalsService extends EventEmitter {
       this.logger.warn?.(`[ApprovalsService] Failed to read preference ${key}`, error);
       return undefined;
     }
+  }
+
+  notifyAutoCapReached(sessionId: ChatSessionId): void {
+    const cap = this.autoApplyCap;
+    const count = this.autoApplyCounts.get(sessionId) ?? cap;
+    const event: ApprovalEventPayload = {
+      type: "agent:auto_approval_cap_reached",
+      sessionId,
+      cap,
+      count,
+    };
+    this.logger.log?.("[ApprovalsService] auto-approve cap reached", { sessionId, cap, count });
+    this.emitEvent(event);
+  }
+
+  async shouldNotifyPendingApprovals(): Promise<boolean> {
+    const value = await this.safeGetPreference("agent.approvals.notifications");
+    if (value === true || value === "true") {
+      return true;
+    }
+    if (typeof value === "number") {
+      return value > 0;
+    }
+    if (typeof value === "string") {
+      return value === "1" || value.toLowerCase() === "yes";
+    }
+    return false;
   }
 
   trackAutoApply(sessionId: ChatSessionId): boolean {

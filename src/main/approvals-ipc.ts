@@ -63,28 +63,4 @@ export async function handleApprovalCancel(params: unknown, deps: ApprovalsDeps)
   return deps.approvalsService.cancelPreview({ previewId: parsed.data.previewId as PreviewId });
 }
 
-export async function handleApprovalRulesGet(deps: ApprovalsDeps): Promise<ServiceResult<unknown>> {
-  if (!deps.database) return SERVICE_UNAVAILABLE;
-  try {
-    const rules = await deps.database.getPreference("agent.approvals.rules");
-    return { ok: true, data: Array.isArray(rules) ? rules : [] };
-  } catch (error) {
-    return { ok: false, error: { code: "RULES_READ_FAILED", message: (error as Error)?.message ?? "Failed to read approvals rules" } };
-  }
-}
 
-export async function handleApprovalRulesSet(params: unknown, deps: ApprovalsDeps): Promise<ServiceResult<null>> {
-  if (!deps.database) return SERVICE_UNAVAILABLE;
-  const parsed = zSchemas.AgentApprovalRulesSetSchema.safeParse(params || {});
-  if (!parsed.success) return INVALID_PARAMS;
-  try {
-    await deps.database.setPreference("agent.approvals.rules", parsed.data.rules as unknown as PreferenceValue);
-    if (typeof parsed.data.autoCap === 'number' && Number.isFinite(parsed.data.autoCap)) {
-      await deps.database.setPreference("agent.approvals.autoCap", parsed.data.autoCap as unknown as PreferenceValue);
-      deps.approvalsService?.updateAutoApplyCap(parsed.data.autoCap);
-    }
-    return { ok: true, data: null };
-  } catch (error) {
-    return { ok: false, error: { code: "RULES_WRITE_FAILED", message: (error as Error)?.message ?? "Failed to persist approvals rules" } };
-  }
-}

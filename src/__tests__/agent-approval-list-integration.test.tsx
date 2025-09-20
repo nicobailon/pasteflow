@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import React from "react";
+import "@testing-library/jest-dom";
 
 import AgentApprovalList from "../components/agent-approvals/agent-approval-list";
 import type { ApprovalVm } from "../hooks/use-agent-approvals";
 import type { ApplyResult, StoredApproval } from "../main/agent/approvals-service";
-import type { PreviewId, UnixMs } from "../main/agent/preview-registry";
+import type { PreviewId, UnixMs, ChatSessionId } from "../main/agent/preview-registry";
 
 const makeApproval = (suffix: string, overrides?: Partial<ApprovalVm>): ApprovalVm => ({
   id: `00000000-0000-0000-0000-00000000${suffix}`,
@@ -76,19 +78,21 @@ describe("AgentApprovalList", () => {
         onApproveWithEdits={approveWithEdits}
         onReject={(id, opts) => reject(id, opts)}
         onCancel={cancel}
+        onToggleBypass={() => {}}
       />
     );
 
     expect(screen.getAllByText(/Write file/).length).toBe(2);
 
-    const targetCard = screen.getByText("Write file 301").closest("article");
-    expect(targetCard).not.toBeNull();
+    const rows = screen.getAllByRole("option");
+    const row = rows.find((el) => within(el).queryByText("Write file 301"));
+    expect(row).not.toBeUndefined();
 
     await act(async () => {
-      fireEvent.click(within(targetCard as HTMLElement).getByRole("button", { name: /^approve$/i }));
+      fireEvent.click(within(row as HTMLElement).getByRole("button", { name: /^approve$/i }));
     });
 
-    expect(approve).toHaveBeenCalledWith(approvals[0].id, {});
+    expect(approve).toHaveBeenCalledWith(approvals[0].id);
   });
 
   it("renders auto-approved tray when items provided", () => {
@@ -118,6 +122,7 @@ describe("AgentApprovalList", () => {
           } satisfies StoredApproval,
         })}
         onCancel={async () => ({ ok: true as const, data: null })}
+        onToggleBypass={() => {}}
       />
     );
 
@@ -156,7 +161,7 @@ describe("AgentApprovalList", () => {
           data: {
             id: "",
             previewId: "" as unknown as PreviewId,
-            sessionId: "",
+            sessionId: "" as unknown as ChatSessionId,
             status: "rejected" as const,
             createdAt: asUnixMs(Date.now()),
             resolvedAt: asUnixMs(Date.now()),
@@ -167,6 +172,7 @@ describe("AgentApprovalList", () => {
           } satisfies StoredApproval,
         })}
         onCancel={async () => ({ ok: true as const, data: null })}
+        onToggleBypass={() => {}}
       />
     );
 
