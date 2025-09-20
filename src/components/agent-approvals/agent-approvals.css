@@ -2,7 +2,7 @@
   border: 1px solid var(--border-color, #d9d9e3);
   border-radius: 8px;
   padding: 12px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -37,7 +37,7 @@
 }
 
 .agent-approval-list__status--error {
-  color: var(--text-error, #b3261e);
+  color: var(--error-color);
 }
 
 .agent-approval-list__status--info {
@@ -56,7 +56,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--bg-muted, #fafbff);
+  background: var(--background-secondary);
 }
 
 .agent-approval-card__header {
@@ -114,11 +114,11 @@
 
 .agent-approval-card__streaming--running,
 .agent-approval-card__streaming--pending {
-  color: var(--primary, #4b6fff);
+  color: var(--link-color);
 }
 
 .agent-approval-card__streaming--failed {
-  color: var(--text-error, #b3261e);
+  color: var(--error-color);
 }
 
 .agent-approval-card__summary {
@@ -135,7 +135,7 @@
   margin: 0;
   padding: 8px;
   border-radius: 6px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-size: 12px;
   max-height: 180px;
@@ -179,17 +179,17 @@
 }
 
 .agent-approval-card__button--primary {
-  background: var(--primary, #4b6fff);
-  color: #ffffff;
+  background: var(--primary-button-background);
+  color: var(--primary-button-text);
 }
 
 .agent-approval-card__button--primary:disabled {
-  background: var(--disabled, #ccccd4);
+  background: var(--control-disabled-bg);
   cursor: not-allowed;
 }
 
 .agent-approval-card__button--secondary {
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   color: var(--text-primary, #1a1a1f);
   border-color: var(--border-color, #d9d9e3);
 }
@@ -238,13 +238,13 @@
   padding: 10px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-size: 12px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   color: var(--text-primary, #1a1a1f);
 }
 
 .approval-edit-modal__error {
   font-size: 12px;
-  color: var(--text-error, #b3261e);
+  color: var(--error-color);
 }
 
 .approval-edit-modal__preview {
@@ -270,7 +270,7 @@
   border: 1px solid var(--border-color, #d9d9e3);
   border-radius: 6px;
   padding: 10px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -327,7 +327,7 @@
 
 .auto-approved-tray__link {
   font-size: 12px;
-  color: var(--primary, #4b6fff);
+  color: var(--link-color);
   text-decoration: none;
 }
 
@@ -340,7 +340,7 @@
   border: 1px solid var(--border-color, #d9d9e3);
   border-radius: 6px;
   padding: 8px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-size: 12px;
   color: var(--text-primary, #1a1a1f);
@@ -356,12 +356,12 @@
 }
 
 .diff-preview__meta-item--warning {
-  color: var(--text-error, #b3261e);
+  color: var(--error-color);
 }
 
 .diff-preview__warning {
   font-size: 11px;
-  color: var(--text-error, #b3261e);
+  color: var(--error-color);
   margin-bottom: 6px;
 }
 
@@ -382,7 +382,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 4px 8px;
-  background: var(--bg-muted, #f5f6ff);
+  background: var(--background-secondary);
   font-size: 11px;
   font-family: inherit;
 }
@@ -396,7 +396,7 @@
 .diff-preview__toggle {
   border: none;
   background: transparent;
-  color: var(--primary, #4b6fff);
+  color: var(--link-color);
   font-size: 11px;
   cursor: pointer;
 }
@@ -404,7 +404,7 @@
 .diff-preview__lines {
   max-height: 260px;
   overflow: auto;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
 }
 
 .diff-preview__line {
@@ -416,11 +416,11 @@
 }
 
 .diff-preview__line--added {
-  background: rgba(76, 175, 80, 0.12);
+  background: var(--status-success-bg);
 }
 
 .diff-preview__line--removed {
-  background: rgba(244, 67, 54, 0.12);
+  background: var(--status-danger-bg);
 }
 
 .diff-preview__line-number {
@@ -449,7 +449,7 @@
   margin: 0;
   max-height: 260px;
   overflow: auto;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   padding: 8px;
   border-radius: 4px;
 }
@@ -464,7 +464,7 @@
 .diff-preview__fallback-column {
   border: 1px solid var(--border-color, #d9d9e3);
   border-radius: 4px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
 }
 
 .diff-preview__fallback-column header {
@@ -487,7 +487,7 @@
   padding: 8px;
   border-radius: 6px;
   border: 1px solid var(--border-color, #d9d9e3);
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-size: 12px;
   max-height: 220px;
@@ -498,7 +498,7 @@
   margin-top: 8px;
   border: 1px solid var(--border-color, #d9d9e3);
   border-radius: 6px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   display: flex;
   flex-direction: column;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
@@ -511,7 +511,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  background: var(--bg-muted, #f5f6ff);
+  background: var(--background-secondary);
   font-size: 11px;
 }
 
@@ -531,7 +531,7 @@
   margin-left: auto;
   border: none;
   background: transparent;
-  color: var(--primary, #4b6fff);
+  color: var(--link-color);
   cursor: pointer;
   font-size: 11px;
 }
@@ -542,6 +542,8 @@
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  background: var(--background-primary);
+  border-top: 1px solid var(--border-color, #d9d9e3);
 }
 
 .terminal-preview--inactive {
@@ -561,7 +563,7 @@
   border-radius: 8px;
   padding: 12px;
   margin-top: 12px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -580,7 +582,7 @@
 
 .approval-timeline__error {
   font-size: 12px;
-  color: var(--text-error, #b3261e);
+  color: var(--error-color);
 }
 
 .approval-timeline__empty {
@@ -592,7 +594,7 @@
   border: 1px solid var(--border-color, #d9d9e3);
   border-radius: 6px;
   padding: 10px;
-  background: var(--bg-muted, #fafbff);
+  background: var(--background-secondary);
 }
 
 .approval-timeline__entry-header {
@@ -633,27 +635,27 @@
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   border: 1px solid var(--border-color, #d9d9e3);
   text-transform: capitalize;
 }
 
 .approval-timeline__status--pending {
-  background: rgba(255, 193, 7, 0.15);
-  border-color: rgba(255, 193, 7, 0.4);
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-border);
 }
 
 .approval-timeline__status--approved,
 .approval-timeline__status--applied,
 .approval-timeline__status--auto_approved {
-  background: rgba(76, 175, 80, 0.15);
-  border-color: rgba(76, 175, 80, 0.4);
+  background: var(--status-success-bg);
+  border-color: var(--status-success-border);
 }
 
 .approval-timeline__status--rejected,
 .approval-timeline__status--failed {
-  background: rgba(244, 67, 54, 0.15);
-  border-color: rgba(244, 67, 54, 0.4);
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
 }
 
 .approval-timeline__summary {
@@ -678,7 +680,7 @@
 
 .agent-approval-card__link {
   font-size: 11px;
-  color: var(--primary, #4b6fff);
+  color: var(--link-color);
   text-decoration: none;
 }
 
@@ -702,7 +704,7 @@
   border: 1px solid var(--border-color, #d9d9e3);
   border-radius: 4px;
   padding: 6px 12px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--background-primary);
   cursor: pointer;
   font-size: 12px;
 }
