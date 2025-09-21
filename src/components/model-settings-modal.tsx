@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type CSSProperties } from "react";
 import { X, Shield, CheckCircle2, Trash2, Copy } from "lucide-react";
 
 import { estimateTokenCount } from "../utils/token-utils";
@@ -7,6 +7,9 @@ import { estimateTokenCount } from "../utils/token-utils";
 import AgentAlertBanner from "./agent-alert-banner";
 
 import "./model-settings-modal.css";
+
+import type { ToolName } from "../main/agent/preview-registry";
+import { parseStoredApproval } from "../utils/approvals-parsers";
 
 type ProviderId = "openai" | "anthropic" | "openrouter" | "groq";
 
@@ -33,6 +36,95 @@ const secondaryTextStyle: CSSProperties = { fontSize: 12, color: "var(--text-sec
 const rowBetween: CSSProperties = { justifyContent: "space-between" };
 
 type UsageRow = { input_tokens: number | null; output_tokens: number | null; total_tokens: number | null; latency_ms: number | null; cost_usd: number | null };
+
+const TOOL_OPTIONS: readonly ToolName[] = ["file", "edit", "terminal", "search", "context"] as const;
+
+type ToolRuleDraft = { id: string; kind: "tool"; tool: ToolName; action: string };
+type PathRuleDraft = { id: string; kind: "path"; pattern: string; tool: ToolName | "" };
+type TerminalRuleDraft = { id: string; kind: "terminal"; commandIncludes: string };
+type RuleDraft = ToolRuleDraft | PathRuleDraft | TerminalRuleDraft;
+
+function makeRuleId(): string {
+  try {
+    return globalThis.crypto?.randomUUID?.() ?? `rule-${Math.random().toString(36).slice(2, 10)}`;
+  } catch {
+    return `rule-${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
+function isToolName(value: unknown): value is ToolName {
+  return typeof value === "string" && (TOOL_OPTIONS as readonly string[]).includes(value);
+}
+
+function normalizeRule(value: unknown): RuleDraft | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  const kind = candidate.kind;
+  if (kind === "tool") {
+    const toolValue = candidate.tool;
+    if (!isToolName(toolValue)) return null;
+    const rawAction = candidate.action;
+    let action = "";
+    if (typeof rawAction === "string") action = rawAction;
+    else if (Array.isArray(rawAction)) action = rawAction.map(String).join(", ");
+    return { id: makeRuleId(), kind: "tool", tool: toolValue, action };
+  }
+  if (kind === "path") {
+    const pattern = typeof candidate.pattern === "string" ? candidate.pattern : "";
+    if (!pattern) return null;
+    const tool = isToolName(candidate.tool) ? candidate.tool : "";
+    return { id: makeRuleId(), kind: "path", pattern, tool };
+  }
+  if (kind === "terminal") {
+    const commandIncludes = typeof candidate.commandIncludes === "string" ? candidate.commandIncludes : "";
+    return { id: makeRuleId(), kind: "terminal", commandIncludes };
+  }
+  return null;
+}
+
+function parseRulesResult(value: unknown): RuleDraft[] {
+  const arr = Array.isArray(value) ? value : [];
+  const drafts: RuleDraft[] = [];
+  for (const item of arr) {
+    const normalized = normalizeRule(item);
+    if (normalized) drafts.push(normalized);
+  }
+  return drafts;
+}
+
+function ruleDraftToAutoRule(rule: RuleDraft): any {
+  switch (rule.kind) {
+    case "tool": {
+      const trimmed = rule.action.trim();
+      if (!trimmed) {
+        return { kind: "tool", tool: rule.tool };
+      }
+      if (trimmed.includes(",")) {
+        const parts = trimmed.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+        if (parts.length === 0) {
+          return { kind: "tool", tool: rule.tool };
+        }
+        if (parts.length === 1) {
+          return { kind: "tool", tool: rule.tool, action: parts[0] };
+        }
+        return { kind: "tool", tool: rule.tool, action: Object.freeze(parts) as readonly string[] };
+      }
+      return { kind: "tool", tool: rule.tool, action: trimmed };
+    }
+    case "path": {
+      const base: { kind: "path"; pattern: string; tool?: ToolName } = { kind: "path", pattern: rule.pattern };
+      if (rule.tool) base.tool = rule.tool;
+      return base;
+    }
+    case "terminal": {
+      const trimmed = rule.commandIncludes.trim();
+      return trimmed ? { kind: "terminal", commandIncludes: trimmed } : { kind: "terminal" };
+    }
+    default: {
+      return rule as never;
+    }
+  }
+}
 
 function summarizeUsage(rows: UsageRow[]) {
   let inSum = 0;
@@ -67,6 +159,18 @@ function coerceNumberInRange(v: unknown, min: number, max: number): number | nul
   const n = Number((v as { data?: unknown })?.data ?? v);
   if (!Number.isFinite(n)) return null;
   return Math.max(min, Math.min(max, n));
+}
+
+function coerceBoolean(value: unknown, fallback = false): boolean {
+  const raw = (value as { data?: unknown })?.data ?? value;
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw > 0;
+  if (typeof raw === "string") {
+    const norm = raw.trim().toLowerCase();
+    if (norm === "true" || norm === "1" || norm === "yes" || norm === "on") return true;
+    if (norm === "false" || norm === "0" || norm === "no" || norm === "off") return false;
+  }
+  return fallback;
 }
 
 function defaultExecGlobalFromEnv(): boolean {
@@ -112,6 +216,26 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [usageStats, setUsageStats] = useState<{ totalIn: number; totalOut: number; total: number; avgLatency: number | null; totalCost: number | null } | null>(null);
 
+  // Auto-approval rules state
+  const [autoRules, setAutoRules] = useState<RuleDraft[]>([]);
+  const [autoRulesLoading, setAutoRulesLoading] = useState<boolean>(false);
+  const [autoRulesError, setAutoRulesError] = useState<string | null>(null);
+  const [autoRulesDirty, setAutoRulesDirty] = useState<boolean>(false);
+  const [autoRulesStatus, setAutoRulesStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [autoCap, setAutoCap] = useState<number>(5);
+  const [autoCapDirty, setAutoCapDirty] = useState<boolean>(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(false);
+  const [initialNotificationsEnabled, setInitialNotificationsEnabled] = useState<boolean>(false);
+  const [notificationsDirty, setNotificationsDirty] = useState<boolean>(false);
+  const [newRuleKind, setNewRuleKind] = useState<RuleDraft["kind"]>("tool");
+  const [newRuleTool, setNewRuleTool] = useState<ToolName>("edit");
+  const [newRuleAction, setNewRuleAction] = useState<string>("");
+  const [newRulePattern, setNewRulePattern] = useState<string>("");
+  const [newRulePathTool, setNewRulePathTool] = useState<string>("");
+  const [newRuleCommandIncludes, setNewRuleCommandIncludes] = useState<string>("");
+  const [newRuleError, setNewRuleError] = useState<string | null>(null);
+  const [approvalCounts, setApprovalCounts] = useState<{ total: number; pending: number } | null>(null);
+
   // OpenAI
   const [openaiInput, setOpenaiInput] = useState("");
   const [openaiStored, setOpenaiStored] = useState<boolean>(false);
@@ -156,6 +280,10 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
 
   useEffect(() => {
     let mounted = true;
+    if (!isOpen) {
+      return () => { mounted = false; };
+    }
+    setAutoRulesLoading(true);
     (async () => {
       try {
         const [okey, akey, orKey, orBase, groqKey, temp, max, w, x, appr, maxCtx, execCtx, execCtxWs, rsnDefault] = await Promise.all([
@@ -174,7 +302,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
           workspaceId ? window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: `agent.executionContext.enabled.${workspaceId}` }) : Promise.resolve(null),
           window.electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'ui.reasoning.defaultCollapsed' }),
         ] as const);
-        if (!mounted) return;
+        if (mounted === false) return;
         setOpenaiStored(Boolean(okey?.data));
         setAnthropicStored(Boolean(akey?.data));
         setOpenrouterStored(Boolean(orKey?.data));
@@ -191,16 +319,310 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
         setReasoningDefaultCollapsed(Boolean(rsnDefault?.data));
         const mc = coerceNumberInRange(maxCtx, 1000, 2_000_000);
         if (mc != null) setMaxCtxTokens(mc);
-        // Execution context toggles
         const storedExecGlobal = execCtx?.data;
         if (typeof storedExecGlobal === 'boolean') setExecCtxGlobalEnabled(storedExecGlobal);
         else setExecCtxGlobalEnabled(defaultExecGlobalFromEnv());
         const storedExecWs = (execCtxWs as any)?.data;
         if (typeof storedExecWs === 'boolean') setExecCtxWorkspaceEnabled(storedExecWs);
-      } catch { /* ignore */ }
+
+        const approvalsApi = window.electron?.approvals;
+        let rulesResult: unknown = { ok: true, data: [] } as const;
+        try {
+          if (approvalsApi?.getRules) {
+            rulesResult = await approvalsApi.getRules();
+          }
+        } catch (error) {
+          if (mounted) {
+            setAutoRulesError((error as Error)?.message || 'Failed to load auto-approval rules');
+          }
+        }
+
+        const [capPref, notifyPref] = await Promise.all([
+          (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.approvals.autoCap' }).catch(() => null),
+          (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: 'agent.approvals.notifications' }).catch(() => null),
+        ]);
+
+        if (mounted === false) return;
+        const rulesOk = typeof rulesResult === 'object' && rulesResult && (rulesResult as { ok?: boolean }).ok === true;
+        const parsedRules = rulesOk
+          ? parseRulesResult((rulesResult as { data?: unknown }).data)
+          : [];
+        setAutoRules(parsedRules);
+        setAutoRulesDirty(false);
+        setAutoRulesStatus('idle');
+        if (rulesOk) {
+          setAutoRulesError(null);
+        } else {
+          const message = typeof (rulesResult as { error?: { message?: string } }).error?.message === 'string'
+            ? (rulesResult as { error: { message: string } }).error.message
+            : 'Failed to load auto-approval rules';
+          setAutoRulesError(message);
+        }
+
+        const capValue = coerceNumberInRange(capPref, 0, 50);
+        if (typeof capValue === 'number') {
+          setAutoCap(capValue);
+        } else {
+          setAutoCap(5);
+        }
+        setAutoCapDirty(false);
+
+        const notifyValue = coerceBoolean(notifyPref, false);
+        setNotificationsEnabled(notifyValue);
+        setInitialNotificationsEnabled(notifyValue);
+        setNotificationsDirty(false);
+      } catch {
+        // ignore general load errors; specific sections handle their own fallbacks
+      } finally {
+        if (mounted) {
+          setAutoRulesLoading(false);
+        }
+      }
     })();
     return () => { mounted = false; };
   }, [isOpen, workspaceId]);
+
+  const handleRemoveRule = (id: string) => {
+    setAutoRules((prev) => prev.filter((rule) => rule.id !== id));
+    setAutoRulesDirty(true);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  };
+
+  const handleRuleToolChange = (id: string, value: string) => {
+    if (!isToolName(value)) return;
+    setAutoRules((prev) => prev.map((rule) => (rule.id === id && rule.kind === 'tool') ? { ...rule, tool: value } : rule));
+    setAutoRulesDirty(true);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  };
+
+  const handleRuleActionChange = (id: string, value: string) => {
+    setAutoRules((prev) => prev.map((rule) => (rule.id === id && rule.kind === 'tool') ? { ...rule, action: value } : rule));
+    setAutoRulesDirty(true);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  };
+
+  const handleRulePatternChange = (id: string, value: string) => {
+    setAutoRules((prev) => prev.map((rule) => (rule.id === id && rule.kind === 'path') ? { ...rule, pattern: value } : rule));
+    setAutoRulesDirty(true);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  };
+
+  const handleRulePathToolChange = (id: string, value: string) => {
+    const nextTool = isToolName(value) ? value : "";
+    setAutoRules((prev) => prev.map((rule) => (rule.id === id && rule.kind === 'path') ? { ...rule, tool: nextTool } : rule));
+    setAutoRulesDirty(true);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  };
+
+  const handleRuleCommandIncludesChange = (id: string, value: string) => {
+    setAutoRules((prev) => prev.map((rule) => (rule.id === id && rule.kind === 'terminal') ? { ...rule, commandIncludes: value } : rule));
+    setAutoRulesDirty(true);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  };
+
+  const resetNewRuleForm = () => {
+    setNewRuleTool('edit');
+    setNewRuleAction("");
+    setNewRulePattern("");
+    setNewRulePathTool("");
+    setNewRuleCommandIncludes("");
+    setNewRuleError(null);
+  };
+
+  const handleAddRule = () => {
+    setNewRuleError(null);
+    if (newRuleKind === 'tool') {
+      if (!isToolName(newRuleTool)) {
+        setNewRuleError('Select a tool for the rule');
+        return;
+      }
+      const draft: ToolRuleDraft = { id: makeRuleId(), kind: 'tool', tool: newRuleTool, action: newRuleAction.trim() };
+      setAutoRules((prev) => [...prev, draft]);
+    } else if (newRuleKind === 'path') {
+      const pattern = newRulePattern.trim();
+      if (!pattern) {
+        setNewRuleError('Path pattern is required');
+        return;
+      }
+      const tool = isToolName(newRulePathTool) ? newRulePathTool : "";
+      const draft: PathRuleDraft = { id: makeRuleId(), kind: 'path', pattern, tool };
+      setAutoRules((prev) => [...prev, draft]);
+    } else {
+      const commandIncludes = newRuleCommandIncludes.trim();
+      if (!commandIncludes) {
+        setNewRuleError('Command filter is required');
+        return;
+      }
+      const draft: TerminalRuleDraft = { id: makeRuleId(), kind: 'terminal', commandIncludes };
+      setAutoRules((prev) => [...prev, draft]);
+    }
+    setAutoRulesDirty(true);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+    resetNewRuleForm();
+  };
+
+  const handleCapChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number(event.currentTarget.value);
+    setAutoCap(Number.isFinite(value) ? value : 0);
+    setAutoCapDirty(true);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  };
+
+  const handleNotificationsChange = useCallback((next: boolean) => {
+    setNotificationsEnabled(next);
+    setNotificationsDirty(next !== initialNotificationsEnabled);
+    setAutoRulesStatus('idle');
+    setAutoRulesError(null);
+  }, [initialNotificationsEnabled]);
+
+  const renderRuleFields = (rule: RuleDraft): JSX.Element => {
+    if (rule.kind === 'tool') {
+      return (
+        <div className="auto-rules-fields">
+          <label>
+            <span>Tool</span>
+            <select value={rule.tool} onChange={(event) => handleRuleToolChange(rule.id, event.currentTarget.value)}>
+              {TOOL_OPTIONS.map((tool) => (
+                <option key={tool} value={tool}>{tool}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Actions (optional)</span>
+            <input value={rule.action} onChange={(event) => handleRuleActionChange(rule.id, event.currentTarget.value)} placeholder="write, diff" />
+          </label>
+        </div>
+      );
+    }
+    if (rule.kind === 'path') {
+      return (
+        <div className="auto-rules-fields">
+          <label>
+            <span>Pattern</span>
+            <input value={rule.pattern} onChange={(event) => handleRulePatternChange(rule.id, event.currentTarget.value)} placeholder="tests/" />
+          </label>
+          <label>
+            <span>Tool filter</span>
+            <select value={rule.tool} onChange={(event) => handleRulePathToolChange(rule.id, event.currentTarget.value)}>
+              <option value="">Any tool</option>
+              {TOOL_OPTIONS.map((tool) => (
+                <option key={tool} value={tool}>{tool}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      );
+    }
+    return (
+      <div className="auto-rules-fields">
+        <label>
+          <span>Command contains</span>
+          <input value={rule.commandIncludes} onChange={(event) => handleRuleCommandIncludesChange(rule.id, event.currentTarget.value)} placeholder="npm test" />
+        </label>
+      </div>
+    );
+  };
+
+  const handleSaveRules = async () => {
+    setAutoRulesStatus('saving');
+    const invalid = autoRules.find((rule) => (
+      (rule.kind === 'path' && !rule.pattern.trim()) ||
+      (rule.kind === 'terminal' && !rule.commandIncludes.trim())
+    ));
+    if (invalid) {
+      setAutoRulesStatus('error');
+      setAutoRulesError(invalid.kind === 'path' ? 'Path rules require a pattern' : 'Terminal rules require a command filter');
+      return;
+    }
+    try {
+      const approvalsApi = window.electron?.approvals;
+      const prefsInvoker = window.electron?.ipcRenderer?.invoke;
+      if (!approvalsApi?.setRules) {
+        throw new Error('Approvals API unavailable');
+      }
+      const serializedRules = autoRules.map((rule) => {
+        const base = ruleDraftToAutoRule(rule);
+        if (base.kind === 'tool' && Array.isArray(base.action)) {
+          return { ...base, action: [...base.action] };
+        }
+        return { ...base };
+      });
+      const capped = Math.max(0, Math.min(50, Math.round(autoCap)));
+      const result = await approvalsApi.setRules({ rules: serializedRules, autoCap: capped });
+      if (!result || typeof result !== 'object' || (result as { ok?: boolean }).ok !== true) {
+        const message = typeof (result as { error?: { message?: string } }).error?.message === 'string'
+          ? (result as { error: { message: string } }).error.message
+          : 'Failed to save auto-approval rules';
+        throw new Error(message);
+      }
+
+      if (notificationsDirty) {
+        if (typeof prefsInvoker !== 'function') {
+          throw new TypeError('Preferences API unavailable');
+        }
+        await prefsInvoker(IPC.SET, { key: 'agent.approvals.notifications', value: notificationsEnabled });
+      }
+
+      setAutoCap(capped);
+      setAutoRulesDirty(false);
+      setAutoCapDirty(false);
+      setInitialNotificationsEnabled(notificationsEnabled);
+      setNotificationsDirty(false);
+      setAutoRulesStatus('success');
+      setAutoRulesError(null);
+      setTimeout(() => { setAutoRulesStatus('idle'); }, 1200);
+    } catch (error_) {
+      setAutoRulesStatus('error');
+      setAutoRulesError((error_ as Error)?.message || 'Failed to save auto-approval rules');
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !sessionId) {
+      setApprovalCounts(null);
+      return;
+    }
+    const approvalsApi = (window as any).electron?.approvals;
+    if (!approvalsApi?.list) {
+      setApprovalCounts(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response: unknown = await approvalsApi.list({ sessionId });
+        if (cancelled) return;
+        const result = typeof response === 'object' && response !== null ? response as { ok?: boolean; data?: unknown } : null;
+        if (!result || result.ok !== true) {
+          setApprovalCounts(null);
+          return;
+        }
+        const approvalsRaw = Array.isArray((result.data as { approvals?: unknown[] } | undefined)?.approvals)
+          ? (result.data as { approvals: unknown[] }).approvals
+          : [];
+        let total = 0;
+        let pending = 0;
+        for (const item of approvalsRaw) {
+          const approval = parseStoredApproval(item);
+          if (!approval) continue;
+          total += 1;
+          if (approval.status === 'pending') pending += 1;
+        }
+        setApprovalCounts({ total, pending });
+      } catch {
+        if (!cancelled) setApprovalCounts(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, sessionId]);
 
   const canSave = status !== 'saving' && status !== 'testing';
 
@@ -243,7 +665,6 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
           { name: 'edit', description: 'Editing utilities', enabled: true },
           { name: 'context', description: 'Context utilities', enabled: true },
           { name: 'terminal', description: 'Terminal control', enabled: true },
-          { name: 'generateFromTemplate', description: 'Scaffold previews', enabled: true },
         ]);
       }
     })();
@@ -261,7 +682,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
         const wsReplaceP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: `agent.systemPrompt.replace.${workspaceId}` }) : Promise.resolve(null);
         const wsTextP = workspaceId ? (window as any).electron?.ipcRenderer?.invoke?.(IPC.GET, { key: `agent.systemPrompt.text.${workspaceId}` }) : Promise.resolve(null);
         const [gReplace, gText, wReplace, wText] = await Promise.all([globalReplaceP, globalTextP, wsReplaceP, wsTextP] as const);
-        if (!mounted) return;
+        if (mounted === false) return;
         const grRaw = typeof gReplace?.data === 'boolean' ? gReplace.data : false;
         const gtRaw = typeof gText?.data === 'string' ? gText.data : '';
         const wrRaw = typeof (wReplace as any)?.data === 'boolean' ? (wReplace as any).data : false;
@@ -359,6 +780,51 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
       setStatus('error');
       setError((error as Error)?.message || 'Validation failed');
     }
+  }
+
+  let newRuleFields: JSX.Element;
+  if (newRuleKind === 'tool') {
+    newRuleFields = (
+      <>
+        <label>
+          <span>Tool</span>
+          <select value={newRuleTool} onChange={(event) => { const value = event.currentTarget.value as ToolName; setNewRuleTool(isToolName(value) ? value : 'edit'); }}>
+            {TOOL_OPTIONS.map((tool) => (
+              <option key={tool} value={tool}>{tool}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Actions (optional)</span>
+          <input value={newRuleAction} onChange={(event) => setNewRuleAction(event.currentTarget.value)} placeholder="write, diff" />
+        </label>
+      </>
+    );
+  } else if (newRuleKind === 'path') {
+    newRuleFields = (
+      <>
+        <label>
+          <span>Pattern</span>
+          <input value={newRulePattern} onChange={(event) => setNewRulePattern(event.currentTarget.value)} placeholder="src/tests/" />
+        </label>
+        <label>
+          <span>Tool filter</span>
+          <select value={newRulePathTool} onChange={(event) => setNewRulePathTool(event.currentTarget.value)}>
+            <option value="">Any tool</option>
+            {TOOL_OPTIONS.map((tool) => (
+              <option key={tool} value={tool}>{tool}</option>
+            ))}
+          </select>
+        </label>
+      </>
+    );
+  } else {
+    newRuleFields = (
+      <label>
+        <span>Command contains</span>
+        <input value={newRuleCommandIncludes} onChange={(event) => setNewRuleCommandIncludes(event.currentTarget.value)} placeholder="npm run lint" />
+      </label>
+    );
   }
 
   return (
@@ -748,6 +1214,7 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
               </section>
             )}
 
+
             <section className="settings-section">
               <div className="actions">
                 <button
@@ -777,6 +1244,11 @@ export default function ModelSettingsModal({ isOpen, onClose, sessionId, workspa
                   <span className="export-path">{exportPath}</span>
                 )}
               </div>
+              {approvalCounts ? (
+                <div className="export-note">
+                  Approvals exported: {approvalCounts.total} (pending {approvalCounts.pending}).
+                </div>
+              ) : null}
             </section>
 
             {status === 'error' && (

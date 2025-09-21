@@ -9,6 +9,12 @@ jest.mock("../../main/file-service", () => ({
     return { ok: true as const, content: "none\n", isLikelyBinary: false };
   },
   writeTextFile: async (_p: string, content: string) => ({ ok: true as const, bytes: Buffer.byteLength(content, 'utf8') }),
+  deletePath: async () => ({ ok: true as const, removed: 'file' as const }),
+  movePath: async () => ({ ok: true as const }),
+  statFile: async (p: string) => ({
+    ok: true as const,
+    data: { name: p, path: p, size: 0, isDirectory: false, isBinary: false, mtimeMs: Date.now(), fileType: null },
+  }),
 }));
 
 jest.mock("../../services/token-service-main", () => ({

@@ -5,8 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
-import type { ParsedWorkspace, PreferenceValue } from './db/database-implementation';
-import type { InstructionRow } from './db/types';
+
 
 import { loadGitignore } from '../utils/ignore-utils';
 import { FILE_PROCESSING, ELECTRON, TOKEN_COUNTING } from '../constants';
@@ -15,11 +14,19 @@ import { getPathValidator } from '../security/path-validator';
 import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
 import { getMainTokenService } from '../services/token-service-main';
 
+import type { InstructionRow } from './db/types';
+import type { ParsedWorkspace, PreferenceValue } from './db/database-implementation';
+import { ApprovalsService } from './agent/approvals-service';
+import type { ApprovalEventPayload, StoredApproval, StoredPreview } from './agent/approvals-service';
+import { AgentSecurityManager } from './agent/security-manager';
+import { capturePreviewIfAny } from './agent/preview-capture';
+import { handleApprovalList, handleApprovalApply, handleApprovalApplyWithContent, handleApprovalReject, handleApprovalCancel } from './approvals-ipc';
 import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
 import { PasteFlowAPIServer } from './api-server';
 import { setAllowedWorkspacePaths } from './workspace-context';
 import type { ContextResult } from './agent/tool-types';
+import type { ChatSessionId } from './agent/preview-registry';
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
 
 // ABI/runtime diagnostics (helps verify native module compatibility)
@@ -54,6 +61,9 @@ let apiServer: PasteFlowAPIServer | null = null;
 type TerminalManagerInstance = import('./terminal/terminal-manager').TerminalManager;
 
 let terminalManager: TerminalManagerInstance | null = null;
+let securityManager: AgentSecurityManager | null = null;
+let approvalsService: ApprovalsService | null = null;
+const approvalWatchers = new Map<number, (payload: ApprovalEventPayload) => void>();
 
 // Initialize token service
 const tokenService = getMainTokenService();
@@ -280,6 +290,46 @@ app.whenReady().then(async () => {
       console.warn('[Migration] approval mode migration skipped:', (error as Error)?.message || error);
     }
 
+    try {
+      await database.ensureAgentApprovalSchema();
+      console.log('[Migration] agent approvals schema ensured');
+    } catch (error) {
+      console.warn('[Migration] agent approvals schema ensure skipped:', (error as Error)?.message || error);
+    }
+
+    try {
+      const skipAll = await database.getPreference('agent.approvals.skipAll');
+      if (skipAll === null || skipAll === undefined) {
+        const legacySkip = await database.getPreference('agent.skipApprovals');
+        let normalized: boolean | null = null;
+        if (typeof legacySkip === 'boolean') {
+          normalized = legacySkip;
+        } else if (typeof legacySkip === 'string') {
+          const trimmed = legacySkip.trim().toLowerCase();
+          if (trimmed === 'true' || trimmed === '1' || trimmed === 'yes') normalized = true;
+          if (trimmed === 'false' || trimmed === '0' || trimmed === 'no') normalized = false;
+        }
+        if (normalized !== null) {
+          await database.setPreference('agent.approvals.skipAll', normalized as unknown as PreferenceValue);
+          await database.setPreference('agent.skipApprovals', null as unknown as PreferenceValue);
+          console.log('[Migration] agent.skipApprovals -> agent.approvals.skipAll', { legacy: normalized });
+        }
+    }
+  } catch (error) {
+    console.warn('[Migration] approvals skip toggle migration skipped:', (error as Error)?.message || error);
+  }
+
+    try {
+      const legacyFlagKey = ['agent', 'approvals', 'v2Enabled'].join('.');
+      const legacyPreference = await database.getPreference(legacyFlagKey);
+      if (legacyPreference !== null && legacyPreference !== undefined) {
+        await database.setPreference(legacyFlagKey, null as unknown as PreferenceValue);
+        console.log('[Approvals] Cleared legacy approvals flag preference');
+      }
+    } catch (error) {
+      console.warn('[Approvals] Legacy approvals flag cleanup skipped', error);
+    }
+
     // On fresh app start, clear any previously persisted "active" workspace so
     // CLI status reflects the UI (no folder loaded) until the user explicitly
     // opens a folder or loads a workspace.
@@ -290,6 +340,93 @@ app.whenReady().then(async () => {
     } catch (error) {
       console.warn('Failed to clear active workspace on startup:', error);
     }
+
+    let autoCapPreference: number | null = null;
+    try {
+      const pref = await database.getPreference('agent.approvals.autoCap');
+      if (typeof pref === 'number' && Number.isFinite(pref)) {
+        autoCapPreference = pref;
+      } else if (typeof pref === 'string') {
+        const parsed = Number(pref);
+        if (Number.isFinite(parsed)) autoCapPreference = parsed;
+      }
+    } catch {
+      autoCapPreference = null;
+    }
+
+    try {
+      securityManager = await AgentSecurityManager.create({ db: database });
+      approvalsService = new ApprovalsService({
+        db: database,
+        security: securityManager,
+        broadcast: (event) => {
+          for (const listener of approvalWatchers.values()) {
+            try {
+              listener(event);
+            } catch {
+              // ignore broadcast failures per listener
+            }
+          }
+        },
+        logger: console,
+        autoApplyCap: autoCapPreference ?? undefined,
+        cancellationAdapters: {
+          terminal: {
+            kill: async (sessionId: string) => {
+              try {
+                const tm = await getTerminalManagerLazy();
+                tm.kill(sessionId);
+              } catch (error) {
+                console.warn('[Approvals] Failed to kill terminal session via adapter', error);
+              }
+            },
+            onSessionCompleted: (handler) => {
+              let disposed = false;
+              (async () => {
+                try {
+                  const tm = await getTerminalManagerLazy();
+                  if (disposed) return;
+                  tm.on('exit', handler);
+                } catch (error) {
+                  console.warn('[Approvals] Failed to attach terminal completion handler', error);
+                }
+              })();
+              return () => {
+                disposed = true;
+                getTerminalManagerLazy().then((tm) => {
+                  tm.off('exit', handler);
+                }).catch((error) => {
+                  console.warn('[Approvals] Failed to detach terminal completion handler', error);
+                });
+              };
+            },
+            onSessionOutput: (handler) => {
+              let disposed = false;
+              (async () => {
+                try {
+                  const tm = await getTerminalManagerLazy();
+                  if (disposed) return;
+                  tm.on('data', handler);
+                } catch (error) {
+                  console.warn('[Approvals] Failed to attach terminal output handler', error);
+                }
+              })();
+              return () => {
+                disposed = true;
+                getTerminalManagerLazy().then((tm) => {
+                  tm.off('data', handler);
+                }).catch((error) => {
+                  console.warn('[Approvals] Failed to detach terminal output handler', error);
+                });
+              };
+            },
+          },
+        },
+      });
+      console.log('[Approvals] Service initialized');
+    } catch (error) {
+      console.warn('[Approvals] Failed to initialize approvals service', error);
+    }
   } catch (error: unknown) {
      
     console.error('Failed to initialize database:', error);
@@ -299,7 +436,11 @@ app.whenReady().then(async () => {
 
   // Start local HTTP API server
   try {
-    apiServer = new PasteFlowAPIServer(database!, 5839);
+    apiServer = new PasteFlowAPIServer(database!, 5839, {
+      approvalsService: approvalsService ?? undefined,
+      securityManager: securityManager ?? undefined,
+      logger: console,
+    });
     // Await actual bind to ensure we write the real bound port
     await apiServer.startAsync();
 
@@ -1062,18 +1203,18 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
     const parsed = AgentExecuteToolSchema.safeParse(params || {});
     if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
     const { resolveAgentConfig } = await import('./agent/config');
-    const { AgentSecurityManager } = await import('./agent/security-manager');
     const { getAgentTools } = await import('./agent/tools');
     const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    const security = await AgentSecurityManager.create({ db: database ? { getPreference: (k: string) => database!.getPreference(k) } : null });
+    const security = securityManager ?? await AgentSecurityManager.create({ db: database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined });
     const tools = getAgentTools({
       security,
       config: cfg,
       sessionId: parsed.data.sessionId,
       onToolExecute: async (name, args, result, meta) => {
+        const typedResult = name === 'context' ? (result as ContextResult) : result;
+        let executionId: number | null = null;
         try {
-          const typedResult = name === 'context' ? (result as ContextResult) : result;
-          await database!.insertToolExecution({
+          executionId = await database!.insertToolExecutionReturningId({
             sessionId: parsed.data.sessionId,
             toolName: String(name),
             args,
@@ -1083,7 +1224,34 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
             startedAt: (typeof (meta as Record<string, unknown> | null | undefined)?.['startedAt'] === 'number') ? (meta as Record<string, unknown>)['startedAt'] as number : null,
             durationMs: (typeof (meta as Record<string, unknown> | null | undefined)?.['durationMs'] === 'number') ? (meta as Record<string, unknown>)['durationMs'] as number : null,
           });
-        } catch { /* ignore logging errors */ }
+        } catch {
+          try {
+            await database!.insertToolExecution({
+              sessionId: parsed.data.sessionId,
+              toolName: String(name),
+              args,
+              result: typedResult,
+              status: 'ok',
+              error: null,
+              startedAt: (typeof (meta as Record<string, unknown> | null | undefined)?.['startedAt'] === 'number') ? (meta as Record<string, unknown>)['startedAt'] as number : null,
+              durationMs: (typeof (meta as Record<string, unknown> | null | undefined)?.['durationMs'] === 'number') ? (meta as Record<string, unknown>)['durationMs'] as number : null,
+            });
+          } catch {
+            // ignore logging errors
+          }
+        }
+
+        if (approvalsService && executionId !== null) {
+          await capturePreviewIfAny({
+            service: approvalsService,
+            toolExecutionId: executionId,
+            sessionId: parsed.data.sessionId as ChatSessionId,
+            toolName: String(name),
+            args,
+            result: typedResult,
+            logger: console,
+          });
+        }
       }
     });
     const toolDef = (tools as Record<string, { execute?: (args: unknown) => Promise<unknown> }>)[parsed.data.tool];
@@ -1095,6 +1263,47 @@ ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
   }
 });
 
+ipcMain.handle('agent:approval:list', (_event, params: unknown) => handleApprovalList(params, { approvalsService, database }));
+
+ipcMain.handle('agent:approval:apply', (_event, params: unknown) => handleApprovalApply(params, { approvalsService, database }));
+
+ipcMain.handle('agent:approval:apply-with-content', (_event, params: unknown) => handleApprovalApplyWithContent(params, { approvalsService, database }));
+
+ipcMain.handle('agent:approval:reject', (_event, params: unknown) => handleApprovalReject(params, { approvalsService, database }));
+
+ipcMain.handle('agent:approval:cancel-stream', (_event, params: unknown) => handleApprovalCancel(params, { approvalsService, database }));
+
+
+
+ipcMain.on('agent:approval:watch', async (event) => {
+  if (!approvalsService) {
+    event.sender.send('agent:approval:watch:error', { code: 'SERVICE_UNAVAILABLE', message: 'Approvals service unavailable' });
+    return;
+  }
+  const id = event.sender.id;
+  const listener = (payload: ApprovalEventPayload) => {
+    try {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(payload.type, payload);
+      }
+    } catch {
+      // ignore individual send failures
+    }
+  };
+  approvalWatchers.set(id, listener);
+  event.sender.once('destroyed', () => {
+    approvalWatchers.delete(id);
+  });
+  event.sender.send('agent:approval:watch:ready', { ok: true });
+});
+
+ipcMain.on('agent:approval:unwatch', (event) => {
+  const listener = approvalWatchers.get(event.sender.id);
+  if (listener) {
+    approvalWatchers.delete(event.sender.id);
+  }
+});
+
 ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: string) => {
   try {
     if (!sessionId || typeof sessionId !== 'string') return { success: false, error: 'INVALID_SESSION_ID' };
@@ -1103,7 +1312,17 @@ ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: s
       if (!row) return { success: false, error: 'NOT_FOUND' };
       const tools = await database.listToolExecutions(sessionId);
       const usage = await database.listUsageSummaries(sessionId);
-      const payload = { session: row, toolExecutions: tools, usage };
+      let approvalsPayload: { previews: readonly StoredPreview[]; approvals: readonly StoredApproval[] } | null = null;
+      if (approvalsService) {
+        const approvalsResult = await approvalsService.listApprovals(sessionId as ChatSessionId);
+        if (approvalsResult.ok) {
+          approvalsPayload = approvalsResult.data;
+        }
+      }
+      const payload: Record<string, unknown> = { session: row, toolExecutions: tools, usage };
+      if (approvalsPayload) {
+        payload.approvals = approvalsPayload;
+      }
       const fs = await import('node:fs');
       const p = await import('node:path');
       const { app } = await import('electron');

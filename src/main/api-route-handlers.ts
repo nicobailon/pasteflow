@@ -3,6 +3,8 @@ import type { Request, Response } from 'express';
 import { DatabaseBridge } from './db/database-bridge';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
+import type { ApprovalsService } from './agent/approvals-service';
+import type { AgentSecurityManager } from './agent/security-manager';
 // Delegate implementations
 import * as Chat from './handlers/chat-handlers';
 import * as Workspaces from './handlers/workspaces-handlers';
@@ -17,11 +19,24 @@ import * as Tools from './handlers/tools-handlers';
 export { selectionBody, exportBody, previewStartBody, previewIdParam } from './handlers/schemas';
 
 export class APIRouteHandlers {
+  private readonly approvalsService?: ApprovalsService;
+  private readonly securityManager?: AgentSecurityManager;
+  private readonly logger?: Pick<typeof console, 'log' | 'warn' | 'error'>;
+
   constructor(
     private readonly db: DatabaseBridge,
     private readonly previewProxy: RendererPreviewProxy,
-    private readonly previewController: PreviewController
-  ) {}
+    private readonly previewController: PreviewController,
+    options?: {
+      approvalsService?: ApprovalsService;
+      securityManager?: AgentSecurityManager;
+      logger?: Pick<typeof console, 'log' | 'warn' | 'error'>;
+    }
+  ) {
+    this.approvalsService = options?.approvalsService;
+    this.securityManager = options?.securityManager;
+    this.logger = options?.logger;
+  }
 
   // Health and Status
   async handleHealth(req: Request, res: Response) {
@@ -72,7 +87,14 @@ export class APIRouteHandlers {
 
   // Chat
   async handleChat(req: Request, res: Response) {
-    return Chat.handleChat({ db: this.db, previewProxy: this.previewProxy, previewController: this.previewController }, req, res);
+    return Chat.handleChat({
+      db: this.db,
+      previewProxy: this.previewProxy,
+      previewController: this.previewController,
+      approvalsService: this.approvalsService,
+      security: this.securityManager,
+      logger: this.logger,
+    }, req, res);
   }
 
   // Instructions

@@ -16,7 +16,6 @@ const FALLBACK_TOOL_CATALOG: readonly { name: string; description: string }[] = 
   { name: 'edit', description: 'Edit: diff/block/multi; apply gated' },
   { name: 'context', description: 'Context utilities: summary/expand/search/tools' },
   { name: 'terminal', description: 'Terminal: start/interact/output/list/kill (gated)' },
-  { name: 'generateFromTemplate', description: 'Scaffold component/hook/api-route/test (no writes)' },
 ] as const;
 
 // Deduplicate noisy diagnostic logs per assistant message id
@@ -27,8 +26,8 @@ interface AgentMessagesProps {
   readonly interruptions: ReadonlyMap<number, { readonly target: 'pre-assistant' | 'assistant'; readonly ts: number }>;
   readonly usageRows: readonly UsageRow[];
   readonly sessionId: string | null;
-  readonly skipApprovals: boolean;
-  readonly onToggleSkipApprovals: (v: boolean) => void;
+  readonly bypassApprovals: boolean;
+  readonly onToggleBypass: (v: boolean) => void;
   readonly modelId: string | null;
 }
 
@@ -37,8 +36,8 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
   interruptions,
   usageRows,
   sessionId,
-  skipApprovals,
-  onToggleSkipApprovals,
+  bypassApprovals,
+  onToggleBypass,
   modelId,
 }) => {
   // Preference: default collapsed/expanded for reasoning blocks
@@ -179,8 +178,8 @@ const AgentMessages: React.FC<AgentMessagesProps> = ({
                 <AgentToolCalls
                   message={m}
                   sessionId={sessionId || undefined}
-                  skipApprovals={skipApprovals}
-                  onToggleSkipApprovals={async (v) => onToggleSkipApprovals(Boolean(v))}
+                  skipApprovals={bypassApprovals}
+                  onToggleSkipApprovals={async (v) => onToggleBypass(Boolean(v))}
                 />
               ) : null}
               {role === 'user' && (() => {

@@ -1,13 +1,14 @@
 import React from "react";
 import { List as ListIcon, Plus as PlusIcon, Terminal as TerminalIcon, Settings as SettingsIcon } from "lucide-react";
+
 import type { SessionTotals } from "../types/agent-types";
 import { estimateCostUSD } from "../utils/agent-message-utils";
 
 interface AgentPanelHeaderProps {
   readonly panelEnabled: boolean;
   readonly status: string | null;
-  readonly skipApprovals: boolean;
-  readonly onToggleSkipApprovals: (next: boolean) => void;
+  readonly bypassApprovals: boolean;
+  readonly onToggleBypass: (next: boolean) => void;
   readonly onOpenThreads: () => void;
   readonly onToggleTerminal: () => void;
   readonly onNewChat: () => void | Promise<void>;
@@ -23,8 +24,8 @@ interface AgentPanelHeaderProps {
 const AgentPanelHeader: React.FC<AgentPanelHeaderProps> = ({
   panelEnabled,
   status,
-  skipApprovals,
-  onToggleSkipApprovals,
+  bypassApprovals,
+  onToggleBypass,
   onOpenThreads,
   onToggleTerminal,
   onNewChat,
@@ -45,12 +46,14 @@ const AgentPanelHeader: React.FC<AgentPanelHeaderProps> = ({
   const estimatedCost = (!persistedCost && (chipInput > 0 || chipOutput > 0)) ? (estimateCostUSD(modelId, { input_tokens: chipInput, output_tokens: chipOutput, total_tokens: chipTotal }) || null) : null;
   const costTxt = persistedCost || estimatedCost || null;
   const hasAnyMessages = messagesCount > 0;
+  const costSuffix = costTxt ? `, Cost: ${costTxt}` : '';
+  const totalsTitle = `Session totals — Input: ${chipInput}, Output: ${chipOutput}, Total: ${chipTotal}${costSuffix}`;
 
   return (
     <div className="agent-panel-header">
       <div className="agent-panel-title">Agent</div>
       {(!hasAnyMessages && chipTotal <= 0 && !costTxt) ? null : (
-        <div className="agent-usage-chip" title={`Session totals — Input: ${chipInput}, Output: ${chipOutput}, Total: ${chipTotal}${costTxt ? `, Cost: ${costTxt}` : ''}`}>
+        <div className="agent-usage-chip" title={totalsTitle}>
           <span className="dot" />
           <span>{label}</span>
           {costTxt && (<><span>·</span><span>{costTxt}</span></>)}
@@ -61,13 +64,13 @@ const AgentPanelHeader: React.FC<AgentPanelHeaderProps> = ({
           <ListIcon size={16} />
         </button>
         <button
-          className={skipApprovals ? "primary" : "secondary"}
-          onClick={() => onToggleSkipApprovals(!skipApprovals)}
-          title="Skip permissions"
-          aria-label="Skip permissions"
+          className={bypassApprovals ? "primary" : "secondary"}
+          onClick={() => onToggleBypass(!bypassApprovals)}
+          title="Bypass approvals"
+          aria-label="Bypass approvals"
           disabled={!panelEnabled}
         >
-          {skipApprovals ? 'Skip On' : 'Skip Off'}
+          {bypassApprovals ? 'Bypass on' : 'Bypass off'}
         </button>
         <button className="secondary" onClick={onToggleTerminal} title="Terminal" aria-label="Terminal" disabled={!panelEnabled}>
           <TerminalIcon size={16} />
@@ -89,4 +92,3 @@ const AgentPanelHeader: React.FC<AgentPanelHeaderProps> = ({
 };
 
 export default AgentPanelHeader;
-

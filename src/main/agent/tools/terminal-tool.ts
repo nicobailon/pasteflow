@@ -10,11 +10,12 @@ async function terminalStart(params: any, deps: BaseToolFactoryDeps, tm: any, re
   const v = validateAndResolvePath(cwd);
   if (!v.ok) return record({ type: "error" as const, code: "PATH_DENIED", message: v.message });
   const cmdStr = params?.command ? String(params.command) : "";
+  // When approvals are required, emit a preview instead of an error so the renderer can request approval.
   if (deps.config?.APPROVAL_MODE === "always" && params?.skipPermissions !== true) {
-    return record({ type: "error" as const, code: "APPROVAL_NEEDED", message: "Command requires approval" });
+    return record({ type: "preview" as const, command: cmdStr, cwd: v.absolutePath, output: "" });
   }
   if (deps.config?.APPROVAL_MODE === "risky" && cmdStr && isRiskyCommand(cmdStr) && params?.skipPermissions !== true) {
-    return record({ type: "error" as const, code: "APPROVAL_NEEDED", message: "Risky command requires approval" });
+    return record({ type: "preview" as const, command: cmdStr, cwd: v.absolutePath, output: "" });
   }
   const { id, pid } = tm.create({ command: params?.command, args: Array.isArray(params?.args) ? params.args : undefined, cwd: v.absolutePath });
   return record({ sessionId: id, pid });

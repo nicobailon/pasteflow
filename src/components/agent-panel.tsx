@@ -18,11 +18,16 @@ import ModelSettingsModal from "./model-settings-modal";
 import AgentThreadList from "./agent-thread-list";
 import AgentPanelHeader from "./agent-panel-header";
 import AgentNotifications from "./agent-notifications";
+import AgentApprovalList from "./agent-approvals/agent-approval-list";
 import AgentMessages from "./agent-messages";
 import AgentDisabledOverlay from "./agent-disabled-overlay";
 import AgentStatusBanner from "./agent-status-banner";
 import AgentResizeHandle from "./agent-resize-handle";
+
 import "./agent-panel.css";
+import useAgentApprovals from "../hooks/use-agent-approvals";
+
+import ToolApprovalStrip from "./agent-approvals/tool-approval-strip";
 
 // (types migrated to hooks/util files; keeping panel lean)
 
@@ -156,7 +161,6 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<"openai" | "anthropic" | "openrouter" | "groq">("openai");
-  const [skipApprovals, setSkipApprovals] = useState<boolean>(false);
   const { hasOpenAIKey, checkKeyPresence } = useAgentProviderStatus();
 
   // Panel enabled only when a workspace is active and a folder is selected
@@ -414,19 +418,19 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
 
   const { usageRows, modelId, refreshUsage, sessionTotals } = useAgentUsage({ sessionId, status: status as string | null });
 
-  // Usage list and provider/model handled by useAgentUsage
+  const approvalsState = useAgentApprovals({ sessionId, enabled: panelEnabled });
+  const bypassApprovals = approvalsState.bypassEnabled;
+  const approvalItems = approvalsState.approvals;
+  const autoApprovedItems = approvalsState.autoApproved;
+  const approvalsLoading = approvalsState.loading;
+  const approvalsError = approvalsState.lastError;
+  const approveApproval = approvalsState.approve;
+  const approveApprovalWithEdits = approvalsState.approveWithEdits;
+  const rejectApproval = approvalsState.reject;
+  const cancelPreview = approvalsState.cancel;
+  const setBypass = approvalsState.setBypass;
 
-  // Load skip approvals preference
-  useEffect(() => {
-    (async () => {
-      try {
-        const res: unknown = await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_GET, { key: 'agent.skipApprovals' });
-        const saved = (res && typeof res === 'object' && 'success' in res && (res as { success: boolean }).success === true)
-          ? (res as { data?: unknown }).data : null;
-        setSkipApprovals(Boolean(saved));
-      } catch { /* ignore */ }
-    })();
-  }, []);
+  // Usage list and provider/model handled by useAgentUsage
 
 
 
@@ -546,6 +550,22 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
       setNotices((prev) => prev.filter((n) => n.id !== nId));
     }, durationMs);
   }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      try {
+        const detail = (event as CustomEvent<{ message?: string; variant?: 'info' | 'warning' | 'error' }>).detail;
+        if (!detail?.message) return;
+        const variant = detail.variant === 'info' ? 'info' : 'warning';
+        const duration = detail.variant === 'error' ? 2600 : 1800;
+        showTransientNotice(detail.message, variant, duration);
+      } catch {
+        // noop
+      }
+    };
+    window.addEventListener('agent:approvals:toast', handler as EventListener);
+    return () => window.removeEventListener('agent:approvals:toast', handler as EventListener);
+  }, [showTransientNotice]);
 
   // Wire "Send to Agent" global event to chat
   useSendToAgentBridge({
@@ -680,11 +700,8 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
       <AgentPanelHeader
         panelEnabled={panelEnabled}
         status={status as string | null}
-        skipApprovals={skipApprovals}
-        onToggleSkipApprovals={async (next) => {
-          setSkipApprovals(next);
-          try { await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_SET, { key: 'agent.skipApprovals', value: next }); } catch { /* ignore */ }
-        }}
+        bypassApprovals={bypassApprovals}
+        onToggleBypass={async (next) => { void setBypass(next); }}
         onOpenThreads={() => { void (async () => { const ws = await resolveWorkspaceId(); if (ws) setActiveWorkspaceId(ws); bumpThreadsRefreshKey(); setShowThreads(true); })(); }}
         onToggleTerminal={() => { try { window.dispatchEvent(new CustomEvent('pasteflow:toggle-terminal')); } catch { /* noop */ } }}
         onNewChat={() => { void handleNewChat(); }}
@@ -714,21 +731,31 @@ const AgentPanel = ({ hidden, allFiles: _allFiles = [], selectedFolder = null, c
           errorInfo={errorInfo}
           onDismissError={() => { setErrorStatus(null); setErrorInfo(null); }}
         />
+        <AgentApprovalList
+          approvals={approvalItems}
+          bypassEnabled={bypassApprovals}
+          loading={approvalsLoading}
+          error={approvalsError}
+          autoApproved={autoApprovedItems}
+          onApprove={approveApproval}
+          onApproveWithEdits={(approvalId, content, options) => approveApprovalWithEdits(approvalId, content, options)}
+          onReject={rejectApproval}
+          onCancel={(previewId) => cancelPreview(previewId)}
+          onToggleBypass={(next) => { void setBypass(next); }}
+        />
         {/* Attachments and mini file list removed in simplified panel */}
         <AgentMessages
           messages={messages as unknown[]}
           interruptions={interruptions}
           usageRows={usageRows}
           sessionId={sessionId}
-          skipApprovals={skipApprovals}
-          onToggleSkipApprovals={async (v) => {
-            setSkipApprovals(Boolean(v));
-            try { await window.electron?.ipcRenderer?.invoke?.(IPC_PREFS_SET, { key: 'agent.skipApprovals', value: Boolean(v) }); } catch { /* ignore */ }
-          }}
+          bypassApprovals={bypassApprovals}
+          onToggleBypass={async (v) => { void setBypass(Boolean(v)); }}
           modelId={modelId}
         />
         <AgentStatusBanner status={status as string | null} />
 
+        <ToolApprovalStrip sessionId={sessionId} />
         <form className="agent-input-container" onSubmit={handleSubmit}>
           <div className="autocomplete-container" style={{ position: "relative" }}>
             <textarea

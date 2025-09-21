@@ -175,3 +175,52 @@ export async function writeTextFile(absolutePath: string, content: string): Prom
     return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (error as Error)?.message || String(error) };
   }
 }
+
+export type DeletePathResult =
+  | { ok: true; removed: 'file'; bytes?: number }
+  | { ok: false; code: ApiErrorCode; message: string };
+
+/** Remove a file from disk. Directories are rejected to reduce accidental wipes. */
+export async function deletePath(absolutePath: string): Promise<DeletePathResult> {
+  try {
+    const st = await fs.promises.stat(absolutePath);
+    if (st.isDirectory()) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'Deleting directories is not supported' };
+    }
+    await fs.promises.unlink(absolutePath);
+    return { ok: true, removed: 'file', bytes: st.size };
+  } catch (error: unknown) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      return { ok: false, code: 'FILE_NOT_FOUND', message: 'File not found' };
+    }
+    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (error as Error)?.message || String(error) };
+  }
+}
+
+export type MovePathResult =
+  | { ok: true; bytes?: number }
+  | { ok: false; code: ApiErrorCode; message: string };
+
+/** Move/rename a file, creating parent folders at the destination. */
+export async function movePath(fromAbsolute: string, toAbsolute: string): Promise<MovePathResult> {
+  try {
+    const st = await fs.promises.stat(fromAbsolute);
+    if (st.isDirectory()) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'Moving directories is not supported' };
+    }
+    const dir = path.dirname(toAbsolute);
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.rename(fromAbsolute, toAbsolute);
+    return { ok: true, bytes: st.size };
+  } catch (error: unknown) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') {
+      const isFromMissing = err.path === fromAbsolute || err.message?.includes(fromAbsolute);
+      if (isFromMissing) {
+        return { ok: false, code: 'FILE_NOT_FOUND', message: 'Source file not found' };
+      }
+    }
+    return { ok: false, code: 'FILE_SYSTEM_ERROR', message: (error as Error)?.message || String(error) };
+  }
+}

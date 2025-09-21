@@ -1,16 +1,11 @@
 import { composeEffectiveSystemPrompt } from "../../agent/system-prompt";
+import type { CombinedContext } from "../../agent/system-prompt";
 
 describe("System prompt composition with global + workspace", () => {
-  const baseCtx = {
-    initial: {
-      files: [],
-      prompts: { system: [], roles: [], instructions: [] },
-      user: { present: false, tokenCount: 0 },
-      metadata: { totalTokens: 0 },
-    },
+  const baseCtx: CombinedContext = {
     dynamic: { files: [] },
     workspace: "/ws",
-  } as const;
+  };
 
   test("workspace replace takes precedence over global replace", async () => {
     const db = {
@@ -21,7 +16,6 @@ describe("System prompt composition with global + workspace", () => {
         if (k === "agent.systemPrompt.replace.ws-1") return true;
         if (k === "agent.systemPrompt.text.ws-1") return "WORKSPACE_ONLY";
         if (k === "agent.executionContext.enabled") return false; // keep output stable
-        return undefined;
       },
     } as { getPreference: (k: string) => Promise<unknown> };
 
@@ -38,7 +32,6 @@ describe("System prompt composition with global + workspace", () => {
         if (k === "agent.systemPrompt.replace.ws-1") return false;
         if (k === "agent.systemPrompt.text.ws-1") return "WORKSPACE_SUFFIX";
         if (k === "agent.executionContext.enabled") return false; // keep output stable
-        return undefined;
       },
     } as { getPreference: (k: string) => Promise<unknown> };
 
@@ -58,7 +51,6 @@ describe("System prompt composition with global + workspace", () => {
         if (k === "agent.systemPrompt.replace.ws-1") return false;
         if (k === "agent.systemPrompt.text.ws-1") return "WORKSPACE_PREFIX";
         if (k === "agent.executionContext.enabled") return false; // keep output stable
-        return undefined;
       },
     } as { getPreference: (k: string) => Promise<unknown> };
 
@@ -67,5 +59,20 @@ describe("System prompt composition with global + workspace", () => {
     const idxW = out.indexOf("WORKSPACE_PREFIX");
     expect(idxG).toBeGreaterThanOrEqual(0);
     expect(idxW).toBeGreaterThan(idxG);
+  });
+
+  test("enabled tools guidance is appended and filtered", async () => {
+    const db = {
+      getPreference: async (k: string) => {
+        if (k === "agent.executionContext.enabled") return false;
+      },
+    } as { getPreference: (k: string) => Promise<unknown> };
+
+    const enabled = new Set(["file", "terminal"]);
+    const out = await composeEffectiveSystemPrompt(db, baseCtx, { enabledTools: enabled });
+    expect(out).toContain("Tool Guidance:");
+    expect(out).toContain("file: Use file.read");
+    expect(out).toContain("terminal: Use terminal.start");
+    expect(out).not.toContain("search: Use search.code");
   });
 });

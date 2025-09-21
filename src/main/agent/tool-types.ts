@@ -1,12 +1,18 @@
 // Shared type contracts for agent tools
 
-export type ContextAction = "summary" | "expand" | "search";
+import type { ToolCatalogEntry } from "./tool-catalog";
+
+export type ContextAction = "summary" | "expand" | "search" | "tools";
 
 export type ContextSummaryParams = { action?: "summary"; envelope?: unknown };
 export type ContextExpandFileRequest = { path: string; lines?: { start: number; end: number } };
 export type ContextExpandParams = { action: "expand"; files: readonly ContextExpandFileRequest[]; maxBytes?: number };
 export type ContextSearchParams = { action: "search"; query: string; directory?: string; maxResults?: number };
-export type ContextToolParams = ContextSummaryParams | ContextExpandParams | ContextSearchParams | Record<string, unknown>;
+export type ContextToolParams =
+  | ContextSummaryParams
+  | ContextExpandParams
+  | ContextSearchParams
+  | Record<string, unknown>;
 
 export type ContextError = { type: "error"; code: string; message: string };
 export type ContextSummaryResult = { initialFiles: number; dynamicFiles: number };
@@ -16,5 +22,12 @@ export type ContextExpandResult = { files: readonly (ExpandFileSuccess | ExpandF
 export type ContextSearchMatch = { line: number; text: string };
 export type ContextSearchFile = { path: string; matches: readonly ContextSearchMatch[] };
 export type ContextSearchResult = { files: readonly ContextSearchFile[]; totalMatches: number; truncated: boolean };
-export type ContextResult = ContextSummaryResult | ContextExpandResult | ContextSearchResult | ContextError;
 
+export type ContextToolsResult = { tools: readonly ToolCatalogEntry[] };
+
+export type ContextResult =
+  | ContextSummaryResult
+  | ContextExpandResult
+  | ContextSearchResult
+  | ContextToolsResult
+  | ContextError;

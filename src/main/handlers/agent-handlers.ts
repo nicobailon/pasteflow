@@ -18,7 +18,33 @@ export async function handleAgentExportSession(deps: { db: DatabaseBridge }, req
     if (!row) return res.status(404).json(toApiError('NOT_FOUND', 'Session not found'));
     const tools = await deps.db.listToolExecutions(id);
     const usage = await deps.db.listUsageSummaries(id);
-    const payload = { session: row, toolExecutions: tools, usage };
+    const approvalsExport = await deps.db.listApprovalsForExport(id);
+    const parseJson = (value: string | null) => {
+      if (!value) return null;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return null;
+      }
+    };
+    const approvalPreviews = approvalsExport.previews.map((preview) => ({
+      ...preview,
+      detail: parseJson(preview.detail),
+      args: parseJson(preview.args),
+    }));
+    const approvalRows = approvalsExport.approvals.map((approval) => ({
+      ...approval,
+      feedback_meta: parseJson(approval.feedback_meta),
+    }));
+    const payload = {
+      session: row,
+      toolExecutions: tools,
+      usage,
+      approvals: {
+        previews: approvalPreviews,
+        approvals: approvalRows,
+      },
+    };
     const outPath = parsed.data.outPath;
     if (parsed.data.download === true) {
       return res.json(ok(payload));

@@ -3,6 +3,7 @@
   --background-secondary: #dedede;
   --background-selected: rgba(0,0,0,0.08);
   --background-elevated: #f8f8f8;
+  --background-muted: #f3f3f3;
   --accent-blue: #0E639C;
   --border-color: #c0c0c0;
   --hover-color: #d3d3d3;
@@ -15,6 +16,14 @@
   --error-color: #e74c3c;
   --primary-button-background: #6d6d6d;
   --primary-button-text: #ffffff;
+  --control-disabled-bg: #d3d3d3;
+  --link-color: var(--accent-blue);
+  --status-success-bg: #e4f4eb;
+  --status-success-border: #1e8449;
+  --status-warning-bg: #fff3e0;
+  --status-warning-border: #f39c12;
+  --status-danger-bg: #fdecea;
+  --status-danger-border: #e74c3c;
   --file-card-selected-border: #808080;
   --checkbox-border: #808080;
   --checkbox-background: transparent;
@@ -89,6 +98,13 @@
   --dropdown-duration-fast: 0.15s;
   --dropdown-duration-base: 0.2s;
   --dropdown-duration-slow: 0.3s;
+
+  /* Legacy alias tokens (approvals migration) */
+  --bg-surface: var(--background-primary);
+  --bg-muted: var(--background-secondary);
+  --primary: var(--accent-blue);
+  --disabled: var(--text-disabled);
+  --text-error: var(--error-color);
 }
 
 .dark-mode {
@@ -96,6 +112,7 @@
   --background-secondary: #252526;
   --background-selected: #2A2D2E;
   --background-elevated: #2D2D30;
+  --background-muted: #303033;
   --accent-blue: #0E639C;
   --border-color: #3E3E42;
   --hover-color: #333333;
@@ -108,6 +125,14 @@
   --error-color: #e74c3c;
   --primary-button-background: #0E639C;
   --primary-button-text: #ffffff;
+  --control-disabled-bg: #3a3a3d;
+  --link-color: var(--accent-blue);
+  --status-success-bg: rgba(46, 204, 113, 0.18);
+  --status-success-border: #2ecc71;
+  --status-warning-bg: rgba(243, 156, 18, 0.22);
+  --status-warning-border: #f39c12;
+  --status-danger-bg: rgba(231, 76, 60, 0.22);
+  --status-danger-border: #e74c3c;
   --file-card-selected-border: #3E3E42;
   --checkbox-border: #666666;
   --checkbox-background: transparent;

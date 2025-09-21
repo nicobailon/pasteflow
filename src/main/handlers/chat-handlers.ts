@@ -10,8 +10,12 @@ import { toApiError } from '../error-normalizer';
 import { getAllowedWorkspacePaths } from '../workspace-context';
 import { composeEffectiveSystemPrompt } from '../agent/system-prompt';
 import { getAgentTools } from '../agent/tools';
+import type { AgentSecurityManager } from '../agent/security-manager';
+import type { ApprovalsService } from '../agent/approvals-service';
+import { capturePreviewIfAny } from '../agent/preview-capture';
 import { getEnabledToolsSet } from '../agent/tools-config';
 import type { ContextResult } from '../agent/tool-types';
+import type { ChatSessionId } from '../agent/preview-registry';
 import type { ProviderId } from '../agent/models-catalog';
 import { withRateLimitRetries } from '../../utils/retry';
 import type { DatabaseBridge } from '../db/database-bridge';
@@ -63,6 +67,9 @@ export type HandlerDeps = {
   db: DatabaseBridge;
   previewProxy: RendererPreviewProxy;
   previewController: PreviewController;
+  approvalsService?: ApprovalsService;
+  security?: AgentSecurityManager;
+  logger?: Pick<typeof console, 'log' | 'warn' | 'error'>;
 };
 
 // Small helpers moved to outer scope to reduce complexity and satisfy linting rules
@@ -124,6 +131,7 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     const _headers = (req.headers ?? {}) as Record<string, unknown>;
     const headerSession = String(((_headers['x-pasteflow-session'] as unknown) || (_headers['x-pf-session-id'] as unknown) || '')).trim();
     const sessionId = parsed.data.sessionId || (headerSession || randomUUID());
+    const logger = deps.logger ?? console;
 
     const lastUser = extractLastUserText(modelMessages);
     if (isToolAvailabilityQuery(lastUser)) {
@@ -172,17 +180,21 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
     // Resolve config, tools and security
     const { resolveAgentConfig } = await import('../agent/config');
     const cfg = await resolveAgentConfig(deps.db as unknown as { getPreference: (k: string) => Promise<unknown> });
-    const { AgentSecurityManager } = await import('../agent/security-manager');
-    const security = await AgentSecurityManager.create({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> } });
+    const security: AgentSecurityManager = deps.security ?? await (async () => {
+      const { AgentSecurityManager } = await import('../agent/security-manager');
+      return AgentSecurityManager.create({ db: deps.db as unknown as { getPreference: (k: string) => Promise<unknown> } });
+    })();
+    const approvalsService = deps.approvalsService;
     const toolsAll = getAgentTools({
       signal: controller.signal,
       security,
       config: cfg,
       sessionId,
       onToolExecute: async (name, args, result, meta) => {
+        const typedResult = name === 'context' ? (result as ContextResult) : result;
+        let executionId: number | null = null;
         try {
-          const typedResult = name === 'context' ? (result as ContextResult) : result;
-          await deps.db.insertToolExecution({
+          executionId = await deps.db.insertToolExecutionReturningId({
             sessionId,
             toolName: String(name),
             args,
@@ -193,8 +205,34 @@ export async function handleChat(deps: HandlerDeps, req: Request, res: Response)
             durationMs: (meta as { durationMs?: number } | undefined)?.durationMs ?? null,
           });
         } catch {
-          // ignore logging errors
+          try {
+            await deps.db.insertToolExecution({
+              sessionId,
+              toolName: String(name),
+              args,
+              result: typedResult,
+              status: 'ok',
+              error: null,
+              startedAt: (meta as { startedAt?: number } | undefined)?.startedAt ?? null,
+              durationMs: (meta as { durationMs?: number } | undefined)?.durationMs ?? null,
+            });
+          } catch {
+            // ignore logging errors
+          }
         }
+
+        if (approvalsService && executionId !== null) {
+          await capturePreviewIfAny({
+            service: approvalsService,
+            toolExecutionId: executionId,
+            sessionId: sessionId as ChatSessionId,
+            toolName: String(name),
+            args,
+            result: typedResult,
+            logger,
+          });
+        }
+
         try {
           const safeArgs = (() => {
             try {

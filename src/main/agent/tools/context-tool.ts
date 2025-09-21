@@ -2,6 +2,7 @@ import { tool, jsonSchema } from "ai";
 
 import { validateAndResolvePath, readTextFile } from "../../file-service";
 import { runRipgrepJson } from "../../tools/ripgrep";
+import { getToolCatalog } from "../tool-catalog";
 
 import type {
   ContextAction,
@@ -14,7 +15,8 @@ import type {
   ContextToolParams,
   ExpandFileError,
   ExpandFileSuccess,
-} from "./tool-types";
+  ContextToolsResult,
+} from "../tool-types";
 import { BINARY_FILE_MSG } from "./shared/constants";
 import type { BaseToolFactoryDeps } from "./shared/tool-factory-types";
 
@@ -125,11 +127,16 @@ async function contextSearch(
   return compact;
 }
 
+function contextTools(): ContextToolsResult {
+  const catalog = getToolCatalog();
+  return { tools: catalog };
+}
+
 export function createContextTool(deps: BaseToolFactoryDeps) {
   const inputSchema = {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["summary", "expand", "search"] },
+      action: { type: "string", enum: ["summary", "expand", "search", "tools"] as string[] },
       envelope: {},
       files: {
         type: "array",
@@ -143,10 +150,10 @@ export function createContextTool(deps: BaseToolFactoryDeps) {
                 start: { type: "integer" },
                 end: { type: "integer" },
               },
-              required: ["start", "end"],
+              required: ["start", "end"] as string[],
             },
           },
-          required: ["path"],
+          required: ["path"] as string[],
         },
       },
       maxBytes: { type: "integer", minimum: 1, maximum: 200_000 },
@@ -154,7 +161,7 @@ export function createContextTool(deps: BaseToolFactoryDeps) {
       directory: { type: "string" },
       maxResults: { type: "integer", minimum: 1, maximum: 50_000 },
     },
-    required: [],
+    required: [] as string[],
     additionalProperties: true,
   } as const;
 
@@ -181,6 +188,7 @@ export function createContextTool(deps: BaseToolFactoryDeps) {
       if (action === "summary") return record(contextSummary((params as ContextSummaryParams)?.envelope as unknown));
       if (action === "expand") return record(await contextExpand(params as ContextExpandParams, deps));
       if (action === "search") return record((await contextSearch(params as ContextSearchParams, deps)) as ContextResult);
+      if (action === "tools") return record(contextTools());
       return record({ type: "error" as const, code: "INVALID_ACTION", message: `Unknown context.action: ${String((params as any)?.action)}` });
     },
   });

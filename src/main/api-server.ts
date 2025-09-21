@@ -27,6 +27,8 @@ import {
   previewIdParam
 } from './api-route-handlers';
 import { getNodeRequire } from './node-require';
+import type { ApprovalsService } from './agent/approvals-service';
+import type { AgentSecurityManager } from './agent/security-manager';
 
 // Local require compatible with CJS (tests) and ESM (runtime) builds
 const nodeRequire = getNodeRequire();
@@ -54,9 +56,21 @@ export class PasteFlowAPIServer {
   private readonly previewController = new PreviewController(this.previewProxy, { timeoutMs: 120_000 });
   private readonly routeHandlers: APIRouteHandlers;
 
-  constructor(private readonly db: DatabaseBridge, private readonly port = 5839) {
+  constructor(
+    private readonly db: DatabaseBridge,
+    private readonly port = 5839,
+    private readonly options: {
+      approvalsService?: ApprovalsService;
+      securityManager?: AgentSecurityManager;
+      logger?: Pick<typeof console, 'log' | 'warn' | 'error'>;
+    } = {}
+  ) {
     this.app = express();
-    this.routeHandlers = new APIRouteHandlers(this.db, this.previewProxy, this.previewController);
+    this.routeHandlers = new APIRouteHandlers(this.db, this.previewProxy, this.previewController, {
+      approvalsService: this.options.approvalsService,
+      securityManager: this.options.securityManager,
+      logger: this.options.logger,
+    });
     this.setupMiddleware();
     this.registerRoutes();
   }
