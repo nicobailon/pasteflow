@@ -11,6 +11,7 @@ import { attachTokensCommand } from "./commands/tokens";
 import { attachSelectCommand } from "./commands/select";
 import { attachContentCommand } from "./commands/content";
 import { attachTreeCommand } from "./commands/tree";
+import { attachPreviewCommand } from "./commands/preview";
 import { attachSessionsCommand } from "./commands/sessions";
 
 export interface RootOptions {
@@ -50,6 +51,7 @@ async function main() {
   attachSelectCommand(program);
   attachContentCommand(program);
   attachTreeCommand(program);
+  attachPreviewCommand(program);
   attachSessionsCommand(program);
 
   await program.parseAsync(process.argv);
