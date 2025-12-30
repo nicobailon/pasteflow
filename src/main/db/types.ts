@@ -1,21 +1,19 @@
-import type { QueryResult } from "./connection-pool";
-
-export interface WorkspaceRecord extends QueryResult {
+export interface WorkspaceRecord {
   id: number;
   name: string;
   folder_path: string;
-  state: string; // JSON-serialized WorkspaceState
+  state: string;
   created_at: number;
   updated_at: number;
   last_accessed: number;
 }
 
-export interface PreferenceRecord extends QueryResult {
+export interface PreferenceRecord {
   key: string;
   value: string;
 }
 
-export interface InstructionRow extends QueryResult {
+export interface InstructionRow {
   id: string;
   name: string;
   content: string;

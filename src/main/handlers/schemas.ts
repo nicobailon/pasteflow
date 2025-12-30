@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { LineRangeSchema, SelectedFileReferenceSchema } from '../../shared-schemas';
-import { AgentContextEnvelopeSchema } from '../../shared-types/agent-context';
 
 // Common request param schemas
 export const idParam = z.object({ id: z.string().min(1) });
@@ -57,22 +56,4 @@ export const previewStartBody = z.object({
 });
 export const previewIdParam = z.object({ id: z.string().min(1) });
 
-// Chat
-export const chatBodySchema = z.object({
-  messages: z.array(z.any()),
-  context: AgentContextEnvelopeSchema.optional(),
-  sessionId: z.string().min(1).optional(),
-});
 
-// Models
-export const listModelsQuery = z.object({ provider: z.string().optional() });
-export const validateModelBody = z.object({
-  provider: z.enum(["openai", "anthropic", "openrouter", "groq"] as const),
-  model: z.string().min(1),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().url().optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  maxOutputTokens: z.number().int().min(1).max(200_000).optional(), // Increased to accommodate model-specific limits
-});
-
-export { AgentContextEnvelopeSchema };

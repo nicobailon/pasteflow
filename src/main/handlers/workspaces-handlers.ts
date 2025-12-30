@@ -143,10 +143,6 @@ export async function handleLoadWorkspace(deps: { db: DatabaseBridge }, req: Req
     if (ws?.folder_path) {
       setAllowedWorkspacePaths([ws.folder_path]);
       getPathValidator([ws.folder_path]);
-      try {
-        const { globalSystemContextCache } = await import('../agent/system-context-cache');
-        await globalSystemContextCache.refresh();
-      } catch { /* non-fatal */ }
       broadcastToRenderers('folder-selected', ws.folder_path);
       broadcastWorkspaceUpdated({
         workspaceId: String(ws.id),

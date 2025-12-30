@@ -27,8 +27,6 @@ import {
   previewIdParam
 } from './api-route-handlers';
 import { getNodeRequire } from './node-require';
-import type { ApprovalsService } from './agent/approvals-service';
-import type { AgentSecurityManager } from './agent/security-manager';
 
 // Local require compatible with CJS (tests) and ESM (runtime) builds
 const nodeRequire = getNodeRequire();
@@ -60,15 +58,11 @@ export class PasteFlowAPIServer {
     private readonly db: DatabaseBridge,
     private readonly port = 5839,
     private readonly options: {
-      approvalsService?: ApprovalsService;
-      securityManager?: AgentSecurityManager;
       logger?: Pick<typeof console, 'log' | 'warn' | 'error'>;
     } = {}
   ) {
     this.app = express();
     this.routeHandlers = new APIRouteHandlers(this.db, this.previewProxy, this.previewController, {
-      approvalsService: this.options.approvalsService,
-      securityManager: this.options.securityManager,
       logger: this.options.logger,
     });
     this.setupMiddleware();
@@ -151,13 +145,6 @@ export class PasteFlowAPIServer {
     this.app.post('/api/v1/tokens/count', (req, res) => this.routeHandlers.handleCountTokens(req, res));
     this.app.get('/api/v1/tokens/backend', (req, res) => this.routeHandlers.handleGetTokenBackend(req, res));
 
-    // Models
-    this.app.get('/api/v1/models', (req, res) => this.routeHandlers.handleListModels(req, res));
-    this.app.post('/api/v1/models/validate', (req, res) => this.routeHandlers.handleValidateModel(req, res));
-
-    // Tools
-    this.app.get('/api/v1/tools', (req, res) => this.routeHandlers.handleListTools(req, res));
-
     // Folders
     this.app.get('/api/v1/folders/current', (req, res) => this.routeHandlers.handleGetCurrentFolder(req, res));
     this.app.post('/api/v1/folders/open', (req, res) => this.routeHandlers.handleOpenFolder(req, res));
@@ -187,11 +174,6 @@ export class PasteFlowAPIServer {
     // Logs (dev-only optional)
     this.app.get('/api/v1/logs', (req, res) => this.handleLogs(req, res));
 
-    // Chat (Phase 2)
-    this.app.post('/api/v1/chat', (req, res) => this.routeHandlers.handleChat(req, res));
-
-    // Agent (Phase 4)
-    this.app.post('/api/v1/agent/export-session', (req, res) => this.routeHandlers.handleAgentExportSession(req, res));
   }
 
   // File selection handlers

@@ -1,7 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Shield, CheckCircle2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import AgentAlertBanner from "./agent-alert-banner";
+
 import "./integrations-modal.css";
 
 type IntegrationsModalProps = {
@@ -49,7 +49,7 @@ const IntegrationsModal = ({ isOpen, onClose }: IntegrationsModalProps): JSX.Ele
       setOpenaiStored(true);
       setStatus('success');
       setTimeout(() => setStatus('idle'), 1200);
-    } catch (e) {
+    } catch (error_) {
       setStatus('error');
       setError((e as Error)?.message || 'Failed to save');
     }
@@ -63,7 +63,7 @@ const IntegrationsModal = ({ isOpen, onClose }: IntegrationsModalProps): JSX.Ele
       setOpenaiStored(false);
       setStatus('success');
       setTimeout(() => setStatus('idle'), 1000);
-    } catch (e) {
+    } catch (error_) {
       setStatus('error');
       setError((e as Error)?.message || 'Failed to clear');
     }
@@ -117,7 +117,7 @@ const IntegrationsModal = ({ isOpen, onClose }: IntegrationsModalProps): JSX.Ele
             </div>
 
             {status === 'error' && (
-              <AgentAlertBanner variant="error" message={error || 'Failed to update'} />
+              <div className="integrations-error">{error || 'Failed to update'}</div>
             )}
           </div>
         </Dialog.Content>

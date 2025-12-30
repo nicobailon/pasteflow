@@ -12,7 +12,17 @@ import { logger } from '../utils/logger';
 
 import { usePreviewGenerator } from './use-preview-generator';
 import type { StartPreviewParams } from './use-preview-generator';
-import { condenseUserMessageForDisplay } from '../utils/agent-message-utils';
+function condenseUserMessageForDisplay(text: string): string {
+  try {
+    const pattern = /File:\s*(.+?)\n```([\w-]*)\n([\S\s]*?)\n```/g;
+    return text.replace(pattern, (_m, p1: string, _lang: string, body: string) => {
+      const lines = body === "" ? 0 : body.split(/\r?\n/).length;
+      return `File: ${p1}\n[File content: ${lines} lines]`;
+    });
+  } catch {
+    return text;
+  }
+}
 
 export type PackStatus = 'idle' | 'packing' | 'ready' | 'error' | 'cancelled';
 

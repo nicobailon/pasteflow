@@ -3,24 +3,15 @@ import type { Request, Response } from 'express';
 import { DatabaseBridge } from './db/database-bridge';
 import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
-import type { ApprovalsService } from './agent/approvals-service';
-import type { AgentSecurityManager } from './agent/security-manager';
-// Delegate implementations
-import * as Chat from './handlers/chat-handlers';
 import * as Workspaces from './handlers/workspaces-handlers';
-import * as Models from './handlers/models-handlers';
 import * as Instructions from './handlers/instructions-handlers';
 import * as Prefs from './handlers/prefs-handlers';
 import * as Files from './handlers/files-handlers';
 import * as Tokens from './handlers/tokens-handlers';
 import * as Folders from './handlers/folders-handlers';
-import * as Agent from './handlers/agent-handlers';
-import * as Tools from './handlers/tools-handlers';
 export { selectionBody, exportBody, previewStartBody, previewIdParam } from './handlers/schemas';
 
 export class APIRouteHandlers {
-  private readonly approvalsService?: ApprovalsService;
-  private readonly securityManager?: AgentSecurityManager;
   private readonly logger?: Pick<typeof console, 'log' | 'warn' | 'error'>;
 
   constructor(
@@ -28,13 +19,9 @@ export class APIRouteHandlers {
     private readonly previewProxy: RendererPreviewProxy,
     private readonly previewController: PreviewController,
     options?: {
-      approvalsService?: ApprovalsService;
-      securityManager?: AgentSecurityManager;
       logger?: Pick<typeof console, 'log' | 'warn' | 'error'>;
     }
   ) {
-    this.approvalsService = options?.approvalsService;
-    this.securityManager = options?.securityManager;
     this.logger = options?.logger;
   }
 
@@ -74,27 +61,6 @@ export class APIRouteHandlers {
 
   async handleLoadWorkspace(req: Request, res: Response) {
     return Workspaces.handleLoadWorkspace({ db: this.db }, req, res);
-  }
-
-  // Models
-  async handleListModels(req: Request, res: Response) {
-    return Models.handleListModels({ db: this.db }, req, res);
-  }
-
-  async handleValidateModel(req: Request, res: Response) {
-    return Models.handleValidateModel({ db: this.db }, req, res);
-  }
-
-  // Chat
-  async handleChat(req: Request, res: Response) {
-    return Chat.handleChat({
-      db: this.db,
-      previewProxy: this.previewProxy,
-      previewController: this.previewController,
-      approvalsService: this.approvalsService,
-      security: this.securityManager,
-      logger: this.logger,
-    }, req, res);
   }
 
   // Instructions
@@ -150,13 +116,4 @@ export class APIRouteHandlers {
     return Folders.handleOpenFolder({ db: this.db }, req, res);
   }
 
-  // Agent
-  async handleAgentExportSession(req: Request, res: Response) {
-    return Agent.handleAgentExportSession({ db: this.db }, req, res);
-  }
-
-  // Tools
-  async handleListTools(req: Request, res: Response) {
-    return Tools.handleListTools({ db: this.db }, req, res);
-  }
 }

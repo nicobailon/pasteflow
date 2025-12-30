@@ -4,9 +4,26 @@ import { getNodeRequire } from '../node-require';
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
 import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
 import type { WorkspaceRecord, PreferenceRecord, InstructionRow } from './types';
-import type { PreviewEnvelope, PreviewId, ChatSessionId } from '../agent/preview-registry';
-import { assertPreviewEnvelope } from '../agent/preview-registry';
 import type { WorkspaceState } from '../../shared-types';
+
+type PreviewId = string & { readonly __brand: "PreviewId" };
+type ChatSessionId = string & { readonly __brand: "ChatSessionId" };
+type UnixMs = number & { readonly __brand: "UnixMs" };
+type ToolName = "file" | "edit" | "terminal" | "search" | "context";
+type ToolAction = string;
+type ToolArgsSnapshot = Readonly<Record<string, unknown>>;
+type PreviewEnvelope = Readonly<{
+  id: PreviewId;
+  sessionId: ChatSessionId;
+  tool: ToolName;
+  action: ToolAction;
+  summary: string;
+  detail: Record<string, unknown> | null;
+  originalArgs: ToolArgsSnapshot;
+  createdAt: UnixMs;
+  hash: string;
+}>;
+function assertPreviewEnvelope(_p: unknown): asserts _p is PreviewEnvelope {}
 export type { WorkspaceState, Instruction } from '../../shared-types';
 
 // Local require compatible with CJS (tests) and ESM (runtime) builds

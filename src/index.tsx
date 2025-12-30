@@ -4,8 +4,6 @@ import { SORT_OPTIONS } from "@constants";
 
 import AppHeader from "./components/app-header";
 import ContentArea from "./components/content-area";
-import AgentPanel from "./components/agent-panel";
-import TerminalPanel from "./components/terminal-panel";
 import InstructionsModal from "./components/instructions-modal";
 import FileViewModal from "./components/file-view-modal";
 import FilterModal from "./components/filter-modal";
@@ -17,14 +15,10 @@ import WorkspaceModal from "./components/workspace-modal";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
 import { initializeCacheRegistry } from "./utils/cache-registry";
-import { installAgentAuthInterceptor } from "./utils/install-agent-auth";
 import { useMemoryMonitoring } from "./hooks/use-memory-monitoring";
 import { getGlobalPerformanceMonitor } from "./utils/performance-monitor";
 
 const App = () => {
-  // Ensure Authorization headers are attached to API calls in dev/runtime
-  installAgentAuthInterceptor();
-  // Use our main app state hook
   const appState = useAppState();
 
   // Dev memory monitoring (register caches once on mount)
@@ -32,94 +26,17 @@ const App = () => {
 
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const sidebarRef = useRef<SidebarRef>(null);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const terminalRowRef = useRef<HTMLDivElement | null>(null);
-  const lastTerminalHeightRef = useRef<number>(0);
   
-  // Initialize cache registry and memory monitoring
   useEffect(() => {
-    // Cleanup function to stop monitoring on unmount
     return initializeCacheRegistry();
   }, []);
 
-  // Adjust window height when terminal row opens/closes or resizes
-  useEffect(() => {
-    const ipc = (window as any).electron?.ipcRenderer;
-    let ro: ResizeObserver | null = null;
-    if (isTerminalOpen) {
-      // Measure after render
-      const measureAndGrow = () => {
-        try {
-          const h = Math.floor(terminalRowRef.current?.offsetHeight ?? 0);
-          if (h > 0) {
-            lastTerminalHeightRef.current = h;
-            ipc?.invoke?.('window:adjust-height', { delta: h });
-          }
-        } catch { /* ignore */ }
-      };
-      requestAnimationFrame(measureAndGrow);
-      // Observe further size changes and adjust by delta
-      try {
-        ro = new ResizeObserver((entries) => {
-          const el = entries[0]?.target as HTMLElement | undefined;
-          if (!el) return;
-          const newH = Math.floor(el.offsetHeight);
-          const prev = lastTerminalHeightRef.current || 0;
-          const delta = newH - prev;
-          if (delta !== 0) {
-            lastTerminalHeightRef.current = newH;
-            ipc?.invoke?.('window:adjust-height', { delta });
-          }
-        });
-        if (terminalRowRef.current) ro.observe(terminalRowRef.current);
-      } catch { /* ignore */ }
-    } else {
-      // Shrink by last known terminal height
-      const prev = lastTerminalHeightRef.current || 0;
-      if (prev) {
-        ipc?.invoke?.('window:adjust-height', { delta: -prev });
-        lastTerminalHeightRef.current = 0;
-      }
-    }
-    return () => {
-      try { ro?.disconnect(); } catch {}
-    };
-  }, [isTerminalOpen]);
-
-  // Allow other components to open the workspace modal via a simple event
   useEffect(() => {
     const open = () => setIsWorkspaceModalOpen(true);
     window.addEventListener('pasteflow:open-workspaces', open);
-    const toggleTerm = () => setIsTerminalOpen((v) => !v);
-    window.addEventListener('pasteflow:toggle-terminal', toggleTerm);
     return () => {
       window.removeEventListener('pasteflow:open-workspaces', open);
-      window.removeEventListener('pasteflow:toggle-terminal', toggleTerm);
     };
-  }, []);
-
-  // Keyboard shortcut: Ctrl+` (Backquote) toggles the terminal row
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      try {
-        // Ignore when typing in inputs/textareas/contentEditable
-        const t = e.target as HTMLElement | null;
-        const tag = (t?.tagName || '').toLowerCase();
-        const isEditable = t && (t.getAttribute('contenteditable') === 'true' || (t as any).isContentEditable);
-        if (tag === 'input' || tag === 'textarea' || isEditable) return;
-
-        const isBackquote = e.key === '`' || e.code === 'Backquote';
-        const hasCtrl = e.ctrlKey || (navigator.platform.toLowerCase().includes('mac') && e.metaKey);
-        if (hasCtrl && isBackquote) {
-          e.preventDefault();
-          setIsTerminalOpen((v) => !v);
-        }
-      } catch {
-        // noop
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   // Dev-only: expose performance report helpers on window
@@ -268,25 +185,7 @@ const App = () => {
             clearAllSelections={appState.clearAllSelections}
             toggleFolderSelection={appState.toggleFolderSelection}
           />
-          {/* Left-docked Agent Panel: mounted by default (row-reverse layout -> last = leftmost) */}
-          <AgentPanel
-            allFiles={appState.allFiles}
-            selectedFolder={appState.selectedFolder}
-            currentWorkspace={appState.currentWorkspace}
-            loadFileContent={appState.loadFileContent}
-          />
         </div>
-
-        {/* Row 2: Agent Terminal (full width dock) */}
-        {isTerminalOpen && (
-          <div ref={terminalRowRef} className="agent-terminal-row" style={{ width: '100%', borderTop: '1px solid var(--border-color)' }}>
-            <TerminalPanel
-              isOpen={true}
-              onClose={() => setIsTerminalOpen(false)}
-              defaultCwd={appState.selectedFolder || null}
-            />
-          </div>
-        )}
         
         {/* Modals */}
         {appState.filterModalOpen && (

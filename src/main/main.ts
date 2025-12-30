@@ -16,17 +16,10 @@ import { getMainTokenService } from '../services/token-service-main';
 
 import type { InstructionRow } from './db/types';
 import type { ParsedWorkspace, PreferenceValue } from './db/database-implementation';
-import { ApprovalsService } from './agent/approvals-service';
-import type { ApprovalEventPayload, StoredApproval, StoredPreview } from './agent/approvals-service';
-import { AgentSecurityManager } from './agent/security-manager';
-import { capturePreviewIfAny } from './agent/preview-capture';
-import { handleApprovalList, handleApprovalApply, handleApprovalApplyWithContent, handleApprovalReject, handleApprovalCancel } from './approvals-ipc';
 import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
 import { PasteFlowAPIServer } from './api-server';
 import { setAllowedWorkspacePaths } from './workspace-context';
-import type { ContextResult } from './agent/tool-types';
-import type { ChatSessionId } from './agent/preview-registry';
 process.env.ZOD_DISABLE_DOC = process.env.ZOD_DISABLE_DOC || '1';
 
 // ABI/runtime diagnostics (helps verify native module compatibility)
@@ -60,10 +53,7 @@ let apiServer: PasteFlowAPIServer | null = null;
 // Terminal manager (lazy)
 type TerminalManagerInstance = import('./terminal/terminal-manager').TerminalManager;
 
-let terminalManager: TerminalManagerInstance | null = null;
-let securityManager: AgentSecurityManager | null = null;
-let approvalsService: ApprovalsService | null = null;
-const approvalWatchers = new Map<number, (payload: ApprovalEventPayload) => void>();
+const terminalManager: TerminalManagerInstance | null = null;
 
 // Initialize token service
 const tokenService = getMainTokenService();
@@ -274,62 +264,6 @@ app.whenReady().then(async () => {
      
     console.log('Database initialized successfully');
 
-    // One-time migration: legacy agent.requireApproval -> agent.approvalMode
-    try {
-      const existingMode = await database.getPreference('agent.approvalMode');
-      if (!existingMode || (typeof existingMode === 'string' && existingMode.trim() === '')) {
-        const legacy = await database.getPreference('agent.requireApproval');
-        if (typeof legacy === 'boolean') {
-          const mode = legacy ? 'always' : 'never';
-          await database.setPreference('agent.approvalMode', mode as unknown as PreferenceValue);
-          await database.setPreference('agent.requireApproval', null as unknown as PreferenceValue);
-          try { console.log('[Migration] agent.requireApproval -> agent.approvalMode:', { legacy, mode }); } catch { /* noop */ }
-        }
-      }
-    } catch (error) {
-      console.warn('[Migration] approval mode migration skipped:', (error as Error)?.message || error);
-    }
-
-    try {
-      await database.ensureAgentApprovalSchema();
-      console.log('[Migration] agent approvals schema ensured');
-    } catch (error) {
-      console.warn('[Migration] agent approvals schema ensure skipped:', (error as Error)?.message || error);
-    }
-
-    try {
-      const skipAll = await database.getPreference('agent.approvals.skipAll');
-      if (skipAll === null || skipAll === undefined) {
-        const legacySkip = await database.getPreference('agent.skipApprovals');
-        let normalized: boolean | null = null;
-        if (typeof legacySkip === 'boolean') {
-          normalized = legacySkip;
-        } else if (typeof legacySkip === 'string') {
-          const trimmed = legacySkip.trim().toLowerCase();
-          if (trimmed === 'true' || trimmed === '1' || trimmed === 'yes') normalized = true;
-          if (trimmed === 'false' || trimmed === '0' || trimmed === 'no') normalized = false;
-        }
-        if (normalized !== null) {
-          await database.setPreference('agent.approvals.skipAll', normalized as unknown as PreferenceValue);
-          await database.setPreference('agent.skipApprovals', null as unknown as PreferenceValue);
-          console.log('[Migration] agent.skipApprovals -> agent.approvals.skipAll', { legacy: normalized });
-        }
-    }
-  } catch (error) {
-    console.warn('[Migration] approvals skip toggle migration skipped:', (error as Error)?.message || error);
-  }
-
-    try {
-      const legacyFlagKey = ['agent', 'approvals', 'v2Enabled'].join('.');
-      const legacyPreference = await database.getPreference(legacyFlagKey);
-      if (legacyPreference !== null && legacyPreference !== undefined) {
-        await database.setPreference(legacyFlagKey, null as unknown as PreferenceValue);
-        console.log('[Approvals] Cleared legacy approvals flag preference');
-      }
-    } catch (error) {
-      console.warn('[Approvals] Legacy approvals flag cleanup skipped', error);
-    }
-
     // On fresh app start, clear any previously persisted "active" workspace so
     // CLI status reflects the UI (no folder loaded) until the user explicitly
     // opens a folder or loads a workspace.
@@ -341,92 +275,6 @@ app.whenReady().then(async () => {
       console.warn('Failed to clear active workspace on startup:', error);
     }
 
-    let autoCapPreference: number | null = null;
-    try {
-      const pref = await database.getPreference('agent.approvals.autoCap');
-      if (typeof pref === 'number' && Number.isFinite(pref)) {
-        autoCapPreference = pref;
-      } else if (typeof pref === 'string') {
-        const parsed = Number(pref);
-        if (Number.isFinite(parsed)) autoCapPreference = parsed;
-      }
-    } catch {
-      autoCapPreference = null;
-    }
-
-    try {
-      securityManager = await AgentSecurityManager.create({ db: database });
-      approvalsService = new ApprovalsService({
-        db: database,
-        security: securityManager,
-        broadcast: (event) => {
-          for (const listener of approvalWatchers.values()) {
-            try {
-              listener(event);
-            } catch {
-              // ignore broadcast failures per listener
-            }
-          }
-        },
-        logger: console,
-        autoApplyCap: autoCapPreference ?? undefined,
-        cancellationAdapters: {
-          terminal: {
-            kill: async (sessionId: string) => {
-              try {
-                const tm = await getTerminalManagerLazy();
-                tm.kill(sessionId);
-              } catch (error) {
-                console.warn('[Approvals] Failed to kill terminal session via adapter', error);
-              }
-            },
-            onSessionCompleted: (handler) => {
-              let disposed = false;
-              (async () => {
-                try {
-                  const tm = await getTerminalManagerLazy();
-                  if (disposed) return;
-                  tm.on('exit', handler);
-                } catch (error) {
-                  console.warn('[Approvals] Failed to attach terminal completion handler', error);
-                }
-              })();
-              return () => {
-                disposed = true;
-                getTerminalManagerLazy().then((tm) => {
-                  tm.off('exit', handler);
-                }).catch((error) => {
-                  console.warn('[Approvals] Failed to detach terminal completion handler', error);
-                });
-              };
-            },
-            onSessionOutput: (handler) => {
-              let disposed = false;
-              (async () => {
-                try {
-                  const tm = await getTerminalManagerLazy();
-                  if (disposed) return;
-                  tm.on('data', handler);
-                } catch (error) {
-                  console.warn('[Approvals] Failed to attach terminal output handler', error);
-                }
-              })();
-              return () => {
-                disposed = true;
-                getTerminalManagerLazy().then((tm) => {
-                  tm.off('data', handler);
-                }).catch((error) => {
-                  console.warn('[Approvals] Failed to detach terminal output handler', error);
-                });
-              };
-            },
-          },
-        },
-      });
-      console.log('[Approvals] Service initialized');
-    } catch (error) {
-      console.warn('[Approvals] Failed to initialize approvals service', error);
-    }
   } catch (error: unknown) {
      
     console.error('Failed to initialize database:', error);
@@ -437,8 +285,6 @@ app.whenReady().then(async () => {
   // Start local HTTP API server
   try {
     apiServer = new PasteFlowAPIServer(database!, 5839, {
-      approvalsService: approvalsService ?? undefined,
-      securityManager: securityManager ?? undefined,
       logger: console,
     });
     // Await actual bind to ensure we write the real bound port
@@ -492,14 +338,10 @@ app.whenReady().then(async () => {
     const token = apiServer?.getAuthToken() ?? '';
     const inject = async () => {
       try {
-        // Resolve agent config (env + preferences) — feature flags injection removed
-        const { resolveAgentConfig } = await import('./agent/config');
-        await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
         const payload = {
           apiBase: `http://localhost:${port}`,
           authToken: token,
         };
-        // Attach to a well-known global for the renderer (read by AgentPanel)
         mainWindow?.webContents.executeJavaScript(
           `window.__PF_API_INFO = ${JSON.stringify(payload)};`,
           true
@@ -508,7 +350,6 @@ app.whenReady().then(async () => {
         // ignore
       }
     };
-    // Attempt immediate injection and also on dom-ready for robustness
     void inject();
     mainWindow?.webContents.on('dom-ready', () => { void inject(); });
   } catch {
@@ -661,10 +502,6 @@ ipcMain.on('open-folder', async (event) => {
          
         console.warn('Failed to persist active workspace for selected folder:', persistError);
       }
-      try {
-        const { globalSystemContextCache } = await import('./agent/system-context-cache');
-        await globalSystemContextCache.refresh();
-      } catch { /* non-fatal */ }
       event.sender.send('folder-selected', selectedPath);
     } catch (error) {
        
@@ -1116,465 +953,6 @@ ipcMain.handle('/workspace/rename', async (_e, params: unknown) => {
     }
 
     return { success: false, error: 'DB_NOT_INITIALIZED' };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-/**
- * Agent IPC channels (Phase 4)
- */
-ipcMain.handle('agent:start-session', async (_e, params: unknown) => {
-  try {
-    const { AgentStartSessionSchema } = await import('./ipc/schemas');
-    const { randomUUID } = await import('node:crypto');
-    const parsed = AgentStartSessionSchema.safeParse(params || {});
-    const sessionId = parsed.success && parsed.data.seedId ? parsed.data.seedId : randomUUID();
-    if (database?.initialized) {
-      try { await database!.upsertChatSession(sessionId, JSON.stringify([]), null); } catch { /* ignore */ }
-      return { success: true, data: { sessionId } };
-    }
-    return { success: false, error: 'DB_NOT_INITIALIZED' };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('agent:get-history', async (_e, params: unknown) => {
-  try {
-    const { AgentGetHistorySchema } = await import('./ipc/schemas');
-    const parsed = AgentGetHistorySchema.safeParse(params || {});
-    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
-    if (database?.initialized) {
-      const row = await database!.getChatSession(parsed.data.sessionId);
-      return { success: true, data: row ? { sessionId: row.id, messages: row.messages } : null };
-    }
-    return { success: false, error: 'DB_NOT_INITIALIZED' };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-// List usage summaries for a session (tokens + optional latency)
-ipcMain.handle('agent:usage:list', async (_e, params: unknown) => {
-  try {
-    const p = (params || {}) as { sessionId?: string };
-    const sessionId = typeof p.sessionId === 'string' && p.sessionId.trim() ? p.sessionId.trim() : null;
-    if (!sessionId) return { success: false, error: 'INVALID_PARAMS' };
-    if (!database?.initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
-    const rows = await database.listUsageSummaries(sessionId);
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[Main][Telemetry] agent:usage:list', { sessionId, rows: Array.isArray(rows) ? rows.length : 0 });
-    } catch { /* noop */ }
-    return { success: true, data: rows };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-// Append a usage row (renderer-provided fallback)
-ipcMain.handle('agent:usage:append', async (_e, params: unknown) => {
-  try {
-    const p = (params || {}) as { sessionId?: string; inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null; latencyMs?: number | null };
-    const sessionId = typeof p.sessionId === 'string' && p.sessionId.trim() ? p.sessionId.trim() : null;
-    if (!sessionId) return { success: false, error: 'INVALID_PARAMS' };
-    if (!database?.initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
-    const input = (typeof p.inputTokens === 'number') ? p.inputTokens : null;
-    const output = (typeof p.outputTokens === 'number') ? p.outputTokens : null;
-    const total = (typeof p.totalTokens === 'number') ? p.totalTokens : ((input != null && output != null) ? (input + output) : null);
-    const latency = (typeof p.latencyMs === 'number') ? p.latencyMs : null;
-    try {
-      await database.insertUsageSummaryWithLatency(sessionId, input, output, total, latency);
-      // eslint-disable-next-line no-console
-      console.log('[Main][Telemetry] agent:usage:append', { sessionId, input, output, total, latency });
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: (error as Error)?.message || 'DB_WRITE_FAILED' };
-    }
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('agent:execute-tool', async (_e, params: unknown) => {
-  try {
-    const { AgentExecuteToolSchema } = await import('./ipc/schemas');
-    const parsed = AgentExecuteToolSchema.safeParse(params || {});
-    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
-    const { resolveAgentConfig } = await import('./agent/config');
-    const { getAgentTools } = await import('./agent/tools');
-    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    const security = securityManager ?? await AgentSecurityManager.create({ db: database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined });
-    const tools = getAgentTools({
-      security,
-      config: cfg,
-      sessionId: parsed.data.sessionId,
-      onToolExecute: async (name, args, result, meta) => {
-        const typedResult = name === 'context' ? (result as ContextResult) : result;
-        let executionId: number | null = null;
-        try {
-          executionId = await database!.insertToolExecutionReturningId({
-            sessionId: parsed.data.sessionId,
-            toolName: String(name),
-            args,
-            result: typedResult,
-            status: 'ok',
-            error: null,
-            startedAt: (typeof (meta as Record<string, unknown> | null | undefined)?.['startedAt'] === 'number') ? (meta as Record<string, unknown>)['startedAt'] as number : null,
-            durationMs: (typeof (meta as Record<string, unknown> | null | undefined)?.['durationMs'] === 'number') ? (meta as Record<string, unknown>)['durationMs'] as number : null,
-          });
-        } catch {
-          try {
-            await database!.insertToolExecution({
-              sessionId: parsed.data.sessionId,
-              toolName: String(name),
-              args,
-              result: typedResult,
-              status: 'ok',
-              error: null,
-              startedAt: (typeof (meta as Record<string, unknown> | null | undefined)?.['startedAt'] === 'number') ? (meta as Record<string, unknown>)['startedAt'] as number : null,
-              durationMs: (typeof (meta as Record<string, unknown> | null | undefined)?.['durationMs'] === 'number') ? (meta as Record<string, unknown>)['durationMs'] as number : null,
-            });
-          } catch {
-            // ignore logging errors
-          }
-        }
-
-        if (approvalsService && executionId !== null) {
-          await capturePreviewIfAny({
-            service: approvalsService,
-            toolExecutionId: executionId,
-            sessionId: parsed.data.sessionId as ChatSessionId,
-            toolName: String(name),
-            args,
-            result: typedResult,
-            logger: console,
-          });
-        }
-      }
-    });
-    const toolDef = (tools as Record<string, { execute?: (args: unknown) => Promise<unknown> }>)[parsed.data.tool];
-    if (!toolDef || typeof toolDef.execute !== 'function') return { success: false, error: 'TOOL_NOT_FOUND' };
-    const result = await toolDef.execute(parsed.data.args);
-    return { success: true, data: result };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('agent:approval:list', (_event, params: unknown) => handleApprovalList(params, { approvalsService, database }));
-
-ipcMain.handle('agent:approval:apply', (_event, params: unknown) => handleApprovalApply(params, { approvalsService, database }));
-
-ipcMain.handle('agent:approval:apply-with-content', (_event, params: unknown) => handleApprovalApplyWithContent(params, { approvalsService, database }));
-
-ipcMain.handle('agent:approval:reject', (_event, params: unknown) => handleApprovalReject(params, { approvalsService, database }));
-
-ipcMain.handle('agent:approval:cancel-stream', (_event, params: unknown) => handleApprovalCancel(params, { approvalsService, database }));
-
-
-
-ipcMain.on('agent:approval:watch', async (event) => {
-  if (!approvalsService) {
-    event.sender.send('agent:approval:watch:error', { code: 'SERVICE_UNAVAILABLE', message: 'Approvals service unavailable' });
-    return;
-  }
-  const id = event.sender.id;
-  const listener = (payload: ApprovalEventPayload) => {
-    try {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send(payload.type, payload);
-      }
-    } catch {
-      // ignore individual send failures
-    }
-  };
-  approvalWatchers.set(id, listener);
-  event.sender.once('destroyed', () => {
-    approvalWatchers.delete(id);
-  });
-  event.sender.send('agent:approval:watch:ready', { ok: true });
-});
-
-ipcMain.on('agent:approval:unwatch', (event) => {
-  const listener = approvalWatchers.get(event.sender.id);
-  if (listener) {
-    approvalWatchers.delete(event.sender.id);
-  }
-});
-
-ipcMain.handle('agent:export-session', async (_e, sessionId: string, outPath?: string) => {
-  try {
-    if (!sessionId || typeof sessionId !== 'string') return { success: false, error: 'INVALID_SESSION_ID' };
-    if (database?.initialized) {
-      const row = await database.getChatSession(sessionId);
-      if (!row) return { success: false, error: 'NOT_FOUND' };
-      const tools = await database.listToolExecutions(sessionId);
-      const usage = await database.listUsageSummaries(sessionId);
-      let approvalsPayload: { previews: readonly StoredPreview[]; approvals: readonly StoredApproval[] } | null = null;
-      if (approvalsService) {
-        const approvalsResult = await approvalsService.listApprovals(sessionId as ChatSessionId);
-        if (approvalsResult.ok) {
-          approvalsPayload = approvalsResult.data;
-        }
-      }
-      const payload: Record<string, unknown> = { session: row, toolExecutions: tools, usage };
-      if (approvalsPayload) {
-        payload.approvals = approvalsPayload;
-      }
-      const fs = await import('node:fs');
-      const p = await import('node:path');
-      const { app } = await import('electron');
-      const { validateAndResolvePath } = await import('./file-service');
-      if (outPath && typeof outPath === 'string' && outPath.trim().length > 0) {
-        const val = validateAndResolvePath(outPath);
-        if (!val.ok) return { success: false, error: `PATH_DENIED:${val.reason || val.message}` };
-        await fs.promises.writeFile(val.absolutePath, JSON.stringify(payload, null, 2), 'utf8');
-        return { success: true, data: { file: val.absolutePath } };
-      }
-      // Default: write to Downloads folder with a safe filename
-      const downloads = app.getPath('downloads');
-      const safeName = `pasteflow-session-${sessionId}.json`;
-      const filePath = p.join(downloads, safeName);
-      await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
-      return { success: true, data: { file: filePath } };
-    }
-    return { success: false, error: 'DB_NOT_INITIALIZED' };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-/**
- * Terminal IPC (gated by ENABLE_CODE_EXECUTION)
- */
-let terminalManagerInit: Promise<TerminalManagerInstance> | null = null;
-
-async function getTerminalManagerLazy(): Promise<TerminalManagerInstance> {
-  if (terminalManager) {
-    return terminalManager;
-  }
-
-  if (!terminalManagerInit) {
-    terminalManagerInit = import('./terminal/terminal-manager').then(({ TerminalManager }) => {
-      const tm = new TerminalManager();
-      try {
-        tm.on('data', (id: string, chunk: string) => {
-          const channel = `terminal:output:${id}`;
-          broadcastUpdate(channel, { chunk });
-        });
-      } catch { /* ignore */ }
-      terminalManager = tm;
-      return tm;
-    });
-  }
-
-  return terminalManagerInit;
-}
-
-ipcMain.handle('terminal:create', async (_e, params: unknown) => {
-  try {
-    const { TerminalCreateSchema } = await import('./ipc/schemas');
-    const parsed = TerminalCreateSchema.safeParse(params || {});
-    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
-    const { resolveAgentConfig } = await import('./agent/config');
-    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = await getTerminalManagerLazy();
-    const { id, pid } = tm.create(parsed.data);
-    return { success: true, data: { id, pid } };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('terminal:write', async (_e, params: unknown) => {
-  try {
-    const { TerminalWriteSchema } = await import('./ipc/schemas');
-    const p = TerminalWriteSchema.safeParse(params || {});
-    if (!p.success) return { success: false, error: 'INVALID_PARAMS' };
-    const { resolveAgentConfig } = await import('./agent/config');
-    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = await getTerminalManagerLazy();
-    tm.write(p.data.id, p.data.data);
-    return { success: true, data: null };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('terminal:resize', async (_e, params: unknown) => {
-  try {
-    const { TerminalResizeSchema } = await import('./ipc/schemas');
-    const p = TerminalResizeSchema.safeParse(params || {});
-    if (!p.success) return { success: false, error: 'INVALID_PARAMS' };
-    const { resolveAgentConfig } = await import('./agent/config');
-    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = await getTerminalManagerLazy();
-    tm.resize(p.data.id, p.data.cols, p.data.rows);
-    return { success: true, data: null };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('terminal:kill', async (_e, params: unknown) => {
-  try {
-    const { TerminalKillSchema } = await import('./ipc/schemas');
-    const p = TerminalKillSchema.safeParse(params || {});
-    if (!p.success) return { success: false, error: 'INVALID_PARAMS' };
-    const { resolveAgentConfig } = await import('./agent/config');
-    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = await getTerminalManagerLazy();
-    tm.kill(p.data.id);
-    return { success: true, data: null };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('terminal:list', async () => {
-  try {
-    const { resolveAgentConfig } = await import('./agent/config');
-    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = await getTerminalManagerLazy();
-    const items = tm.list();
-    return { success: true, data: items };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('terminal:output:get', async (_e, params: unknown) => {
-  try {
-    const { TerminalOutputGetSchema } = await import('./ipc/schemas');
-    const p = TerminalOutputGetSchema.safeParse(params || {});
-    if (!p.success) return { success: false, error: 'INVALID_PARAMS' };
-    const { resolveAgentConfig } = await import('./agent/config');
-    const cfg = await resolveAgentConfig(database ? { getPreference: (k: string) => database!.getPreference(k) } : undefined);
-    if (!cfg.ENABLE_CODE_EXECUTION) return { success: false, error: 'EXECUTION_DISABLED' };
-    const tm = await getTerminalManagerLazy();
-    const out = tm.getOutput(p.data.id, { fromCursor: p.data.fromCursor, maxBytes: p.data.maxBytes });
-    return { success: true, data: out };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-/**
- * Agent threads IPC (Phase 1)
- * JSON-backed per-workspace chat threads
- */
-ipcMain.handle('agent:threads:list', async (_e, params: unknown) => {
-  try {
-    const { AgentThreadsListSchema } = await import('./ipc/schemas');
-    const parsed = AgentThreadsListSchema.safeParse(params || {});
-    const wsIdParam = parsed.success ? parsed.data.workspaceId : undefined;
-    if (!database?.initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
-    let wsId: string | null = wsIdParam ?? null;
-    if (!wsId) {
-      const active = await database.getPreference('workspace.active');
-      wsId = (typeof active === 'string' && active.trim().length > 0) ? active : null;
-    }
-    if (!wsId) return { success: true, data: { threads: [] } };
-    const ws = await database.getWorkspace(wsId);
-    if (!ws) return { success: true, data: { threads: [] } };
-    const { listThreads } = await import('./agent/chat-storage');
-    const items = await listThreads({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path });
-    return { success: true, data: { threads: items } };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('agent:threads:load', async (_e, params: unknown) => {
-  try {
-    const { AgentThreadsLoadSchema } = await import('./ipc/schemas');
-    const parsed = AgentThreadsLoadSchema.safeParse(params || {});
-    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
-    if (!database?.initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
-    let wsId: string | null = parsed.data.workspaceId ?? null;
-    if (!wsId || wsId.trim().length === 0) {
-      const active = await database.getPreference('workspace.active');
-      wsId = (typeof active === 'string' && active.trim().length > 0) ? active : null;
-    }
-    if (!wsId) {
-      try { console.warn('[Main] agent:threads:load failed: WORKSPACE_NOT_SELECTED'); } catch { /* noop */ }
-      return { success: false, error: 'WORKSPACE_NOT_SELECTED' };
-    }
-    const ws = await database.getWorkspace(wsId);
-    if (!ws) {
-      try { console.warn('[Main] agent:threads:load failed: WORKSPACE_NOT_FOUND', { wsId }); } catch { /* noop */ }
-      return { success: false, error: 'WORKSPACE_NOT_FOUND' };
-    }
-    const { loadThreadInWorkspace } = await import('./agent/chat-storage');
-    const data = await loadThreadInWorkspace({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path }, parsed.data.sessionId);
-    return { success: true, data };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('agent:threads:saveSnapshot', async (_e, params: unknown) => {
-  try {
-    const { AgentThreadsSaveSnapshotSchema } = await import('./ipc/schemas');
-    const parsed = AgentThreadsSaveSnapshotSchema.safeParse(params || {});
-    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
-    if (!database?.initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
-    let wsId: string | null = parsed.data.workspaceId ?? null;
-    if (!wsId) {
-      const active = await database.getPreference('workspace.active');
-      wsId = (typeof active === 'string' && active.trim().length > 0) ? active : null;
-    }
-    if (!wsId) return { success: false, error: 'WORKSPACE_NOT_SELECTED' };
-    const ws = await database.getWorkspace(wsId);
-    if (!ws) return { success: false, error: 'WORKSPACE_NOT_FOUND' };
-    const { saveSnapshot } = await import('./agent/chat-storage');
-    const result = await saveSnapshot({
-      sessionId: parsed.data.sessionId,
-      workspace: { id: String(ws.id), name: ws.name, folderPath: ws.folder_path },
-      messages: parsed.data.messages as unknown[],
-      meta: parsed.data.meta as Record<string, unknown> | undefined,
-    });
-    if ('ok' in result && result.ok) return { success: true, data: result };
-    return { success: false, error: (result as { error?: string } | null)?.error || 'SAVE_FAILED' };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('agent:threads:delete', async (_e, params: unknown) => {
-  try {
-    const { AgentThreadsDeleteSchema } = await import('./ipc/schemas');
-    const parsed = AgentThreadsDeleteSchema.safeParse(params || {});
-    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
-    if (!database?.initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
-    const ws = await database.getWorkspace(parsed.data.workspaceId);
-    if (!ws) return { success: false, error: 'WORKSPACE_NOT_FOUND' };
-    const { deleteThreadInWorkspace } = await import('./agent/chat-storage');
-    const ok = await deleteThreadInWorkspace({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path }, parsed.data.sessionId);
-    return { success: true, data: { ok } };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('agent:threads:rename', async (_e, params: unknown) => {
-  try {
-    const { AgentThreadsRenameSchema } = await import('./ipc/schemas');
-    const parsed = AgentThreadsRenameSchema.safeParse(params || {});
-    if (!parsed.success) return { success: false, error: 'INVALID_PARAMS' };
-    if (!database?.initialized) return { success: false, error: 'DB_NOT_INITIALIZED' };
-    const ws = await database.getWorkspace(parsed.data.workspaceId);
-    if (!ws) return { success: false, error: 'WORKSPACE_NOT_FOUND' };
-    const { renameThreadInWorkspace } = await import('./agent/chat-storage');
-    const ok = await renameThreadInWorkspace({ id: String(ws.id), name: ws.name, folderPath: ws.folder_path }, parsed.data.sessionId, parsed.data.title);
-    return { success: true, data: { ok } };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }
