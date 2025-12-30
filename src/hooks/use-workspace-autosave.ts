@@ -139,6 +139,7 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
       await onAutoSave();
       lastSaveTimeRef.current = now;
       lastSignatureRef.current = currentSignature;
+      nonInstrSignatureRef.current = nonInstrSignature;
       pendingSignatureRef.current = null;
     } catch (error) {
       logAutoSaveError(error);
@@ -148,23 +149,28 @@ export function useWorkspaceAutoSave(options: AutoSaveOptions): {
   }, [
     canAutoSaveNow,
     currentSignature,
+    nonInstrSignature,
     onAutoSave
   ]);
 
-  // Create debounced save function
+  // Create debounced save function with stable reference to performAutoSave
+  const performAutoSaveRef = useRef(performAutoSave);
+  useEffect(() => { performAutoSaveRef.current = performAutoSave; }, [performAutoSave]);
+  
   const debouncedSaveFastRef = useRef<ReturnType<typeof debounce>>();
   const debouncedSaveSlowRef = useRef<ReturnType<typeof debounce>>();
 
   useEffect(() => {
     // Fast debounce for general changes (preferences-controlled)
-    debouncedSaveFastRef.current = debounce(performAutoSave, debounceMs);
+    // Use ref to always call the latest performAutoSave
+    debouncedSaveFastRef.current = debounce(() => performAutoSaveRef.current(), debounceMs);
     // Slow debounce specifically for typing-driven userInstructions changes
-    debouncedSaveSlowRef.current = debounce(performAutoSave, UI.INSTRUCTIONS_INPUT.AUTOSAVE_TYPING_DEBOUNCE_MS);
+    debouncedSaveSlowRef.current = debounce(() => performAutoSaveRef.current(), UI.INSTRUCTIONS_INPUT.AUTOSAVE_TYPING_DEBOUNCE_MS);
     return () => {
       debouncedSaveFastRef.current?.cancel?.();
       debouncedSaveSlowRef.current?.cancel?.();
     };
-  }, [performAutoSave, debounceMs]);
+  }, [debounceMs]);
 
   // Initialize signature on first mount
   useEffect(() => {

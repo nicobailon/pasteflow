@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef } from 'react';
 
 import { STORAGE_KEYS } from '@constants';
 
@@ -17,6 +17,7 @@ export const useWorkspaceState = () => {
     null
   );
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
+  const isLoadingWorkspaceRef = useRef(false);
 
   const saveWorkspace = useCallback(async (name: string, workspace: WorkspaceState) => {
     try {
@@ -47,11 +48,12 @@ export const useWorkspaceState = () => {
 
   // These methods need to be async now
   const loadWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {
-    if (isLoadingWorkspace) {
+    if (isLoadingWorkspaceRef.current) {
       console.log('Cancelling previous workspace load operation');
     }
 
     setIsLoadingWorkspace(true);
+    isLoadingWorkspaceRef.current = true;
     
     const result = await runCancellableOperation(async (token) => {
       try {
@@ -75,8 +77,9 @@ export const useWorkspaceState = () => {
     });
     
     setIsLoadingWorkspace(false);
+    isLoadingWorkspaceRef.current = false;
     return result;
-  }, [db, isLoadingWorkspace, runCancellableOperation]);
+  }, [db, runCancellableOperation]);
 
   const deleteWorkspace = useCallback(async (name: string): Promise<void> => {
     try {

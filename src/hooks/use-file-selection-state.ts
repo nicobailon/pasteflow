@@ -181,6 +181,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     [],
     FILE_PROCESSING.DEBOUNCE_DELAY_MS
   );
+
+  const selectedFilesRef = useRef<SelectedFileReference[]>(selectedFiles);
+  useEffect(() => { selectedFilesRef.current = selectedFiles; }, [selectedFiles]);
   
   // Build folder index if not provided
   const folderIndex = useMemo(() => {
@@ -481,7 +484,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
           }
         }
       } catch {}
-      const paths = new Set<string>(selectedFiles.map(f => f.path));
+      const paths = new Set<string>(selectedFilesRef.current.map(f => f.path));
       cache.setSelectedPaths?.(paths);
       setManualCacheVersion(v => v + 1);
     }
@@ -527,7 +530,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       // Keep overlay progressing while applying chunks
       const cache = baseFolderSelectionCacheRef.current;
       if (cache) {
-        const paths = new Set<string>([...selectedFiles.map(f => f.path), ...slice]);
+        const paths = new Set<string>([...selectedFilesRef.current.map(f => f.path), ...slice]);
         cache.setSelectedPaths?.(paths);
         cache.startProgressiveRecompute?.({ selectedPaths: paths });
       }
@@ -545,7 +548,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
 
   // Run chunked removals for a folder
   const runRemovalsChunked = useCallback((folderPath: string, toRemove: Set<string>, onDone?: () => void) => {
-    const snapshot = [...selectedFiles];
+    const snapshot = [...selectedFilesRef.current];
     const total = snapshot.length;
     let index = 0;
     const CHUNK = BULK.REMOVE_CHUNK;
@@ -694,7 +697,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       .map((file: FileData) => file.path);
 
     // Determine additions only
-    const existingSelected = new Set<string>(selectedFiles.map(f => f.path));
+    const existingSelected = new Set<string>(selectedFilesRef.current.map(f => f.path));
     const additions = selectablePaths.filter(p => !existingSelected.has(p));
     const total = additions.length;
 
@@ -702,7 +705,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     if (total === 0) {
       const cache = baseFolderSelectionCacheRef.current;
       if (cache) {
-        const paths = new Set<string>(selectedFiles.map(f => f.path));
+        const paths = new Set<string>(selectedFilesRef.current.map(f => f.path));
         cache.setSelectedPaths?.(paths);
         cache.startProgressiveRecompute?.({ selectedPaths: paths });
       }
@@ -714,7 +717,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     const kickOverlay = () => {
       const cache = baseFolderSelectionCacheRef.current;
       if (!cache) return;
-      const paths = new Set<string>([...selectedFiles.map(f => f.path), ...additions]);
+      const paths = new Set<string>([...selectedFilesRef.current.map(f => f.path), ...additions]);
       cache.setSelectedPaths?.(paths);
       cache.startProgressiveRecompute?.({ selectedPaths: paths });
     };
@@ -773,7 +776,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
     // Convert displayed paths to a Set for faster lookups
     const toRemove = new Set(displayedFiles.map((file: FileData) => file.path));
 
-    const snapshot = [...selectedFiles];
+    const snapshot = [...selectedFilesRef.current];
     const total = snapshot.length;
     let index = 0;
     const CHUNK = BULK.REMOVE_CHUNK;

@@ -114,6 +114,16 @@ const useAppState = () => {
     });
   }
 
+  // Cleanup virtual file loader on unmount
+  useEffect(() => {
+    return () => {
+      if (virtualFileLoaderRef.current) {
+        virtualFileLoaderRef.current.clear();
+        virtualFileLoaderRef.current = null;
+      }
+    };
+  }, []);
+
   // Non-persistent state
   const [allFiles, setAllFiles] = useState([] as FileData[]);
   const displayedFiles = useMemo(() => {
