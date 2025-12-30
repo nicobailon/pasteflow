@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useMemo } from 'react';
 import { unstable_batchedUpdates, flushSync } from 'react-dom';
 
 import { normalizePath } from '@file-ops/path';
