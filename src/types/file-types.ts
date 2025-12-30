@@ -54,20 +54,16 @@ export interface SidebarProps {
   selectedFolder: string | null;
   openFolder: () => void;
   allFiles: FileData[];
-  selectedFiles: SelectedFileReference[]; // Updated type
+  selectedFiles: SelectedFileReference[];
   toggleFileSelection: (filePath: string) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
-  searchTerm: string;
-  onSearchChange: (term: string) => void;
   selectAllFiles: () => void;
   deselectAllFiles: () => void;
   expandedNodes: Record<string, boolean>;
   toggleExpanded: (path: string) => void;
   resetFolderState?: () => void;
   onFileTreeSortChange?: (sortOrder: string) => void;
-  toggleFilterModal?: () => void;
   refreshFileTree?: () => void;
-  onViewFile?: (filePath: string) => void; // New prop
   folderSelectionCache?: DirectorySelectionCache;
   processingStatus?: {
     status: "idle" | "processing" | "complete" | "error";
@@ -76,7 +72,7 @@ export interface SidebarProps {
     directories?: number;
     total?: number;
   };
-  loadFileContent?: (filePath: string) => Promise<void>; // Add loadFileContent property
+  loadFileContent?: (filePath: string) => Promise<void>;
 }
 
 export interface FileListProps {

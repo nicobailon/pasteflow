@@ -126,17 +126,13 @@ const App = () => {
             selectedFiles={appState.selectedFiles}
             toggleFileSelection={appState.toggleFileSelection}
             toggleFolderSelection={appState.toggleFolderSelection}
-            searchTerm={appState.searchTerm}
-            onSearchChange={appState.handleSearchChange}
             selectAllFiles={() => appState.selectAllFiles(appState.displayedFiles)}
             deselectAllFiles={() => appState.deselectAllFiles(appState.displayedFiles)}
             expandedNodes={appState.expandedNodes}
             toggleExpanded={appState.toggleExpanded}
             resetFolderState={appState.handleResetFolderState}
             onFileTreeSortChange={appState.handleFileTreeSortChange}
-            toggleFilterModal={appState.toggleFilterModal}
             refreshFileTree={appState.handleRefreshFileTree}
-            onViewFile={appState.openFileViewModal}
             processingStatus={appState.processingStatus}
             loadFileContent={appState.loadFileContent}
             folderSelectionCache={appState.folderSelectionCache}
@@ -148,7 +144,6 @@ const App = () => {
             toggleFileSelection={appState.toggleFileSelection}
             toggleSelection={appState.toggleSelection}
             openFolder={appState.openFolder}
-            onViewFile={appState.openFileViewModal}
             processingStatus={appState.processingStatus}
             folderSelectionCache={appState.folderSelectionCache}
             selectedSystemPrompts={selectedSystemPrompts}
@@ -168,7 +163,6 @@ const App = () => {
             systemPromptTokens={appState.systemPromptsTokens}
             rolePromptTokens={appState.rolePromptsTokens}
             instructionsTokens={appState.instructionsTokens}
-            setInstructionsModalOpen={appState.setInstructionsModalOpen}
             loadFileContent={appState.loadFileContent}
             loadMultipleFileContents={appState.loadMultipleFileContents}
             selectedFolder={appState.selectedFolder}

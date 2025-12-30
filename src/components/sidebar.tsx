@@ -9,6 +9,7 @@ import { useTreeLoadingState } from "../hooks/use-tree-loading-state";
 import { useTreeContainerResize } from "../hooks/use-tree-container-resize";
 import { useFolderActions } from "../hooks/use-folder-actions";
 import { SidebarProps } from "../types/file-types";
+import { useUIStore } from "../stores";
 
 import VirtualizedTree, { VirtualizedTreeHandle } from "./virtualized-tree";
 import Dropdown, { DropdownRef } from './dropdown';
@@ -28,19 +29,19 @@ const Sidebar = forwardRef<SidebarRef, SidebarProps>(
     selectedFiles,
     toggleFileSelection,
     toggleFolderSelection,
-    searchTerm,
-    onSearchChange,
     expandedNodes,
     toggleExpanded,
     resetFolderState,
-    onFileTreeSortChange = () => {/* Default handler - no operation */},
-    toggleFilterModal = () => {/* Default handler - no operation */},
-    refreshFileTree = () => {/* Default handler - no operation */},
-    onViewFile,
+    onFileTreeSortChange = () => {},
+    refreshFileTree = () => {},
     processingStatus,
     loadFileContent,
     folderSelectionCache,
   }: SidebarProps, ref) => {
+  const searchTerm = useUIStore((s) => s.searchTerm);
+  const onSearchChange = useUIStore((s) => s.setSearchTerm);
+  const toggleFilterModal = useUIStore((s) => s.toggleFilterModal);
+  const onViewFile = useUIStore((s) => s.openFileViewModal);
   // Use custom hooks for cleaner logic separation
   const { sidebarWidth, handleResizeStart } = useSidebarResize(300);
   const treeContainerRef = useRef<HTMLDivElement>(null);

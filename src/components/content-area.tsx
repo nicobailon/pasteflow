@@ -439,7 +439,6 @@ interface ContentAreaProps {
   toggleFileSelection: (filePath: string) => void;
   toggleSelection: (filePath: string, lineRange?: LineRange) => void;
   openFolder: () => void;
-  onViewFile: (filePath: string) => void;
   processingStatus: {
     status: "idle" | "processing" | "complete" | "error";
     message: string;
@@ -462,7 +461,6 @@ interface ContentAreaProps {
   systemPromptTokens: number;
   rolePromptTokens: number;
   instructionsTokens: number;
-  setInstructionsModalOpen: (open: boolean) => void;
   loadFileContent: (filePath: string) => Promise<void>;
   loadMultipleFileContents: (filePaths: string[], options?: { priority?: number }) => Promise<void>;
   toggleFolderSelection?: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
@@ -480,7 +478,6 @@ const ContentArea = ({
   toggleFileSelection,
   toggleSelection,
   openFolder,
-  onViewFile,
   processingStatus,
   folderSelectionCache,
   selectedSystemPrompts,
@@ -500,7 +497,6 @@ const ContentArea = ({
   systemPromptTokens,
   rolePromptTokens,
   instructionsTokens,
-  setInstructionsModalOpen,
   loadFileContent,
   loadMultipleFileContents,
   toggleFolderSelection,
@@ -519,6 +515,8 @@ const ContentArea = ({
   const closeClipboardPreviewModal = useUIStore((s) => s.closeClipboardPreviewModal);
   const setSystemPromptsModalOpen = (open: boolean) => useUIStore.setState({ systemPromptsModalOpen: open });
   const setRolePromptsModalOpen = (open: boolean) => useUIStore.setState({ rolePromptsModalOpen: open });
+  const setInstructionsModalOpen = (open: boolean) => useUIStore.setState({ instructionsModalOpen: open });
+  const onViewFile = useUIStore((s) => s.openFileViewModal);
 
   const userInstructions = usePromptStore((s) => s.userInstructions);
   const setUserInstructions = usePromptStore((s) => s.setUserInstructions);
