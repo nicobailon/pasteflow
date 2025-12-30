@@ -1,21 +1,17 @@
 import { useCallback, useState, useRef } from 'react';
 
-import { STORAGE_KEYS } from '@constants';
-
 import { WorkspaceState } from '../types/file-types';
 import { getPathValidator } from '../security/path-validator';
 
 import { useDatabaseWorkspaceState } from './use-database-workspace-state';
-import { usePersistentState } from './use-persistent-state';
 import { useCancellableOperation } from './use-cancellable-operation';
+import { useWorkspaceStore } from '../stores/workspace-store';
 
 export const useWorkspaceState = () => {
   const db = useDatabaseWorkspaceState();
   const { runCancellableOperation } = useCancellableOperation();
-  const [currentWorkspace, setCurrentWorkspace] = usePersistentState<string | null>(
-    STORAGE_KEYS.CURRENT_WORKSPACE,
-    null
-  );
+  const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
+  const setCurrentWorkspace = useWorkspaceStore((s) => s.setCurrentWorkspace);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
   const isLoadingWorkspaceRef = useRef(false);
 
@@ -180,8 +176,6 @@ export const useWorkspaceState = () => {
     importWorkspace,
     doesWorkspaceExist,
     clearAllWorkspaces,
-    currentWorkspace,
-    setCurrentWorkspace,
     isLoading: db.isLoading,
     error: db.error
   };

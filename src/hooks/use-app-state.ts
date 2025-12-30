@@ -22,7 +22,7 @@ import { VirtualFileLoader } from '../utils/virtual-file-loader';
 
 import useFileSelectionState from './use-file-selection-state';
 
-
+import { usePersistentState } from './use-persistent-state';
 import { useWorkspaceState } from './use-workspace-state';
 import { useTokenService } from './use-token-service';
 import { useCancellableOperation } from './use-cancellable-operation';
@@ -153,6 +153,27 @@ const useAppState = () => {
   const setCurrentWorkspace = useWorkspaceStore((s) => s.setCurrentWorkspace);
   const headerSaveState = useWorkspaceStore((s) => s.headerSaveState);
   const setHeaderSaveState = useWorkspaceStore((s) => s.setHeaderSaveState);
+
+  const [persistedWorkspaceName, setPersistedWorkspaceName] = usePersistentState<string | null>(
+    STORAGE_KEYS.CURRENT_WORKSPACE,
+    null
+  );
+  
+  const hasInitializedWorkspaceRef = useRef(false);
+  
+  useEffect(() => {
+    if (!hasInitializedWorkspaceRef.current && persistedWorkspaceName) {
+      hasInitializedWorkspaceRef.current = true;
+      setCurrentWorkspace(persistedWorkspaceName);
+    }
+  }, [persistedWorkspaceName, setCurrentWorkspace]);
+  
+  useEffect(() => {
+    if (!hasInitializedWorkspaceRef.current) return;
+    if (currentWorkspace !== persistedWorkspaceName) {
+      setPersistedWorkspaceName(currentWorkspace);
+    }
+  }, [currentWorkspace, persistedWorkspaceName, setPersistedWorkspaceName]);
 
   // Build folder index for efficient folder selection
   const folderIndex = useMemo(() => {
