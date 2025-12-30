@@ -29,7 +29,7 @@ import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
 import useLatest from './use-latest';
-import { useWorkspaceStore, useUIStore, usePromptStore } from '../stores';
+import { useWorkspaceStore, useUIStore, usePromptStore, useFileSystemStore } from '../stores';
 import {
   buildWorkspaceState,
   reconcileSelectedInstructions,
@@ -59,8 +59,9 @@ type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
 const useAppState = () => {
   const isElectron = window.electron !== undefined;
 
-  // Core state
-  const [selectedFolder, setSelectedFolder] = useState(null as string | null);
+  // Core state from Zustand store
+  const selectedFolder = useFileSystemStore((s) => s.selectedFolder);
+  const setSelectedFolder = useFileSystemStore((s) => s.setSelectedFolder);
   
   // UI state from Zustand store (persisted automatically)
   const sortOrder = useUIStore((s) => s.sortOrder);
@@ -122,30 +123,25 @@ const useAppState = () => {
     };
   }, []);
 
-  // Non-persistent state
-  const [allFiles, setAllFiles] = useState([] as FileData[]);
+  // File state from Zustand store
+  const allFiles = useFileSystemStore((s) => s.allFiles);
+  const setAllFiles = useFileSystemStore((s) => s.setAllFiles);
   const displayedFiles = useMemo(() => {
     return getFilteredAndSortedFiles(allFiles, sortOrder, searchTerm);
   }, [allFiles, sortOrder, searchTerm]);
+  
   // Per-workspace expansion state - not globally persistent
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
-  const [appInitialized, setAppInitialized] = useState(false);
+  
+  // App state from Zustand store
+  const appInitialized = useFileSystemStore((s) => s.appInitialized);
+  const setAppInitialized = useFileSystemStore((s) => s.setAppInitialized);
 
-  type ProcessingStatusType = {
-    status: "idle" | "processing" | "complete" | "error";
-    message: string;
-    processed?: number;
-    directories?: number;
-    total?: number;
-  };
-  const [processingStatus, setProcessingStatus] = useState({
-    status: "idle" as const,
-    message: "",
-    processed: 0,
-    directories: 0,
-    total: 0
-  } as ProcessingStatusType);
-  const [isLoadingCancellable, setIsLoadingCancellable] = useState(false);
+  // Processing state from Zustand store
+  const processingStatus = useFileSystemStore((s) => s.processingStatus);
+  const setProcessingStatus = useFileSystemStore((s) => s.setProcessingStatus);
+  const isLoadingCancellable = useFileSystemStore((s) => s.isLoadingCancellable);
+  const setIsLoadingCancellable = useFileSystemStore((s) => s.setIsLoadingCancellable);
   const [pendingWorkspaceData, setPendingWorkspaceData] = useState(null as PendingWorkspaceData | null);
   const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null);
   

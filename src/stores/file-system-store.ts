@@ -3,9 +3,11 @@ import { create } from 'zustand';
 import type { FileData, FileTreeMode } from '../types/file-types';
 
 interface ProcessingStatus {
-  status: 'idle' | 'loading' | 'processing' | 'counting' | 'complete' | 'cancelled';
+  status: 'idle' | 'processing' | 'complete' | 'error';
   message: string;
-  progress?: number;
+  processed?: number;
+  directories?: number;
+  total?: number;
 }
 
 interface FileSystemState {
@@ -22,7 +24,7 @@ interface FileSystemState {
 
 interface FileSystemActions {
   setSelectedFolder: (folder: string | null) => void;
-  setAllFiles: (files: FileData[]) => void;
+  setAllFiles: (files: FileData[] | ((prev: FileData[]) => FileData[])) => void;
   setDisplayedFiles: (files: FileData[]) => void;
   updateFile: (path: string, updates: Partial<FileData>) => void;
   toggleExpanded: (path: string) => void;
@@ -79,13 +81,15 @@ export const useFileSystemStore = create<FileSystemState & FileSystemActions>((s
   expandedNodes: new Set(),
   fileTreeMode: 'none',
   exclusionPatterns: defaultExclusionPatterns,
-  processingStatus: { status: 'idle', message: '' },
+  processingStatus: { status: 'idle', message: '', processed: 0, directories: 0, total: 0 },
   appInitialized: false,
   isLoadingCancellable: false,
 
   setSelectedFolder: (folder) => set({ selectedFolder: folder }),
 
-  setAllFiles: (files) => set({ allFiles: files }),
+  setAllFiles: (files) => set((s) => ({ 
+    allFiles: typeof files === 'function' ? files(s.allFiles) : files 
+  })),
 
   setDisplayedFiles: (files) => set({ displayedFiles: files }),
 
@@ -120,7 +124,7 @@ export const useFileSystemStore = create<FileSystemState & FileSystemActions>((s
     allFiles: [],
     displayedFiles: [],
     expandedNodes: new Set(),
-    processingStatus: { status: 'idle', message: '' },
+    processingStatus: { status: 'idle', message: '', processed: 0, directories: 0, total: 0 },
     isLoadingCancellable: false,
   }),
 }));
