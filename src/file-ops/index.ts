@@ -27,9 +27,3 @@ export {
   isLikelyBinaryContent,
   MAX_FILE_SIZE_BYTES
 } from './filters';
-
-// Scan types
-export type {
-  DirectoryQueueItem,
-  ProcessBatchResult
-} from './scan-types';
