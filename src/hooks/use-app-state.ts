@@ -162,9 +162,11 @@ const useAppState = () => {
   const hasInitializedWorkspaceRef = useRef(false);
   
   useEffect(() => {
-    if (!hasInitializedWorkspaceRef.current && persistedWorkspaceName) {
+    if (!hasInitializedWorkspaceRef.current) {
       hasInitializedWorkspaceRef.current = true;
-      setCurrentWorkspace(persistedWorkspaceName);
+      if (persistedWorkspaceName) {
+        setCurrentWorkspace(persistedWorkspaceName);
+      }
     }
   }, [persistedWorkspaceName, setCurrentWorkspace]);
   

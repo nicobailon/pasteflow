@@ -189,9 +189,11 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   useEffect(() => {
-    if (!hasInitializedRef.current && persistedValue.length > 0) {
+    if (!hasInitializedRef.current) {
       hasInitializedRef.current = true;
-      setSelectedFiles(persistedValue);
+      if (persistedValue.length > 0) {
+        setSelectedFiles(persistedValue);
+      }
     }
   }, [persistedValue, setSelectedFiles]);
   
