@@ -12,7 +12,6 @@ export const useWorkspaceState = () => {
   const { runCancellableOperation } = useCancellableOperation();
   const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
   const setCurrentWorkspace = useWorkspaceStore((s) => s.setCurrentWorkspace);
-  const isLoadingWorkspace = useWorkspaceStore((s) => s.isLoadingWorkspace);
   const setIsLoadingWorkspace = useWorkspaceStore((s) => s.setIsLoadingWorkspace);
   const isLoadingWorkspaceRef = useRef(false);
 
