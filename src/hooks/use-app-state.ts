@@ -19,7 +19,7 @@ import { tokenCountCache } from '../utils/token-cache-adapter';
 import { buildFolderIndex } from '../utils/folder-selection-index';
 import { VirtualFileLoader } from '../utils/virtual-file-loader';
 
-import useDocState from './use-doc-state';
+
 import useFileSelectionState from './use-file-selection-state';
 import { usePersistentState } from './use-persistent-state';
 import { useDebouncedPersistentState } from './use-debounced-persistent-state';
@@ -30,7 +30,7 @@ import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
 import useLatest from './use-latest';
-import { useWorkspaceStore, useUIStore } from '../stores';
+import { useWorkspaceStore, useUIStore, usePromptStore } from '../stores';
 import {
   buildWorkspaceState,
   reconcileSelectedInstructions,
@@ -163,7 +163,7 @@ const useAppState = () => {
   const fileSelection = useFileSelectionState(allFiles, selectedFolder, folderIndex);
   const promptState = usePromptState();
   const modalState = useUIStore();
-  const docState = useDocState();
+  const promptStore = usePromptStore();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace, getWorkspaceNames } = useWorkspaceState();
   const { runCancellableOperation } = useCancellableOperation();
 
@@ -1734,8 +1734,13 @@ const useAppState = () => {
     setRolePromptsModalOpen: modalState.setRolePromptsModalOpen,
     setInstructionsModalOpen: modalState.setInstructionsModalOpen,
 
-    // Doc state
-    ...docState,
+    // Doc state (from prompt store)
+    docs: promptStore.docs,
+    selectedDocs: promptStore.selectedDocs,
+    handleAddDoc: promptStore.addDoc,
+    handleDeleteDoc: promptStore.deleteDoc,
+    handleUpdateDoc: promptStore.updateDoc,
+    toggleDocSelection: promptStore.toggleDocSelection,
 
     // Actions
     openFolder,
