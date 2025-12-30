@@ -44,6 +44,10 @@ interface UIActions {
   toggleSortDropdown: () => void;
   setSortOrder: (order: string) => void;
   setSearchTerm: (term: string) => void;
+  setFilterModalOpen: (open: boolean) => void;
+  setSystemPromptsModalOpen: (open: boolean) => void;
+  setRolePromptsModalOpen: (open: boolean) => void;
+  setInstructionsModalOpen: (open: boolean) => void;
 }
 
 export const useUIStore = create<UIState & UIActions>((set) => ({
@@ -92,4 +96,8 @@ export const useUIStore = create<UIState & UIActions>((set) => ({
   toggleSortDropdown: () => set((s) => ({ sortDropdownOpen: !s.sortDropdownOpen })),
   setSortOrder: (order) => set({ sortOrder: order, sortDropdownOpen: false }),
   setSearchTerm: (term) => set({ searchTerm: term }),
+  setFilterModalOpen: (open) => set({ filterModalOpen: open }),
+  setSystemPromptsModalOpen: (open) => set({ systemPromptsModalOpen: open }),
+  setRolePromptsModalOpen: (open) => set({ rolePromptsModalOpen: open }),
+  setInstructionsModalOpen: (open) => set({ instructionsModalOpen: open }),
 }));

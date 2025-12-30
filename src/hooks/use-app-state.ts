@@ -23,7 +23,6 @@ import useDocState from './use-doc-state';
 import useFileSelectionState from './use-file-selection-state';
 import { usePersistentState } from './use-persistent-state';
 import { useDebouncedPersistentState } from './use-debounced-persistent-state';
-import useModalState from './use-modal-state';
 import usePromptState from './use-prompt-state';
 import { useWorkspaceState } from './use-workspace-state';
 import { useTokenService } from './use-token-service';
@@ -31,7 +30,7 @@ import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
 import useLatest from './use-latest';
-import { useWorkspaceStore } from '../stores';
+import { useWorkspaceStore, useUIStore } from '../stores';
 import {
   buildWorkspaceState,
   reconcileSelectedInstructions,
@@ -163,7 +162,7 @@ const useAppState = () => {
   // Integration with specialized hooks
   const fileSelection = useFileSelectionState(allFiles, selectedFolder, folderIndex);
   const promptState = usePromptState();
-  const modalState = useModalState();
+  const modalState = useUIStore();
   const docState = useDocState();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace, getWorkspaceNames } = useWorkspaceState();
   const { runCancellableOperation } = useCancellableOperation();
@@ -1690,7 +1689,7 @@ const useAppState = () => {
     currentWorkspace,
 
     // UI state
-    sortDropdownOpen,
+    sortDropdownOpen: modalState.sortDropdownOpen,
     userInstructions,
     instructionsTokenCount,
 
@@ -1700,8 +1699,40 @@ const useAppState = () => {
     // Prompts state
     ...promptState,
 
-    // Modal state
-    ...modalState,
+    // Modal state (exclude sortOrder, searchTerm, sortDropdownOpen which are managed locally)
+    showApplyChangesModal: modalState.showApplyChangesModal,
+    filterModalOpen: modalState.filterModalOpen,
+    fileViewModalOpen: modalState.fileViewModalOpen,
+    systemPromptsModalOpen: modalState.systemPromptsModalOpen,
+    rolePromptsModalOpen: modalState.rolePromptsModalOpen,
+    instructionsModalOpen: modalState.instructionsModalOpen,
+    clipboardPreviewModalOpen: modalState.clipboardPreviewModalOpen,
+    currentViewedFilePath: modalState.currentViewedFilePath,
+    previewContent: modalState.previewContent,
+    previewTokenCount: modalState.previewTokenCount,
+    systemPromptToEdit: modalState.systemPromptToEdit,
+    rolePromptToEdit: modalState.rolePromptToEdit,
+    instructionToEdit: modalState.instructionToEdit,
+    toggleApplyChangesModal: modalState.toggleApplyChangesModal,
+    toggleFilterModal: modalState.toggleFilterModal,
+    toggleSystemPromptsModal: modalState.toggleSystemPromptsModal,
+    toggleRolePromptsModal: modalState.toggleRolePromptsModal,
+    toggleInstructionsModal: modalState.toggleInstructionsModal,
+    toggleClipboardPreviewModal: modalState.toggleClipboardPreviewModal,
+    openFileViewModal: modalState.openFileViewModal,
+    closeFileViewModal: modalState.closeFileViewModal,
+    openClipboardPreviewModal: modalState.openClipboardPreviewModal,
+    closeClipboardPreviewModal: modalState.closeClipboardPreviewModal,
+    openSystemPromptsModalForEdit: modalState.openSystemPromptsModalForEdit,
+    openRolePromptsModalForEdit: modalState.openRolePromptsModalForEdit,
+    openInstructionsModalForEdit: modalState.openInstructionsModalForEdit,
+    closeSystemPromptsModal: modalState.closeSystemPromptsModal,
+    closeRolePromptsModal: modalState.closeRolePromptsModal,
+    closeInstructionsModal: modalState.closeInstructionsModal,
+    setFilterModalOpen: modalState.setFilterModalOpen,
+    setSystemPromptsModalOpen: modalState.setSystemPromptsModalOpen,
+    setRolePromptsModalOpen: modalState.setRolePromptsModalOpen,
+    setInstructionsModalOpen: modalState.setInstructionsModalOpen,
 
     // Doc state
     ...docState,
