@@ -114,7 +114,7 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
     } finally {
       setIsLoadingWorkspace(false);
     }
-  }, [runCancellableOperation, loadPersistedWorkspace, isLoadingWorkspace]);
+  }, [runCancellableOperation, loadPersistedWorkspace, isLoadingWorkspace, setIsLoadingWorkspace]);
 
   const buildWorkspaceInfos = useCallback((names: Set<string>): WorkspaceInfo[] => {
     const infos: WorkspaceInfo[] = [];

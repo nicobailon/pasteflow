@@ -344,7 +344,7 @@ const WorkspaceModal = ({
     } finally {
       setIsLoadingWorkspace(false);
     }
-  }, [runCancellableOperation, loadPersistedWorkspace, onClose, refreshWorkspaceList, isLoadingWorkspace]);
+  }, [runCancellableOperation, loadPersistedWorkspace, onClose, refreshWorkspaceList, isLoadingWorkspace, setIsLoadingWorkspace]);
  
   const handleRenameConfirm = async () => {
     if (!renamingWsName || !newName.trim() || renamingWsName === newName.trim()) {

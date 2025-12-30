@@ -75,7 +75,7 @@ export const useWorkspaceState = () => {
     setIsLoadingWorkspace(false);
     isLoadingWorkspaceRef.current = false;
     return result;
-  }, [db, runCancellableOperation]);
+  }, [db, runCancellableOperation, setIsLoadingWorkspace]);
 
   const deleteWorkspace = useCallback(async (name: string): Promise<void> => {
     try {
