@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import type { FileData, FileTreeMode } from '../types/file-types';
+import type { FileData } from '../types/file-types';
 
 interface ProcessingStatus {
   status: 'idle' | 'processing' | 'complete' | 'error';
@@ -15,8 +15,6 @@ interface FileSystemState {
   allFiles: FileData[];
   displayedFiles: FileData[];
   expandedNodes: Record<string, boolean>;
-  fileTreeMode: FileTreeMode;
-  exclusionPatterns: string[];
   processingStatus: ProcessingStatus;
   appInitialized: boolean;
   isLoadingCancellable: boolean;
@@ -29,58 +27,17 @@ interface FileSystemActions {
   updateFile: (path: string, updates: Partial<FileData>) => void;
   toggleExpanded: (path: string) => void;
   setExpandedNodes: (nodes: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => void;
-  setFileTreeMode: (mode: FileTreeMode) => void;
-  setExclusionPatterns: (patterns: string[]) => void;
   setProcessingStatus: (status: ProcessingStatus) => void;
   setAppInitialized: (initialized: boolean) => void;
   setIsLoadingCancellable: (cancellable: boolean) => void;
   resetFolderState: () => void;
 }
 
-const defaultExclusionPatterns = [
-  '**/node_modules/',
-  '**/.npm/',
-  '**/__pycache__/',
-  '**/.pytest_cache/',
-  '**/.mypy_cache/',
-  '**/.gradle/',
-  '**/.nuget/',
-  '**/.cargo/',
-  '**/.stack-work/',
-  '**/.ccache/',
-  '**/.idea/',
-  '**/.vscode/',
-  '**/*.swp',
-  '**/*~',
-  '**/*.tmp',
-  '**/*.temp',
-  '**/*.bak',
-  '**/*.meta',
-  '**/package-lock.json',
-  '**/yarn.lock',
-  '**/pnpm-lock.yaml',
-  '**/poetry.lock',
-  '**/Pipfile.lock',
-  '**/.git/',
-  '**/build/',
-  '**/dist/',
-  '**/.next/',
-  '**/.nuxt/',
-  '**/.svelte-kit/',
-  '**/coverage/',
-  '**/vendor/',
-  '**/target/',
-  '**/bin/',
-  '**/obj/',
-];
-
 export const useFileSystemStore = create<FileSystemState & FileSystemActions>((set) => ({
   selectedFolder: null,
   allFiles: [],
   displayedFiles: [],
   expandedNodes: {},
-  fileTreeMode: 'none',
-  exclusionPatterns: defaultExclusionPatterns,
   processingStatus: { status: 'idle', message: '', processed: 0, directories: 0, total: 0 },
   appInitialized: false,
   isLoadingCancellable: false,
@@ -110,10 +67,6 @@ export const useFileSystemStore = create<FileSystemState & FileSystemActions>((s
   setExpandedNodes: (nodes) => set((s) => ({ 
     expandedNodes: typeof nodes === 'function' ? nodes(s.expandedNodes) : nodes 
   })),
-
-  setFileTreeMode: (mode) => set({ fileTreeMode: mode }),
-
-  setExclusionPatterns: (patterns) => set({ exclusionPatterns: patterns }),
 
   setProcessingStatus: (status) => set({ processingStatus: status }),
 

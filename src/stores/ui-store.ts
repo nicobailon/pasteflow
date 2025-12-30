@@ -74,7 +74,7 @@ export const useUIStore = create<UIState & UIActions>()(
       sortDropdownOpen: false,
       sortOrder: 'tokens-desc',
       searchTerm: '',
-      fileTreeMode: 'tree' as FileTreeMode,
+      fileTreeMode: 'none' as FileTreeMode,
       exclusionPatterns: [],
 
   toggleApplyChangesModal: () => set((s) => ({ showApplyChangesModal: !s.showApplyChangesModal })),
