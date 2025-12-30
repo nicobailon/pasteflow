@@ -2,6 +2,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import ContentArea from '../../components/content-area';
 import { usePreviewPack } from '../../hooks/use-preview-pack';
+import { useUIStore, usePromptStore } from '../../stores';
 
 // Mock the FEATURES to enable Pack workflow
 jest.mock('../../constants/app-constants', () => ({
@@ -64,6 +65,17 @@ describe('Preview Pack Workflow Integration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     
+    useUIStore.setState({
+      sortOrder: 'name',
+      sortDropdownOpen: false,
+      clipboardPreviewModalOpen: false,
+      previewContent: '',
+      previewTokenCount: 0,
+    });
+    usePromptStore.setState({
+      userInstructions: '',
+    });
+    
     (usePreviewPack as jest.Mock).mockReturnValue({
       pack: mockPack,
       cancelPack: mockCancelPack,
@@ -110,30 +122,17 @@ describe('Preview Pack Workflow Integration', () => {
       toggleRolePromptSelection: jest.fn(),
       selectedInstructions: [],
       toggleInstructionSelection: jest.fn(),
-      sortOrder: 'name',
-      handleSortChange: jest.fn(),
-      sortDropdownOpen: false,
-      toggleSortDropdown: jest.fn(),
       sortOptions: [{ value: 'name', label: 'Name' }],
       getSelectedFilesContent: jest.fn(() => 'test content'),
       calculateTotalTokens: jest.fn(() => 100),
       instructionsTokenCount: 0,
-      userInstructions: '',
-      setUserInstructions: jest.fn(),
       fileTreeTokens: 0,
       systemPromptTokens: 0,
       rolePromptTokens: 0,
       instructionsTokens: 0,
-      setSystemPromptsModalOpen: jest.fn(),
-      setRolePromptsModalOpen: jest.fn(),
       setInstructionsModalOpen: jest.fn(),
       loadFileContent: jest.fn(),
       loadMultipleFileContents: jest.fn(async () => {}),
-      clipboardPreviewModalOpen: false,
-      previewContent: '',
-      previewTokenCount: 0,
-      openClipboardPreviewModal: jest.fn(),
-      closeClipboardPreviewModal: jest.fn(),
       selectedFolder: '/test',
       expandedNodes: {},
       toggleExpanded: jest.fn(),
@@ -400,8 +399,6 @@ describe('Preview Pack Workflow Integration', () => {
         tokenCount: 5
       }));
 
-      const mockOpenModal = jest.fn();
-      
       // Render with pack ready state
       (usePreviewPack as jest.Mock).mockReturnValue({
         pack: mockPack,
@@ -430,30 +427,17 @@ describe('Preview Pack Workflow Integration', () => {
         toggleRolePromptSelection: jest.fn(),
         selectedInstructions: [],
         toggleInstructionSelection: jest.fn(),
-        sortOrder: 'name',
-        handleSortChange: jest.fn(),
-        sortDropdownOpen: false,
-        toggleSortDropdown: jest.fn(),
         sortOptions: [{ value: 'name', label: 'Name' }],
         getSelectedFilesContent: jest.fn(() => 'test content'),
         calculateTotalTokens: jest.fn(() => 100),
         instructionsTokenCount: 0,
-        userInstructions: '',
-        setUserInstructions: jest.fn(),
         fileTreeTokens: 0,
         systemPromptTokens: 0,
         rolePromptTokens: 0,
         instructionsTokens: 0,
-        setSystemPromptsModalOpen: jest.fn(),
-        setRolePromptsModalOpen: jest.fn(),
         setInstructionsModalOpen: jest.fn(),
         loadFileContent: jest.fn(),
         loadMultipleFileContents: jest.fn(async () => {}),
-        clipboardPreviewModalOpen: false,
-        previewContent: '',
-        previewTokenCount: 0,
-        openClipboardPreviewModal: mockOpenModal,
-        closeClipboardPreviewModal: jest.fn(),
         selectedFolder: null,
         expandedNodes: {},
         toggleExpanded: jest.fn(),
@@ -466,15 +450,13 @@ describe('Preview Pack Workflow Integration', () => {
       const previewButton = screen.getByRole('button', { name: /Preview/i });
       fireEvent.click(previewButton);
       
-      // Verify modal was opened with non-empty content
-      expect(mockOpenModal).toHaveBeenCalledTimes(1);
-      const [modalContent, tokenCount] = mockOpenModal.mock.calls[0];
-      
-      // Should use fullContent fallback when contentForDisplay is empty
-      expect(modalContent).toBeTruthy();
-      expect(modalContent.length).toBeGreaterThan(0);
-      expect(modalContent).toContain('Full packed content');
-      expect(tokenCount).toBe(500);
+      // Verify modal was opened with non-empty content via store state
+      const storeState = useUIStore.getState();
+      expect(storeState.clipboardPreviewModalOpen).toBe(true);
+      expect(storeState.previewContent).toBeTruthy();
+      expect(storeState.previewContent.length).toBeGreaterThan(0);
+      expect(storeState.previewContent).toContain('Full packed content');
+      expect(storeState.previewTokenCount).toBe(500);
     });
 
     it('should pass previewState to modal only when not in ready state', () => {
@@ -597,30 +579,17 @@ export const helper = () => {};
         toggleRolePromptSelection: jest.fn(),
         selectedInstructions: [],
         toggleInstructionSelection: jest.fn(),
-        sortOrder: 'name',
-        handleSortChange: jest.fn(),
-        sortDropdownOpen: false,
-        toggleSortDropdown: jest.fn(),
         sortOptions: [{ value: 'name', label: 'Name' }],
         getSelectedFilesContent: jest.fn(() => 'test content'),
         calculateTotalTokens: jest.fn(() => 100),
         instructionsTokenCount: 0,
-        userInstructions: '',
-        setUserInstructions: jest.fn(),
         fileTreeTokens: 20,
         systemPromptTokens: 0,
         rolePromptTokens: 0,
         instructionsTokens: 0,
-        setSystemPromptsModalOpen: jest.fn(),
-        setRolePromptsModalOpen: jest.fn(),
         setInstructionsModalOpen: jest.fn(),
         loadFileContent: jest.fn(),
         loadMultipleFileContents: jest.fn(async () => {}),
-        clipboardPreviewModalOpen: false,
-        previewContent: '',
-        previewTokenCount: 0,
-        openClipboardPreviewModal: jest.fn(),
-        closeClipboardPreviewModal: jest.fn(),
         selectedFolder: '/project',
         expandedNodes: {},
         toggleExpanded: jest.fn(),
@@ -706,30 +675,17 @@ export const main = () => {};
         toggleRolePromptSelection: jest.fn(),
         selectedInstructions: [],
         toggleInstructionSelection: jest.fn(),
-        sortOrder: 'name',
-        handleSortChange: jest.fn(),
-        sortDropdownOpen: false,
-        toggleSortDropdown: jest.fn(),
         sortOptions: [{ value: 'name', label: 'Name' }],
         getSelectedFilesContent: jest.fn(() => 'test content'),
         calculateTotalTokens: jest.fn(() => 100),
         instructionsTokenCount: 0,
-        userInstructions: '',
-        setUserInstructions: jest.fn(),
         fileTreeTokens: 0,
         systemPromptTokens: 0,
         rolePromptTokens: 0,
         instructionsTokens: 0,
-        setSystemPromptsModalOpen: jest.fn(),
-        setRolePromptsModalOpen: jest.fn(),
         setInstructionsModalOpen: jest.fn(),
         loadFileContent: jest.fn(),
         loadMultipleFileContents: jest.fn(async () => {}),
-        clipboardPreviewModalOpen: false,
-        previewContent: '',
-        previewTokenCount: 0,
-        openClipboardPreviewModal: jest.fn(),
-        closeClipboardPreviewModal: jest.fn(),
         selectedFolder: '/project',
         expandedNodes: {},
         toggleExpanded: jest.fn(),
@@ -809,33 +765,21 @@ export const main = () => {};
         toggleRolePromptSelection: jest.fn(),
         selectedInstructions: [],
         toggleInstructionSelection: jest.fn(),
-        sortOrder: 'name',
-        handleSortChange: jest.fn(),
-        sortDropdownOpen: false,
-        toggleSortDropdown: jest.fn(),
         sortOptions: [{ value: 'name', label: 'Name' }],
         getSelectedFilesContent: jest.fn(() => 'test content'),
         calculateTotalTokens: jest.fn(() => 100),
         instructionsTokenCount: 0,
-        userInstructions: '',
-        setUserInstructions: jest.fn(),
         fileTreeTokens: 0,
         systemPromptTokens: 0,
         rolePromptTokens: 0,
         instructionsTokens: 0,
-        setSystemPromptsModalOpen: jest.fn(),
-        setRolePromptsModalOpen: jest.fn(),
         setInstructionsModalOpen: jest.fn(),
         loadFileContent: jest.fn(),
-        clipboardPreviewModalOpen: false,
-        previewContent: '',
-        previewTokenCount: 0,
-        openClipboardPreviewModal: jest.fn(),
-        closeClipboardPreviewModal: jest.fn(),
-        selectedFolder: null, // No folder selected
+        loadMultipleFileContents: jest.fn(async () => {}),
+        selectedFolder: null,
         expandedNodes: {},
         toggleExpanded: jest.fn(),
-        fileTreeMode: 'complete' as const, // Complete mode but no folder
+        fileTreeMode: 'complete' as const,
       };
 
       render(<ContentArea {...mockProps} />);

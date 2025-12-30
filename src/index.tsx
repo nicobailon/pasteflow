@@ -14,12 +14,18 @@ import SystemPromptsModal from "./components/system-prompts-modal";
 import WorkspaceModal from "./components/workspace-modal";
 import { ThemeProvider } from "./context/theme-context";
 import useAppState from "./hooks/use-app-state";
+import { useUIStore, usePromptStore } from "./stores";
 import { initializeCacheRegistry } from "./utils/cache-registry";
 import { useMemoryMonitoring } from "./hooks/use-memory-monitoring";
 import { getGlobalPerformanceMonitor } from "./utils/performance-monitor";
 
 const App = () => {
   const appState = useAppState();
+
+  const selectedSystemPrompts = usePromptStore((s) => s.selectedSystemPrompts);
+  const selectedRolePrompts = usePromptStore((s) => s.selectedRolePrompts);
+  const toggleSystemPromptSelection = usePromptStore((s) => s.toggleSystemPromptSelection);
+  const toggleRolePromptSelection = usePromptStore((s) => s.toggleRolePromptSelection);
 
   // Dev memory monitoring (register caches once on mount)
   useMemoryMonitoring();
@@ -143,41 +149,28 @@ const App = () => {
             toggleSelection={appState.toggleSelection}
             openFolder={appState.openFolder}
             onViewFile={appState.openFileViewModal}
-          processingStatus={appState.processingStatus}
-          folderSelectionCache={appState.folderSelectionCache}
-          selectedSystemPrompts={appState.selectedSystemPrompts}
-            toggleSystemPromptSelection={appState.toggleSystemPromptSelection}
-            onViewSystemPrompt={appState.openSystemPromptsModalForEdit}
-            selectedRolePrompts={appState.selectedRolePrompts}
-            toggleRolePromptSelection={appState.toggleRolePromptSelection}
-            onViewRolePrompt={appState.openRolePromptsModalForEdit}
+            processingStatus={appState.processingStatus}
+            folderSelectionCache={appState.folderSelectionCache}
+            selectedSystemPrompts={selectedSystemPrompts}
+            toggleSystemPromptSelection={toggleSystemPromptSelection}
+            onViewSystemPrompt={useUIStore.getState().openSystemPromptsModalForEdit}
+            selectedRolePrompts={selectedRolePrompts}
+            toggleRolePromptSelection={toggleRolePromptSelection}
+            onViewRolePrompt={useUIStore.getState().openRolePromptsModalForEdit}
             selectedInstructions={appState.selectedInstructions}
             toggleInstructionSelection={appState.toggleInstructionSelection}
             onViewInstruction={appState.openInstructionsModalForEdit}
-            sortOrder={appState.sortOrder}
-            handleSortChange={appState.handleSortChange}
-            sortDropdownOpen={appState.sortDropdownOpen}
-            toggleSortDropdown={appState.toggleSortDropdown}
             sortOptions={[...SORT_OPTIONS]}
             getSelectedFilesContent={appState.getFormattedContentFromLatest}
             calculateTotalTokens={appState.calculateTotalTokens}
             instructionsTokenCount={appState.instructionsTokenCount}
-            userInstructions={appState.userInstructions}
-            setUserInstructions={appState.setUserInstructions}
             fileTreeTokens={appState.getCurrentFileTreeTokens()}
             systemPromptTokens={appState.systemPromptsTokens}
             rolePromptTokens={appState.rolePromptsTokens}
             instructionsTokens={appState.instructionsTokens}
-            setSystemPromptsModalOpen={appState.setSystemPromptsModalOpen}
-            setRolePromptsModalOpen={appState.setRolePromptsModalOpen}
             setInstructionsModalOpen={appState.setInstructionsModalOpen}
             loadFileContent={appState.loadFileContent}
             loadMultipleFileContents={appState.loadMultipleFileContents}
-            clipboardPreviewModalOpen={appState.clipboardPreviewModalOpen}
-            previewContent={appState.previewContent}
-            previewTokenCount={appState.previewTokenCount}
-            openClipboardPreviewModal={appState.openClipboardPreviewModal}
-            closeClipboardPreviewModal={appState.closeClipboardPreviewModal}
             selectedFolder={appState.selectedFolder}
             expandedNodes={appState.expandedNodes}
             toggleExpanded={appState.toggleExpanded}
@@ -210,31 +203,9 @@ const App = () => {
           loadFileContent={appState.loadFileContent}
         />
         
-        <SystemPromptsModal
-          isOpen={appState.systemPromptsModalOpen}
-          onClose={() => appState.closeSystemPromptsModal()}
-          systemPrompts={appState.systemPrompts}
-          onAddPrompt={appState.handleAddSystemPrompt}
-          onDeletePrompt={appState.handleDeleteSystemPrompt}
-          onUpdatePrompt={appState.handleUpdateSystemPrompt}
-          onSelectPrompt={appState.toggleSystemPromptSelection}
-          selectedSystemPrompts={appState.selectedSystemPrompts}
-          toggleSystemPromptSelection={appState.toggleSystemPromptSelection}
-          initialEditPrompt={appState.systemPromptToEdit}
-        />
+        <SystemPromptsModal />
         
-        <RolePromptsModal
-          isOpen={appState.rolePromptsModalOpen}
-          onClose={() => appState.closeRolePromptsModal()}
-          rolePrompts={appState.rolePrompts}
-          onAddPrompt={appState.handleAddRolePrompt}
-          onDeletePrompt={appState.handleDeleteRolePrompt}
-          onUpdatePrompt={appState.handleUpdateRolePrompt}
-          onSelectPrompt={appState.toggleRolePromptSelection}
-          selectedRolePrompts={appState.selectedRolePrompts}
-          toggleRolePromptSelection={appState.toggleRolePromptSelection}
-          initialEditPrompt={appState.rolePromptToEdit}
-        />
+        <RolePromptsModal />
         
         <InstructionsModal
           isOpen={appState.instructionsModalOpen}

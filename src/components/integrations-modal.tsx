@@ -33,10 +33,10 @@ const IntegrationsModal = ({ isOpen, onClose }: IntegrationsModalProps): JSX.Ele
         setOpenaiStored(Boolean(value && (isSecretObject(value) || (typeof value === 'string' && value.length > 0))));
         setStatus('idle');
       })
-      .catch((e: unknown) => {
+      .catch((error_: unknown) => {
         setOpenaiStored(false);
         setStatus('error');
-        setError((e as Error)?.message || 'Failed to load status');
+        setError((error_ as Error)?.message || 'Failed to load status');
       });
   }, [isOpen]);
 
@@ -51,7 +51,7 @@ const IntegrationsModal = ({ isOpen, onClose }: IntegrationsModalProps): JSX.Ele
       setTimeout(() => setStatus('idle'), 1200);
     } catch (error_) {
       setStatus('error');
-      setError((e as Error)?.message || 'Failed to save');
+      setError((error_ as Error)?.message || 'Failed to save');
     }
   };
 
@@ -65,7 +65,7 @@ const IntegrationsModal = ({ isOpen, onClose }: IntegrationsModalProps): JSX.Ele
       setTimeout(() => setStatus('idle'), 1000);
     } catch (error_) {
       setStatus('error');
-      setError((e as Error)?.message || 'Failed to clear');
+      setError((error_ as Error)?.message || 'Failed to clear');
     }
   };
 

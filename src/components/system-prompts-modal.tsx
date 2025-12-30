@@ -1,46 +1,48 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, CirclePlus, Plus, Trash, X } from "lucide-react"; // Removed unused Pencil, Clipboard
+import { Check, CirclePlus, Plus, Trash, X } from "lucide-react";
 import { useState, useEffect } from "react";
 
-import { SystemPrompt, SystemPromptsModalProps } from "../types/file-types";
+import { useUIStore, usePromptStore } from "../stores";
+import type { SystemPrompt } from "../types/file-types";
 
-/**
- * SystemPromptsModal component - Provides a modal dialog for managing system prompts
- * with the ability to add, edit, delete, and select prompts
- */
-const SystemPromptsModal = ({
-  isOpen,
-  onClose,
-  systemPrompts = [],
-  onAddPrompt,
-  onDeletePrompt,
-  onUpdatePrompt,
-  // onSelectPrompt, // This prop seems unused in the component
-  selectedSystemPrompts = [],
-  toggleSystemPromptSelection = () => {},
-  initialEditPrompt,
-}: SystemPromptsModalProps): JSX.Element => {
+const SystemPromptsModal = (): JSX.Element => {
+  const isOpen = useUIStore((s) => s.systemPromptsModalOpen);
+  const initialEditPrompt = useUIStore((s) => s.systemPromptToEdit);
+  const closeModal = useUIStore((s) => s.closeSystemPromptsModal);
+
+  const systemPrompts = usePromptStore((s) => s.systemPrompts);
+  const selectedSystemPrompts = usePromptStore((s) => s.selectedSystemPrompts);
+  const addSystemPrompt = usePromptStore((s) => s.addSystemPrompt);
+  const deleteSystemPrompt = usePromptStore((s) => s.deleteSystemPrompt);
+  const updateSystemPrompt = usePromptStore((s) => s.updateSystemPrompt);
+  const toggleSystemPromptSelection = usePromptStore((s) => s.toggleSystemPromptSelection);
+
   const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
   const [newPromptName, setNewPromptName] = useState("");
   const [newPromptContent, setNewPromptContent] = useState("");
 
-  // Set initial edit prompt when modal opens
   useEffect(() => {
-    if (isOpen && initialEditPrompt) {
-      setEditingPrompt({ ...initialEditPrompt });
+    if (isOpen) {
+      if (initialEditPrompt) {
+        setEditingPrompt({ ...initialEditPrompt });
+      }
+    } else {
+      setEditingPrompt(null);
+      setNewPromptName("");
+      setNewPromptContent("");
     }
   }, [isOpen, initialEditPrompt]);
 
   const handleAddPrompt = () => {
     if (!newPromptName || !newPromptContent) return;
-    
+
     const newPrompt: SystemPrompt = {
       id: Date.now().toString(),
       name: newPromptName,
-      content: newPromptContent
+      content: newPromptContent,
     };
-    
-    onAddPrompt(newPrompt);
+
+    addSystemPrompt(newPrompt);
     setNewPromptName("");
     setNewPromptContent("");
     setEditingPrompt(null);
@@ -48,8 +50,7 @@ const SystemPromptsModal = ({
 
   const handleUpdatePrompt = () => {
     if (!editingPrompt || !editingPrompt.name || !editingPrompt.content) return;
-    
-    onUpdatePrompt(editingPrompt);
+    updateSystemPrompt(editingPrompt);
     setEditingPrompt(null);
   };
 
@@ -61,13 +62,12 @@ const SystemPromptsModal = ({
     setEditingPrompt(null);
   };
 
-  // Check if a prompt is currently selected
   const isPromptSelected = (prompt: SystemPrompt) => {
-    return selectedSystemPrompts.some(p => p.id === prompt.id);
+    return selectedSystemPrompts.some((p) => p.id === prompt.id);
   };
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && closeModal()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
         <Dialog.Content className="modal-content system-prompts-modal notes-app-layout" aria-describedby={undefined}>
@@ -79,7 +79,7 @@ const SystemPromptsModal = ({
               <button className="close-button"><X size={16} /></button>
             </Dialog.Close>
           </div>
-          
+
           <div className="modal-body">
             <div className="sidebar system-prompts-list">
               {(!Array.isArray(systemPrompts) || systemPrompts.length === 0) ? (
@@ -87,16 +87,16 @@ const SystemPromptsModal = ({
                   No system prompts yet. Add one to get started.
                 </div>
               ) : (
-                (systemPrompts || []).map((prompt) => (
+                systemPrompts.map((prompt) => (
                   <div
                     key={prompt.id}
-                    className={`system-prompt-item ${isPromptSelected(prompt) ? 'selected' : ''}`}
+                    className={`system-prompt-item ${isPromptSelected(prompt) ? "selected" : ""}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       startEdit(prompt);
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                      if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         e.stopPropagation();
                         startEdit(prompt);
@@ -108,31 +108,27 @@ const SystemPromptsModal = ({
                     <div className="prompt-details">
                       <div className="prompt-title">{prompt.name}</div>
                       <div className="prompt-preview">
-                        {(prompt.content ?? '').length > 60
-                          ? (prompt.content ?? '').slice(0, 60) + "..."
-                          : (prompt.content ?? '')}
+                        {(prompt.content ?? "").length > 60
+                          ? (prompt.content ?? "").slice(0, 60) + "..."
+                          : (prompt.content ?? "")}
                       </div>
                     </div>
                     <div className="prompt-actions">
                       <button
-                        className={`prompt-action-button toggle-selection-button ${isPromptSelected(prompt) ? 'selected' : ''}`}
+                        className={`prompt-action-button toggle-selection-button ${isPromptSelected(prompt) ? "selected" : ""}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleSystemPromptSelection(prompt);
                         }}
                         title={isPromptSelected(prompt) ? "Remove from selection" : "Add to selection"}
                       >
-                        {isPromptSelected(prompt) ? (
-                          <Check size={14} />
-                        ) : (
-                          <CirclePlus size={14} />
-                        )}
+                        {isPromptSelected(prompt) ? <Check size={14} /> : <CirclePlus size={14} />}
                       </button>
                       <button
                         className="prompt-action-button delete-button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDeletePrompt(prompt.id);
+                          deleteSystemPrompt(prompt.id);
                         }}
                         title="Delete this prompt"
                       >
@@ -143,7 +139,7 @@ const SystemPromptsModal = ({
                 ))
               )}
             </div>
-            
+
             <div className="content-area system-prompt-editor">
               {editingPrompt ? (
                 <div className="edit-prompt-form">
@@ -152,19 +148,13 @@ const SystemPromptsModal = ({
                     type="text"
                     className="prompt-title-input"
                     value={editingPrompt.name}
-                    onChange={(e) => setEditingPrompt({
-                      ...editingPrompt,
-                      name: e.target.value
-                    })}
+                    onChange={(e) => setEditingPrompt({ ...editingPrompt, name: e.target.value })}
                     placeholder="Enter prompt name"
                   />
                   <textarea
                     className="prompt-content-input"
                     value={editingPrompt.content}
-                    onChange={(e) => setEditingPrompt({
-                      ...editingPrompt,
-                      content: e.target.value
-                    })}
+                    onChange={(e) => setEditingPrompt({ ...editingPrompt, content: e.target.value })}
                     placeholder="Enter prompt content"
                     rows={12}
                   />
@@ -172,7 +162,7 @@ const SystemPromptsModal = ({
                     <button className="cancel-button" onClick={cancelEdit}>
                       Cancel
                     </button>
-                    <button 
+                    <button
                       className="apply-button"
                       onClick={handleUpdatePrompt}
                       disabled={!editingPrompt.name || !editingPrompt.content}
@@ -185,7 +175,7 @@ const SystemPromptsModal = ({
                 <div className="add-prompt-form">
                   <div className="prompt-add-action">
                     <h3>Add New System Prompt</h3>
-                    <button 
+                    <button
                       className="apply-button add-prompt-button"
                       onClick={handleAddPrompt}
                       disabled={!newPromptName || !newPromptContent}
@@ -218,4 +208,4 @@ const SystemPromptsModal = ({
   );
 };
 
-export default SystemPromptsModal; 
+export default SystemPromptsModal;

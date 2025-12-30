@@ -5,6 +5,7 @@ import { FEATURES, UI, TOKEN_COUNTING } from '@constants';
 import { getRelativePath, dirname, normalizePath } from '@file-ops/path';
 
 import { logger } from '../utils/logger';
+import { useUIStore, usePromptStore } from '../stores';
 import { usePreviewPack } from '../hooks/use-preview-pack';
 import { FileData, Instruction, LineRange, RolePrompt, SelectedFileReference, SystemPrompt, FileTreeMode } from '../types/file-types';
 
@@ -452,38 +453,23 @@ interface ContentAreaProps {
   selectedInstructions: Instruction[];
   toggleInstructionSelection: (instruction: Instruction) => void;
   onViewInstruction?: (instruction: Instruction) => void;
-  // Folder selection cache for UI aggregation in selected files view
   folderSelectionCache?: import('../types/file-types').DirectorySelectionCache;
-  sortOrder: string;
-  handleSortChange: (newSort: string) => void;
-  sortDropdownOpen: boolean;
-  toggleSortDropdown: () => void;
   sortOptions: { value: string; label: string }[];
-  getSelectedFilesContent: () => string;  // Legacy - kept for interface compatibility
+  getSelectedFilesContent: () => string;
   calculateTotalTokens: () => number;
   instructionsTokenCount: number;
-  userInstructions: string;
-  setUserInstructions: (instructions: string) => void;
   fileTreeTokens: number;
   systemPromptTokens: number;
   rolePromptTokens: number;
   instructionsTokens: number;
-  setSystemPromptsModalOpen: (open: boolean) => void;
-  setRolePromptsModalOpen: (open: boolean) => void;
   setInstructionsModalOpen: (open: boolean) => void;
   loadFileContent: (filePath: string) => Promise<void>;
   loadMultipleFileContents: (filePaths: string[], options?: { priority?: number }) => Promise<void>;
-  clipboardPreviewModalOpen: boolean;
   toggleFolderSelection?: (folderPath: string, isSelected: boolean, opts?: { optimistic?: boolean }) => void;
-  previewContent: string;
-  previewTokenCount: number;
-  openClipboardPreviewModal: (content: string, tokenCount: number) => void;
-  closeClipboardPreviewModal: () => void;
   selectedFolder: string | null;
   expandedNodes: Record<string, boolean>;
   toggleExpanded: (path: string, currentState?: boolean) => void;
   fileTreeMode: FileTreeMode;
-  // New: clear all selections (files + prompts + docs)
   clearAllSelections?: () => void;
 }
 
@@ -506,35 +492,37 @@ const ContentArea = ({
   selectedInstructions,
   toggleInstructionSelection,
   onViewInstruction,
-  sortOrder,
-  handleSortChange,
   sortOptions,
-  getSelectedFilesContent: _getSelectedFilesContent,  // Kept for interface compatibility
+  getSelectedFilesContent: _getSelectedFilesContent,
   calculateTotalTokens,
   instructionsTokenCount,
-  userInstructions,
-  setUserInstructions,
   fileTreeTokens,
   systemPromptTokens,
   rolePromptTokens,
   instructionsTokens,
-  setSystemPromptsModalOpen,
-  setRolePromptsModalOpen,
   setInstructionsModalOpen,
   loadFileContent,
   loadMultipleFileContents,
-  clipboardPreviewModalOpen,
-  previewContent,
   toggleFolderSelection,
-  previewTokenCount,
-  openClipboardPreviewModal,
-  closeClipboardPreviewModal,
   selectedFolder,
   expandedNodes,
   toggleExpanded,
   fileTreeMode,
   clearAllSelections,
 }: ContentAreaProps) => {
+  const sortOrder = useUIStore((s) => s.sortOrder);
+  const setSortOrder = useUIStore((s) => s.setSortOrder);
+  const clipboardPreviewModalOpen = useUIStore((s) => s.clipboardPreviewModalOpen);
+  const previewContent = useUIStore((s) => s.previewContent);
+  const previewTokenCount = useUIStore((s) => s.previewTokenCount);
+  const openClipboardPreviewModal = useUIStore((s) => s.openClipboardPreviewModal);
+  const closeClipboardPreviewModal = useUIStore((s) => s.closeClipboardPreviewModal);
+  const setSystemPromptsModalOpen = (open: boolean) => useUIStore.setState({ systemPromptsModalOpen: open });
+  const setRolePromptsModalOpen = (open: boolean) => useUIStore.setState({ rolePromptsModalOpen: open });
+
+  const userInstructions = usePromptStore((s) => s.userInstructions);
+  const setUserInstructions = usePromptStore((s) => s.setUserInstructions);
+
   const onClearAll = clearAllSelections || (() => {});
 
 
@@ -849,7 +837,7 @@ const ContentArea = ({
                 label: option.label
               }))}
               value={sortOrder}
-              onChange={handleSortChange}
+              onChange={setSortOrder}
               buttonLabel="Sort"
               buttonIcon={<ChevronDown size={16} />}
               containerClassName="sort-dropdown sort-dropdown-selected-files"

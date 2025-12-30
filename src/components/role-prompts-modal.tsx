@@ -2,45 +2,47 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Check, CirclePlus, Plus, Trash, X } from "lucide-react";
 import { useState, useEffect } from "react";
 
-import { RolePrompt, RolePromptsModalProps } from "../types/file-types";
+import { useUIStore, usePromptStore } from "../stores";
+import type { RolePrompt } from "../types/file-types";
 
-/**
- * RolePromptsModal component - Provides a modal dialog for managing role prompts
- * with the ability to add, edit, delete, and select prompts
- */
-const RolePromptsModal = ({
-  isOpen,
-  onClose,
-  rolePrompts = [],
-  onAddPrompt,
-  onDeletePrompt,
-  onUpdatePrompt,
-  // onSelectPrompt, // This prop seems unused in the component
-  selectedRolePrompts = [],
-  toggleRolePromptSelection = () => {},
-  initialEditPrompt,
-}: RolePromptsModalProps): JSX.Element => {
+const RolePromptsModal = (): JSX.Element => {
+  const isOpen = useUIStore((s) => s.rolePromptsModalOpen);
+  const initialEditPrompt = useUIStore((s) => s.rolePromptToEdit);
+  const closeModal = useUIStore((s) => s.closeRolePromptsModal);
+
+  const rolePrompts = usePromptStore((s) => s.rolePrompts);
+  const selectedRolePrompts = usePromptStore((s) => s.selectedRolePrompts);
+  const addRolePrompt = usePromptStore((s) => s.addRolePrompt);
+  const deleteRolePrompt = usePromptStore((s) => s.deleteRolePrompt);
+  const updateRolePrompt = usePromptStore((s) => s.updateRolePrompt);
+  const toggleRolePromptSelection = usePromptStore((s) => s.toggleRolePromptSelection);
+
   const [editingPrompt, setEditingPrompt] = useState<RolePrompt | null>(null);
   const [newPromptName, setNewPromptName] = useState("");
   const [newPromptContent, setNewPromptContent] = useState("");
 
-  // Set initial edit prompt when modal opens
   useEffect(() => {
-    if (isOpen && initialEditPrompt) {
-      setEditingPrompt({ ...initialEditPrompt });
+    if (isOpen) {
+      if (initialEditPrompt) {
+        setEditingPrompt({ ...initialEditPrompt });
+      }
+    } else {
+      setEditingPrompt(null);
+      setNewPromptName("");
+      setNewPromptContent("");
     }
   }, [isOpen, initialEditPrompt]);
 
   const handleAddPrompt = () => {
     if (!newPromptName || !newPromptContent) return;
-    
+
     const newPrompt: RolePrompt = {
       id: Date.now().toString(),
       name: newPromptName,
-      content: newPromptContent
+      content: newPromptContent,
     };
-    
-    onAddPrompt(newPrompt);
+
+    addRolePrompt(newPrompt);
     setNewPromptName("");
     setNewPromptContent("");
     setEditingPrompt(null);
@@ -48,8 +50,7 @@ const RolePromptsModal = ({
 
   const handleUpdatePrompt = () => {
     if (!editingPrompt || !editingPrompt.name || !editingPrompt.content) return;
-    
-    onUpdatePrompt(editingPrompt);
+    updateRolePrompt(editingPrompt);
     setEditingPrompt(null);
   };
 
@@ -61,13 +62,12 @@ const RolePromptsModal = ({
     setEditingPrompt(null);
   };
 
-  // Check if a prompt is currently selected
   const isPromptSelected = (prompt: RolePrompt) => {
-    return selectedRolePrompts.some(p => p.id === prompt.id);
+    return selectedRolePrompts.some((p) => p.id === prompt.id);
   };
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && closeModal()}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
         <Dialog.Content className="modal-content role-prompts-modal notes-app-layout" aria-describedby={undefined}>
@@ -79,7 +79,7 @@ const RolePromptsModal = ({
               <button className="close-button"><X size={16} /></button>
             </Dialog.Close>
           </div>
-          
+
           <div className="modal-body">
             <div className="sidebar role-prompts-list">
               {(!Array.isArray(rolePrompts) || rolePrompts.length === 0) ? (
@@ -87,16 +87,16 @@ const RolePromptsModal = ({
                   No role prompts yet. Add one to get started.
                 </div>
               ) : (
-                (rolePrompts || []).map((prompt) => (
-                  <div 
-                    key={prompt.id} 
-                    className={`role-prompt-item ${isPromptSelected(prompt) ? 'selected' : ''}`}
+                rolePrompts.map((prompt) => (
+                  <div
+                    key={prompt.id}
+                    className={`role-prompt-item ${isPromptSelected(prompt) ? "selected" : ""}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       startEdit(prompt);
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                      if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         e.stopPropagation();
                         startEdit(prompt);
@@ -108,31 +108,27 @@ const RolePromptsModal = ({
                     <div className="prompt-details">
                       <div className="prompt-title">{prompt.name}</div>
                       <div className="prompt-preview">
-                        {(prompt.content ?? '').length > 60
-                          ? (prompt.content ?? '').slice(0, 60) + "..."
-                          : (prompt.content ?? '')}
+                        {(prompt.content ?? "").length > 60
+                          ? (prompt.content ?? "").slice(0, 60) + "..."
+                          : (prompt.content ?? "")}
                       </div>
                     </div>
                     <div className="prompt-actions">
-                      <button 
-                        className={`prompt-action-button toggle-selection-button ${isPromptSelected(prompt) ? 'selected' : ''}`}
+                      <button
+                        className={`prompt-action-button toggle-selection-button ${isPromptSelected(prompt) ? "selected" : ""}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleRolePromptSelection(prompt);
                         }}
                         title={isPromptSelected(prompt) ? "Remove from selection" : "Add to selection"}
                       >
-                        {isPromptSelected(prompt) ? (
-                          <Check size={14} />
-                        ) : (
-                          <CirclePlus size={14} />
-                        )}
+                        {isPromptSelected(prompt) ? <Check size={14} /> : <CirclePlus size={14} />}
                       </button>
-                      <button 
+                      <button
                         className="prompt-action-button delete-button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDeletePrompt(prompt.id);
+                          deleteRolePrompt(prompt.id);
                         }}
                         title="Delete this prompt"
                       >
@@ -143,7 +139,7 @@ const RolePromptsModal = ({
                 ))
               )}
             </div>
-            
+
             <div className="content-area role-prompt-editor">
               {editingPrompt ? (
                 <div className="edit-prompt-form">
@@ -152,19 +148,13 @@ const RolePromptsModal = ({
                     type="text"
                     className="prompt-title-input"
                     value={editingPrompt.name}
-                    onChange={(e) => setEditingPrompt({
-                      ...editingPrompt,
-                      name: e.target.value
-                    })}
+                    onChange={(e) => setEditingPrompt({ ...editingPrompt, name: e.target.value })}
                     placeholder="Enter prompt name"
                   />
                   <textarea
                     className="prompt-content-input"
                     value={editingPrompt.content}
-                    onChange={(e) => setEditingPrompt({
-                      ...editingPrompt,
-                      content: e.target.value
-                    })}
+                    onChange={(e) => setEditingPrompt({ ...editingPrompt, content: e.target.value })}
                     placeholder="Enter prompt content"
                     rows={12}
                   />
@@ -172,7 +162,7 @@ const RolePromptsModal = ({
                     <button className="cancel-button" onClick={cancelEdit}>
                       Cancel
                     </button>
-                    <button 
+                    <button
                       className="apply-button"
                       onClick={handleUpdatePrompt}
                       disabled={!editingPrompt.name || !editingPrompt.content}
@@ -185,7 +175,7 @@ const RolePromptsModal = ({
                 <div className="add-prompt-form">
                   <div className="prompt-add-action">
                     <h3>Add New Role Prompt</h3>
-                    <button 
+                    <button
                       className="apply-button add-prompt-button"
                       onClick={handleAddPrompt}
                       disabled={!newPromptName || !newPromptContent}
