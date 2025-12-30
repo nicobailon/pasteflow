@@ -35,7 +35,7 @@ import {
   reconcileSelectedInstructions,
 } from './use-app-state-helpers';
 
-type PendingWorkspaceData = Omit<WorkspaceState, 'selectedFolder'>;
+
 
 /**
  * Central application state hook implementing the single-source-of-truth pattern.
@@ -143,7 +143,9 @@ const useAppState = () => {
   const setProcessingStatus = useFileSystemStore((s) => s.setProcessingStatus);
   const isLoadingCancellable = useFileSystemStore((s) => s.isLoadingCancellable);
   const setIsLoadingCancellable = useFileSystemStore((s) => s.setIsLoadingCancellable);
-  const [pendingWorkspaceData, setPendingWorkspaceData] = useState(null as PendingWorkspaceData | null);
+  // Pending workspace data from Zustand store
+  const pendingWorkspaceData = useWorkspaceStore((s) => s.pendingWorkspaceData);
+  const setPendingWorkspaceData = useWorkspaceStore((s) => s.setPendingWorkspaceData);
   const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null);
   
   // Workspace state from Zustand store
