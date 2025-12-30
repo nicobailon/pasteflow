@@ -169,16 +169,11 @@
     "vite-tsconfig-paths": "^4.3.2"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.12",
-    "@ai-sdk/groq": "^2.0.19",
-    "@ai-sdk/openai": "^2.0.25",
-    "@ai-sdk/react": "^2.0.118",
     "@radix-ui/react-dialog": "^1.1.6",
     "@radix-ui/themes": "^3.2.1",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/react-window": "^1.8.8",
     "@xmldom/xmldom": "^0.9.6",
-    "ai": "^5.0.35",
     "axios": "^1.7.2",
     "better-sqlite3": "^11.7.0",
     "commander": "^11.1.0",
