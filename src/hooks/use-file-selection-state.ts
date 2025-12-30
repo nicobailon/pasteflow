@@ -483,7 +483,7 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
             if (applied > 400) break; // stay bounded
           }
         }
-      } catch {}
+      } catch { void 0; }
       const paths = new Set<string>(selectedFilesRef.current.map(f => f.path));
       cache.setSelectedPaths?.(paths);
       setManualCacheVersion(v => v + 1);
@@ -562,10 +562,10 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
       const removedThisChunk: string[] = [];
       for (let i = start; i < end; i++) {
         const f = snapshot[i];
-        if (!toRemove.has(f.path)) {
-          kept.push(f);
-        } else {
+        if (toRemove.has(f.path)) {
           removedThisChunk.push(f.path);
+        } else {
+          kept.push(f);
         }
       }
       index = end;
@@ -593,8 +593,9 @@ const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: stri
   const reconcilePendingFolderToggles = useCallback(() => {
     if (pendingFolderTogglesRef.current.size === 0) return;
     const now = Date.now();
-    const TIMEOUT_MS = 5000; // avoid infinite retries
-    for (const [folderPath, info] of [...pendingFolderTogglesRef.current.entries()]) {
+    const TIMEOUT_MS = 5000;
+    const pendingEntries = [...pendingFolderTogglesRef.current.entries()];
+    for (const [folderPath, info] of pendingEntries) {
       // Timeout handling
       if (now - info.ts > TIMEOUT_MS) {
         pendingFolderTogglesRef.current.delete(folderPath);
