@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useState, useRef, type Dispatch, type SetStateAction } from "react";
 
 export interface UseAgentThreadsOptions {
   readonly currentWorkspace: string | null;
@@ -90,6 +90,12 @@ export default function useAgentThreads(opts: UseAgentThreadsOptions): UseAgentT
 
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [threadsRefreshKey, setThreadsRefreshKey] = useState(0);
+
+  const sessionIdRef = useRef(sessionId);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+
+  const activeWorkspaceIdRef = useRef(activeWorkspaceId);
+  useEffect(() => { activeWorkspaceIdRef.current = activeWorkspaceId; }, [activeWorkspaceId]);
 
   const refreshActiveWorkspace = useCallback(async () => {
     try {
@@ -257,9 +263,9 @@ export default function useAgentThreads(opts: UseAgentThreadsOptions): UseAgentT
         await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:delete', { workspaceId: wsId, sessionId: session });
       }
     } catch { /* ignore */ }
-    if (sessionId === session) {
+    if (sessionIdRef.current === session) {
       try {
-        const wsId = activeWorkspaceId;
+        const wsId = activeWorkspaceIdRef.current;
         const listRes: unknown = await (window as any).electron?.ipcRenderer?.invoke?.('agent:threads:list', wsId ? { workspaceId: wsId } : {});
         const threads = extractThreadsFromIpc(listRes);
         if (threads.length > 0) {
@@ -274,7 +280,7 @@ export default function useAgentThreads(opts: UseAgentThreadsOptions): UseAgentT
       }
     }
     setThreadsRefreshKey((x) => x + 1);
-  }, [resolveWorkspaceId, sessionId, activeWorkspaceId, openThread, setSessionId, setHydratedMessages]);
+  }, [resolveWorkspaceId, openThread, setSessionId, setHydratedMessages]);
 
   return {
     activeWorkspaceId,

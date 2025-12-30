@@ -35,16 +35,18 @@ export function useDebouncedPersistentState<T>(
   }, [persistedValue]);
 
   const setDebounced = useCallback((next: T | ((val: T) => T)) => {
-    setValue(prev => (next instanceof Function ? next(prev) : next));
+    let resolvedValue: T;
+    setValue(prev => {
+      resolvedValue = next instanceof Function ? next(prev) : next;
+      return resolvedValue;
+    });
 
-    // Clear prior timer
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
 
-    // Schedule persistence
     timerRef.current = setTimeout(() => {
-      setPersistedValue(prev => (next instanceof Function ? next(prev) : next));
+      setPersistedValue(resolvedValue!);
       timerRef.current = null;
     }, debounceMs);
   }, [debounceMs, setPersistedValue]);
