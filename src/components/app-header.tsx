@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 
 import { FileTreeMode } from '../types/file-types';
 import type { AppState } from '../hooks/use-app-state';
+import { useWorkspaceStore } from '../stores';
 
 import "./app-header.css";
 
@@ -19,12 +20,9 @@ interface AppHeaderProps {
   setFileTreeMode: (mode: FileTreeMode) => void;
   tokenCounts: Record<FileTreeMode, number>;
   toggleWorkspaceModal?: () => void;
-  currentWorkspace?: string | null;
   saveCurrentWorkspace?: () => void;
-  headerSaveState?: 'idle' | 'saving' | 'success';
-  isAutoSaveEnabled?: boolean;
   setAutoSaveEnabled?: (enabled: boolean) => void;
-  appState?: AppState; // Will be passed through to WorkspaceModal
+  appState?: AppState;
 }
 
 const AppHeader = ({
@@ -33,13 +31,13 @@ const AppHeader = ({
   setFileTreeMode,
   tokenCounts,
   toggleWorkspaceModal,
-  currentWorkspace,
   saveCurrentWorkspace,
-  headerSaveState, // Destructure the new prop
-  isAutoSaveEnabled,
   setAutoSaveEnabled,
   appState
 }: AppHeaderProps): JSX.Element => {
+  const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
+  const headerSaveState = useWorkspaceStore((s) => s.headerSaveState);
+  const isAutoSaveEnabled = useWorkspaceStore((s) => s.isAutoSaveEnabled);
   const [localIsWorkspaceModalOpen, setLocalIsWorkspaceModalOpen] = useState(false);
   const workspaceDropdownRef = useRef<WorkspaceDropdownRef | null>(null);
   

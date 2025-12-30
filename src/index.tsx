@@ -96,10 +96,7 @@ const App = () => {
             closeAllDropdowns();
             setIsWorkspaceModalOpen(true);
           }}
-          currentWorkspace={appState.currentWorkspace}
           saveCurrentWorkspace={appState.saveCurrentWorkspace}
-          headerSaveState={appState.headerSaveState}
-          isAutoSaveEnabled={appState.isAutoSaveEnabled}
           setAutoSaveEnabled={appState.setAutoSaveEnabled}
           appState={appState}
         />

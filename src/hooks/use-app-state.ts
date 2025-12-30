@@ -31,6 +31,7 @@ import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
 import useLatest from './use-latest';
+import { useWorkspaceStore } from '../stores';
 import {
   buildWorkspaceState,
   reconcileSelectedInstructions,
@@ -1380,6 +1381,15 @@ const useAppState = () => {
     isProcessing: processingStatus.status !== 'complete' && processingStatus.status !== 'idle',
     onAutoSave: performAutoSave
   });
+
+  // Sync workspace state to Zustand store
+  useEffect(() => {
+    useWorkspaceStore.setState({
+      currentWorkspace,
+      headerSaveState,
+      isAutoSaveEnabled: autoSave.isAutoSaveEnabled,
+    });
+  }, [currentWorkspace, headerSaveState, autoSave.isAutoSaveEnabled]);
 
   // Clean up selected files when workspace changes
   useEffect(() => {
