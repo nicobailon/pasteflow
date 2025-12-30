@@ -20,3 +20,19 @@ export interface InstructionRow {
   created_at: number;
   updated_at: number;
 }
+
+export interface SystemPromptRow {
+  id: string;
+  name: string;
+  content: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface RolePromptRow {
+  id: string;
+  name: string;
+  content: string;
+  created_at: number;
+  updated_at: number;
+}

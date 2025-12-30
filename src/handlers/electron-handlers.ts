@@ -41,8 +41,8 @@ const createInitialWorkspaceState = (folderPath: string): WorkspaceState => ({
   exclusionPatterns: [],
   userInstructions: '',
   tokenCounts: {},
-  systemPrompts: [],
-  rolePrompts: [],
+  selectedSystemPromptIds: [],
+  selectedRolePromptIds: [],
   selectedInstructions: []
 });
 

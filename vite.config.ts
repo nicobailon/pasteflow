@@ -5,6 +5,7 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
+  base: './',
   plugins: [
     react({
       babel: {

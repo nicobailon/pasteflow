@@ -1,7 +1,7 @@
 export type FileTreeMode = "none" | "selected" | "selected-with-roots" | "complete";
 
 import type { SelectedFileReference } from "./selection";
-import type { SystemPrompt, RolePrompt, Instruction } from "./prompts";
+import type { Instruction } from "./prompts";
 
 export interface WorkspaceState {
   selectedFolder: string | null;
@@ -14,8 +14,8 @@ export interface WorkspaceState {
   userInstructions: string;
   tokenCounts: { [filePath: string]: number };
   folderIndex?: Map<string, string[]>;
-  systemPrompts: SystemPrompt[];
-  rolePrompts: RolePrompt[];
+  selectedSystemPromptIds?: string[];
+  selectedRolePromptIds?: string[];
   selectedInstructions?: Instruction[];
   savedAt?: number;
 }

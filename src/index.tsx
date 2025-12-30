@@ -38,6 +38,29 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    const stored = localStorage.getItem('pasteflow-prompts');
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      const state = parsed.state || {};
+      if (state.systemPrompts?.length || state.rolePrompts?.length || state.userInstructions) {
+        window.electron.ipcRenderer.invoke('/migrate-prompts', {
+          systemPrompts: state.systemPrompts,
+          rolePrompts: state.rolePrompts,
+          userInstructions: state.userInstructions
+        }).then((result: { success?: boolean }) => {
+          if (result.success) {
+            const newState = { ...state, systemPrompts: [], rolePrompts: [], userInstructions: '' };
+            localStorage.setItem('pasteflow-prompts', JSON.stringify({ state: newState }));
+          }
+        });
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, []);
+
+  useEffect(() => {
     const open = () => setIsWorkspaceModalOpen(true);
     window.addEventListener('pasteflow:open-workspaces', open);
     return () => {

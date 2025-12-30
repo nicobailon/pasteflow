@@ -3,7 +3,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { getNodeRequire } from '../node-require';
 import { retryTransaction, retryConnection, executeWithRetry } from './retry-utils';
 import { toDomainWorkspaceState, fromDomainWorkspaceState } from './mappers';
-import type { WorkspaceRecord, PreferenceRecord, InstructionRow } from './types';
+import type { WorkspaceRecord, PreferenceRecord, InstructionRow, SystemPromptRow, RolePromptRow } from './types';
 import type { WorkspaceState } from '../../shared-types';
 
 type PreviewId = string & { readonly __brand: "PreviewId" };
@@ -272,6 +272,16 @@ interface PreparedStatements {
   createInstruction: BetterSqlite3.Statement<[string, string, string]>;
   updateInstruction: BetterSqlite3.Statement<[string, string, string]>;
   deleteInstruction: BetterSqlite3.Statement<[string]>;
+
+  listSystemPrompts: BetterSqlite3.Statement<[]>;
+  createSystemPrompt: BetterSqlite3.Statement<[string, string, string]>;
+  updateSystemPrompt: BetterSqlite3.Statement<[string, string, string]>;
+  deleteSystemPrompt: BetterSqlite3.Statement<[string]>;
+
+  listRolePrompts: BetterSqlite3.Statement<[]>;
+  createRolePrompt: BetterSqlite3.Statement<[string, string, string]>;
+  updateRolePrompt: BetterSqlite3.Statement<[string, string, string]>;
+  deleteRolePrompt: BetterSqlite3.Statement<[string]>;
 }
 
 /**
@@ -424,6 +434,22 @@ export class PasteFlowDatabase {
           updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
         );
 
+        CREATE TABLE IF NOT EXISTS system_prompts (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+          updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        );
+
+        CREATE TABLE IF NOT EXISTS role_prompts (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+          updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        );
+
         -- Phase 4: Durable agent chat sessions and telemetry
         CREATE TABLE IF NOT EXISTS chat_sessions (
           id TEXT PRIMARY KEY,
@@ -463,6 +489,10 @@ export class PasteFlowDatabase {
         CREATE INDEX IF NOT EXISTS idx_preferences_updated_at ON preferences(updated_at);
         CREATE INDEX IF NOT EXISTS idx_instructions_name ON instructions(name);
         CREATE INDEX IF NOT EXISTS idx_instructions_updated_at ON instructions(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_system_prompts_name ON system_prompts(name);
+        CREATE INDEX IF NOT EXISTS idx_system_prompts_updated_at ON system_prompts(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_role_prompts_name ON role_prompts(name);
+        CREATE INDEX IF NOT EXISTS idx_role_prompts_updated_at ON role_prompts(updated_at DESC);
 
         CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at ON chat_sessions(updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_tool_executions_session ON tool_executions(session_id);
@@ -627,6 +657,46 @@ export class PasteFlowDatabase {
         
         deleteInstruction: this.db!.prepare(`
           DELETE FROM instructions WHERE id = ?
+        `),
+
+        listSystemPrompts: this.db!.prepare(`
+          SELECT id, name, content, created_at, updated_at 
+          FROM system_prompts 
+          ORDER BY updated_at DESC
+        `),
+
+        createSystemPrompt: this.db!.prepare(`
+          INSERT INTO system_prompts (id, name, content) VALUES (?, ?, ?)
+        `),
+
+        updateSystemPrompt: this.db!.prepare(`
+          UPDATE system_prompts 
+          SET name = ?, content = ?, updated_at = strftime('%s', 'now') * 1000 
+          WHERE id = ?
+        `),
+
+        deleteSystemPrompt: this.db!.prepare(`
+          DELETE FROM system_prompts WHERE id = ?
+        `),
+
+        listRolePrompts: this.db!.prepare(`
+          SELECT id, name, content, created_at, updated_at 
+          FROM role_prompts 
+          ORDER BY updated_at DESC
+        `),
+
+        createRolePrompt: this.db!.prepare(`
+          INSERT INTO role_prompts (id, name, content) VALUES (?, ?, ?)
+        `),
+
+        updateRolePrompt: this.db!.prepare(`
+          UPDATE role_prompts 
+          SET name = ?, content = ?, updated_at = strftime('%s', 'now') * 1000 
+          WHERE id = ?
+        `),
+
+        deleteRolePrompt: this.db!.prepare(`
+          DELETE FROM role_prompts WHERE id = ?
         `),
       };
     }, {
@@ -894,8 +964,8 @@ export class PasteFlowDatabase {
         exclusionPatterns: [],
         userInstructions: '',
         tokenCounts: {},
-        systemPrompts: [],
-        rolePrompts: [],
+        selectedSystemPromptIds: [],
+        selectedRolePromptIds: [],
         ...state
       };
       const stateJson = fromDomainWorkspaceState(fullState);
@@ -1499,6 +1569,80 @@ export class PasteFlowDatabase {
       this.statements.deleteInstruction.run(id);
     }, {
       operation: 'delete_instruction'
+    });
+  }
+
+  async listSystemPrompts(): Promise<SystemPromptRow[]> {
+    this.ensureInitialized();
+    const result = await executeWithRetry(async () => {
+      return this.statements.listSystemPrompts.all() as SystemPromptRow[];
+    }, {
+      operation: 'list_system_prompts'
+    });
+    return result.result as SystemPromptRow[];
+  }
+
+  async createSystemPrompt(id: string, name: string, content: string): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.statements.createSystemPrompt.run(id, name, content);
+    }, {
+      operation: 'create_system_prompt'
+    });
+  }
+
+  async updateSystemPrompt(id: string, name: string, content: string): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.statements.updateSystemPrompt.run(name, content, id);
+    }, {
+      operation: 'update_system_prompt'
+    });
+  }
+
+  async deleteSystemPrompt(id: string): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.statements.deleteSystemPrompt.run(id);
+    }, {
+      operation: 'delete_system_prompt'
+    });
+  }
+
+  async listRolePrompts(): Promise<RolePromptRow[]> {
+    this.ensureInitialized();
+    const result = await executeWithRetry(async () => {
+      return this.statements.listRolePrompts.all() as RolePromptRow[];
+    }, {
+      operation: 'list_role_prompts'
+    });
+    return result.result as RolePromptRow[];
+  }
+
+  async createRolePrompt(id: string, name: string, content: string): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.statements.createRolePrompt.run(id, name, content);
+    }, {
+      operation: 'create_role_prompt'
+    });
+  }
+
+  async updateRolePrompt(id: string, name: string, content: string): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.statements.updateRolePrompt.run(name, content, id);
+    }, {
+      operation: 'update_role_prompt'
+    });
+  }
+
+  async deleteRolePrompt(id: string): Promise<void> {
+    this.ensureInitialized();
+    await executeWithRetry(async () => {
+      this.statements.deleteRolePrompt.run(id);
+    }, {
+      operation: 'delete_role_prompt'
     });
   }
 

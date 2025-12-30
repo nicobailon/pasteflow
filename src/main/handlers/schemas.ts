@@ -24,6 +24,25 @@ export const instructionBody = z.object({
   content: z.string(),
 });
 
+// System Prompts
+export const systemPromptBody = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1).max(255),
+  content: z.string(),
+});
+
+// Role Prompts
+export const rolePromptBody = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1).max(255),
+  content: z.string(),
+});
+
+// User Instructions
+export const userInstructionsBody = z.object({
+  content: z.string(),
+});
+
 // Preferences
 export const prefSetBody = z.object({ value: z.unknown().optional(), encrypted: z.boolean().optional() });
 

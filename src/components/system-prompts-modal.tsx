@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Check, CirclePlus, Plus, Trash, X } from "lucide-react";
 import { useState, useEffect } from "react";
 
+import { useSystemPromptsState } from "../hooks/use-system-prompts-state";
 import { useUIStore, usePromptStore } from "../stores";
 import type { SystemPrompt } from "../types/file-types";
 
@@ -10,11 +11,8 @@ const SystemPromptsModal = (): JSX.Element => {
   const initialEditPrompt = useUIStore((s) => s.systemPromptToEdit);
   const closeModal = useUIStore((s) => s.closeSystemPromptsModal);
 
-  const systemPrompts = usePromptStore((s) => s.systemPrompts);
+  const { systemPrompts, createSystemPrompt, updateSystemPrompt: updatePrompt, deleteSystemPrompt: deletePrompt } = useSystemPromptsState();
   const selectedSystemPrompts = usePromptStore((s) => s.selectedSystemPrompts);
-  const addSystemPrompt = usePromptStore((s) => s.addSystemPrompt);
-  const deleteSystemPrompt = usePromptStore((s) => s.deleteSystemPrompt);
-  const updateSystemPrompt = usePromptStore((s) => s.updateSystemPrompt);
   const toggleSystemPromptSelection = usePromptStore((s) => s.toggleSystemPromptSelection);
 
   const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
@@ -33,7 +31,7 @@ const SystemPromptsModal = (): JSX.Element => {
     }
   }, [isOpen, initialEditPrompt]);
 
-  const handleAddPrompt = () => {
+  const handleAddPrompt = async () => {
     if (!newPromptName || !newPromptContent) return;
 
     const newPrompt: SystemPrompt = {
@@ -42,16 +40,32 @@ const SystemPromptsModal = (): JSX.Element => {
       content: newPromptContent,
     };
 
-    addSystemPrompt(newPrompt);
-    setNewPromptName("");
-    setNewPromptContent("");
-    setEditingPrompt(null);
+    try {
+      await createSystemPrompt(newPrompt);
+      setNewPromptName("");
+      setNewPromptContent("");
+      setEditingPrompt(null);
+    } catch {
+      // error handled in hook
+    }
   };
 
-  const handleUpdatePrompt = () => {
+  const handleUpdatePrompt = async () => {
     if (!editingPrompt || !editingPrompt.name || !editingPrompt.content) return;
-    updateSystemPrompt(editingPrompt);
-    setEditingPrompt(null);
+    try {
+      await updatePrompt(editingPrompt);
+      setEditingPrompt(null);
+    } catch {
+      // error handled in hook
+    }
+  };
+
+  const handleDeletePrompt = async (id: string) => {
+    try {
+      await deletePrompt(id);
+    } catch {
+      // error handled in hook
+    }
   };
 
   const startEdit = (prompt: SystemPrompt) => {
@@ -128,7 +142,7 @@ const SystemPromptsModal = (): JSX.Element => {
                         className="prompt-action-button delete-button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteSystemPrompt(prompt.id);
+                          void handleDeletePrompt(prompt.id);
                         }}
                         title="Delete this prompt"
                       >

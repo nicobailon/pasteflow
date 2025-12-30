@@ -133,6 +133,22 @@ export class PasteFlowAPIServer {
     this.app.put('/api/v1/instructions/:id', (req, res) => this.routeHandlers.handleUpdateInstruction(req, res));
     this.app.delete('/api/v1/instructions/:id', (req, res) => this.routeHandlers.handleDeleteInstruction(req, res));
 
+    // System Prompts
+    this.app.get('/api/v1/prompts/system', (req, res) => this.routeHandlers.handleListSystemPrompts(req, res));
+    this.app.post('/api/v1/prompts/system', (req, res) => this.routeHandlers.handleCreateSystemPrompt(req, res));
+    this.app.put('/api/v1/prompts/system/:id', (req, res) => this.routeHandlers.handleUpdateSystemPrompt(req, res));
+    this.app.delete('/api/v1/prompts/system/:id', (req, res) => this.routeHandlers.handleDeleteSystemPrompt(req, res));
+
+    // Role Prompts
+    this.app.get('/api/v1/prompts/role', (req, res) => this.routeHandlers.handleListRolePrompts(req, res));
+    this.app.post('/api/v1/prompts/role', (req, res) => this.routeHandlers.handleCreateRolePrompt(req, res));
+    this.app.put('/api/v1/prompts/role/:id', (req, res) => this.routeHandlers.handleUpdateRolePrompt(req, res));
+    this.app.delete('/api/v1/prompts/role/:id', (req, res) => this.routeHandlers.handleDeleteRolePrompt(req, res));
+
+    // User Instructions
+    this.app.get('/api/v1/user-instructions', (req, res) => this.routeHandlers.handleGetUserInstructions(req, res));
+    this.app.put('/api/v1/user-instructions', (req, res) => this.routeHandlers.handleSetUserInstructions(req, res));
+
     // Preferences
     this.app.get('/api/v1/prefs/:key', (req, res) => this.routeHandlers.handleGetPreference(req, res));
     this.app.put('/api/v1/prefs/:key', (req, res) => this.routeHandlers.handleSetPreference(req, res));
@@ -282,7 +298,7 @@ export class PasteFlowAPIServer {
     if (!validation) return;
 
     try {
-      const options = this.parseContentOptions(req, validation);
+      const options = await this.parseContentOptions(req, validation);
       const { content, fileCount } = await aggregateSelectedContent(options);
 
       const tokenService = getMainTokenService();
@@ -307,7 +323,7 @@ export class PasteFlowAPIServer {
         return this.handlePathError(outVal, res);
       }
 
-      const options = this.parseContentOptions(req, validation);
+      const options = await this.parseContentOptions(req, validation);
       const { content } = await aggregateSelectedContent(options);
       const { bytes } = await writeExport(outVal.absolutePath, content, body.data.overwrite === true);
 
@@ -323,7 +339,7 @@ export class PasteFlowAPIServer {
     if (!validation) return;
 
     try {
-      const options = this.parseContentOptions(req, validation);
+      const options = await this.parseContentOptions(req, validation);
 
       const root = options.selectedFolder || options.folderPath;
       const validTreeModes: FileTreeMode[] = ['none', 'selected', 'selected-with-roots', 'complete'];
@@ -386,7 +402,7 @@ export class PasteFlowAPIServer {
     if (!validation) return;
 
     try {
-      const options = this.parseContentOptions(req, validation);
+      const options = await this.parseContentOptions(req, validation);
 
       // Parse query flags
       const q = req.query as unknown as {
@@ -781,7 +797,7 @@ export class PasteFlowAPIServer {
     return res.status(400).json(toApiError('VALIDATION_ERROR', result.message || 'Invalid path'));
   }
 
-  private parseContentOptions(req: Request, validation: { ws: { folder_path: string }; state: WorkspaceState }): AggregationOptions {
+  private async parseContentOptions(req: Request, validation: { ws: { folder_path: string }; state: WorkspaceState }): Promise<AggregationOptions> {
     const query = req.query as { maxFiles?: string; maxBytes?: string };
     const maxFilesQ = Number.parseInt(query.maxFiles ?? '', 10);
     const maxBytesQ = Number.parseInt(query.maxBytes ?? '', 10);
@@ -792,8 +808,8 @@ export class PasteFlowAPIServer {
       sortOrder?: string;
       fileTreeMode?: string;
       selectedFolder?: string;
-      systemPrompts?: string[];
-      rolePrompts?: string[];
+      selectedSystemPromptIds?: string[];
+      selectedRolePromptIds?: string[];
       selectedInstructions?: string[];
       userInstructions?: string;
       exclusionPatterns?: string[];
@@ -801,33 +817,39 @@ export class PasteFlowAPIServer {
 
     const selection = (state.selectedFiles ?? []) as { path: string; lines?: { start: number; end: number }[] }[];
 
-    // Ensure fileTreeMode is a valid FileTreeMode value
     const validTreeModes: FileTreeMode[] = ['none', 'selected', 'selected-with-roots', 'complete'];
     const fileTreeMode = validTreeModes.includes(state.fileTreeMode as FileTreeMode) 
       ? (state.fileTreeMode as FileTreeMode)
       : 'selected' as FileTreeMode;
 
-    // Convert string arrays to prompt objects (these are likely IDs or content stored in the workspace)
-    // For now, we'll convert them to basic prompt objects
-    // In a real implementation, these would be looked up from a prompts database
-    const systemPrompts: SystemPrompt[] = (state.systemPrompts ?? []).map((promptStr, index) => ({
-      id: `system-${index}`,
-      name: `System Prompt ${index + 1}`,
-      content: String(promptStr), // The string is the actual content
-      tokenCount: undefined
-    }));
+    const selectedSystemPromptIds = state.selectedSystemPromptIds ?? [];
+    const selectedRolePromptIds = state.selectedRolePromptIds ?? [];
+    
+    const allSystemPrompts = await this.db.listSystemPrompts();
+    const allRolePrompts = await this.db.listRolePrompts();
+    
+    const systemPrompts: SystemPrompt[] = allSystemPrompts
+      .filter((p) => selectedSystemPromptIds.includes(p.id))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        content: p.content,
+        tokenCount: undefined
+      }));
 
-    const rolePrompts: RolePrompt[] = (state.rolePrompts ?? []).map((promptStr, index) => ({
-      id: `role-${index}`,
-      name: `Role Prompt ${index + 1}`,
-      content: String(promptStr), // The string is the actual content
-      tokenCount: undefined
-    }));
+    const rolePrompts: RolePrompt[] = allRolePrompts
+      .filter((p) => selectedRolePromptIds.includes(p.id))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        content: p.content,
+        tokenCount: undefined
+      }));
 
     const selectedInstructions: Instruction[] = (state.selectedInstructions ?? []).map((instructionStr, index) => ({
       id: `instruction-${index}`,
       name: `Instruction ${index + 1}`,
-      content: String(instructionStr), // The string is the actual content
+      content: String(instructionStr),
       tokenCount: undefined
     }));
 

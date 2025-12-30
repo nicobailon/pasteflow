@@ -27,6 +27,8 @@ import { useWorkspaceState } from './use-workspace-state';
 import { useTokenService } from './use-token-service';
 import { useCancellableOperation } from './use-cancellable-operation';
 import { useInstructionsState } from './use-instructions-state';
+import { useSystemPromptsState } from './use-system-prompts-state';
+import { useRolePromptsState } from './use-role-prompts-state';
 import { useWorkspaceAutoSave } from './use-workspace-autosave';
 import useLatest from './use-latest';
 import { useWorkspaceStore, useUIStore, usePromptStore, useFileSystemStore } from '../stores';
@@ -200,12 +202,21 @@ const useAppState = () => {
   // Token service hook - always enabled
   const { countTokens: serviceCountTokens, countTokensBatch, isReady: isServiceReady } = useTokenService();
 
+  // Instructions (docs) state - now from database
+  const instructionsState = useInstructionsState();
+  
+  // System prompts and role prompts - from SQLite (must be called before refs that use them)
+  const systemPromptsState = useSystemPromptsState();
+  const rolePromptsState = useRolePromptsState();
+
   // Refs for state values needed in callbacks to avoid unstable dependencies
   const allFilesRef = useLatest(allFiles);
   const selectedFolderRef = useLatest(selectedFolder);
   const processingStatusRef = useLatest(processingStatus);
-  const promptStateRef = useLatest(promptState); // Ref for the whole prompt state object
+  const promptStateRef = useLatest(promptState);
   const selectedFilesRef = useLatest(selectedFiles);
+  const systemPromptsRef = useLatest(systemPromptsState.systemPrompts);
+  const rolePromptsRef = useLatest(rolePromptsState.rolePrompts);
 
   // Track last processed sequence per workspace to avoid out-of-order updates
   const workspaceSeqRef = useRef<Map<string, number>>(new Map());
@@ -219,9 +230,23 @@ const useAppState = () => {
   const setUserInstructions = promptState.setUserInstructions;
   const instructionsTokenCount = useMemo(() => estimateTokenCount(userInstructions), [userInstructions]);
 
-  // Instructions (docs) state - now from database
-  const instructionsState = useInstructionsState();
-  
+  useEffect(() => {
+    const handler = async () => {
+      try {
+        const raw = await window.electron.ipcRenderer.invoke('/user-instructions/get', {});
+        if (raw && typeof raw === 'object' && 'success' in raw && (raw as { success: boolean }).success) {
+          setUserInstructions((raw as { data: { content: string } }).data.content || '');
+        }
+      } catch {
+        // ignore
+      }
+    };
+    window.electron?.ipcRenderer?.on('user-instructions-updated', handler as unknown as (...args: unknown[]) => void);
+    return () => {
+      window.electron?.ipcRenderer?.removeListener('user-instructions-updated', handler as unknown as (...args: unknown[]) => void);
+    };
+  }, [setUserInstructions]);
+
   // Selected instructions from Zustand store
   const selectedInstructions = promptState.selectedInstructions;
   const setSelectedInstructions = promptState.setSelectedInstructions;
@@ -914,8 +939,8 @@ const useAppState = () => {
       fileTreeMode,
       exclusionPatterns,
       userInstructions,
-      systemPrompts: promptState.selectedSystemPrompts,
-      rolePrompts: promptState.selectedRolePrompts,
+      selectedSystemPrompts: promptState.selectedSystemPrompts,
+      selectedRolePrompts: promptState.selectedRolePrompts,
       selectedInstructions,
     });
 
@@ -1061,28 +1086,28 @@ const useAppState = () => {
     }
   }, [setSelectionState, loadMultipleFileContents]);
 
-  const applyPrompts = useCallback((promptsToApply: { systemPrompts?: SystemPrompt[], rolePrompts?: RolePrompt[] }) => {
+  const applyPrompts = useCallback((promptsToApply: { selectedSystemPromptIds?: string[], selectedRolePromptIds?: string[] }) => {
 
     const currentPrompts = promptStateRef.current;
+    const allSystemPrompts = systemPromptsRef.current;
+    const allRolePrompts = rolePromptsRef.current;
 
     // Deselect current prompts
-    for (const prompt of currentPrompts.selectedSystemPrompts) currentPrompts.toggleSystemPromptSelection(prompt)
-    ;
-    for (const prompt of currentPrompts.selectedRolePrompts) currentPrompts.toggleRolePromptSelection(prompt)
-    ;
+    for (const prompt of currentPrompts.selectedSystemPrompts) currentPrompts.toggleSystemPromptSelection(prompt);
+    for (const prompt of currentPrompts.selectedRolePrompts) currentPrompts.toggleRolePromptSelection(prompt);
 
-    // Apply new prompts
-    if (promptsToApply?.systemPrompts) {
-      for (const savedPrompt of promptsToApply.systemPrompts) {
-        const availablePrompt = currentPrompts.systemPrompts.find((p: SystemPrompt) => p.id === savedPrompt.id);
+    // Apply new prompts by looking up IDs from SQLite data
+    if (promptsToApply?.selectedSystemPromptIds) {
+      for (const promptId of promptsToApply.selectedSystemPromptIds) {
+        const availablePrompt = allSystemPrompts.find((p: SystemPrompt) => p.id === promptId);
         if (availablePrompt && !currentPrompts.selectedSystemPrompts.some((p: SystemPrompt) => p.id === availablePrompt.id)) {
           currentPrompts.toggleSystemPromptSelection(availablePrompt);
         }
       }
     }
-    if (promptsToApply?.rolePrompts) {
-      for (const savedPrompt of promptsToApply.rolePrompts) {
-        const availablePrompt = currentPrompts.rolePrompts.find((p: RolePrompt) => p.id === savedPrompt.id);
+    if (promptsToApply?.selectedRolePromptIds) {
+      for (const promptId of promptsToApply.selectedRolePromptIds) {
+        const availablePrompt = allRolePrompts.find((p: RolePrompt) => p.id === promptId);
         if (availablePrompt && !currentPrompts.selectedRolePrompts.some((p: RolePrompt) => p.id === availablePrompt.id)) {
           currentPrompts.toggleRolePromptSelection(availablePrompt);
         }
@@ -1149,10 +1174,14 @@ const useAppState = () => {
     applyExpandedNodes(workspaceData.expandedNodes);
     applySelectedFiles(workspaceData.selectedFiles, allFilesRef.current);
     setUserInstructions(workspaceData.userInstructions || '');
-    applyPrompts({
-      systemPrompts: (workspaceData as any).systemPrompts || [],
-      rolePrompts: (workspaceData as any).rolePrompts || []
-    });
+    
+    const systemIds = workspaceData.selectedSystemPromptIds 
+      ?? (workspaceData as unknown as { systemPrompts?: SystemPrompt[] }).systemPrompts?.map((p) => p.id) 
+      ?? [];
+    const roleIds = workspaceData.selectedRolePromptIds
+      ?? (workspaceData as unknown as { rolePrompts?: RolePrompt[] }).rolePrompts?.map((p) => p.id)
+      ?? [];
+    applyPrompts({ selectedSystemPromptIds: systemIds, selectedRolePromptIds: roleIds });
 
     // Reconcile selectedInstructions with current database state
     // The workspace stores full instruction objects, but we need to match them
@@ -1354,8 +1383,8 @@ const useAppState = () => {
         }
         return acc;
       })(),
-      systemPrompts: promptState.selectedSystemPrompts,
-      rolePrompts: promptState.selectedRolePrompts,
+      selectedSystemPromptIds: promptState.selectedSystemPrompts.map(p => p.id),
+      selectedRolePromptIds: promptState.selectedRolePrompts.map(p => p.id),
       selectedInstructions: selectedInstructions
     };
 
@@ -1390,11 +1419,11 @@ const useAppState = () => {
     exclusionPatterns,
     selectedInstructions: selectedInstructions.map(i => i.id),
     customPrompts: {
-      systemPrompts: (promptState.systemPrompts ?? []).map(p => ({
+      systemPrompts: (systemPromptsState.systemPrompts ?? []).map(p => ({
         ...p,
         selected: (promptState.selectedSystemPrompts ?? []).some(sp => sp.id === p.id)
       })),
-      rolePrompts: (promptState.rolePrompts ?? []).map(p => ({
+      rolePrompts: (rolePromptsState.rolePrompts ?? []).map(p => ({
         ...p,
         selected: (promptState.selectedRolePrompts ?? []).some(rp => rp.id === p.id)
       }))
@@ -1511,8 +1540,8 @@ const useAppState = () => {
           fileTreeMode: fileTreeModeRef.current,
           exclusionPatterns: exclusionPatternsRef.current,
           userInstructions: userInstructionsRef.current,
-          systemPrompts: promptStateRef.current.selectedSystemPrompts,
-          rolePrompts: promptStateRef.current.selectedRolePrompts,
+          selectedSystemPrompts: promptStateRef.current.selectedSystemPrompts,
+          selectedRolePrompts: promptStateRef.current.selectedRolePrompts,
           selectedInstructions: selectedInstructionsRef.current,
         });
         await persistWorkspace(currentWorkspaceRef.current, workspace);
@@ -1720,18 +1749,18 @@ const useAppState = () => {
     // File selection state
     ...fileSelection,
 
-    // Prompts state (exclude userInstructions which is managed locally)
-    systemPrompts: promptState.systemPrompts,
+    // Prompts state (SQLite-backed data, selection from Zustand)
+    systemPrompts: systemPromptsState.systemPrompts,
     selectedSystemPrompts: promptState.selectedSystemPrompts,
-    rolePrompts: promptState.rolePrompts,
+    rolePrompts: rolePromptsState.rolePrompts,
     selectedRolePrompts: promptState.selectedRolePrompts,
-    handleAddSystemPrompt: promptState.addSystemPrompt,
-    handleDeleteSystemPrompt: promptState.deleteSystemPrompt,
-    handleUpdateSystemPrompt: promptState.updateSystemPrompt,
+    handleAddSystemPrompt: systemPromptsState.createSystemPrompt,
+    handleDeleteSystemPrompt: systemPromptsState.deleteSystemPrompt,
+    handleUpdateSystemPrompt: systemPromptsState.updateSystemPrompt,
     toggleSystemPromptSelection: promptState.toggleSystemPromptSelection,
-    handleAddRolePrompt: promptState.addRolePrompt,
-    handleDeleteRolePrompt: promptState.deleteRolePrompt,
-    handleUpdateRolePrompt: promptState.updateRolePrompt,
+    handleAddRolePrompt: rolePromptsState.createRolePrompt,
+    handleDeleteRolePrompt: rolePromptsState.deleteRolePrompt,
+    handleUpdateRolePrompt: rolePromptsState.updateRolePrompt,
     toggleRolePromptSelection: promptState.toggleRolePromptSelection,
     getPrompts: promptState.getPromptsSnapshot,
     setPrompts: promptState.restorePromptsSnapshot,

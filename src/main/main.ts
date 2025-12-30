@@ -14,7 +14,7 @@ import { getPathValidator } from '../security/path-validator';
 import { shouldExcludeByDefault as shouldExcludeByDefaultFromFileOps, BINARY_EXTENSIONS as BINARY_EXTENSIONS_FROM_FILE_OPS, isLikelyBinaryContent as isLikelyBinaryContentFromFileOps } from '../file-ops/filters';
 import { getMainTokenService } from '../services/token-service-main';
 
-import type { InstructionRow } from './db/types';
+import type { InstructionRow, SystemPromptRow, RolePromptRow } from './db/types';
 import type { ParsedWorkspace, PreferenceValue } from './db/database-implementation';
 import * as zSchemas from './ipc/schemas';
 import { DatabaseBridge } from './db/database-bridge';
@@ -1030,6 +1030,229 @@ ipcMain.handle('/instructions/delete', async (_e, params: unknown) => {
       return { success: true, data: null };
     }
     return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+function mapSystemPromptDbToIpc(p: SystemPromptRow) {
+  return {
+    id: p.id,
+    name: p.name,
+    content: p.content,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+  } as const;
+}
+
+ipcMain.handle('/system-prompts/list', async () => {
+  try {
+    if (database?.initialized) {
+      const list = await database.listSystemPrompts();
+      const shaped = list.map(mapSystemPromptDbToIpc);
+      return { success: true, data: shaped };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/system-prompts/create', async (_e, params: unknown) => {
+  try {
+    const zod = await import('zod');
+    const schema = zod.z.object({
+      id: zod.z.string().min(1),
+      name: zod.z.string().min(1),
+      content: zod.z.string(),
+    });
+    const p = schema.parse(params);
+    if (database?.initialized) {
+      await database.createSystemPrompt(p.id, p.name, p.content);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/system-prompts/update', async (_e, params: unknown) => {
+  try {
+    const zod = await import('zod');
+    const schema = zod.z.object({
+      id: zod.z.string().min(1),
+      name: zod.z.string().min(1),
+      content: zod.z.string(),
+    });
+    const p = schema.parse(params);
+    if (database?.initialized) {
+      await database.updateSystemPrompt(p.id, p.name, p.content);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/system-prompts/delete', async (_e, params: unknown) => {
+  try {
+    const zod = await import('zod');
+    const schema = zod.z.object({ id: zod.z.string().min(1) });
+    const p = schema.parse(params);
+    if (database?.initialized) {
+      await database.deleteSystemPrompt(p.id);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+function mapRolePromptDbToIpc(p: RolePromptRow) {
+  return {
+    id: p.id,
+    name: p.name,
+    content: p.content,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+  } as const;
+}
+
+ipcMain.handle('/role-prompts/list', async () => {
+  try {
+    if (database?.initialized) {
+      const list = await database.listRolePrompts();
+      const shaped = list.map(mapRolePromptDbToIpc);
+      return { success: true, data: shaped };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/role-prompts/create', async (_e, params: unknown) => {
+  try {
+    const zod = await import('zod');
+    const schema = zod.z.object({
+      id: zod.z.string().min(1),
+      name: zod.z.string().min(1),
+      content: zod.z.string(),
+    });
+    const p = schema.parse(params);
+    if (database?.initialized) {
+      await database.createRolePrompt(p.id, p.name, p.content);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/role-prompts/update', async (_e, params: unknown) => {
+  try {
+    const zod = await import('zod');
+    const schema = zod.z.object({
+      id: zod.z.string().min(1),
+      name: zod.z.string().min(1),
+      content: zod.z.string(),
+    });
+    const p = schema.parse(params);
+    if (database?.initialized) {
+      await database.updateRolePrompt(p.id, p.name, p.content);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/role-prompts/delete', async (_e, params: unknown) => {
+  try {
+    const zod = await import('zod');
+    const schema = zod.z.object({ id: zod.z.string().min(1) });
+    const p = schema.parse(params);
+    if (database?.initialized) {
+      await database.deleteRolePrompt(p.id);
+      return { success: true, data: null };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/user-instructions/get', async () => {
+  try {
+    if (database?.initialized) {
+      const value = await database.getPreference('user.instructions');
+      return { success: true, data: { content: (value as string) ?? '' } };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/user-instructions/set', async (_e, params: unknown) => {
+  try {
+    const zod = await import('zod');
+    const schema = zod.z.object({ content: zod.z.string() });
+    const p = schema.parse(params);
+    if (database?.initialized) {
+      await database.setPreference('user.instructions', p.content);
+      return { success: true, data: true };
+    }
+    return { success: false, error: 'DB_NOT_INITIALIZED' };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('/migrate-prompts', async (_e, params: unknown) => {
+  try {
+    const zod = await import('zod');
+    const promptSchema = zod.z.object({
+      id: zod.z.string(),
+      name: zod.z.string(),
+      content: zod.z.string(),
+    });
+    const schema = zod.z.object({
+      systemPrompts: zod.z.array(promptSchema).optional(),
+      rolePrompts: zod.z.array(promptSchema).optional(),
+      userInstructions: zod.z.string().optional(),
+    });
+    const data = schema.parse(params);
+
+    if (!database?.initialized) {
+      return { success: false, error: 'DB_NOT_INITIALIZED' };
+    }
+
+    const existingSystem = await database.listSystemPrompts();
+    const existingRole = await database.listRolePrompts();
+
+    if (existingSystem.length === 0 && data.systemPrompts?.length) {
+      for (const p of data.systemPrompts) {
+        await database.createSystemPrompt(p.id, p.name, p.content);
+      }
+    }
+    if (existingRole.length === 0 && data.rolePrompts?.length) {
+      for (const p of data.rolePrompts) {
+        await database.createRolePrompt(p.id, p.name, p.content);
+      }
+    }
+    if (data.userInstructions !== undefined) {
+      const existingUserInstr = await database.getPreference('user.instructions');
+      if (!existingUserInstr) {
+        await database.setPreference('user.instructions', data.userInstructions);
+      }
+    }
+    return { success: true, data: null };
   } catch (error: unknown) {
     return { success: false, error: (error as Error)?.message || String(error) };
   }

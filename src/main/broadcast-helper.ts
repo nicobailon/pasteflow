@@ -1,48 +1,15 @@
-/* eslint-disable unicorn/prefer-module */
-import { createRequire } from "node:module";
+import { BrowserWindow } from "electron";
 
 import type { SelectedFileReference, WorkspaceUpdatedPayload } from "../shared-types";
 import { BROADCAST_CONFIG } from "../constants/broadcast";
 
-const resolveModuleSpecifier = (): string | undefined => {
-  try {
-    return (new Function("return import.meta.url") as () => string)();
-  } catch {
-    return undefined;
-  }
-};
-
-const moduleSpecifier = resolveModuleSpecifier();
-const fallbackSpecifier = moduleSpecifier ?? process.cwd();
-
-const nodeRequire: NodeJS.Require = typeof require === "function"
-  ? require
-  : createRequire(fallbackSpecifier);
-
 /**
  * Centralized broadcasting utilities for sending IPC messages to all
- * renderer windows. This module avoids hard dependencies on Electron in
- * test/headless environments via lazy, cached requires and provides
- * debouncing and lightweight rate limiting to prevent UI floods.
+ * renderer windows. Provides debouncing and lightweight rate limiting
+ * to prevent UI floods.
  */
 
-type BrowserWindowType = {
-  getAllWindows: () => { webContents: { send: (ch: string, payload?: unknown) => void } }[];
-};
-
-let cachedBrowserWindow: BrowserWindowType | null | undefined;
 let activeConfig = BROADCAST_CONFIG;
-
-function getBrowserWindow(): BrowserWindowType | null {
-  if (cachedBrowserWindow !== undefined) return cachedBrowserWindow;
-  try {
-    const { BrowserWindow } = nodeRequire("electron") as { BrowserWindow: BrowserWindowType };
-    cachedBrowserWindow = BrowserWindow;
-  } catch {
-    cachedBrowserWindow = null;
-  }
-  return cachedBrowserWindow;
-}
 
 /**
  * Simple per-channel rate limiter. Allows up to N sends per second.
@@ -73,10 +40,10 @@ function allowSend(channel: string): boolean {
  * per-window failures and does nothing if Electron is unavailable.
  */
 export function broadcastToRenderers(channel: string, payload?: unknown): void {
-  if (!allowSend(channel)) return;
-  const BW = getBrowserWindow();
-  if (!BW) return;
-  const windows = BW.getAllWindows();
+  if (!allowSend(channel)) {
+    return;
+  }
+  const windows = BrowserWindow.getAllWindows();
   for (const win of windows) {
     try {
       win.webContents.send(channel, payload);
@@ -137,12 +104,7 @@ export function broadcastWorkspaceUpdated(input: {
   debouncedBroadcastToRenderers("workspace-updated", payload, activeConfig.DEBOUNCE_MS);
 }
 
-export function __setBrowserWindowForTests(window: BrowserWindowType | null): void {
-  cachedBrowserWindow = window;
-}
-
 export function __resetBroadcastStateForTests(): void {
-  cachedBrowserWindow = undefined;
   rateState.clear();
   for (const timer of debounceTimers.values()) clearTimeout(timer);
   debounceTimers.clear();
@@ -158,7 +120,6 @@ export type BroadcastHelperTestExports = {
   broadcastToRenderers: typeof broadcastToRenderers;
   debouncedBroadcastToRenderers: typeof debouncedBroadcastToRenderers;
   broadcastWorkspaceUpdated: typeof broadcastWorkspaceUpdated;
-  __setBrowserWindowForTests: typeof __setBrowserWindowForTests;
   __resetBroadcastStateForTests: typeof __resetBroadcastStateForTests;
   __setBroadcastConfigForTests: typeof __setBroadcastConfigForTests;
 };

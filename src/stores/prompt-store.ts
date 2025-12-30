@@ -4,9 +4,7 @@ import { persist } from 'zustand/middleware';
 import type { SystemPrompt, RolePrompt, Doc, Instruction } from '../types/file-types';
 
 interface PromptState {
-  systemPrompts: SystemPrompt[];
   selectedSystemPrompts: SystemPrompt[];
-  rolePrompts: RolePrompt[];
   selectedRolePrompts: RolePrompt[];
   docs: Doc[];
   selectedDocs: Doc[];
@@ -16,15 +14,9 @@ interface PromptState {
 }
 
 interface PromptActions {
-  addSystemPrompt: (prompt: SystemPrompt) => void;
-  deleteSystemPrompt: (id: string) => void;
-  updateSystemPrompt: (prompt: SystemPrompt) => void;
   toggleSystemPromptSelection: (prompt: SystemPrompt) => void;
   setSelectedSystemPrompts: (prompts: SystemPrompt[]) => void;
 
-  addRolePrompt: (prompt: RolePrompt) => void;
-  deleteRolePrompt: (id: string) => void;
-  updateRolePrompt: (prompt: RolePrompt) => void;
   toggleRolePromptSelection: (prompt: RolePrompt) => void;
   setSelectedRolePrompts: (prompts: RolePrompt[]) => void;
 
@@ -51,9 +43,7 @@ interface PromptActions {
 export const usePromptStore = create<PromptState & PromptActions>()(
   persist(
     (set, get) => ({
-      systemPrompts: [],
       selectedSystemPrompts: [],
-      rolePrompts: [],
       selectedRolePrompts: [],
       docs: [],
       selectedDocs: [],
@@ -61,15 +51,6 @@ export const usePromptStore = create<PromptState & PromptActions>()(
       selectedInstructions: [],
       userInstructions: '',
 
-      addSystemPrompt: (prompt) => set((s) => ({ systemPrompts: [...s.systemPrompts, prompt] })),
-      deleteSystemPrompt: (id) => set((s) => ({
-        systemPrompts: s.systemPrompts.filter((p) => p.id !== id),
-        selectedSystemPrompts: s.selectedSystemPrompts.filter((p) => p.id !== id),
-      })),
-      updateSystemPrompt: (prompt) => set((s) => ({
-        systemPrompts: s.systemPrompts.map((p) => (p.id === prompt.id ? prompt : p)),
-        selectedSystemPrompts: s.selectedSystemPrompts.map((p) => (p.id === prompt.id ? prompt : p)),
-      })),
       toggleSystemPromptSelection: (prompt) => set((s) => {
         const isSelected = s.selectedSystemPrompts.some((p) => p.id === prompt.id);
         return {
@@ -80,15 +61,6 @@ export const usePromptStore = create<PromptState & PromptActions>()(
       }),
       setSelectedSystemPrompts: (prompts) => set({ selectedSystemPrompts: prompts }),
 
-      addRolePrompt: (prompt) => set((s) => ({ rolePrompts: [...s.rolePrompts, prompt] })),
-      deleteRolePrompt: (id) => set((s) => ({
-        rolePrompts: s.rolePrompts.filter((p) => p.id !== id),
-        selectedRolePrompts: s.selectedRolePrompts.filter((p) => p.id !== id),
-      })),
-      updateRolePrompt: (prompt) => set((s) => ({
-        rolePrompts: s.rolePrompts.map((p) => (p.id === prompt.id ? prompt : p)),
-        selectedRolePrompts: s.selectedRolePrompts.map((p) => (p.id === prompt.id ? prompt : p)),
-      })),
       toggleRolePromptSelection: (prompt) => set((s) => {
         const isSelected = s.selectedRolePrompts.some((p) => p.id === prompt.id);
         return {
@@ -160,10 +132,7 @@ export const usePromptStore = create<PromptState & PromptActions>()(
     {
       name: 'pasteflow-prompts',
       partialize: (state) => ({
-        systemPrompts: state.systemPrompts,
-        rolePrompts: state.rolePrompts,
         docs: state.docs,
-        userInstructions: state.userInstructions,
       }),
     }
   )

@@ -33,8 +33,8 @@ export function buildWorkspaceState(params: {
   fileTreeMode: string;
   exclusionPatterns: string[];
   userInstructions: string;
-  systemPrompts: SystemPrompt[];
-  rolePrompts: RolePrompt[];
+  selectedSystemPrompts: SystemPrompt[];
+  selectedRolePrompts: RolePrompt[];
   selectedInstructions: Instruction[];
 }): WorkspaceState {
   const uniqueSelected = dedupeSelectedFiles(params.selectedFiles);
@@ -49,8 +49,8 @@ export function buildWorkspaceState(params: {
     exclusionPatterns: params.exclusionPatterns,
     userInstructions: params.userInstructions,
     tokenCounts,
-    systemPrompts: params.systemPrompts,
-    rolePrompts: params.rolePrompts,
+    selectedSystemPromptIds: params.selectedSystemPrompts.map((p) => p.id),
+    selectedRolePromptIds: params.selectedRolePrompts.map((p) => p.id),
     selectedInstructions: params.selectedInstructions,
   };
 }

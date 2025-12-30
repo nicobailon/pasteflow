@@ -1,4 +1,5 @@
 import type { WorkspaceState } from "../../shared-types";
+
 import type { WorkspaceRecord } from "./types";
 
 function defaultWorkspaceState(): WorkspaceState {
@@ -12,8 +13,8 @@ function defaultWorkspaceState(): WorkspaceState {
     exclusionPatterns: [],
     userInstructions: "",
     tokenCounts: {},
-    systemPrompts: [],
-    rolePrompts: []
+    selectedSystemPromptIds: [],
+    selectedRolePromptIds: []
   };
 }
 
@@ -22,8 +23,18 @@ export function toDomainWorkspaceState(rowOrStateJson: WorkspaceRecord | string 
     ? rowOrStateJson 
     : (rowOrStateJson && typeof rowOrStateJson === "object" ? (rowOrStateJson as WorkspaceRecord).state : "");
   try {
-    const parsed = stateJson ? (JSON.parse(stateJson) as WorkspaceState) : undefined;
-    return parsed ?? defaultWorkspaceState();
+    const parsed = stateJson ? (JSON.parse(stateJson) as Record<string, unknown>) : undefined;
+    if (parsed) {
+      if (parsed.systemPrompts && !parsed.selectedSystemPromptIds) {
+        parsed.selectedSystemPromptIds = (parsed.systemPrompts as { id: string }[]).map((p) => p.id);
+        delete parsed.systemPrompts;
+      }
+      if (parsed.rolePrompts && !parsed.selectedRolePromptIds) {
+        parsed.selectedRolePromptIds = (parsed.rolePrompts as { id: string }[]).map((p) => p.id);
+        delete parsed.rolePrompts;
+      }
+    }
+    return (parsed as WorkspaceState) ?? defaultWorkspaceState();
   } catch {
     return defaultWorkspaceState();
   }

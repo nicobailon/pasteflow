@@ -265,8 +265,8 @@ const WorkspaceModal = ({
         }
         return acc;
       })(),
-      systemPrompts: appState.selectedSystemPrompts,
-      rolePrompts: appState.selectedRolePrompts,
+      selectedSystemPromptIds: appState.selectedSystemPrompts.map(p => p.id),
+      selectedRolePromptIds: appState.selectedRolePrompts.map(p => p.id),
       selectedInstructions: appState.selectedInstructions
     };
 

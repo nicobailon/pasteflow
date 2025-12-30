@@ -552,6 +552,46 @@ export class DatabaseBridge {
     return this.db.deleteInstruction(id);
   }
 
+  async listSystemPrompts() {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.listSystemPrompts();
+  }
+
+  async createSystemPrompt(id: string, name: string, content: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.createSystemPrompt(id, name, content);
+  }
+
+  async updateSystemPrompt(id: string, name: string, content: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.updateSystemPrompt(id, name, content);
+  }
+
+  async deleteSystemPrompt(id: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.deleteSystemPrompt(id);
+  }
+
+  async listRolePrompts() {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.listRolePrompts();
+  }
+
+  async createRolePrompt(id: string, name: string, content: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.createRolePrompt(id, name, content);
+  }
+
+  async updateRolePrompt(id: string, name: string, content: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.updateRolePrompt(id, name, content);
+  }
+
+  async deleteRolePrompt(id: string) {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db.deleteRolePrompt(id);
+  }
+
   // Cleanup
   /**
    * Closes the database connection and cleans up resources.

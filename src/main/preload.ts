@@ -87,6 +87,9 @@ contextBridge.exposeInMainWorld('electron', {
       'workspace-updated',
       'workspaces-updated',
       'instructions-updated',
+      'system-prompts-updated',
+      'role-prompts-updated',
+      'user-instructions-updated',
       '/prefs/get:update',
     ];
     if (!validChannels.includes(channel)) return;

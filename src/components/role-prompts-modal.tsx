@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Check, CirclePlus, Plus, Trash, X } from "lucide-react";
 import { useState, useEffect } from "react";
 
+import { useRolePromptsState } from "../hooks/use-role-prompts-state";
 import { useUIStore, usePromptStore } from "../stores";
 import type { RolePrompt } from "../types/file-types";
 
@@ -10,11 +11,8 @@ const RolePromptsModal = (): JSX.Element => {
   const initialEditPrompt = useUIStore((s) => s.rolePromptToEdit);
   const closeModal = useUIStore((s) => s.closeRolePromptsModal);
 
-  const rolePrompts = usePromptStore((s) => s.rolePrompts);
+  const { rolePrompts, createRolePrompt, updateRolePrompt: updatePrompt, deleteRolePrompt: deletePrompt } = useRolePromptsState();
   const selectedRolePrompts = usePromptStore((s) => s.selectedRolePrompts);
-  const addRolePrompt = usePromptStore((s) => s.addRolePrompt);
-  const deleteRolePrompt = usePromptStore((s) => s.deleteRolePrompt);
-  const updateRolePrompt = usePromptStore((s) => s.updateRolePrompt);
   const toggleRolePromptSelection = usePromptStore((s) => s.toggleRolePromptSelection);
 
   const [editingPrompt, setEditingPrompt] = useState<RolePrompt | null>(null);
@@ -33,7 +31,7 @@ const RolePromptsModal = (): JSX.Element => {
     }
   }, [isOpen, initialEditPrompt]);
 
-  const handleAddPrompt = () => {
+  const handleAddPrompt = async () => {
     if (!newPromptName || !newPromptContent) return;
 
     const newPrompt: RolePrompt = {
@@ -42,16 +40,32 @@ const RolePromptsModal = (): JSX.Element => {
       content: newPromptContent,
     };
 
-    addRolePrompt(newPrompt);
-    setNewPromptName("");
-    setNewPromptContent("");
-    setEditingPrompt(null);
+    try {
+      await createRolePrompt(newPrompt);
+      setNewPromptName("");
+      setNewPromptContent("");
+      setEditingPrompt(null);
+    } catch {
+      // error handled in hook
+    }
   };
 
-  const handleUpdatePrompt = () => {
+  const handleUpdatePrompt = async () => {
     if (!editingPrompt || !editingPrompt.name || !editingPrompt.content) return;
-    updateRolePrompt(editingPrompt);
-    setEditingPrompt(null);
+    try {
+      await updatePrompt(editingPrompt);
+      setEditingPrompt(null);
+    } catch {
+      // error handled in hook
+    }
+  };
+
+  const handleDeletePrompt = async (id: string) => {
+    try {
+      await deletePrompt(id);
+    } catch {
+      // error handled in hook
+    }
   };
 
   const startEdit = (prompt: RolePrompt) => {
@@ -128,7 +142,7 @@ const RolePromptsModal = (): JSX.Element => {
                         className="prompt-action-button delete-button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteRolePrompt(prompt.id);
+                          void handleDeletePrompt(prompt.id);
                         }}
                         title="Delete this prompt"
                       >

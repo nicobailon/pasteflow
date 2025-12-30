@@ -5,6 +5,9 @@ import { RendererPreviewProxy } from './preview-proxy';
 import { PreviewController } from './preview-controller';
 import * as Workspaces from './handlers/workspaces-handlers';
 import * as Instructions from './handlers/instructions-handlers';
+import * as SystemPrompts from './handlers/system-prompts-handlers';
+import * as RolePrompts from './handlers/role-prompts-handlers';
+import * as UserInstructions from './handlers/user-instructions-handlers';
 import * as Prefs from './handlers/prefs-handlers';
 import * as Files from './handlers/files-handlers';
 import * as Tokens from './handlers/tokens-handlers';
@@ -78,6 +81,49 @@ export class APIRouteHandlers {
 
   async handleDeleteInstruction(req: Request, res: Response) {
     return Instructions.handleDeleteInstruction({ db: this.db }, req, res);
+  }
+
+  // System Prompts
+  async handleListSystemPrompts(req: Request, res: Response) {
+    return SystemPrompts.handleListSystemPrompts({ db: this.db }, req, res);
+  }
+
+  async handleCreateSystemPrompt(req: Request, res: Response) {
+    return SystemPrompts.handleCreateSystemPrompt({ db: this.db }, req, res);
+  }
+
+  async handleUpdateSystemPrompt(req: Request, res: Response) {
+    return SystemPrompts.handleUpdateSystemPrompt({ db: this.db }, req, res);
+  }
+
+  async handleDeleteSystemPrompt(req: Request, res: Response) {
+    return SystemPrompts.handleDeleteSystemPrompt({ db: this.db }, req, res);
+  }
+
+  // Role Prompts
+  async handleListRolePrompts(req: Request, res: Response) {
+    return RolePrompts.handleListRolePrompts({ db: this.db }, req, res);
+  }
+
+  async handleCreateRolePrompt(req: Request, res: Response) {
+    return RolePrompts.handleCreateRolePrompt({ db: this.db }, req, res);
+  }
+
+  async handleUpdateRolePrompt(req: Request, res: Response) {
+    return RolePrompts.handleUpdateRolePrompt({ db: this.db }, req, res);
+  }
+
+  async handleDeleteRolePrompt(req: Request, res: Response) {
+    return RolePrompts.handleDeleteRolePrompt({ db: this.db }, req, res);
+  }
+
+  // User Instructions
+  async handleGetUserInstructions(req: Request, res: Response) {
+    return UserInstructions.handleGetUserInstructions({ db: this.db }, req, res);
+  }
+
+  async handleSetUserInstructions(req: Request, res: Response) {
+    return UserInstructions.handleSetUserInstructions({ db: this.db }, req, res);
   }
 
   // Preferences

@@ -1,5 +1,13 @@
 import type { BroadcastHelperTestExports } from '../broadcast-helper';
 
+const mockGetAllWindows = jest.fn();
+
+jest.mock('electron', () => ({
+  BrowserWindow: {
+    getAllWindows: () => mockGetAllWindows(),
+  },
+}));
+
 const loadModule = (): BroadcastHelperTestExports => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires, unicorn/prefer-module
   const mod = require('../../main/broadcast-helper') as BroadcastHelperTestExports;
@@ -11,15 +19,17 @@ describe('broadcast-helper', () => {
   beforeEach(() => {
     jest.resetModules();
     jest.useFakeTimers();
+    mockGetAllWindows.mockReturnValue([]);
   });
 
   afterEach(() => {
     jest.useRealTimers();
+    mockGetAllWindows.mockReset();
   });
 
-  test('broadcastToRenderers is no-op without electron', () => {
+  test('broadcastToRenderers is no-op without windows', () => {
     const mod = loadModule();
-    mod.__setBrowserWindowForTests(null);
+    mockGetAllWindows.mockReturnValue([]);
     expect(() => mod.broadcastToRenderers('test-channel', { a: 1 })).not.toThrow();
   });
 
@@ -27,23 +37,21 @@ describe('broadcast-helper', () => {
     const sendOk = jest.fn();
     const sendFail = jest.fn(() => { throw new Error('boom'); });
     const mod = loadModule();
-    mod.__setBrowserWindowForTests({
-      getAllWindows: () => [
-        { webContents: { send: sendOk } },
-        { webContents: { send: sendFail } },
-      ],
-    });
+    mockGetAllWindows.mockReturnValue([
+      { webContents: { send: sendOk } },
+      { webContents: { send: sendFail } },
+    ]);
     mod.broadcastToRenderers('ch', { x: 1 });
     expect(sendOk).toHaveBeenCalledWith('ch', { x: 1 });
     expect(sendFail).toHaveBeenCalled();
   });
 
   test('broadcastWorkspaceUpdated debounces and sequences', () => {
-    const captured: any[] = [];
+    const captured: unknown[] = [];
     const mod = loadModule();
-    mod.__setBrowserWindowForTests({
-      getAllWindows: () => [{ webContents: { send: (_ch: string, payload?: unknown) => captured.push(payload) } }],
-    });
+    mockGetAllWindows.mockReturnValue([
+      { webContents: { send: (_ch: string, payload?: unknown) => captured.push(payload) } },
+    ]);
 
     mod.broadcastWorkspaceUpdated({ workspaceId: 'w1', folderPath: '/tmp/a', selectedFiles: [] });
     mod.broadcastWorkspaceUpdated({ workspaceId: 'w1', folderPath: '/tmp/a', selectedFiles: [{ path: '/x' }] as any });
@@ -70,9 +78,9 @@ describe('broadcast-helper', () => {
   test('rate limiting drops excessive events within 1 second window', () => {
     const sends: { ch: string; payload: unknown }[] = [];
     const mod = loadModule();
-    mod.__setBrowserWindowForTests({
-      getAllWindows: () => [{ webContents: { send: (ch: string, payload?: unknown) => sends.push({ ch, payload }) } }],
-    });
+    mockGetAllWindows.mockReturnValue([
+      { webContents: { send: (ch: string, payload?: unknown) => sends.push({ ch, payload }) } },
+    ]);
     mod.__setBroadcastConfigForTests({ DEBOUNCE_MS: 5, MAX_EVENTS_PER_SECOND: 3 });
 
     for (let i = 0; i < 10; i++) {

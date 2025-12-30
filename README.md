@@ -220,6 +220,26 @@ Command overview
   pasteflow instructions update <id> --name "New Name" --content @prompt.txt
   pasteflow instructions delete <id>
   ```
+- System Prompts
+  ```bash
+  pasteflow system-prompts list
+  pasteflow system-prompts create --name "My Prompt" --content @prompt.txt
+  pasteflow system-prompts update <id> --name "New Name" --content @prompt.txt
+  pasteflow system-prompts delete <id>
+  ```
+- Role Prompts
+  ```bash
+  pasteflow role-prompts list
+  pasteflow role-prompts create --name "My Role" --content @role.txt
+  pasteflow role-prompts update <id> --name "New Name" --content @role.txt
+  pasteflow role-prompts delete <id>
+  ```
+- User Instructions
+  ```bash
+  pasteflow user-instructions get [--raw]
+  pasteflow user-instructions set --content @instructions.txt
+  pasteflow user-instructions clear
+  ```
 - Preferences
   ```bash
   pasteflow prefs get theme
@@ -274,6 +294,9 @@ Notes
 - `select add|remove|clear`: updates selections in the UI (including line ranges).
 - `workspaces update`: applies selection-related state changes to the UI.
 - `instructions create|update|delete`: refreshes the instructions list in the UI.
+- `system-prompts create|update|delete`: refreshes the system prompts list in the UI.
+- `role-prompts create|update|delete`: refreshes the role prompts list in the UI.
+- `user-instructions set|clear`: refreshes user instructions in the UI.
 - `prefs set`: refreshes persisted settings across the UI.
 - `workspaces create|rename|delete`: refreshes the UI's workspace list.
 
