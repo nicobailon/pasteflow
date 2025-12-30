@@ -14,7 +14,7 @@ interface FileSystemState {
   selectedFolder: string | null;
   allFiles: FileData[];
   displayedFiles: FileData[];
-  expandedNodes: Set<string>;
+  expandedNodes: Record<string, boolean>;
   fileTreeMode: FileTreeMode;
   exclusionPatterns: string[];
   processingStatus: ProcessingStatus;
@@ -28,7 +28,7 @@ interface FileSystemActions {
   setDisplayedFiles: (files: FileData[]) => void;
   updateFile: (path: string, updates: Partial<FileData>) => void;
   toggleExpanded: (path: string) => void;
-  setExpandedNodes: (nodes: Set<string>) => void;
+  setExpandedNodes: (nodes: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => void;
   setFileTreeMode: (mode: FileTreeMode) => void;
   setExclusionPatterns: (patterns: string[]) => void;
   setProcessingStatus: (status: ProcessingStatus) => void;
@@ -78,7 +78,7 @@ export const useFileSystemStore = create<FileSystemState & FileSystemActions>((s
   selectedFolder: null,
   allFiles: [],
   displayedFiles: [],
-  expandedNodes: new Set(),
+  expandedNodes: {},
   fileTreeMode: 'none',
   exclusionPatterns: defaultExclusionPatterns,
   processingStatus: { status: 'idle', message: '', processed: 0, directories: 0, total: 0 },
@@ -98,16 +98,18 @@ export const useFileSystemStore = create<FileSystemState & FileSystemActions>((s
   })),
 
   toggleExpanded: (path) => set((s) => {
-    const next = new Set(s.expandedNodes);
-    if (next.has(path)) {
-      next.delete(path);
+    const next = { ...s.expandedNodes };
+    if (next[path]) {
+      delete next[path];
     } else {
-      next.add(path);
+      next[path] = true;
     }
     return { expandedNodes: next };
   }),
 
-  setExpandedNodes: (nodes) => set({ expandedNodes: nodes }),
+  setExpandedNodes: (nodes) => set((s) => ({ 
+    expandedNodes: typeof nodes === 'function' ? nodes(s.expandedNodes) : nodes 
+  })),
 
   setFileTreeMode: (mode) => set({ fileTreeMode: mode }),
 
@@ -123,7 +125,7 @@ export const useFileSystemStore = create<FileSystemState & FileSystemActions>((s
     selectedFolder: null,
     allFiles: [],
     displayedFiles: [],
-    expandedNodes: new Set(),
+    expandedNodes: {},
     processingStatus: { status: 'idle', message: '', processed: 0, directories: 0, total: 0 },
     isLoadingCancellable: false,
   }),

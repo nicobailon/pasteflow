@@ -130,8 +130,9 @@ const useAppState = () => {
     return getFilteredAndSortedFiles(allFiles, sortOrder, searchTerm);
   }, [allFiles, sortOrder, searchTerm]);
   
-  // Per-workspace expansion state - not globally persistent
-  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  // Per-workspace expansion state from Zustand store
+  const expandedNodes = useFileSystemStore((s) => s.expandedNodes);
+  const setExpandedNodes = useFileSystemStore((s) => s.setExpandedNodes);
   
   // App state from Zustand store
   const appInitialized = useFileSystemStore((s) => s.appInitialized);
