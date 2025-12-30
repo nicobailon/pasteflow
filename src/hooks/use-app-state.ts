@@ -147,9 +147,13 @@ const useAppState = () => {
   } as ProcessingStatusType);
   const [isLoadingCancellable, setIsLoadingCancellable] = useState(false);
   const [pendingWorkspaceData, setPendingWorkspaceData] = useState(null as PendingWorkspaceData | null);
-  const [headerSaveState, setHeaderSaveState] = useState('idle' as 'idle' | 'saving' | 'success');
   const headerSaveTimeoutRef = useRef(null as NodeJS.Timeout | null);
-  const [currentWorkspace, setCurrentWorkspace] = useState(null as string | null);
+  
+  // Workspace state from Zustand store
+  const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
+  const setCurrentWorkspace = useWorkspaceStore((s) => s.setCurrentWorkspace);
+  const headerSaveState = useWorkspaceStore((s) => s.headerSaveState);
+  const setHeaderSaveState = useWorkspaceStore((s) => s.setHeaderSaveState);
 
   // Build folder index for efficient folder selection
   const folderIndex = useMemo(() => {
@@ -188,12 +192,17 @@ const useAppState = () => {
   const prevMtimeByPathRef = useRef<Map<string, number>>(new Map());
 
   // Update instructions token count when user instructions change (derived)
-  const [userInstructions, setUserInstructions] = useState('');
+  // User instructions from Zustand store
+  const userInstructions = promptState.userInstructions;
+  const setUserInstructions = promptState.setUserInstructions;
   const instructionsTokenCount = useMemo(() => estimateTokenCount(userInstructions), [userInstructions]);
 
   // Instructions (docs) state - now from database
   const instructionsState = useInstructionsState();
-  const [selectedInstructions, setSelectedInstructions] = useState(() => [] as Instruction[]);
+  
+  // Selected instructions from Zustand store
+  const selectedInstructions = promptState.selectedInstructions;
+  const setSelectedInstructions = promptState.setSelectedInstructions;
 
   const handleResetFolderState = useCallback(() => {
     resetFolderState(
@@ -236,10 +245,9 @@ const useAppState = () => {
     };
   }, [currentWorkspace, setCurrentWorkspace, handleResetFolderState]);
 
-  // Handle sort change
+  // Handle sort change (setSortOrder also closes dropdown)
   const handleSortChange = useCallback((newSort: string) => {
     setSortOrder(newSort);
-    setSortDropdownOpen(false); // Close dropdown after selection
   }, [setSortOrder]);
 
   // Add the new handler for file tree sort changes
@@ -253,13 +261,10 @@ const useAppState = () => {
     setSearchTerm(newSearch);
   }, [setSearchTerm]);
 
-  // State for sort dropdown
-  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
-
-  // Toggle sort dropdown
+  // Toggle sort dropdown (uses UI store)
   const toggleSortDropdown = useCallback(() => {
-    setSortDropdownOpen(!sortDropdownOpen);
-  }, [sortDropdownOpen]);
+    modalState.toggleSortDropdown();
+  }, [modalState]);
 
   // Calculate token counts for file tree modes (memoized)
   const fileTreeTokenStats = useMemo(() => {
@@ -1378,14 +1383,12 @@ const useAppState = () => {
     onAutoSave: performAutoSave
   });
 
-  // Sync workspace state to Zustand store
+  // Sync auto-save state to Zustand store
   useEffect(() => {
     useWorkspaceStore.setState({
-      currentWorkspace,
-      headerSaveState,
       isAutoSaveEnabled: autoSave.isAutoSaveEnabled,
     });
-  }, [currentWorkspace, headerSaveState, autoSave.isAutoSaveEnabled]);
+  }, [autoSave.isAutoSaveEnabled]);
 
   // Clean up selected files when workspace changes
   useEffect(() => {
@@ -1630,20 +1633,22 @@ const useAppState = () => {
 
   const onDeleteInstruction = useCallback(async (id: string) => {
     await instructionsState.deleteInstruction(id);
-    setSelectedInstructions((prev: Instruction[]) => prev.filter(instruction => instruction.id !== id));
-  }, [instructionsState]);
+    setSelectedInstructions(selectedInstructions.filter(instruction => instruction.id !== id));
+  }, [instructionsState, selectedInstructions, setSelectedInstructions]);
 
   const onUpdateInstruction = useCallback(async (instruction: Instruction) => {
     await instructionsState.updateInstruction(instruction);
-    setSelectedInstructions((prev: Instruction[]) => prev.map(i => i.id === instruction.id ? instruction : i));
-  }, [instructionsState]);
+    setSelectedInstructions(selectedInstructions.map(i => i.id === instruction.id ? instruction : i));
+  }, [instructionsState, selectedInstructions, setSelectedInstructions]);
 
   const toggleInstructionSelection = useCallback((instruction: Instruction) => {
-    setSelectedInstructions((prev: Instruction[]) => {
-      const isSelected = prev.some(i => i.id === instruction.id);
-      return isSelected ? prev.filter(i => i.id !== instruction.id) : [...prev, instruction];
-    });
-  }, []);
+    const isSelected = selectedInstructions.some(i => i.id === instruction.id);
+    setSelectedInstructions(
+      isSelected 
+        ? selectedInstructions.filter(i => i.id !== instruction.id) 
+        : [...selectedInstructions, instruction]
+    );
+  }, [selectedInstructions, setSelectedInstructions]);
 
   // Clear all selections: files + prompts + docs (but not free-text user instructions)
   const clearAllSelections = useCallback(() => {
