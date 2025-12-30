@@ -8,7 +8,8 @@ import { createDirectorySelectionCache } from '../utils/selection-cache';
 import { BoundedLRUCache } from '../utils/bounded-lru-cache';
 import { getGlobalPerformanceMonitor } from '../utils/performance-monitor';
 
-import { useDebouncedPersistentState } from './use-debounced-persistent-state';
+import { useSelectionStore } from '../stores/selection-store';
+import { usePersistentState } from './use-persistent-state';
 
 /**
  * Pure state transition helper to apply selection changes.
@@ -176,11 +177,42 @@ function computeFolderTogglePlan(
  * @returns {Object} File selection state and functions
  */
 const useFileSelectionState = (allFiles: FileData[], currentWorkspacePath?: string | null, providedFolderIndex?: FolderIndex) => {
-  const [selectedFiles, setSelectedFiles] = useDebouncedPersistentState<SelectedFileReference[]>(
+  const selectedFiles = useSelectionStore((s) => s.selectedFiles);
+  const setSelectedFiles = useSelectionStore((s) => s.setSelectedFiles);
+  
+  const [persistedValue, setPersistedValue] = usePersistentState<SelectedFileReference[]>(
     STORAGE_KEYS.SELECTED_FILES,
-    [],
-    FILE_PROCESSING.DEBOUNCE_DELAY_MS
+    []
   );
+  
+  const hasInitializedRef = useRef(false);
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  useEffect(() => {
+    if (!hasInitializedRef.current && persistedValue.length > 0) {
+      hasInitializedRef.current = true;
+      setSelectedFiles(persistedValue);
+    }
+  }, [persistedValue, setSelectedFiles]);
+  
+  useEffect(() => {
+    if (!hasInitializedRef.current) return;
+    
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+    }
+    
+    persistTimerRef.current = setTimeout(() => {
+      setPersistedValue(selectedFiles);
+      persistTimerRef.current = null;
+    }, FILE_PROCESSING.DEBOUNCE_DELAY_MS);
+    
+    return () => {
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+      }
+    };
+  }, [selectedFiles, setPersistedValue]);
 
   const selectedFilesRef = useRef<SelectedFileReference[]>(selectedFiles);
   useEffect(() => { selectedFilesRef.current = selectedFiles; }, [selectedFiles]);

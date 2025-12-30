@@ -9,6 +9,7 @@ interface SelectionState {
 }
 
 interface SelectionActions {
+  setSelectedFiles: (files: SelectedFileReference[] | ((prev: SelectedFileReference[]) => SelectedFileReference[])) => void;
   toggleFileSelection: (filePath: string, allFilesMap?: Map<string, FileData>) => void;
   toggleLineRange: (filePath: string, range: LineRange | undefined, allFilesMap?: Map<string, FileData>) => void;
   toggleFolderSelection: (folderPath: string, isSelected: boolean, allFilesMap?: Map<string, FileData>) => void;
@@ -31,6 +32,10 @@ function canSelectPath(path: string, allFilesMap?: Map<string, FileData>): boole
 export const useSelectionStore = create<SelectionState & SelectionActions>((set, get) => ({
   selectedFiles: [],
   folderIndex: null,
+
+  setSelectedFiles: (files) => set((s) => ({
+    selectedFiles: typeof files === 'function' ? files(s.selectedFiles) : files
+  })),
 
   toggleFileSelection: (filePath, allFilesMap) => set((s) => {
     if (!canSelectPath(filePath, allFilesMap)) return s;
