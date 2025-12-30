@@ -12,7 +12,6 @@ export const useWorkspaceState = () => {
   const { runCancellableOperation } = useCancellableOperation();
   const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
   const setCurrentWorkspace = useWorkspaceStore((s) => s.setCurrentWorkspace);
-  const setIsLoadingWorkspace = useWorkspaceStore((s) => s.setIsLoadingWorkspace);
   const isLoadingWorkspaceRef = useRef(false);
 
   const saveWorkspace = useCallback(async (name: string, workspace: WorkspaceState) => {
@@ -42,27 +41,23 @@ export const useWorkspaceState = () => {
     }
   }, [db]);
 
-  // These methods need to be async now
   const loadWorkspace = useCallback(async (name: string): Promise<WorkspaceState | null> => {
     if (isLoadingWorkspaceRef.current) {
       console.log('Cancelling previous workspace load operation');
     }
 
-    setIsLoadingWorkspace(true);
     isLoadingWorkspaceRef.current = true;
     
     const result = await runCancellableOperation(async (token) => {
       try {
         const workspace = await db.loadWorkspace(name);
         
-        // Check if cancelled before processing
         if (token.cancelled) {
           console.log('Workspace load cancelled');
           return null;
         }
         
         if (workspace) {
-          // Don't set current workspace here - let the caller decide
           return workspace;
         }
         return null;
@@ -72,10 +67,9 @@ export const useWorkspaceState = () => {
       }
     });
     
-    setIsLoadingWorkspace(false);
     isLoadingWorkspaceRef.current = false;
     return result;
-  }, [db, runCancellableOperation, setIsLoadingWorkspace]);
+  }, [db, runCancellableOperation]);
 
   const deleteWorkspace = useCallback(async (name: string): Promise<void> => {
     try {
