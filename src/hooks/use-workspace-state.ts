@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 
 import { WorkspaceState } from '../types/file-types';
 import { getPathValidator } from '../security/path-validator';
@@ -12,7 +12,8 @@ export const useWorkspaceState = () => {
   const { runCancellableOperation } = useCancellableOperation();
   const currentWorkspace = useWorkspaceStore((s) => s.currentWorkspace);
   const setCurrentWorkspace = useWorkspaceStore((s) => s.setCurrentWorkspace);
-  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
+  const isLoadingWorkspace = useWorkspaceStore((s) => s.isLoadingWorkspace);
+  const setIsLoadingWorkspace = useWorkspaceStore((s) => s.setIsLoadingWorkspace);
   const isLoadingWorkspaceRef = useRef(false);
 
   const saveWorkspace = useCallback(async (name: string, workspace: WorkspaceState) => {

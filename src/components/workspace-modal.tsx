@@ -6,6 +6,7 @@ import { useWorkspaceState } from '../hooks/use-workspace-state';
 import { useCancellableOperation } from '../hooks/use-cancellable-operation';
 import { useWorkspaceDrag } from '../hooks/use-workspace-drag';
 import { useWorkspaceSelection } from '../hooks/use-workspace-selection';
+import { useWorkspaceStore } from '../stores/workspace-store';
 import { WorkspaceState } from '../types/file-types';
 import type { AppState } from '../hooks/use-app-state';
 import { 
@@ -47,11 +48,12 @@ const WorkspaceModal = ({
     getWorkspaceNames 
   } = useWorkspaceState();
   const { runCancellableOperation } = useCancellableOperation();
+  const isLoadingWorkspace = useWorkspaceStore((s) => s.isLoadingWorkspace);
+  const setIsLoadingWorkspace = useWorkspaceStore((s) => s.setIsLoadingWorkspace);
   const [name, setName] = useState("");
   const [newName, setNewName] = useState("");
   const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
   const [renamingWsName, setRenamingWsName] = useState<string | null>(null);
-  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);

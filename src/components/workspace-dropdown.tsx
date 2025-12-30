@@ -3,6 +3,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 
 import { useWorkspaceState } from '../hooks/use-workspace-state';
 import { useCancellableOperation } from '../hooks/use-cancellable-operation';
+import { useWorkspaceStore } from '../stores/workspace-store';
 import { 
   getWorkspaceSortMode, 
   getWorkspaceManualOrder, 
@@ -29,13 +30,14 @@ const WorkspaceDropdown = forwardRef<WorkspaceDropdownRef, WorkspaceDropdownProp
   ({ currentWorkspace, toggleWorkspaceModal, containerClassName = "workspace-dropdown", buttonClassName = "dropdown-header" }, ref) => {
   const { getWorkspaceNames, loadWorkspace: loadPersistedWorkspace } = useWorkspaceState();
   const { runCancellableOperation } = useCancellableOperation();
+  const isLoadingWorkspace = useWorkspaceStore((s) => s.isLoadingWorkspace);
+  const setIsLoadingWorkspace = useWorkspaceStore((s) => s.setIsLoadingWorkspace);
   const dropdownRef = useRef<DropdownRef>(null);
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>('recent');
   const [manualOrder, setManualOrder] = useState<string[]>([]);
   const [options, setOptions] = useState<DropdownOption[]>([]);
   const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
   
   // Load sort preferences from database
   useEffect(() => {
