@@ -1,6 +1,7 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
-import type { SystemPrompt, RolePrompt, Instruction } from '../types/file-types';
+import type { SystemPrompt, RolePrompt, Instruction, FileTreeMode } from '../types/file-types';
 
 interface ModalState {
   showApplyChangesModal: boolean;
@@ -22,6 +23,8 @@ interface UIState extends ModalState {
   sortDropdownOpen: boolean;
   sortOrder: string;
   searchTerm: string;
+  fileTreeMode: FileTreeMode;
+  exclusionPatterns: string[];
 }
 
 interface UIActions {
@@ -48,25 +51,31 @@ interface UIActions {
   setSystemPromptsModalOpen: (open: boolean) => void;
   setRolePromptsModalOpen: (open: boolean) => void;
   setInstructionsModalOpen: (open: boolean) => void;
+  setFileTreeMode: (mode: FileTreeMode) => void;
+  setExclusionPatterns: (patterns: string[]) => void;
 }
 
-export const useUIStore = create<UIState & UIActions>((set) => ({
-  showApplyChangesModal: false,
-  filterModalOpen: false,
-  fileViewModalOpen: false,
-  systemPromptsModalOpen: false,
-  rolePromptsModalOpen: false,
-  instructionsModalOpen: false,
-  clipboardPreviewModalOpen: false,
-  currentViewedFilePath: '',
-  previewContent: '',
-  previewTokenCount: 0,
-  systemPromptToEdit: null,
-  rolePromptToEdit: null,
-  instructionToEdit: null,
-  sortDropdownOpen: false,
-  sortOrder: 'tokens-desc',
-  searchTerm: '',
+export const useUIStore = create<UIState & UIActions>()(
+  persist(
+    (set) => ({
+      showApplyChangesModal: false,
+      filterModalOpen: false,
+      fileViewModalOpen: false,
+      systemPromptsModalOpen: false,
+      rolePromptsModalOpen: false,
+      instructionsModalOpen: false,
+      clipboardPreviewModalOpen: false,
+      currentViewedFilePath: '',
+      previewContent: '',
+      previewTokenCount: 0,
+      systemPromptToEdit: null,
+      rolePromptToEdit: null,
+      instructionToEdit: null,
+      sortDropdownOpen: false,
+      sortOrder: 'tokens-desc',
+      searchTerm: '',
+      fileTreeMode: 'tree' as FileTreeMode,
+      exclusionPatterns: [],
 
   toggleApplyChangesModal: () => set((s) => ({ showApplyChangesModal: !s.showApplyChangesModal })),
   toggleFilterModal: () => set((s) => ({ filterModalOpen: !s.filterModalOpen })),
@@ -100,4 +109,17 @@ export const useUIStore = create<UIState & UIActions>((set) => ({
   setSystemPromptsModalOpen: (open) => set({ systemPromptsModalOpen: open }),
   setRolePromptsModalOpen: (open) => set({ rolePromptsModalOpen: open }),
   setInstructionsModalOpen: (open) => set({ instructionsModalOpen: open }),
-}));
+  setFileTreeMode: (mode) => set({ fileTreeMode: mode }),
+  setExclusionPatterns: (patterns) => set({ exclusionPatterns: patterns }),
+    }),
+    {
+      name: 'pasteflow-ui',
+      partialize: (state) => ({
+        sortOrder: state.sortOrder,
+        searchTerm: state.searchTerm,
+        fileTreeMode: state.fileTreeMode,
+        exclusionPatterns: state.exclusionPatterns,
+      }),
+    }
+  )
+);

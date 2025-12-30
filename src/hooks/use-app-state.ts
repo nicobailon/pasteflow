@@ -21,8 +21,7 @@ import { VirtualFileLoader } from '../utils/virtual-file-loader';
 
 
 import useFileSelectionState from './use-file-selection-state';
-import { usePersistentState } from './use-persistent-state';
-import { useDebouncedPersistentState } from './use-debounced-persistent-state';
+
 
 import { useWorkspaceState } from './use-workspace-state';
 import { useTokenService } from './use-token-service';
@@ -62,44 +61,43 @@ const useAppState = () => {
 
   // Core state
   const [selectedFolder, setSelectedFolder] = useState(null as string | null);
-  const [sortOrder, setSortOrder] = usePersistentState<string>(
-    STORAGE_KEYS.SORT_ORDER,
-    "tokens-desc"
-  );
-  // Debounce search persistence to avoid spamming IPC on fast typing
-  const [searchTerm, setSearchTerm] = useDebouncedPersistentState<string>(
-    STORAGE_KEYS.SEARCH_TERM,
-    "",
-    300
-  );
-  const [fileTreeMode, setFileTreeMode] = usePersistentState<FileTreeMode>(
-    STORAGE_KEYS.FILE_TREE_MODE,
-    "none"
-  );
-  const [exclusionPatterns, setExclusionPatterns] = usePersistentState<string[]>(
-    "pasteflow-exclusion-patterns",
-    [
-      "**/node_modules/",
-      "**/.npm/",
-      "**/__pycache__/",
-      "**/.pytest_cache/",
-      "**/.mypy_cache/",
-      "**/.gradle/",
-      "**/.nuget/",
-      "**/.cargo/",
-      "**/.stack-work/",
-      "**/.ccache/",
-      "**/.idea/",
-      "**/.vscode/",
-      "**/*.swp",
-      "**/*~",
-      "**/*.tmp",
-      "**/*.temp",
-      "**/*.bak",
-      "**/*.meta",
-      "**/package-lock.json",
-    ]
-  );
+  
+  // UI state from Zustand store (persisted automatically)
+  const sortOrder = useUIStore((s) => s.sortOrder);
+  const setSortOrder = useUIStore((s) => s.setSortOrder);
+  const searchTerm = useUIStore((s) => s.searchTerm);
+  const setSearchTerm = useUIStore((s) => s.setSearchTerm);
+  const fileTreeMode = useUIStore((s) => s.fileTreeMode);
+  const setFileTreeMode = useUIStore((s) => s.setFileTreeMode);
+  const exclusionPatterns = useUIStore((s) => s.exclusionPatterns);
+  const setExclusionPatterns = useUIStore((s) => s.setExclusionPatterns);
+  
+  // Initialize exclusion patterns with defaults if empty
+  useEffect(() => {
+    if (exclusionPatterns.length === 0) {
+      setExclusionPatterns([
+        "**/node_modules/",
+        "**/.npm/",
+        "**/__pycache__/",
+        "**/.pytest_cache/",
+        "**/.mypy_cache/",
+        "**/.gradle/",
+        "**/.nuget/",
+        "**/.cargo/",
+        "**/.stack-work/",
+        "**/.ccache/",
+        "**/.idea/",
+        "**/.vscode/",
+        "**/*.swp",
+        "**/*~",
+        "**/*.tmp",
+        "**/*.temp",
+        "**/*.bak",
+        "**/*.meta",
+        "**/package-lock.json",
+      ]);
+    }
+  }, [exclusionPatterns.length, setExclusionPatterns]);
 
   // Initialize virtual file loader (no-effect construction)
   const virtualFileLoaderRef = useRef<VirtualFileLoader | null>(null);
