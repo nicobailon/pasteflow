@@ -23,7 +23,7 @@ import { VirtualFileLoader } from '../utils/virtual-file-loader';
 import useFileSelectionState from './use-file-selection-state';
 import { usePersistentState } from './use-persistent-state';
 import { useDebouncedPersistentState } from './use-debounced-persistent-state';
-import usePromptState from './use-prompt-state';
+
 import { useWorkspaceState } from './use-workspace-state';
 import { useTokenService } from './use-token-service';
 import { useCancellableOperation } from './use-cancellable-operation';
@@ -161,9 +161,8 @@ const useAppState = () => {
 
   // Integration with specialized hooks
   const fileSelection = useFileSelectionState(allFiles, selectedFolder, folderIndex);
-  const promptState = usePromptState();
+  const promptState = usePromptStore();
   const modalState = useUIStore();
-  const promptStore = usePromptStore();
   const { saveWorkspace: persistWorkspace, loadWorkspace: loadPersistedWorkspace, getWorkspaceNames } = useWorkspaceState();
   const { runCancellableOperation } = useCancellableOperation();
 
@@ -1696,8 +1695,21 @@ const useAppState = () => {
     // File selection state
     ...fileSelection,
 
-    // Prompts state
-    ...promptState,
+    // Prompts state (exclude userInstructions which is managed locally)
+    systemPrompts: promptState.systemPrompts,
+    selectedSystemPrompts: promptState.selectedSystemPrompts,
+    rolePrompts: promptState.rolePrompts,
+    selectedRolePrompts: promptState.selectedRolePrompts,
+    handleAddSystemPrompt: promptState.addSystemPrompt,
+    handleDeleteSystemPrompt: promptState.deleteSystemPrompt,
+    handleUpdateSystemPrompt: promptState.updateSystemPrompt,
+    toggleSystemPromptSelection: promptState.toggleSystemPromptSelection,
+    handleAddRolePrompt: promptState.addRolePrompt,
+    handleDeleteRolePrompt: promptState.deleteRolePrompt,
+    handleUpdateRolePrompt: promptState.updateRolePrompt,
+    toggleRolePromptSelection: promptState.toggleRolePromptSelection,
+    getPrompts: promptState.getPromptsSnapshot,
+    setPrompts: promptState.restorePromptsSnapshot,
 
     // Modal state (exclude sortOrder, searchTerm, sortDropdownOpen which are managed locally)
     showApplyChangesModal: modalState.showApplyChangesModal,
@@ -1735,12 +1747,12 @@ const useAppState = () => {
     setInstructionsModalOpen: modalState.setInstructionsModalOpen,
 
     // Doc state (from prompt store)
-    docs: promptStore.docs,
-    selectedDocs: promptStore.selectedDocs,
-    handleAddDoc: promptStore.addDoc,
-    handleDeleteDoc: promptStore.deleteDoc,
-    handleUpdateDoc: promptStore.updateDoc,
-    toggleDocSelection: promptStore.toggleDocSelection,
+    docs: promptState.docs,
+    selectedDocs: promptState.selectedDocs,
+    handleAddDoc: promptState.addDoc,
+    handleDeleteDoc: promptState.deleteDoc,
+    handleUpdateDoc: promptState.updateDoc,
+    toggleDocSelection: promptState.toggleDocSelection,
 
     // Actions
     openFolder,
