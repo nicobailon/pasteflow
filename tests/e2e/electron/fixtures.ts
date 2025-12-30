@@ -19,7 +19,8 @@ interface ElectronFixtures {
 
 export const test = base.extend<ElectronFixtures>({
   electronApp: [
-    async (_, use) => {
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
       const ctx = await launchElectronApp();
       await use(ctx);
       await closeElectronApp(ctx);
@@ -28,14 +29,16 @@ export const test = base.extend<ElectronFixtures>({
   ],
 
   cli: [
-    async (_, use) => {
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
       await use(runCli);
     },
     { scope: "test" },
   ],
 
   cliJson: [
-    async (_, use) => {
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
       await use(runCliJson);
     },
     { scope: "test" },
